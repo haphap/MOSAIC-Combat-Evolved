@@ -2,7 +2,162 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RKE Report Intelligence Outcome Label",
   "type": "object",
-  "required": ["outcome_id", "forecast_claim_id", "forecast_family_id", "entry_datetime", "exit_datetime", "horizon_days", "relative_alpha", "directional_hit", "after_cost_alpha", "overlap_group_id", "effective_n_weight", "pit_valid", "survivorship_safe"],
+  "required": ["outcome_id", "forecast_claim_id", "forecast_family_id", "entry_datetime", "exit_datetime", "horizon_days", "relative_alpha", "directional_hit", "after_cost_alpha", "overlap_group_id", "effective_n_weight", "pit_valid", "survivorship_safe", "label_type"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {"label_type": {"const": "stock_price_proxy"}},
+        "required": ["label_type"]
+      },
+      "then": {
+        "required": [
+          "proxy_symbol",
+          "benchmark_symbol",
+          "benchmark_source",
+          "benchmark_family",
+          "benchmark_alignment",
+          "cost_model_id",
+          "entry_lag_trading_days",
+          "round_trip_cost",
+          "stock_return",
+          "benchmark_return",
+          "relative_alpha",
+          "after_cost_alpha",
+          "directional_after_cost_return",
+          "directional_hit",
+          "relative_directional_hit",
+          "outcome_label_source",
+          "llm_outcome_labeling_allowed",
+          "performance_value_basis",
+          "direction_evaluated",
+          "decision_basis",
+          "window_role",
+          "source_horizon_days",
+          "source_horizon_bucket",
+          "claim_window_alignment",
+          "evaluation_policy",
+          "target_resolution_source",
+          "metadata_ts_code",
+          "llm_target_id",
+          "survivorship_check",
+          "entry_tradable",
+          "exit_tradable",
+          "entry_limit_locked",
+          "exit_limit_locked",
+          "entry_liquidity_check",
+          "exit_liquidity_check"
+        ],
+        "properties": {
+          "outcome_label_source": {"const": "pit_stock_price_window"},
+          "llm_outcome_labeling_allowed": {"const": false},
+          "performance_value_basis": {"const": "directional_after_cost_return"},
+          "benchmark_alignment": {"const": "date_key_cross_qlib_dir"},
+          "survivorship_check": {
+            "enum": [
+              "survivorship_unverified_qlib_cn_data",
+              "delisted_inclusive_universe_audit_passed"
+            ]
+          },
+          "entry_tradable": {"const": true},
+          "exit_tradable": {"const": true},
+          "entry_limit_locked": {"const": false},
+          "exit_limit_locked": {"const": false}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"label_type": {"const": "industry_etf_proxy"}},
+        "required": ["label_type"]
+      },
+      "then": {
+        "required": [
+          "proxy_symbol",
+          "proxy_sector",
+          "mapping_id",
+          "mapping_version",
+          "mapping_confidence",
+          "pit_availability_status",
+          "benchmark_symbol",
+          "benchmark_source",
+          "benchmark_family",
+          "cost_model_id",
+          "entry_lag_trading_days",
+          "round_trip_cost",
+          "proxy_return",
+          "benchmark_return",
+          "relative_alpha",
+          "after_cost_alpha",
+          "directional_after_cost_return",
+          "directional_hit",
+          "relative_directional_hit",
+          "outcome_label_source",
+          "llm_outcome_labeling_allowed",
+          "performance_value_basis",
+          "direction_evaluated",
+          "decision_basis",
+          "window_role",
+          "source_horizon_days",
+          "source_horizon_bucket",
+          "claim_window_alignment",
+          "evaluation_policy"
+        ],
+        "properties": {
+          "outcome_label_source": {"const": "pit_industry_etf_price_window"},
+          "llm_outcome_labeling_allowed": {"const": false},
+          "performance_value_basis": {"const": "directional_after_cost_return"},
+          "mapping_version": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"label_type": {"const": "macro_asset_proxy"}},
+        "required": ["label_type"]
+      },
+      "then": {
+        "required": [
+          "proxy_symbol",
+          "macro_asset_target_id",
+          "mapping_id",
+          "mapping_version",
+          "mapping_confidence",
+          "benchmark_symbol",
+          "benchmark_source",
+          "benchmark_family",
+          "cost_model_id",
+          "entry_lag_trading_days",
+          "round_trip_cost",
+          "proxy_return",
+          "benchmark_return",
+          "relative_alpha",
+          "after_cost_alpha",
+          "directional_after_cost_return",
+          "directional_hit",
+          "relative_directional_hit",
+          "outcome_label_source",
+          "llm_outcome_labeling_allowed",
+          "performance_value_basis",
+          "direction_evaluated",
+          "decision_basis",
+          "window_role",
+          "source_horizon_days",
+          "source_horizon_bucket",
+          "claim_window_alignment",
+          "evaluation_policy"
+        ],
+        "properties": {
+          "outcome_label_source": {"const": "pit_macro_asset_etf_price_window"},
+          "llm_outcome_labeling_allowed": {"const": false},
+          "performance_value_basis": {"const": "directional_after_cost_return"},
+          "benchmark_symbol": {"const": "CASH_0"},
+          "benchmark_source": {"const": "cash_zero_return"},
+          "benchmark_family": {"const": "ABSOLUTE_RETURN_PROXY"},
+          "mapping_version": {"type": "integer", "minimum": 1}
+        }
+      }
+    }
+  ],
   "properties": {
     "outcome_id": {"type": "string", "minLength": 1},
     "forecast_claim_id": {"type": "string", "minLength": 1},
@@ -18,10 +173,15 @@
     "pit_valid": {"type": "boolean"},
     "survivorship_safe": {"type": "boolean"},
     "claim_window_set_id": {"type": "string"},
-    "label_type": {"type": "string"},
+    "label_type": {"enum": ["stock_price_proxy", "industry_etf_proxy", "macro_asset_proxy"]},
     "proxy_symbol": {"type": "string"},
     "proxy_label": {"type": "string"},
     "proxy_sector": {"type": "string"},
+    "proxy_asset": {"type": "string"},
+    "macro_asset_target_id": {"type": "string"},
+    "mapping_id": {"type": "string"},
+    "mapping_version": {"type": "integer", "minimum": 1},
+    "mapping_confidence": {"type": "string"},
     "benchmark_symbol": {"type": "string"},
     "proxy_return": {"type": "number"},
     "stock_return": {"type": "number"},
@@ -52,7 +212,22 @@
     "target_price_provenance": {"type": "string"},
     "target_price_hit_policy": {"type": "string"},
     "latest_calendar_date": {"type": "string"},
-    "survivorship_check": {"type": "string"},
+    "survivorship_check": {
+      "enum": [
+        "survivorship_unverified_qlib_cn_data",
+        "delisted_inclusive_universe_audit_passed"
+      ]
+    },
+    "entry_tradable": {"type": "boolean"},
+    "exit_tradable": {"type": "boolean"},
+    "entry_limit_locked": {"type": "boolean"},
+    "exit_limit_locked": {"type": "boolean"},
+    "entry_liquidity_check": {
+      "enum": ["positive_volume_and_limit_lock_screen"]
+    },
+    "exit_liquidity_check": {
+      "enum": ["positive_volume_and_limit_lock_screen"]
+    },
     "window_role": {"enum": ["short", "medium", "long"]},
     "source_horizon_days": {"type": ["integer", "null"]},
     "source_horizon_bucket": {"type": "string"},

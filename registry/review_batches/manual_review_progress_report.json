@@ -1,5 +1,23 @@
 {
   "blockers": [
+    "gold_set: 158/205 ready",
+    "gold_set: 332 review ids are missing from target",
+    "gold_set: 500 review rows failed validation",
+    "gold_set: 168 review rows have stale target_row_hash; rerun `mosaic-rke prepare-gold-review --root . --full --force` before filling reviewer decisions",
+    "gold_set: 500 review rows: manual_claim_text required",
+    "gold_set: 500 review rows: claim_correct must be boolean",
+    "gold_set: 500 review rows: source_span_supports_claim must be boolean",
+    "gold_set: 500 review rows: direction_correct must be boolean",
+    "gold_set: 500 review rows: target_correct must be boolean",
+    "gold_set: 500 review rows: horizon_correct must be boolean",
+    "gold_set: 500 review rows: variable_mapping_correct must be boolean",
+    "gold_set: 500 review rows: unsupported_field_false_grounded must be boolean",
+    "gold_set: 2 additional validation reason(s) suppressed",
+    "gold_set: 47 gold-set claim review rows still pending",
+    "footprint_review: 34/1051 ready",
+    "footprint_review: 1001 analytical footprint review rows failed validation",
+    "footprint_review: 1017 analytical footprint review rows still pending",
+    "footprint_review: metric_mapping_accuracy 0.558824 below threshold 0.80",
     "lockbox: 0/1 ready",
     "lockbox: opened_at required",
     "lockbox: opened_by required",
@@ -11,37 +29,1809 @@
   ],
   "gates": [
     {
-      "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
-      "blockers": [],
-      "complete_rows": 500,
-      "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "batch_overview": {
+        "batch_count": 1,
+        "current_batch_covers_next_batch": false,
+        "current_batch_evidence_aligned": true,
+        "current_batch_evidence_missing_markdown_rows": 0,
+        "current_batch_evidence_path": "registry/review_batches/gold_set_review_evidence.jsonl",
+        "current_batch_evidence_priority_metadata_refresh_recommended": false,
+        "current_batch_evidence_priority_reason_counts": {
+          "context_synthesis_required": 20,
+          "forecast_mapping_insufficient": 5,
+          "low_extraction_confidence": 25,
+          "manual_review_required": 26
+        },
+        "current_batch_evidence_priority_reason_missing_rows": 0,
+        "current_batch_evidence_priority_reason_ready_rows": 26,
+        "current_batch_evidence_priority_score_counts": {
+          "2": 1,
+          "5": 25
+        },
+        "current_batch_evidence_quality_gap_focus_field_counts": {
+          "direction_correct": 2,
+          "unsupported_field_false_grounded": 5,
+          "variable_mapping_correct": 15
+        },
+        "current_batch_evidence_snippet_ready_rows": 26,
+        "current_batch_evidence_suggested_review_decision_counts": {
+          "claim_correct": {
+            "true": 26
+          },
+          "direction_correct": {
+            "null": 2,
+            "true": 24
+          },
+          "horizon_correct": {
+            "false": 1,
+            "null": 2,
+            "true": 23
+          },
+          "source_span_supports_claim": {
+            "true": 26
+          },
+          "target_correct": {
+            "false": 1,
+            "null": 9,
+            "true": 16
+          },
+          "unsupported_field_false_grounded": {
+            "false": 21,
+            "null": 5
+          },
+          "variable_mapping_correct": {
+            "false": 15,
+            "true": 11
+          }
+        },
+        "current_batch_evidence_suggested_tag_counts": {
+          "context_synthesis_required": 20,
+          "direction_text_needs_review": 2,
+          "forecast_mapping_insufficient": 5,
+          "unsupported_grounding_needs_review": 5,
+          "variable_mapping_missing_expected_cause": 6,
+          "variable_mapping_questionable_cause": 7
+        },
+        "current_batch_path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "current_batch_pending_rows": 26,
+        "current_batch_quality_gap_review_focus": {
+          "active_metric_count": 3,
+          "items": [
+            {
+              "current_rate": 0.227848,
+              "current_true_count": 36,
+              "draft_decision_available_rows": 21,
+              "evidence_focus_rows": 5,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "max_allowed_true_count": 7,
+              "metric": "unsupported_field_false_grounding_rate",
+              "minimum_excess_true_count_if_denominator_unchanged": 29,
+              "missing_required_rows": 26,
+              "operator": "<=",
+              "related_evidence_tag_counts": {
+                "unsupported_grounding_needs_review": 5
+              },
+              "suggested_decision_counts": {
+                "false": 21,
+                "null": 5
+              },
+              "threshold": 0.05
+            },
+            {
+              "current_pass_count": 99,
+              "current_rate": 0.626582,
+              "draft_decision_available_rows": 24,
+              "evidence_focus_rows": 2,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "metric": "direction_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 36,
+              "missing_required_rows": 26,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "direction_text_needs_review": 2
+              },
+              "required_pass_count": 135,
+              "suggested_decision_counts": {
+                "null": 2,
+                "true": 24
+              },
+              "threshold": 0.85
+            },
+            {
+              "current_pass_count": 30,
+              "current_rate": 0.189873,
+              "draft_decision_available_rows": 26,
+              "evidence_focus_rows": 15,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "metric": "variable_mapping_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 97,
+              "missing_required_rows": 26,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "forecast_mapping_insufficient": 5
+              },
+              "required_pass_count": 127,
+              "suggested_decision_counts": {
+                "false": 15,
+                "true": 11
+              },
+              "threshold": 0.8
+            }
+          ],
+          "mapped_metric_count": 3,
+          "policy": "public_safe_quality_gap_to_current_batch_review_fields"
+        },
+        "current_batch_review_field_action_order": {
+          "draft_decision_review_fields": [
+            {
+              "draft_decision_available_rows": 26,
+              "field": "claim_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "field": "source_span_supports_claim",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 17,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_text_review_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ],
+          "manual_review_required_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 17,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            }
+          ]
+        },
+        "current_batch_review_field_workflow_groups": {
+          "decision_fields_need_review": [
+            {
+              "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_decision_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "field": "claim_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "field": "source_span_supports_claim",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_text_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ],
+          "metadata_fields_need_fill": [],
+          "other_fields_need_fill": [],
+          "text_fields_need_fill": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ]
+        },
+        "current_batch_review_field_workload": {
+          "claim_correct": {
+            "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 26
+          },
+          "direction_correct": {
+            "draft_decision_available_rows": 24,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 2,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 2,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 24
+          },
+          "horizon_correct": {
+            "draft_decision_available_rows": 24,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 2,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 1,
+            "suggested_null_rows": 2,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 23
+          },
+          "manual_claim_text": {
+            "draft_decision_available_rows": 0,
+            "draft_text_available_rows": 26,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "source_span_supports_claim": {
+            "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 26
+          },
+          "target_correct": {
+            "draft_decision_available_rows": 17,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 9,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 1,
+            "suggested_null_rows": 9,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 16
+          },
+          "unsupported_field_false_grounded": {
+            "draft_decision_available_rows": 21,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 5,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 21,
+            "suggested_null_rows": 5,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "variable_mapping_correct": {
+            "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 15,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 11
+          }
+        },
+        "current_batch_review_field_workload_summary": {
+          "draft_decision_available_cells": 164,
+          "draft_text_available_cells": 26,
+          "field_count": 8,
+          "fields_with_draft_decisions": 7,
+          "fields_with_draft_text": 1,
+          "fields_with_manual_review_required": 5,
+          "manual_review_required_cells": 44,
+          "missing_required_cells": 208,
+          "suggested_false_cells": 38,
+          "suggested_null_cells": 18,
+          "suggested_other_cells": 0,
+          "suggested_true_cells": 126
+        },
+        "current_batch_rows": 26,
+        "current_batch_target_aligned": true,
+        "current_batch_target_covered_rows": 26,
+        "current_batch_target_hash_mismatch_count": 0,
+        "final_batch_limit": 47,
+        "final_batch_offset": 0,
+        "next_batch_limit": 47,
+        "next_batch_offset": 0,
+        "next_batch_pending_row_end": 47,
+        "next_batch_pending_row_start": 1,
+        "pending_rows": 47,
+        "remaining_rows_after_current_batch": 21,
+        "remaining_rows_after_next_batch": 0,
+        "rerun_review_progress_after_batch_apply": true
+      },
+      "batch_plan": [
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 1,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+            "backfill_dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+            "backfill_write": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 47 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 47 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+          },
+          "limit": 47,
+          "mode": "pending_offset_batch_before_applying_any_batch",
+          "offset": 0,
+          "pending_row_end": 47,
+          "pending_row_start": 1,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+        }
+      ],
+      "blockers": [
+        "332 review ids are missing from target",
+        "500 review rows failed validation",
+        "168 review rows have stale target_row_hash; rerun `mosaic-rke prepare-gold-review --root . --full --force` before filling reviewer decisions",
+        "500 review rows: manual_claim_text required",
+        "500 review rows: claim_correct must be boolean",
+        "500 review rows: source_span_supports_claim must be boolean",
+        "500 review rows: direction_correct must be boolean",
+        "500 review rows: target_correct must be boolean",
+        "500 review rows: horizon_correct must be boolean",
+        "500 review rows: variable_mapping_correct must be boolean",
+        "500 review rows: unsupported_field_false_grounded must be boolean",
+        "2 additional validation reason(s) suppressed",
+        "47 gold-set claim review rows still pending"
+      ],
+      "complete_rows": 158,
+      "current_batch_status": {
+        "backfill_status": {
+          "available": false,
+          "blocker_count": 26,
+          "blocker_reason_counts": {
+            "prior_review_missing_required_manual_fields": 26
+          },
+          "complete_after_backfill_rows": 0,
+          "copied_field_count": 0,
+          "matched_prior_rows": 26,
+          "preserved_existing_field_count": 0,
+          "row_count": 26,
+          "updated_rows": 0,
+          "write_command_available": false
+        },
+        "complete_rows": 0,
+        "evidence_status": {
+          "aligned": true,
+          "covered_review_rows": 26,
+          "duplicate_evidence_id_count": 0,
+          "duplicate_review_id_count": 0,
+          "exists": true,
+          "extra_evidence_rows": 0,
+          "id_field": "claim_id",
+          "malformed_rows": 0,
+          "missing_markdown_rows": 0,
+          "missing_review_rows": 0,
+          "path": "registry/review_batches/gold_set_review_evidence.jsonl",
+          "priority_metadata_refresh_recommended": false,
+          "priority_reason_counts": {
+            "context_synthesis_required": 20,
+            "forecast_mapping_insufficient": 5,
+            "low_extraction_confidence": 25,
+            "manual_review_required": 26
+          },
+          "priority_reason_missing_rows": 0,
+          "priority_reason_ready_rows": 26,
+          "priority_score_counts": {
+            "2": 1,
+            "5": 25
+          },
+          "quality_gap_focus_field_counts": {
+            "direction_correct": 2,
+            "unsupported_field_false_grounded": 5,
+            "variable_mapping_correct": 15
+          },
+          "review_field_workload": {
+            "claim_correct": {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 26
+            },
+            "direction_correct": {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 2,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 24
+            },
+            "horizon_correct": {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 1,
+              "suggested_null_rows": 2,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 23
+            },
+            "manual_claim_text": {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "source_span_supports_claim": {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 26
+            },
+            "target_correct": {
+              "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 1,
+              "suggested_null_rows": 9,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 16
+            },
+            "unsupported_field_false_grounded": {
+              "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 21,
+              "suggested_null_rows": 5,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "variable_mapping_correct": {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 15,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 11
+            }
+          },
+          "review_input_exists": true,
+          "review_input_malformed_rows": 0,
+          "review_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+          "review_input_rows": 26,
+          "rows": 26,
+          "same_order": true,
+          "snippet_ready_rows": 26,
+          "suggested_review_decision_counts": {
+            "claim_correct": {
+              "true": 26
+            },
+            "direction_correct": {
+              "null": 2,
+              "true": 24
+            },
+            "horizon_correct": {
+              "false": 1,
+              "null": 2,
+              "true": 23
+            },
+            "source_span_supports_claim": {
+              "true": 26
+            },
+            "target_correct": {
+              "false": 1,
+              "null": 9,
+              "true": 16
+            },
+            "unsupported_field_false_grounded": {
+              "false": 21,
+              "null": 5
+            },
+            "variable_mapping_correct": {
+              "false": 15,
+              "true": 11
+            }
+          },
+          "suggested_tag_counts": {
+            "context_synthesis_required": 20,
+            "direction_text_needs_review": 2,
+            "forecast_mapping_insufficient": 5,
+            "unsupported_grounding_needs_review": 5,
+            "variable_mapping_missing_expected_cause": 6,
+            "variable_mapping_questionable_cause": 7
+          },
+          "target_row_hash_mismatch_count": 0
+        },
+        "exists": true,
+        "malformed_rows": 0,
+        "missing_required_fields": {
+          "claim_correct": 26,
+          "direction_correct": 26,
+          "horizon_correct": 26,
+          "manual_claim_text": 26,
+          "source_span_supports_claim": 26,
+          "target_correct": 26,
+          "unsupported_field_false_grounded": 26,
+          "variable_mapping_correct": 26
+        },
+        "path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "pending_rows": 26,
+        "rows": 26,
+        "target_status": {
+          "aligned": true,
+          "exists": true,
+          "id_field": "claim_id",
+          "malformed_rows": 0,
+          "missing_target_rows": 0,
+          "review_input_exists": true,
+          "review_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+          "review_input_rows": 26,
+          "target_malformed_rows": 0,
+          "target_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+          "target_row_hash_mismatch_count": 0,
+          "target_rows": 205
+        }
+      },
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "input_rows": 500,
-      "pending_rows": 0,
-      "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
-      "ready_for_promotion": true,
+      "next_batch_commands": {
+        "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+        "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-gold-review-assist --root . --review-input registry/review_batches/gold_set_reviewed.jsonl",
+        "backfill_dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+        "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
+        "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
+        "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 47 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+      },
+      "pending_rows": 47,
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full",
+      "quality_gap_targets": {
+        "active_gap_count": 4,
+        "count_source": "summary_rate_estimate",
+        "interpretation": "count deltas are estimated from public summary rates when exact review-row counts are absent; use them to prioritize re-review or candidate expansion, not as instructions to flip labels",
+        "metrics": {
+          "claim_precision": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 145,
+            "current_rate": 0.917722,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "direction_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 99,
+            "current_rate": 0.626582,
+            "denominator": 158,
+            "is_passing": false,
+            "minimum_additional_pass_count_if_denominator_unchanged": 36,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "horizon_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 148,
+            "current_rate": 0.936709,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "source_span_support_precision": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 157,
+            "current_rate": 0.993671,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 143,
+            "threshold": 0.9
+          },
+          "target_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 135,
+            "current_rate": 0.85443,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "unsupported_field_false_grounding_rate": {
+            "count_source": "summary_rate_estimate",
+            "current_rate": 0.227848,
+            "current_true_count": 36,
+            "denominator": 158,
+            "is_passing": false,
+            "max_allowed_true_count": 7,
+            "minimum_excess_true_count_if_denominator_unchanged": 29,
+            "operator": "<=",
+            "threshold": 0.05
+          },
+          "variable_mapping_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 30,
+            "current_rate": 0.189873,
+            "denominator": 158,
+            "is_passing": false,
+            "minimum_additional_pass_count_if_denominator_unchanged": 97,
+            "operator": ">=",
+            "required_pass_count": 127,
+            "threshold": 0.8
+          }
+        },
+        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+        "sample_size_claims": {
+          "current_count": 158,
+          "is_passing": true,
+          "minimum_additional_count": 0,
+          "operator": ">=",
+          "threshold": 100
+        },
+        "sample_size_documents": {
+          "current_count": 37,
+          "is_passing": false,
+          "minimum_additional_count": 13,
+          "operator": ">=",
+          "threshold": 50
+        }
+      },
+      "ready_for_promotion": false,
       "review_kind": "gold_set",
-      "simulation_accepted": true,
-      "target_rows": 500
+      "simulation_accepted": false,
+      "target_rows": 205
     },
     {
-      "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "batch_overview": {
+        "batch_count": 21,
+        "current_batch_covers_next_batch": true,
+        "current_batch_evidence_aligned": true,
+        "current_batch_evidence_missing_markdown_rows": 0,
+        "current_batch_evidence_path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+        "current_batch_evidence_priority_metadata_refresh_recommended": false,
+        "current_batch_evidence_priority_reason_counts": {
+          "complex_multi_step_patterns": 20,
+          "missing_indicator_mentions": 33,
+          "missing_target_agent_candidates": 50
+        },
+        "current_batch_evidence_priority_reason_missing_rows": 0,
+        "current_batch_evidence_priority_reason_ready_rows": 50,
+        "current_batch_evidence_priority_score_counts": {
+          "1": 12,
+          "3": 5,
+          "4": 18,
+          "6": 15
+        },
+        "current_batch_evidence_quality_gap_focus_field_counts": {
+          "metric_mapping_correct": 35,
+          "unknowns_used_when_uncertain": 35
+        },
+        "current_batch_evidence_snippet_ready_rows": 50,
+        "current_batch_evidence_suggested_review_decision_counts": {
+          "footprint_correct": {
+            "true": 50
+          },
+          "inferred_steps_tagged_correctly": {
+            "true": 50
+          },
+          "metric_mapping_correct": {
+            "false": 35,
+            "true": 15
+          },
+          "no_proprietary_text_leakage": {
+            "true": 50
+          },
+          "source_span_supports_footprint": {
+            "true": 50
+          },
+          "unknowns_used_when_uncertain": {
+            "false": 1,
+            "true": 49
+          }
+        },
+        "current_batch_evidence_suggested_tag_counts": {
+          "metric_mapping_inference_available": 29,
+          "metric_mapping_missing": 33,
+          "metric_mapping_ungrounded": 2,
+          "metric_mapping_unknown": 2
+        },
+        "current_batch_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "current_batch_pending_rows": 50,
+        "current_batch_quality_gap_review_focus": {
+          "active_metric_count": 1,
+          "items": [
+            {
+              "current_pass_count": 19,
+              "current_rate": 0.558824,
+              "draft_decision_available_rows": 50,
+              "evidence_focus_rows": 35,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "metric": "metric_mapping_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 9,
+              "missing_required_rows": 50,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "metric_mapping_inference_available": 29,
+                "metric_mapping_missing": 33,
+                "metric_mapping_ungrounded": 2,
+                "metric_mapping_unknown": 2
+              },
+              "required_pass_count": 28,
+              "suggested_decision_counts": {
+                "false": 35,
+                "true": 15
+              },
+              "threshold": 0.8
+            }
+          ],
+          "mapped_metric_count": 1,
+          "policy": "public_safe_quality_gap_to_current_batch_review_fields"
+        },
+        "current_batch_review_field_action_order": {
+          "draft_decision_review_fields": [
+            {
+              "draft_decision_available_rows": 50,
+              "field": "footprint_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "inferred_steps_tagged_correctly",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "no_proprietary_text_leakage",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "source_span_supports_footprint",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "unknowns_used_when_uncertain",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            }
+          ],
+          "draft_text_review_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ],
+          "manual_review_required_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ]
+        },
+        "current_batch_review_field_workflow_groups": {
+          "decision_fields_need_review": [],
+          "draft_decision_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "footprint_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "inferred_steps_tagged_correctly",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "no_proprietary_text_leakage",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "source_span_supports_footprint",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "unknowns_used_when_uncertain",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            }
+          ],
+          "draft_text_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ],
+          "metadata_fields_need_fill": [],
+          "other_fields_need_fill": [],
+          "text_fields_need_fill": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ]
+        },
+        "current_batch_review_field_workload": {
+          "footprint_correct": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "inferred_steps_tagged_correctly": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "metric_mapping_correct": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 35,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 15
+          },
+          "no_proprietary_text_leakage": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "review_notes": {
+            "draft_decision_available_rows": 0,
+            "draft_text_available_rows": 50,
+            "manual_decision_required_rows": 50,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "source_span_supports_footprint": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "unknowns_used_when_uncertain": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 1,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 49
+          }
+        },
+        "current_batch_review_field_workload_summary": {
+          "draft_decision_available_cells": 300,
+          "draft_text_available_cells": 50,
+          "field_count": 7,
+          "fields_with_draft_decisions": 6,
+          "fields_with_draft_text": 1,
+          "fields_with_manual_review_required": 1,
+          "manual_review_required_cells": 50,
+          "missing_required_cells": 350,
+          "suggested_false_cells": 36,
+          "suggested_null_cells": 0,
+          "suggested_other_cells": 0,
+          "suggested_true_cells": 264
+        },
+        "current_batch_rows": 50,
+        "current_batch_target_aligned": true,
+        "current_batch_target_covered_rows": 50,
+        "current_batch_target_hash_mismatch_count": 0,
+        "final_batch_limit": 17,
+        "final_batch_offset": 1000,
+        "next_batch_limit": 50,
+        "next_batch_offset": 0,
+        "next_batch_pending_row_end": 50,
+        "next_batch_pending_row_start": 1,
+        "pending_rows": 1017,
+        "remaining_rows_after_current_batch": 967,
+        "remaining_rows_after_next_batch": 967,
+        "rerun_review_progress_after_batch_apply": true
+      },
+      "batch_plan": [
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 1,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 0,
+          "pending_row_end": 50,
+          "pending_row_start": 1,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 2,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 50 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 50 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 50,
+          "pending_row_end": 100,
+          "pending_row_start": 51,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 3,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 100 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 100 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 100,
+          "pending_row_end": 150,
+          "pending_row_start": 101,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 4,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 150 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 150 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 150,
+          "pending_row_end": 200,
+          "pending_row_start": 151,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 5,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 200 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 200 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 200,
+          "pending_row_end": 250,
+          "pending_row_start": 201,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 6,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 250 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 250 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 250,
+          "pending_row_end": 300,
+          "pending_row_start": 251,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 7,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 300 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 300 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 300,
+          "pending_row_end": 350,
+          "pending_row_start": 301,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 8,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 350 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 350 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 350,
+          "pending_row_end": 400,
+          "pending_row_start": 351,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 9,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 400 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 400 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 400,
+          "pending_row_end": 450,
+          "pending_row_start": 401,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 10,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 450 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 450 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 450,
+          "pending_row_end": 500,
+          "pending_row_start": 451,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 11,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 500 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 500 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 500,
+          "pending_row_end": 550,
+          "pending_row_start": 501,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 12,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 550 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 550 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 550,
+          "pending_row_end": 600,
+          "pending_row_start": 551,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 13,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 600 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 600 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 600,
+          "pending_row_end": 650,
+          "pending_row_start": 601,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 14,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 650 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 650 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 650,
+          "pending_row_end": 700,
+          "pending_row_start": 651,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 15,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 700 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 700 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 700,
+          "pending_row_end": 750,
+          "pending_row_start": 701,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 16,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 750 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 750 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 750,
+          "pending_row_end": 800,
+          "pending_row_start": 751,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 17,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 800 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 800 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 800,
+          "pending_row_end": 850,
+          "pending_row_start": 801,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 18,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 850 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 850 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 850,
+          "pending_row_end": 900,
+          "pending_row_start": 851,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 19,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 900 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 900 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 900,
+          "pending_row_end": 950,
+          "pending_row_start": 901,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 20,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 950 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 950 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 950,
+          "pending_row_end": 1000,
+          "pending_row_start": 951,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 21,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 17 --offset 1000 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 17 --offset 1000 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 17,
+          "mode": "priority_sorted_pending_batch_before_applying_any_batch",
+          "offset": 1000,
+          "pending_row_end": 1017,
+          "pending_row_start": 1001,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        }
+      ],
+      "blockers": [
+        "1001 analytical footprint review rows failed validation",
+        "1017 analytical footprint review rows still pending",
+        "metric_mapping_accuracy 0.558824 below threshold 0.80"
+      ],
+      "complete_rows": 34,
+      "current_batch_status": {
+        "complete_rows": 0,
+        "evidence_status": {
+          "aligned": true,
+          "covered_review_rows": 50,
+          "duplicate_evidence_id_count": 0,
+          "duplicate_review_id_count": 0,
+          "exists": true,
+          "extra_evidence_rows": 0,
+          "id_field": "footprint_id",
+          "malformed_rows": 0,
+          "missing_markdown_rows": 0,
+          "missing_review_rows": 0,
+          "path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+          "priority_metadata_refresh_recommended": false,
+          "priority_reason_counts": {
+            "complex_multi_step_patterns": 20,
+            "missing_indicator_mentions": 33,
+            "missing_target_agent_candidates": 50
+          },
+          "priority_reason_missing_rows": 0,
+          "priority_reason_ready_rows": 50,
+          "priority_score_counts": {
+            "1": 12,
+            "3": 5,
+            "4": 18,
+            "6": 15
+          },
+          "quality_gap_focus_field_counts": {
+            "metric_mapping_correct": 35,
+            "unknowns_used_when_uncertain": 35
+          },
+          "review_field_workload": {
+            "footprint_correct": {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "inferred_steps_tagged_correctly": {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "metric_mapping_correct": {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 35,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 15
+            },
+            "no_proprietary_text_leakage": {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "review_notes": {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "source_span_supports_footprint": {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "unknowns_used_when_uncertain": {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 1,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 49
+            }
+          },
+          "review_input_exists": true,
+          "review_input_malformed_rows": 0,
+          "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "review_input_rows": 50,
+          "rows": 50,
+          "same_order": true,
+          "snippet_ready_rows": 50,
+          "suggested_review_decision_counts": {
+            "footprint_correct": {
+              "true": 50
+            },
+            "inferred_steps_tagged_correctly": {
+              "true": 50
+            },
+            "metric_mapping_correct": {
+              "false": 35,
+              "true": 15
+            },
+            "no_proprietary_text_leakage": {
+              "true": 50
+            },
+            "source_span_supports_footprint": {
+              "true": 50
+            },
+            "unknowns_used_when_uncertain": {
+              "false": 1,
+              "true": 49
+            }
+          },
+          "suggested_tag_counts": {
+            "metric_mapping_inference_available": 29,
+            "metric_mapping_missing": 33,
+            "metric_mapping_ungrounded": 2,
+            "metric_mapping_unknown": 2
+          },
+          "target_row_hash_mismatch_count": 0
+        },
+        "exists": true,
+        "malformed_rows": 0,
+        "missing_required_fields": {
+          "footprint_correct": 50,
+          "inferred_steps_tagged_correctly": 50,
+          "metric_mapping_correct": 50,
+          "no_proprietary_text_leakage": 50,
+          "review_notes": 50,
+          "source_span_supports_footprint": 50,
+          "unknowns_used_when_uncertain": 50
+        },
+        "path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "pending_rows": 50,
+        "rows": 50,
+        "target_status": {
+          "aligned": true,
+          "exists": true,
+          "id_field": "footprint_id",
+          "malformed_rows": 0,
+          "missing_target_rows": 0,
+          "review_input_exists": true,
+          "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "review_input_rows": 50,
+          "target_malformed_rows": 0,
+          "target_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+          "target_row_hash_mismatch_count": 0,
+          "target_rows": 1051
+        }
+      },
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "input_exists": true,
+      "input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "input_rows": 1001,
+      "next_batch_commands": {
+        "apply": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "assist": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "dry_run": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+        "evidence": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "prepare": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+      },
+      "pending_rows": 1017,
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "quality_gap_targets": {
+        "active_gap_count": 1,
+        "interpretation": "count deltas are computed over currently completed footprint review rows; use them to prioritize re-review or candidate expansion, not as instructions to flip labels",
+        "metrics": {
+          "footprint_precision": {
+            "current_pass_count": 34,
+            "current_rate": 1.0,
+            "denominator": 34,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 28,
+            "threshold": 0.8
+          },
+          "inferred_step_tagging_accuracy": {
+            "current_pass_count": 34,
+            "current_rate": 1.0,
+            "denominator": 34,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 28,
+            "threshold": 0.8
+          },
+          "metric_mapping_accuracy": {
+            "current_pass_count": 19,
+            "current_rate": 0.558824,
+            "denominator": 34,
+            "is_passing": false,
+            "minimum_additional_pass_count_if_denominator_unchanged": 9,
+            "operator": ">=",
+            "required_pass_count": 28,
+            "threshold": 0.8
+          },
+          "proprietary_leakage_free_rate": {
+            "current_pass_count": 34,
+            "current_rate": 1.0,
+            "denominator": 34,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 34,
+            "threshold": 1.0
+          },
+          "span_support_precision": {
+            "current_pass_count": 34,
+            "current_rate": 1.0,
+            "denominator": 34,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 31,
+            "threshold": 0.9
+          },
+          "unknown_on_ambiguity_rate": {
+            "current_pass_count": 32,
+            "current_rate": 0.941176,
+            "denominator": 34,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 28,
+            "threshold": 0.8
+          }
+        },
+        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+        "sample_size_completed_rows": {
+          "current_count": 34,
+          "pending_rows_are_excluded_from_metric_denominator": true
+        }
+      },
+      "ready_for_promotion": false,
+      "review_kind": "footprint_review",
+      "simulation_accepted": false,
+      "target_rows": 1051
+    },
+    {
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "batch_overview": {},
+      "batch_plan": [],
       "blockers": [],
       "complete_rows": 17529,
-      "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+      "current_batch_status": {
+        "already_applied": true
+      },
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/source_license_policy_reviewed.json",
       "input_rows": 1,
+      "next_batch_commands": {},
       "pending_rows": 0,
-      "prepare_command": "mosaic-rke prepare-license-policy-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .",
+      "quality_gap_targets": null,
       "ready_for_promotion": true,
       "review_kind": "source_license",
       "simulation_accepted": true,
       "target_rows": 17529
     },
     {
-      "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "batch_overview": {},
+      "batch_plan": [],
       "blockers": [
         "opened_at required",
         "opened_by required",
@@ -52,12 +1842,29 @@
         "lockbox has not been opened"
       ],
       "complete_rows": 0,
-      "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "current_batch_status": {
+        "complete_rows": 0,
+        "exists": true,
+        "invalid_required_fields": {},
+        "malformed_rows": 0,
+        "missing_required_fields": {
+          "open_count": 1,
+          "opened_at": 1,
+          "opened_by": 1,
+          "result": 1
+        },
+        "path": "registry/review_batches/lockbox_reviewed.json",
+        "pending_rows": 1,
+        "rows": 1
+      },
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/lockbox_reviewed.json",
       "input_rows": 1,
+      "next_batch_commands": {},
       "pending_rows": 1,
-      "prepare_command": "mosaic-rke prepare-lockbox-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .",
+      "quality_gap_targets": null,
       "ready_for_promotion": false,
       "review_kind": "lockbox",
       "simulation_accepted": false,

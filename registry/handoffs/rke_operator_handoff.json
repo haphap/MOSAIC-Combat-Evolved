@@ -1,32 +1,40 @@
 {
   "command_sequence": [
     {
-      "action": "Inspect current manual-gate status.",
-      "command": "mosaic-rke review-progress --root .",
-      "expected_result": "Shows current blockers without applying reviewer decisions.",
+      "action": "Inspect the next manual-gate action queue.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke review-progress --root . --actions-only --no-write",
+      "expected_result": "Shows current next actions without writing artifacts or applying reviewer decisions.",
       "manual_input_path": "",
       "phase": "preflight",
       "step_id": "review-progress-preflight"
     },
     {
       "action": "Write the full gold-set import starter and workbook.",
-      "command": "mosaic-rke prepare-gold-review --root . --full",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full",
       "expected_result": "Reviewer scratch target is registry/review_batches/gold_set_full_reviewed.jsonl.",
       "manual_input_path": "",
       "phase": "gold_set",
       "step_id": "prepare-gold-review"
     },
     {
+      "action": "Write private gold-set evidence draft files.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
+      "expected_result": "Private evidence Markdown is registry/review_batches/gold_set_review_evidence.md and evidence JSONL is registry/review_batches/gold_set_review_evidence.jsonl.",
+      "manual_input_path": "",
+      "phase": "gold_set",
+      "step_id": "write-gold-review-evidence"
+    },
+    {
       "action": "Fill the gold-set reviewed scratch file.",
       "command": "",
-      "expected_result": "All 500 claim rows have required manual fields and preserved provenance hashes.",
+      "expected_result": "All current claim rows have required manual fields and preserved provenance hashes.",
       "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "phase": "gold_set",
       "step_id": "fill-gold-review"
     },
     {
       "action": "Validate the reviewed gold-set scratch file.",
-      "command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "expected_result": "Import is accepted and gold-set quality thresholds pass.",
       "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "phase": "gold_set",
@@ -34,23 +42,71 @@
     },
     {
       "action": "Apply accepted gold-set review decisions.",
-      "command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
       "expected_result": "Gold-set summaries and downstream gates are recomputed.",
       "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "phase": "gold_set",
       "step_id": "apply-gold-review"
     },
     {
+      "action": "Write the analytical-footprint review starter.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "expected_result": "Reviewer scratch target is registry/report_intelligence/analytical_footprint_reviewed.jsonl.",
+      "manual_input_path": "",
+      "phase": "footprint_review",
+      "step_id": "prepare-footprint-review"
+    },
+    {
+      "action": "Write private analytical-footprint review assist files.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+      "expected_result": "Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.",
+      "manual_input_path": "",
+      "phase": "footprint_review",
+      "step_id": "write-footprint-review-assist"
+    },
+    {
+      "action": "Write private analytical-footprint evidence draft files.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+      "expected_result": "Private evidence Markdown is registry/report_intelligence/analytical_footprint_review_evidence.md and evidence JSONL is registry/report_intelligence/analytical_footprint_review_evidence.jsonl.",
+      "manual_input_path": "",
+      "phase": "footprint_review",
+      "step_id": "write-footprint-review-evidence"
+    },
+    {
+      "action": "Fill the analytical-footprint reviewed scratch file.",
+      "command": "",
+      "expected_result": "All footprint rows have required manual fields and preserved provenance hashes.",
+      "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "phase": "footprint_review",
+      "step_id": "fill-footprint-review"
+    },
+    {
+      "action": "Validate the reviewed analytical-footprint scratch file.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "expected_result": "Import is accepted and footprint quality thresholds pass.",
+      "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "phase": "footprint_review",
+      "step_id": "dry-run-footprint-review"
+    },
+    {
+      "action": "Apply accepted analytical-footprint review decisions.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "expected_result": "Footprint summaries and downstream gates are recomputed.",
+      "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "phase": "footprint_review",
+      "step_id": "apply-footprint-review"
+    },
+    {
       "action": "Confirm only the final lockbox gate remains before opening it.",
-      "command": "mosaic-rke promotion-status --root .",
-      "expected_result": "Gold-set and source-license criteria pass; lockbox remains not opened.",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke promotion-status --root . --no-write",
+      "expected_result": "Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.",
       "manual_input_path": "",
       "phase": "promotion",
       "step_id": "promotion-status-before-lockbox"
     },
     {
       "action": "Write the one-time lockbox review starter.",
-      "command": "mosaic-rke prepare-lockbox-review --root .",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .",
       "expected_result": "Reviewer scratch target is registry/review_batches/lockbox_reviewed.json.",
       "manual_input_path": "",
       "phase": "lockbox",
@@ -66,7 +122,7 @@
     },
     {
       "action": "Validate the signed lockbox review.",
-      "command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "expected_result": "Lockbox import is accepted and production decision is eligible.",
       "manual_input_path": "registry/review_batches/lockbox_reviewed.json",
       "phase": "lockbox",
@@ -74,7 +130,7 @@
     },
     {
       "action": "Simulate the complete reviewed bundle before final apply.",
-      "command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
       "expected_result": "Simulation accepts all required reviewed inputs without mutating the original registry.",
       "manual_input_path": "",
       "phase": "promotion",
@@ -82,7 +138,7 @@
     },
     {
       "action": "Apply the accepted one-time lockbox review.",
-      "command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
       "expected_result": "Lockbox review is recorded and downstream promotion gates are recomputed.",
       "manual_input_path": "registry/review_batches/lockbox_reviewed.json",
       "phase": "lockbox",
@@ -90,7 +146,7 @@
     },
     {
       "action": "Inspect final staged-promotion state.",
-      "command": "mosaic-rke promotion-status --root .",
+      "command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke promotion-status --root . --no-write",
       "expected_result": "Promotion status reflects the applied manual reviews and lockbox decision.",
       "manual_input_path": "",
       "phase": "promotion",
@@ -100,43 +156,961 @@
   "direct_production_forbidden": true,
   "gates": [
     {
-      "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
-      "blocker": "",
-      "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
-      "evidence": "500 / 500 gold-set claims reviewed",
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "batch_overview": {
+        "batch_count": 1,
+        "current_batch_covers_next_batch": false,
+        "current_batch_evidence_aligned": true,
+        "current_batch_evidence_missing_markdown_rows": 0,
+        "current_batch_evidence_path": "registry/review_batches/gold_set_review_evidence.jsonl",
+        "current_batch_evidence_priority_metadata_refresh_recommended": false,
+        "current_batch_evidence_priority_reason_counts": {
+          "context_synthesis_required": 20,
+          "forecast_mapping_insufficient": 5,
+          "low_extraction_confidence": 25,
+          "manual_review_required": 26
+        },
+        "current_batch_evidence_priority_reason_missing_rows": 0,
+        "current_batch_evidence_priority_reason_ready_rows": 26,
+        "current_batch_evidence_priority_score_counts": {
+          "2": 1,
+          "5": 25
+        },
+        "current_batch_evidence_quality_gap_focus_field_counts": {
+          "direction_correct": 2,
+          "unsupported_field_false_grounded": 5,
+          "variable_mapping_correct": 15
+        },
+        "current_batch_evidence_snippet_ready_rows": 26,
+        "current_batch_evidence_suggested_review_decision_counts": {
+          "claim_correct": {
+            "true": 26
+          },
+          "direction_correct": {
+            "null": 2,
+            "true": 24
+          },
+          "horizon_correct": {
+            "false": 1,
+            "null": 2,
+            "true": 23
+          },
+          "source_span_supports_claim": {
+            "true": 26
+          },
+          "target_correct": {
+            "false": 1,
+            "null": 9,
+            "true": 16
+          },
+          "unsupported_field_false_grounded": {
+            "false": 21,
+            "null": 5
+          },
+          "variable_mapping_correct": {
+            "false": 15,
+            "true": 11
+          }
+        },
+        "current_batch_evidence_suggested_tag_counts": {
+          "context_synthesis_required": 20,
+          "direction_text_needs_review": 2,
+          "forecast_mapping_insufficient": 5,
+          "unsupported_grounding_needs_review": 5,
+          "variable_mapping_missing_expected_cause": 6,
+          "variable_mapping_questionable_cause": 7
+        },
+        "current_batch_path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "current_batch_pending_rows": 26,
+        "current_batch_quality_gap_review_focus": {
+          "active_metric_count": 3,
+          "items": [
+            {
+              "current_rate": 0.227848,
+              "current_true_count": 36,
+              "draft_decision_available_rows": 21,
+              "evidence_focus_rows": 5,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "max_allowed_true_count": 7,
+              "metric": "unsupported_field_false_grounding_rate",
+              "minimum_excess_true_count_if_denominator_unchanged": 29,
+              "missing_required_rows": 26,
+              "operator": "<=",
+              "related_evidence_tag_counts": {
+                "unsupported_grounding_needs_review": 5
+              },
+              "suggested_decision_counts": {
+                "false": 21,
+                "null": 5
+              },
+              "threshold": 0.05
+            },
+            {
+              "current_pass_count": 99,
+              "current_rate": 0.626582,
+              "draft_decision_available_rows": 24,
+              "evidence_focus_rows": 2,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "metric": "direction_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 36,
+              "missing_required_rows": 26,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "direction_text_needs_review": 2
+              },
+              "required_pass_count": 135,
+              "suggested_decision_counts": {
+                "null": 2,
+                "true": 24
+              },
+              "threshold": 0.85
+            },
+            {
+              "current_pass_count": 30,
+              "current_rate": 0.189873,
+              "draft_decision_available_rows": 26,
+              "evidence_focus_rows": 15,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "metric": "variable_mapping_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 97,
+              "missing_required_rows": 26,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "forecast_mapping_insufficient": 5
+              },
+              "required_pass_count": 127,
+              "suggested_decision_counts": {
+                "false": 15,
+                "true": 11
+              },
+              "threshold": 0.8
+            }
+          ],
+          "mapped_metric_count": 3,
+          "policy": "public_safe_quality_gap_to_current_batch_review_fields"
+        },
+        "current_batch_review_field_action_order": {
+          "draft_decision_review_fields": [
+            {
+              "draft_decision_available_rows": 26,
+              "field": "claim_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "field": "source_span_supports_claim",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 17,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_text_review_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ],
+          "manual_review_required_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 17,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            }
+          ]
+        },
+        "current_batch_review_field_workflow_groups": {
+          "decision_fields_need_review": [
+            {
+              "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_decision_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
+              "field": "target_correct",
+              "manual_decision_required_rows": 9,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "field": "claim_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "field": "source_span_supports_claim",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_text_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ],
+          "metadata_fields_need_fill": [],
+          "other_fields_need_fill": [],
+          "text_fields_need_fill": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ]
+        },
+        "current_batch_review_field_workload": {
+          "claim_correct": {
+            "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 26
+          },
+          "direction_correct": {
+            "draft_decision_available_rows": 24,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 2,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 2,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 24
+          },
+          "horizon_correct": {
+            "draft_decision_available_rows": 24,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 2,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 1,
+            "suggested_null_rows": 2,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 23
+          },
+          "manual_claim_text": {
+            "draft_decision_available_rows": 0,
+            "draft_text_available_rows": 26,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "source_span_supports_claim": {
+            "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 26
+          },
+          "target_correct": {
+            "draft_decision_available_rows": 17,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 9,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 1,
+            "suggested_null_rows": 9,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 16
+          },
+          "unsupported_field_false_grounded": {
+            "draft_decision_available_rows": 21,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 5,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 21,
+            "suggested_null_rows": 5,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "variable_mapping_correct": {
+            "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 15,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 11
+          }
+        },
+        "current_batch_review_field_workload_summary": {
+          "draft_decision_available_cells": 164,
+          "draft_text_available_cells": 26,
+          "field_count": 8,
+          "fields_with_draft_decisions": 7,
+          "fields_with_draft_text": 1,
+          "fields_with_manual_review_required": 5,
+          "manual_review_required_cells": 44,
+          "missing_required_cells": 208,
+          "suggested_false_cells": 38,
+          "suggested_null_cells": 18,
+          "suggested_other_cells": 0,
+          "suggested_true_cells": 126
+        },
+        "current_batch_rows": 26,
+        "current_batch_target_aligned": true,
+        "current_batch_target_covered_rows": 26,
+        "current_batch_target_hash_mismatch_count": 0,
+        "final_batch_limit": 47,
+        "final_batch_offset": 0,
+        "next_batch_limit": 47,
+        "next_batch_offset": 0,
+        "next_batch_pending_row_end": 47,
+        "next_batch_pending_row_start": 1,
+        "pending_rows": 47,
+        "remaining_rows_after_current_batch": 21,
+        "remaining_rows_after_next_batch": 0,
+        "rerun_review_progress_after_batch_apply": true
+      },
+      "blocker": "manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "evidence": "158 / 158 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
-      "exported_rows": 0,
+      "exported_rows": 26,
+      "field_contract": {
+        "boolean_allowed_values": [
+          true,
+          false
+        ],
+        "boolean_fields": [
+          "claim_correct",
+          "source_span_supports_claim",
+          "direction_correct",
+          "target_correct",
+          "horizon_correct",
+          "variable_mapping_correct",
+          "unsupported_field_false_grounded"
+        ],
+        "date_fields": {
+          "review_date": "YYYY-MM-DD"
+        },
+        "optional_fields": [
+          "review_notes"
+        ],
+        "policy": "human_decisions_only_preserve_ids_hashes_and_context_refs",
+        "preserve_fields": [
+          "claim_id",
+          "target_row_hash",
+          "review_context_ref",
+          "target_review_path"
+        ],
+        "required_fields": [
+          "manual_claim_text",
+          "claim_correct",
+          "source_span_supports_claim",
+          "direction_correct",
+          "target_correct",
+          "horizon_correct",
+          "variable_mapping_correct",
+          "unsupported_field_false_grounded",
+          "reviewer",
+          "review_date"
+        ],
+        "text_fields": [
+          "manual_claim_text",
+          "reviewer",
+          "review_notes"
+        ]
+      },
       "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
       "gate_id": "PG02",
       "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, then dry-run before applying the 500-claim gold set.",
-      "passed": true,
-      "pending_rows": 0,
+      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the gold set. For batch work, prepare registry/review_batches/gold_set_reviewed.jsonl with --gold-batch-size/--offset, dry-run it, and apply accepted batches to accumulate progress.",
+      "passed": false,
+      "pending_rows": 26,
       "policy_template_path": "",
-      "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full",
       "required_manual_fields": [
         "manual_claim_text",
         "claim_correct",
         "source_span_supports_claim",
         "direction_correct",
+        "target_correct",
+        "horizon_correct",
         "variable_mapping_correct",
         "unsupported_field_false_grounded",
         "reviewer",
         "review_date",
         "review_notes"
       ],
+      "review_aids": {
+        "assist_jsonl": "registry/review_batches/gold_set_review_assist.jsonl",
+        "assist_markdown": "registry/review_batches/gold_set_review_assist.md",
+        "batch_workbook_markdown": "registry/review_batches/gold_set_review_workbook.md",
+        "evidence_jsonl": "registry/review_batches/gold_set_review_evidence.jsonl",
+        "evidence_markdown": "registry/review_batches/gold_set_review_evidence.md",
+        "fill_import_path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "policy": "private_review_aids_only_not_import_files",
+        "promotion_import_path": "registry/review_batches/gold_set_full_reviewed.jsonl"
+      },
       "review_kind": "gold_set",
       "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
       "reviewed_policy_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "workbook_path": "registry/review_batches/gold_set_review_workbook.md"
     },
     {
-      "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "batch_overview": {
+        "batch_count": 21,
+        "current_batch_covers_next_batch": true,
+        "current_batch_evidence_aligned": true,
+        "current_batch_evidence_missing_markdown_rows": 0,
+        "current_batch_evidence_path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+        "current_batch_evidence_priority_metadata_refresh_recommended": false,
+        "current_batch_evidence_priority_reason_counts": {
+          "complex_multi_step_patterns": 20,
+          "missing_indicator_mentions": 33,
+          "missing_target_agent_candidates": 50
+        },
+        "current_batch_evidence_priority_reason_missing_rows": 0,
+        "current_batch_evidence_priority_reason_ready_rows": 50,
+        "current_batch_evidence_priority_score_counts": {
+          "1": 12,
+          "3": 5,
+          "4": 18,
+          "6": 15
+        },
+        "current_batch_evidence_quality_gap_focus_field_counts": {
+          "metric_mapping_correct": 35,
+          "unknowns_used_when_uncertain": 35
+        },
+        "current_batch_evidence_snippet_ready_rows": 50,
+        "current_batch_evidence_suggested_review_decision_counts": {
+          "footprint_correct": {
+            "true": 50
+          },
+          "inferred_steps_tagged_correctly": {
+            "true": 50
+          },
+          "metric_mapping_correct": {
+            "false": 35,
+            "true": 15
+          },
+          "no_proprietary_text_leakage": {
+            "true": 50
+          },
+          "source_span_supports_footprint": {
+            "true": 50
+          },
+          "unknowns_used_when_uncertain": {
+            "false": 1,
+            "true": 49
+          }
+        },
+        "current_batch_evidence_suggested_tag_counts": {
+          "metric_mapping_inference_available": 29,
+          "metric_mapping_missing": 33,
+          "metric_mapping_ungrounded": 2,
+          "metric_mapping_unknown": 2
+        },
+        "current_batch_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "current_batch_pending_rows": 50,
+        "current_batch_quality_gap_review_focus": {
+          "active_metric_count": 1,
+          "items": [
+            {
+              "current_pass_count": 19,
+              "current_rate": 0.558824,
+              "draft_decision_available_rows": 50,
+              "evidence_focus_rows": 35,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "metric": "metric_mapping_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 9,
+              "missing_required_rows": 50,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "metric_mapping_inference_available": 29,
+                "metric_mapping_missing": 33,
+                "metric_mapping_ungrounded": 2,
+                "metric_mapping_unknown": 2
+              },
+              "required_pass_count": 28,
+              "suggested_decision_counts": {
+                "false": 35,
+                "true": 15
+              },
+              "threshold": 0.8
+            }
+          ],
+          "mapped_metric_count": 1,
+          "policy": "public_safe_quality_gap_to_current_batch_review_fields"
+        },
+        "current_batch_review_field_action_order": {
+          "draft_decision_review_fields": [
+            {
+              "draft_decision_available_rows": 50,
+              "field": "footprint_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "inferred_steps_tagged_correctly",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "no_proprietary_text_leakage",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "source_span_supports_footprint",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "unknowns_used_when_uncertain",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            }
+          ],
+          "draft_text_review_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ],
+          "manual_review_required_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ]
+        },
+        "current_batch_review_field_workflow_groups": {
+          "decision_fields_need_review": [],
+          "draft_decision_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "footprint_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "inferred_steps_tagged_correctly",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "no_proprietary_text_leakage",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "source_span_supports_footprint",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
+              "field": "unknowns_used_when_uncertain",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            }
+          ],
+          "draft_text_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ],
+          "metadata_fields_need_fill": [],
+          "other_fields_need_fill": [],
+          "text_fields_need_fill": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ]
+        },
+        "current_batch_review_field_workload": {
+          "footprint_correct": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "inferred_steps_tagged_correctly": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "metric_mapping_correct": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 35,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 15
+          },
+          "no_proprietary_text_leakage": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "review_notes": {
+            "draft_decision_available_rows": 0,
+            "draft_text_available_rows": 50,
+            "manual_decision_required_rows": 50,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "source_span_supports_footprint": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "unknowns_used_when_uncertain": {
+            "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 1,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 49
+          }
+        },
+        "current_batch_review_field_workload_summary": {
+          "draft_decision_available_cells": 300,
+          "draft_text_available_cells": 50,
+          "field_count": 7,
+          "fields_with_draft_decisions": 6,
+          "fields_with_draft_text": 1,
+          "fields_with_manual_review_required": 1,
+          "manual_review_required_cells": 50,
+          "missing_required_cells": 350,
+          "suggested_false_cells": 36,
+          "suggested_null_cells": 0,
+          "suggested_other_cells": 0,
+          "suggested_true_cells": 264
+        },
+        "current_batch_rows": 50,
+        "current_batch_target_aligned": true,
+        "current_batch_target_covered_rows": 50,
+        "current_batch_target_hash_mismatch_count": 0,
+        "final_batch_limit": 17,
+        "final_batch_offset": 1000,
+        "next_batch_limit": 50,
+        "next_batch_offset": 0,
+        "next_batch_pending_row_end": 50,
+        "next_batch_pending_row_start": 1,
+        "pending_rows": 1017,
+        "remaining_rows_after_current_batch": 967,
+        "remaining_rows_after_next_batch": 967,
+        "rerun_review_progress_after_batch_apply": true
+      },
+      "blocker": "1017 analytical footprint review rows still pending; metric_mapping_accuracy 0.558824 below threshold 0.80",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "evidence": "34 / 1051 analytical footprints reviewed",
+      "evidence_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
+      "exported_rows": 1051,
+      "field_contract": {
+        "boolean_allowed_values": [
+          true,
+          false
+        ],
+        "boolean_fields": [
+          "footprint_correct",
+          "source_span_supports_footprint",
+          "metric_mapping_correct",
+          "inferred_steps_tagged_correctly",
+          "unknowns_used_when_uncertain",
+          "no_proprietary_text_leakage"
+        ],
+        "date_fields": {
+          "review_date": "YYYY-MM-DD"
+        },
+        "optional_fields": [],
+        "policy": "human_decisions_only_preserve_ids_hashes_and_context_refs",
+        "preserve_fields": [
+          "footprint_id",
+          "target_row_hash",
+          "review_context_ref",
+          "target_review_path"
+        ],
+        "required_fields": [
+          "footprint_correct",
+          "source_span_supports_footprint",
+          "metric_mapping_correct",
+          "inferred_steps_tagged_correctly",
+          "unknowns_used_when_uncertain",
+          "no_proprietary_text_leakage",
+          "reviewer",
+          "review_date",
+          "review_notes"
+        ],
+        "text_fields": [
+          "reviewer",
+          "review_date",
+          "review_notes"
+        ]
+      },
+      "full_import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+      "gate_id": "RI-FOOTPRINT-REVIEW",
+      "import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+      "operator_note": "Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying. For batch work, prepare registry/report_intelligence/analytical_footprint_review_batch.jsonl with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress.",
+      "passed": false,
+      "pending_rows": 1017,
+      "policy_template_path": "",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "required_manual_fields": [
+        "reviewer",
+        "review_date",
+        "review_notes",
+        "footprint_correct",
+        "source_span_supports_footprint",
+        "metric_mapping_correct",
+        "inferred_steps_tagged_correctly",
+        "unknowns_used_when_uncertain",
+        "no_proprietary_text_leakage"
+      ],
+      "review_aids": {
+        "assist_jsonl": "registry/report_intelligence/analytical_footprint_review_assist.jsonl",
+        "assist_workbook_markdown": "registry/report_intelligence/analytical_footprint_review_workbook.md",
+        "evidence_jsonl": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+        "evidence_markdown": "registry/report_intelligence/analytical_footprint_review_evidence.md",
+        "fill_import_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "policy": "private_review_aids_only_not_import_files",
+        "promotion_import_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+      },
+      "review_kind": "footprint_review",
+      "review_packet_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+      "reviewed_policy_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "workbook_path": "registry/report_intelligence/analytical_footprint_review_workbook.md"
+    },
+    {
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "batch_overview": {},
       "blocker": "",
-      "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "evidence": "17529 / 17529 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
       "exported_rows": 0,
+      "field_contract": {
+        "boolean_allowed_values": [
+          true,
+          false
+        ],
+        "boolean_fields": [
+          "approved_for_derived_claim_storage",
+          "approved_for_production_runtime"
+        ],
+        "date_fields": {
+          "review_date": "YYYY-MM-DD"
+        },
+        "optional_fields": [
+          "notes"
+        ],
+        "policy": "policy_decision_fields_only_preserve_source_ids",
+        "preserve_fields": [
+          "source_id",
+          "target_row_hash"
+        ],
+        "required_fields": [
+          "approved_for_derived_claim_storage",
+          "approved_for_production_runtime",
+          "reviewer",
+          "review_date"
+        ],
+        "text_fields": [
+          "reviewer",
+          "review_date",
+          "notes"
+        ]
+      },
       "full_import_template_path": "registry/review_batches/source_license_policy_import.jsonl",
       "gate_id": "PG03",
       "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
@@ -144,7 +1118,7 @@
       "passed": true,
       "pending_rows": 0,
       "policy_template_path": "registry/review_batches/source_license_policy_template.json",
-      "prepare_command": "mosaic-rke prepare-license-policy-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .",
       "required_manual_fields": [
         "approved_for_derived_claim_storage",
         "approved_for_production_runtime",
@@ -152,26 +1126,73 @@
         "review_date",
         "notes"
       ],
+      "review_aids": {
+        "fill_policy_path": "registry/review_batches/source_license_policy_reviewed.json",
+        "policy": "private_review_aids_only_not_import_files",
+        "policy_template_path": "registry/review_batches/source_license_policy_template.json",
+        "workbook_markdown": "registry/review_batches/source_license_review_workbook.md"
+      },
       "review_kind": "source_license",
       "review_packet_path": "registry/compliance/tushare_license_review_packet.json",
       "reviewed_policy_path": "registry/review_batches/source_license_policy_reviewed.json",
       "workbook_path": "registry/review_batches/source_license_review_workbook.md"
     },
     {
-      "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "batch_overview": {},
       "blocker": "lockbox has not been opened",
-      "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "evidence": "lockbox_state=not_ready, next_state=paper_trading, payload_errors=0",
       "evidence_path": "registry/lockbox/central_bank_lockbox_review.json",
       "exported_rows": 1,
+      "field_contract": {
+        "allowed_results": [
+          "failed",
+          "passed"
+        ],
+        "boolean_allowed_values": [
+          true,
+          false
+        ],
+        "boolean_fields": [
+          "parameter_search_after_open",
+          "rule_design_after_open"
+        ],
+        "date_fields": {
+          "opened_at": "ISO-8601 datetime or date"
+        },
+        "numeric_fields": [
+          "open_count"
+        ],
+        "optional_fields": [
+          "notes"
+        ],
+        "policy": "only_fill_after_upstream_manual_gates_are_ready",
+        "preserve_fields": [],
+        "required_fields": [
+          "experiment_family_id",
+          "experiment_id",
+          "opened_at",
+          "opened_by",
+          "open_count",
+          "result",
+          "parameter_search_after_open",
+          "rule_design_after_open"
+        ],
+        "text_fields": [
+          "opened_by",
+          "result",
+          "notes"
+        ]
+      },
       "full_import_template_path": "",
       "gate_id": "PG09",
       "import_template_path": "registry/review_batches/lockbox_review_next_import_template.json",
-      "operator_note": "Run prepare-lockbox-review only after manual gold and license gates pass, fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.",
+      "operator_note": "Run prepare-lockbox-review only after gold-set, analytical-footprint, and source-license gates pass; fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.",
       "passed": false,
       "pending_rows": null,
       "policy_template_path": "",
-      "prepare_command": "mosaic-rke prepare-lockbox-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .",
       "required_manual_fields": [
         "opened_at",
         "opened_by",
@@ -181,10 +1202,14 @@
         "rule_design_after_open",
         "notes"
       ],
+      "review_aids": {
+        "fill_import_path": "registry/review_batches/lockbox_reviewed.json",
+        "policy": "wait_for_prior_manual_gates_before_opening"
+      },
       "review_kind": "lockbox",
       "review_packet_path": "registry/evaluation/lockbox/lockbox_policy.json",
       "reviewed_policy_path": "registry/review_batches/lockbox_reviewed.json",
-      "workbook_path": ""
+      "workbook_path": "registry/review_batches/lockbox_review_checklist.md"
     }
   ],
   "generated_paths": [
@@ -193,30 +1218,48 @@
     "registry/review_batches/gold_set_review_workbook.md",
     "registry/review_batches/gold_set_review_assist.jsonl",
     "registry/review_batches/gold_set_review_assist.md",
+    "registry/review_batches/gold_set_review_evidence.jsonl",
+    "registry/review_batches/gold_set_review_evidence.md",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_review_workbook.md",
     "registry/review_batches/source_license_policy_template.json",
+    "registry/report_intelligence/analytical_footprint_review_assist.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_evidence.md",
+    "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_workbook.md",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
+    "registry/review_batches/lockbox_review_checklist.md",
     "registry/review_batches/lockbox_review_next_import_template.json",
     "registry/handoffs/rke_operator_handoff.json",
     "registry/handoffs/rke_operator_handoff.md"
   ],
   "handoff_id": "RKE-OPERATOR-HANDOFF-20260606",
-  "next_state": "staged_production",
+  "next_state": "paper_trading",
   "paper_trading_allowed": true,
   "production_allowed": false,
-  "promotion_dry_run_command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
+  "promotion_dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
   "ready_for_operator_review": true,
   "remaining_blockers": [
-    "lockbox has not been opened"
+    "broad-rollout completion audit still has blockers",
+    "manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+    "lockbox has not been opened",
+    "1017 analytical footprint review rows still pending; metric_mapping_accuracy 0.558824 below threshold 0.80"
   ],
   "run_order": [
     "review-progress-preflight",
     "prepare-gold-review",
+    "write-gold-review-evidence",
     "fill-gold-review",
     "dry-run-gold-review",
     "apply-gold-review",
+    "prepare-footprint-review",
+    "write-footprint-review-assist",
+    "write-footprint-review-evidence",
+    "fill-footprint-review",
+    "dry-run-footprint-review",
+    "apply-footprint-review",
     "promotion-status-before-lockbox",
     "prepare-lockbox-review",
     "fill-lockbox-review",
@@ -225,5 +1268,5 @@
     "apply-lockbox-review",
     "promotion-status-final"
   ],
-  "staged_production_allowed": true
+  "staged_production_allowed": false
 }

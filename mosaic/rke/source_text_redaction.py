@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .phase_minus1 import load_jsonl_with_errors
+from .registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES, PRIVATE_LOCAL_REGISTRY_PREFIXES
 
 
 TUSHARE_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -119,7 +120,12 @@ def _matches_any(path: str, patterns: Sequence[str]) -> bool:
 
 
 def _allowed_raw_text_path(path: str) -> bool:
-    return path in ALLOWED_RAW_TEXT_PATHS or _matches_any(path, ALLOWED_RAW_TEXT_GLOBS)
+    return (
+        path in ALLOWED_RAW_TEXT_PATHS
+        or _matches_any(path, ALLOWED_RAW_TEXT_GLOBS)
+        or path in PRIVATE_LOCAL_REGISTRY_FILES
+        or path.startswith(PRIVATE_LOCAL_REGISTRY_PREFIXES)
+    )
 
 
 def _iter_scanned_paths(root_path: Path) -> tuple[tuple[str, Path], int]:

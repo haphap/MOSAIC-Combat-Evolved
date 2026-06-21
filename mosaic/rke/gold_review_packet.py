@@ -228,11 +228,64 @@ def _candidate_span_refs(text: str, source_span_id: str, *, limit: int = 5) -> t
 
 def _canonical_variable_hints(text: str, query_key: str, report_type: str) -> tuple[str, ...]:
     hints: set[str] = set()
-    if "半导体" in query_key or "半导体" in text:
-        if any(keyword in text for keyword in ("国产", "替代", "政策", "出口", "限制")):
+    text_upper = text.upper()
+    semiconductor_context_terms = (
+        "半导体",
+        "芯片",
+        "晶圆",
+        "封装",
+        "封测",
+        "EDA",
+        "集成电路",
+        "先进制程",
+        "先进封装",
+        "光刻",
+        "CoWoS",
+        "Chiplet",
+        "硅光",
+    )
+    storage_cycle_terms = (
+        "存储芯片",
+        "存储器",
+        "存储厂商",
+        "存储价格",
+        "存储周期",
+        "存储景气",
+        "存储产能",
+        "存储库存",
+        "存储市场",
+        "DRAM",
+        "NAND",
+        "HBM",
+        "DDR",
+        "内存",
+        "闪存",
+    )
+    semiconductor_policy_terms = (
+        "国产替代",
+        "国产化",
+        "自主可控",
+        "出口管制",
+        "制裁",
+        "限制",
+        "半导体设备",
+        "EDA",
+        "晶圆代工",
+        "先进封装",
+        "封测",
+    )
+    ai_compute_terms = ("AI", "AIGC", "算力", "人工智能", "大模型", "数据中心", "云", "Token", "推理")
+    has_semiconductor_context = "半导体" in query_key or any(
+        keyword in text for keyword in semiconductor_context_terms
+    )
+    has_storage_cycle_context = any(keyword in text_upper for keyword in storage_cycle_terms)
+    if any(keyword in text for keyword in ai_compute_terms) or has_storage_cycle_context:
+        hints.add("ai_compute_demand")
+    if has_semiconductor_context:
+        if any(keyword in text for keyword in semiconductor_policy_terms):
             hints.update(("trade_friction_intensity", "semiconductor_policy_substitution_alpha"))
-        if any(keyword in text for keyword in ("AI", "算力", "存储", "数据中心")):
-            hints.update(("ai_compute_demand", "semiconductor_storage_cycle"))
+        if has_storage_cycle_context:
+            hints.add("semiconductor_storage_cycle")
     if "银行" in query_key or "流动性" in text or "央行" in text:
         hints.update(("pboc_net_injection", "short_term_liquidity_pressure"))
     if any(keyword in text for keyword in ("估值", "PE", "PB", "分位")):
@@ -260,6 +313,8 @@ def _row_pending(row: Mapping[str, Any]) -> bool:
         "claim_correct",
         "source_span_supports_claim",
         "direction_correct",
+        "target_correct",
+        "horizon_correct",
         "variable_mapping_correct",
         "unsupported_field_false_grounded",
     )
@@ -386,6 +441,8 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
             "claim_precision_min": 0.85,
             "source_span_support_precision_min": 0.90,
             "direction_accuracy_min": 0.85,
+            "target_accuracy_min": 0.85,
+            "horizon_accuracy_min": 0.85,
             "variable_mapping_accuracy_min": 0.80,
             "unsupported_field_false_grounding_max": 0.05,
             "gate": "schema_freeze_blocked_until_pass",
@@ -395,6 +452,8 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
             "claim_correct",
             "source_span_supports_claim",
             "direction_correct",
+            "target_correct",
+            "horizon_correct",
             "variable_mapping_correct",
             "unsupported_field_false_grounded",
             "reviewer",

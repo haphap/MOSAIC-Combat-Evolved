@@ -24,6 +24,8 @@ GOLD_BOOL_FIELDS = (
     "claim_correct",
     "source_span_supports_claim",
     "direction_correct",
+    "target_correct",
+    "horizon_correct",
     "variable_mapping_correct",
     "unsupported_field_false_grounded",
 )
@@ -49,15 +51,40 @@ MANUAL_REVIEW_PROVENANCE_FIELDS = (
 )
 GOLD_IMPORT_TEMPLATE_ONLY_FIELDS = (
     "proposed_claim_text_truncated",
+    "proposed_analyst_claim",
+    "proposed_pre_review",
+    "proposed_claim_type",
+    "proposed_extraction_confidence_bin",
+    "proposed_gold_set_domain",
+    "proposed_gold_set_domains",
+    "proposed_direction",
+    "proposed_cause_variables",
+    "proposed_target_variables",
+    "proposed_review_risk_flags",
+    "proposed_research_layers",
+    "proposed_mosaic_agent_trace",
+    "proposed_claim_regime_trace",
+    "proposed_source_start_char",
+    "proposed_source_end_char",
+    "proposed_source_span_ref_id",
+    "proposed_source_text_hash",
+    "proposed_verifier_status",
 )
 MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS = frozenset(
     {
         "abstract",
+        "claim_text",
+        "markdown_path",
+        "original_markdown",
+        "pdf_path",
+        "pdf_url",
+        "retrieval_locator",
         "source_text",
         "source_span_text",
         "span_text",
         "span_preview",
         "full_text",
+        "url",
     }
 )
 STALE_TARGET_ROW_HASH_REASON = "target_row_hash does not match target review row"
@@ -70,7 +97,7 @@ def manual_review_forbidden_field_paths(value: Any, prefix: str = "") -> tuple[s
         for key, item in value.items():
             key_path = str(key)
             path = f"{prefix}.{key_path}" if prefix else key_path
-            if key_path in MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS:
+            if key_path.strip().lower() in MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS:
                 paths.append(path)
             paths.extend(manual_review_forbidden_field_paths(item, path))
     elif isinstance(value, (list, tuple)):
@@ -101,6 +128,7 @@ class ManualReviewImportReport:
     duplicate_ids: Sequence[str]
     missing_target_ids: Sequence[str]
     invalid_rows: Sequence[ManualReviewImportInvalidRow]
+    invalid_reason_counts: Mapping[str, int]
     downstream_outputs: Mapping[str, str]
     blockers: Sequence[str]
 
@@ -385,6 +413,13 @@ def _build_report(
         duplicate_ids=tuple(duplicate_ids),
         missing_target_ids=tuple(missing_target_ids),
         invalid_rows=tuple(invalid_rows),
+        invalid_reason_counts=dict(
+            sorted(
+                Counter(
+                    reason for row in invalid_rows for reason in row.reasons
+                ).items()
+            )
+        ),
         downstream_outputs=dict(downstream_outputs),
         blockers=tuple(blockers),
     )

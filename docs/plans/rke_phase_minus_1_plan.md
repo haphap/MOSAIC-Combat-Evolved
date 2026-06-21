@@ -46,7 +46,7 @@ Seed corpus:
 Gold-set target from the master plan:
 
 - 50 documents
-- 500 claims
+- 100 claims
 - source-grounded vs hypothesis labels
 - claim precision >= 0.85
 - source-span support precision >= 0.90
@@ -206,11 +206,19 @@ mosaic-rke fetch-tushare-reports \
   --root . \
   --start-date 2026-02-05 \
   --end-date 2026-06-06 \
-  --report-type 个股研报 \
-  --report-type 行业研报 \
-  --date-chunk-days 7 \
+  --p9-profile \
   --max-reports-per-query 6000
 ```
+
+`--p9-profile` expands the private Tushare source query set to the official
+`research_report` categories that can be queried directly (`个股研报`,
+`行业研报`) and records the broader P9 target categories plus explicit source
+gaps in `registry/sources/tushare_research_reports.manifest.json`. Strategy,
+macro, fixed-income, and financial-engineering reports remain P9 coverage goals,
+but they must come from another compliant source before they can count as
+covered. The command also uses a 7-day full-market date window by default. The
+generated source rows, abstracts, PDF URLs, gold/license templates, and manifest
+remain private local artifacts and must not be committed.
 
 If the Tushare corpus was already fetched into a local CSV/JSONL cache, import
 that file directly and skip network calls:

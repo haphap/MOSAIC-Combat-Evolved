@@ -41,23 +41,29 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
 
     assert report["dashboard_id"] == "RKE-DASHBOARD-20260605"
     assert report["artifact_errors"] == ()
-    assert report["ready_for_broad_rollout"] is True
-    assert report["completion"]["passed"] == 12
+    assert report["ready_for_broad_rollout"] is False
+    assert report["completion"]["passed"] == 11
     assert report["completion"]["total"] == 12
-    assert report["master_plan_coverage"]["coverage_complete"] is True
-    assert report["master_plan_coverage"]["ready_for_broad_rollout"] is True
+    assert report["master_plan_coverage"]["coverage_complete"] is False
+    assert report["master_plan_coverage"]["ready_for_broad_rollout"] is False
     assert report["master_plan_coverage"]["missing_count"] == 0
-    assert report["master_plan_coverage"]["blocked_count"] == 0
-    assert report["master_plan_coverage"]["blocked_sections"] == ()
+    assert report["master_plan_coverage"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["blocked_sections"] == ("Phase-1B",)
     assert report["master_plan_coverage"]["mvp_deliverables"]["section"] == "16.3"
-    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 0
-    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_sections"] == ()
+    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_sections"] == (
+        "MVP-D2",
+    )
     assert report["master_plan_coverage"]["mvp_exit_criteria"]["section"] == "16.4"
-    assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_count"] == 0
-    assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_sections"] == ()
+    assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_sections"] == (
+        "MVP-E01",
+    )
     assert report["master_plan_coverage"]["final_acceptance"]["section"] == "22"
-    assert report["master_plan_coverage"]["final_acceptance"]["blocked_count"] == 0
-    assert report["master_plan_coverage"]["final_acceptance"]["blocked_sections"] == ()
+    assert report["master_plan_coverage"]["final_acceptance"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["final_acceptance"]["blocked_sections"] == (
+        "FinalAcceptance-C02",
+    )
     assert report["paper_trading"]["ready"] is True
     assert report["production_monitor_diagnostics"]["accepted"] is True
     assert report["production_monitor_diagnostics"]["scenario_count"] == 6
@@ -68,10 +74,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["lockbox"]["result"] == "not_opened"
     assert report["lockbox"]["production_allowed"] is False
     assert report["promotion_gate"]["paper_trading_allowed"] is True
-    assert report["promotion_gate"]["staged_production_allowed"] is True
+    assert report["promotion_gate"]["staged_production_allowed"] is False
     assert report["promotion_gate"]["production_allowed"] is False
-    assert report["promotion_gate"]["next_state"] == "staged_production"
-    assert report["promotion_gate"]["blocker_count"] == 1
+    assert report["promotion_gate"]["next_state"] == "paper_trading"
+    assert report["promotion_gate"]["blocker_count"] == 3
     assert report["validation_hardening"]["ablation_accepted"] is True
     assert report["validation_hardening"]["horizon_metric_failures"] == []
     assert report["validation_hardening"]["statistical_significance_accepted"] is True
@@ -118,15 +124,21 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         report["manual_review_gates"]["gold_review_packet"]["candidate_span_ref_count"]
         > 0
     )
+    gold_candidate_count = report["manual_review_gates"]["gold_candidate_claims"][
+        "candidate_claim_count"
+    ]
+    assert gold_candidate_count > 0
     assert (
-        report["manual_review_gates"]["gold_candidate_claims"]["candidate_claim_count"]
-        == 500
+        report["manual_review_gates"]["gold_candidate_claims"][
+            "review_rows_with_candidate_fields"
+        ]
+        <= gold_candidate_count
     )
     assert (
         report["manual_review_gates"]["gold_candidate_claims"][
             "review_rows_with_candidate_fields"
         ]
-        == 500
+        > 0
     )
     assert (
         report["manual_review_gates"]["gold_candidate_claims"][
@@ -153,10 +165,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         is True
     )
     assert (
-        report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 0
+        report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 26
     )
     assert (
-        report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 0
+        report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 26
     )
     assert (
         report["manual_review_gates"]["review_batches"]["gold_set_full_import_template"]
@@ -194,18 +206,18 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         report["manual_review_gates"]["review_progress"]["ready_for_promotion_dry_run"]
         is False
     )
-    assert report["manual_review_gates"]["review_progress"]["gate_count"] == 3
+    assert report["manual_review_gates"]["review_progress"]["gate_count"] == 4
     assert report["manual_review_gates"]["review_progress"]["blocker_count"] >= 3
     assert (
         report["manual_review_gates"]["review_progress"]["runbook_path"]
         == "registry/review_batches/manual_review_runbook.md"
     )
     assert report["operator_handoff"]["ready_for_operator_review"] is True
-    assert report["operator_handoff"]["next_state"] == "staged_production"
-    assert report["operator_handoff"]["remaining_blocker_count"] == 1
-    assert report["operator_handoff"]["gate_count"] == 3
+    assert report["operator_handoff"]["next_state"] == "paper_trading"
+    assert report["operator_handoff"]["remaining_blocker_count"] == 4
+    assert report["operator_handoff"]["gate_count"] == 4
     assert report["operator_readiness"]["accepted"] is True
-    assert report["operator_readiness"]["check_count"] == 15
+    assert report["operator_readiness"]["check_count"] == 18
     assert report["operator_readiness"]["failure_count"] == 0
     assert report["audit_trace"]["complete"] is True
     assert report["audit_trace"]["node_count"] == 8
@@ -213,7 +225,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["audit_trace"]["missing_reference_count"] == 0
     assert report["audit_trace"]["broken_edge_count"] == 0
     assert report["audit_trace"]["agent_output_count"] == 1
-    assert report["completion"]["blockers"] == []
+    assert len(report["completion"]["blockers"]) == 1
+    assert "horizon_accuracy below 0.85" in report["completion"]["blockers"][0]
+    assert "variable_mapping_accuracy below 0.80" in report["completion"]["blockers"][0]
 
 
 def test_dashboard_report_surfaces_malformed_artifacts_without_crashing(tmp_path: Path):
@@ -252,18 +266,18 @@ def test_dashboard_markdown_renders_blockers():
     markdown = render_dashboard_markdown(build_dashboard_report("."))
 
     assert "# RKE Dashboard" in markdown
-    assert "Broad rollout ready: true" in markdown
+    assert "Broad rollout ready: false" in markdown
     assert "Dashboard artifact errors: 0" in markdown
     assert "Master-plan coverage missing: 0" in markdown
-    assert "Master-plan coverage blocked: 0" in markdown
-    assert "Master-plan blocked sections: none" in markdown
-    assert "MVP deliverables blocked: 0" in markdown
-    assert "MVP deliverable blocked sections: none" in markdown
-    assert "MVP exit criteria blocked: 0" in markdown
-    assert "MVP exit blocked sections: none" in markdown
-    assert "Final acceptance blocked: 0" in markdown
-    assert "Final acceptance blocked sections: none" in markdown
-    assert "Promotion next state: staged_production" in markdown
+    assert "Master-plan coverage blocked: 1" in markdown
+    assert "Master-plan blocked sections: Phase-1B" in markdown
+    assert "MVP deliverables blocked: 1" in markdown
+    assert "MVP deliverable blocked sections: MVP-D2" in markdown
+    assert "MVP exit criteria blocked: 1" in markdown
+    assert "MVP exit blocked sections: MVP-E01" in markdown
+    assert "Final acceptance blocked: 1" in markdown
+    assert "Final acceptance blocked sections: FinalAcceptance-C02" in markdown
+    assert "Promotion next state: paper_trading" in markdown
     assert "Promotion production allowed: False" in markdown
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
@@ -280,9 +294,13 @@ def test_dashboard_markdown_renders_blockers():
     assert "Macro expansion candidates: 3" in markdown
     assert "Phase 7 sector actionability: monitor_only" in markdown
     assert "Gold review packet spans:" in markdown
-    assert "Gold candidate claims: 500" in markdown
+    report = build_dashboard_report(".")
+    gold_candidate_count = report["manual_review_gates"]["gold_candidate_claims"][
+        "candidate_claim_count"
+    ]
+    assert f"Gold candidate claims: {gold_candidate_count}" in markdown
     assert "License review packet pending sources:" in markdown
-    assert "Next gold review batch rows: 0" in markdown
+    assert "Next gold review batch rows: 26" in markdown
     assert (
         "Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl"
         in markdown

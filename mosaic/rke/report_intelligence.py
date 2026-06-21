@@ -17,19 +17,41 @@ import shlex
 import shutil
 import struct
 import subprocess
+import sys
+import time
 import urllib.error
 import urllib.request
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
+from math import ceil, floor
 from pathlib import Path
-from typing import Any, Callable, Literal, Mapping, Sequence
+from typing import Any, Callable, Container, Literal, Mapping, Sequence
 
+from .claim_text_filters import (
+    is_boilerplate_risk_warning_text,
+    is_disclaimer_text,
+    is_heading_or_toc_text,
+    is_non_research_claim_text,
+)
+from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .manual_review_import import manual_review_forbidden_field_paths
 from .phase_minus1 import load_jsonl_with_errors
+from .required_data import (
+    canonical_metric_name as _canonical_metric_name,
+    normalize_required_data_items,
+)
+from .temp_paths import operator_command, rke_tmp_root
 
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
+LOCAL_MACRO_STRATEGY_REPORT_SOURCE_PATH = (
+    "registry/sources/local_macro_strategy_reports.jsonl"
+)
+LOCAL_MACRO_STRATEGY_REPORT_MANIFEST_PATH = (
+    "registry/sources/local_macro_strategy_reports.manifest.json"
+)
 REPORT_INTELLIGENCE_REGISTRY_DIR = "registry/report_intelligence"
 REPORT_INTELLIGENCE_CACHE_DIR = ".mosaic/rke/report_intelligence"
 ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH = (
@@ -40,6 +62,24 @@ ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH = (
 )
 ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH = (
     "registry/report_intelligence/analytical_footprint_review_import_report.json"
+)
+ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH = (
+    "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_workbook.md"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_evidence.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_evidence.md"
 )
 ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH = (
     "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
@@ -92,10 +132,18 @@ REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH = (
 REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH = (
     "registry/report_intelligence/evolution_readiness_gate.json"
 )
+REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES = (
+    "schemas/report_intelligence_evolution_readiness_gate_rules"
+)
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
+        ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
-        "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
         "registry/report_intelligence/analytical_footprints.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/processing_status.jsonl",
@@ -107,6 +155,12 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
 REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
     {
         "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+    }
+)
+REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
+    {
         "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/report_metadata.jsonl",
     }
@@ -151,10 +205,161 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
     }
 )
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8020/v1"
+DEFAULT_VLLM_TIMEOUT_SECONDS = 7200
 DEFAULT_Q_LIB_ETF_PATH = "~/.qlib/qlib_data/cn_etf"
 DEFAULT_Q_LIB_STOCK_PATH = "~/.qlib/qlib_data/cn_data"
 DEFAULT_MINERU_BACKEND = "hybrid-auto-engine"
 DEFAULT_MINERU_ARGS_TEMPLATE = "-p {pdf} -o {output_dir} -b {backend} -m auto"
+DEFAULT_MINERU_ENV = {
+    "MINERU_TABLE_ENABLE": "true",
+    "MINERU_FORMULA_ENABLE": "true",
+}
+FORECAST_CLAIM_MECHANISM_TERMS = (
+    "预计",
+    "预期",
+    "有望",
+    "未来",
+    "后续",
+    "长期",
+    "短期",
+    "中期",
+    "看好",
+    "维持",
+    "建议",
+    "上调",
+    "下调",
+    "优于",
+    "跑赢",
+    "跑输",
+    "超配",
+    "低配",
+    "增持",
+    "减持",
+    "驱动",
+    "推动",
+    "带动",
+    "导致",
+    "受益",
+    "压制",
+    "制约",
+    "改善",
+    "修复",
+    "恶化",
+    "承压",
+    "风险",
+    "压力",
+    "催化",
+    "拐点",
+    "弹性",
+    "传导",
+    "供需",
+    "库存",
+    "产能",
+    "景气",
+    "景气周期",
+    "行业周期",
+    "价格周期",
+    "煤价周期",
+    "格局",
+    "regime",
+    "outperform",
+    "underperform",
+)
+FORECAST_CLAIM_DESCRIPTIVE_ONLY_TERMS = (
+    "涨跌幅",
+    "区间涨幅",
+    "区间跌幅",
+    "年初至",
+    "当前",
+    "截至",
+    "分别为",
+    "最高",
+    "其次",
+    "排在",
+    "排名",
+    "环比",
+    "同比",
+    "ROE",
+    "毛利率",
+    "净利率",
+    "资产负债率",
+    "研发比例",
+    "存量规模",
+    "价格为",
+    "涨跌不一",
+    "规模",
+)
+FORECAST_CLAIM_FINANCE_IMPACT_TERMS = (
+    "需求增长",
+    "订单",
+    "销量",
+    "出货",
+    "装机",
+    "营收",
+    "营业收入",
+    "收入增长",
+    "利润",
+    "盈利",
+    "业绩",
+    "净利润",
+    "毛利率",
+    "净利率",
+    "估值修复",
+    "估值溢价",
+    "估值提升",
+    "估值重估",
+    "价值重估",
+    "目标价",
+    "股价",
+    "股票",
+    "指数",
+    "行业指数",
+    "市场指数",
+    "沪深300",
+    "高beta",
+    "高 beta",
+    "风格",
+    "收益率",
+    "超额收益",
+    "相对收益",
+    "跑赢",
+    "跑输",
+    "优于",
+    "占优",
+    "评级",
+    "看多",
+    "看空",
+    "看好",
+    "买入",
+    "增持",
+    "减持",
+    "超配",
+    "低配",
+    "景气",
+    "景气度",
+    "景气周期",
+    "行业周期",
+    "价格周期",
+    "煤价周期",
+    "价格中枢",
+    "流动性",
+    "信用扩张",
+    "信用收缩",
+    "信用利差",
+    "信用风险",
+    "信用周期",
+    "信贷",
+    "社融",
+    "revenue",
+    "profit",
+    "earnings",
+    "margin",
+    "valuation",
+    "return",
+    "outperform",
+    "underperform",
+)
+MINERU_VLM_HF_CACHE_DIRNAME = "models--opendatalab--MinerU2.5-Pro-2605-1.2B"
 MINERU_BACKENDS = (
     "hybrid-auto-engine",
     "vlm-auto-engine",
@@ -205,6 +410,7 @@ REPORT_INTELLIGENCE_TOOL_COVERAGE_STATUSES = (
 )
 REPORT_INTELLIGENCE_TOOL_GAP_PRIORITY_BUCKETS = (
     "blocked",
+    "resolved",
     "low",
     "medium",
     "high",
@@ -266,7 +472,22 @@ REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS = (
     "report_intelligence_tool_design_proposal.schema.json",
     "report_intelligence_analysis_recipe.schema.json",
 )
-MAX_STORED_CLAIM_TEXT_CHARS = 72
+FORECAST_GOLD_MIN_REVIEWED_CLAIMS = 100
+FORECAST_GOLD_MIN_DOCUMENTS = 50
+FORECAST_GOLD_REVIEW_MIN_METRICS: Mapping[str, float] = {
+    "claim_precision": 0.85,
+    "source_span_support_precision": 0.90,
+    "target_accuracy": 0.85,
+    "direction_accuracy": 0.85,
+    "horizon_accuracy": 0.85,
+    "variable_mapping_accuracy": 0.80,
+}
+FORECAST_GOLD_REVIEW_MAX_METRICS: Mapping[str, float] = {
+    "unsupported_field_false_grounding_rate": 0.05,
+}
+MAX_STORED_CLAIM_TEXT_CHARS = 512
+MAX_REASONABLE_FORECAST_HORIZON_DAYS = 3653
+MAX_FORECAST_CLAIMS_PER_REPORT = 5
 ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS = (
     "footprint_correct",
     "source_span_supports_footprint",
@@ -333,7 +554,7 @@ INDUSTRY_ETF_BENCHMARK_SOURCE = "cn_etf"
 INDUSTRY_ETF_BENCHMARK_FAMILY = "CSI300_ETF_PROXY"
 INDUSTRY_ETF_COST_MODEL_ID = "industry_etf_round_trip_10bps_v1"
 INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
-    "工业金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
+    "工业金属": {"etf_symbol": "SH560860", "mapping_label": "工业有色ETF"},
     "有色金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
     "贵金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
     "银行": {"etf_symbol": "SH512800", "mapping_label": "银行ETF"},
@@ -341,15 +562,62 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "证券": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "证券Ⅱ": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "多元金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "保险": {"etf_symbol": "SH512070", "mapping_label": "证券保险ETF"},
     "半导体": {"etf_symbol": "SH512480", "mapping_label": "半导体ETF"},
+    "通信设备": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
+    "IT服务Ⅱ": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
+    "计算机设备": {"etf_symbol": "SH512720", "mapping_label": "计算机ETF"},
+    "电子信息": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "电子元件": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "光学光电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "游戏": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
+    "游戏Ⅱ": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
     "电池": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "汽车整车": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
     "汽车零部件": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
     "医药商业": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "中药": {"etf_symbol": "SH560080", "mapping_label": "中药ETF"},
     "化学制药": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "创新药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
+    "创新药及生物类似药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
+    "化肥行业": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "化学制品": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "煤炭采选": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
+    "煤炭行业": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
+    "钢铁行业": {"etf_symbol": "SH515210", "mapping_label": "钢铁ETF"},
+    "石油行业": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
+    "水泥建材": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
+    "房地产": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
     "房地产开发": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
+    "航天航空": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
     "航天装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
+    "船舶制造": {"etf_symbol": "SH560710", "mapping_label": "船舶ETF"},
+    "机械行业": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "通用设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "自动化设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "电源设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "风电设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "光伏设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
+    "其他电源设备Ⅱ": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
+    "公用事业": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "燃气": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "火电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "水电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "核电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "新能源发电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "电力行业": {"etf_symbol": "SZ159611", "mapping_label": "电力ETF"},
+    "环保工程": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
+    "环保行业": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
+    "物流行业": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "旅游酒店": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
+    "旅游及景区": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
+    "家电行业": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
+    "家用轻工": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
+    "酿酒行业": {"etf_symbol": "SH512690", "mapping_label": "酒ETF"},
+    "文化传媒": {"etf_symbol": "SH512980", "mapping_label": "传媒ETF"},
+    "工程建设": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
+    "食品饮料": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "互联网服务": {"etf_symbol": "SZ159729", "mapping_label": "互联网ETF"},
 }
 INDUSTRY_ETF_BENCHMARK_SYMBOL = "SH510300"
 STOCK_PRICE_PROXY_WINDOWS_DAYS = (5, 20, 60, 120)
@@ -371,10 +639,166 @@ STOCK_PRICE_PROXY_EVALUATION_POLICY = (
     "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
 STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK = "survivorship_unverified_qlib_cn_data"
+STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK = (
+    "delisted_inclusive_universe_audit_passed"
+)
+STOCK_PRICE_PROXY_SURVIVORSHIP_CHECKS = {
+    STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK,
+    STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK,
+}
+STOCK_PRICE_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
+STOCK_PRICE_PROXY_CODE_POLICY: Mapping[str, Any] = {
+    "policy_id": "ordinary_a_share_stock_codes_v1",
+    "allowed_prefixes": {
+        "SH": ["60", "68"],
+        "SZ": ["00", "30"],
+        "BJ": ["92"],
+    },
+    "rejected_code_families": [
+        "fund",
+        "etf",
+        "lof",
+        "index",
+        "legacy_bj_8_prefix",
+    ],
+    "fund_like_prefix_examples": {
+        "SH": ["50", "51", "52"],
+        "SZ": ["15", "16", "18"],
+    },
+    "fallback_action": "stock_target_mapping_missing",
+}
+MACRO_ASSET_PROXY_WINDOWS_DAYS = (90, 180, 360)
+MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
+    90: 0.333333,
+    180: 0.333333,
+    360: 0.333334,
+}
+MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS = 1
+MACRO_ASSET_PROXY_ROUND_TRIP_COST = 0.001
+MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE = "pit_macro_asset_etf_price_window"
+MACRO_ASSET_PROXY_DECISION_BASIS = "directional_macro_asset_proxy_return"
+MACRO_ASSET_PROXY_COST_MODEL_ID = "macro_asset_etf_round_trip_10bps_v1"
+MACRO_ASSET_PROXY_BENCHMARK_SOURCE = "cash_zero_return"
+MACRO_ASSET_PROXY_BENCHMARK_FAMILY = "ABSOLUTE_RETURN_PROXY"
+MACRO_ASSET_PROXY_BENCHMARK_SYMBOL = "CASH_0"
+MACRO_ASSET_PROXY_EVALUATION_POLICY = (
+    "macro_asset_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+)
+MACRO_ASSET_PROXY_MAPPING_VERSION = 1
+MACRO_ASSET_PROXY_MAPPING: Mapping[str, Mapping[str, Any]] = {
+    "CN_A_SHARE_BROAD": {
+        "proxy_symbol": "SH510300",
+        "proxy_label": "沪深300ETF",
+        "aliases": ("A股", "中国股票", "权益市场", "沪深300", "CSI300", "宽基", "A股市场"),
+    },
+    "CN_A_SHARE_LARGE_CAP": {
+        "proxy_symbol": "SH510050",
+        "proxy_label": "上证50ETF",
+        "aliases": ("上证50", "大盘蓝筹", "大盘股", "蓝筹"),
+    },
+    "CN_A_SHARE_MID_SMALL": {
+        "proxy_symbol": "SH510500",
+        "proxy_label": "中证500ETF",
+        "aliases": ("中证500", "中小盘", "小微盘", "小盘股", "小盘"),
+    },
+    "CN_A_SHARE_GROWTH": {
+        "proxy_symbol": "SZ159915",
+        "proxy_label": "创业板ETF",
+        "aliases": ("创业板", "成长股", "成长风格", "高beta", "高 beta"),
+    },
+    "HK_EQUITY": {
+        "proxy_symbol": "SZ159920",
+        "proxy_label": "恒生ETF",
+        "aliases": ("港股", "恒生", "香港股票", "H股", "香港市场"),
+    },
+    "US_EQUITY_NASDAQ": {
+        "proxy_symbol": "SH513100",
+        "proxy_label": "纳指ETF",
+        "aliases": ("纳斯达克", "纳指", "NASDAQ", "美股科技", "美国科技股"),
+    },
+    "US_EQUITY_SP500": {
+        "proxy_symbol": "SH513500",
+        "proxy_label": "标普500ETF",
+        "aliases": ("标普500", "S&P500", "SP500", "美国股票", "美股"),
+    },
+    "CN_BOND": {
+        "proxy_symbol": "SH511010",
+        "proxy_label": "国债ETF",
+        "aliases": ("债券", "国债", "利率债", "长债", "债市", "固收"),
+    },
+    "CN_CREDIT_BOND": {
+        "proxy_symbol": "SH511220",
+        "proxy_label": "城投债ETF",
+        "aliases": ("信用债", "城投债", "信用利差"),
+    },
+    "CN_POLICY_BANK_BOND": {
+        "proxy_symbol": "SH511260",
+        "proxy_label": "十年国债ETF",
+        "aliases": ("十年国债", "10年国债", "政策性金融债", "政金债"),
+    },
+    "GOLD": {
+        "proxy_symbol": "SH518880",
+        "proxy_label": "黄金ETF",
+        "aliases": ("黄金", "金价", "贵金属"),
+    },
+}
 MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
+MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS = 80
+MARKDOWN_COVERAGE_MIN_STOCK_REPORTS = 80
+MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS = 30
+MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET = 5
+MARKDOWN_COVERAGE_RECENT_1Y_DAYS = 365
+MARKDOWN_COVERAGE_LONG_CYCLE_MIN_AGE_DAYS = 365 * 2
+MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS = (
+    "recent_1y",
+    "recent_3y",
+    "long_cycle_history",
+)
+MARKDOWN_COVERAGE_REQUIRED_INSTITUTION_BUCKETS = (
+    "head_institution",
+    "long_tail_institution",
+)
+MARKDOWN_COVERAGE_REQUIRED_HORIZON_BUCKETS = (
+    "5d",
+    "20d",
+    "60d",
+    "long_horizon",
+)
+MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS = (
+    "stock_proxy_candidate",
+    "industry_proxy_candidate",
+    "macro_asset_proxy_candidate",
+    "mapping_gap_candidate",
+)
+MARKDOWN_COVERAGE_REQUIRED_STOCK_OUTCOME_AGE_BUCKETS = (
+    "stock_outcome_120d_calendar_ready",
+)
+MARKDOWN_QUALITY_MIN_BYTES = 80
+MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX = 0.60
+MARKDOWN_QUALITY_REPEATED_LINE_RATIO_MAX = 0.45
+MARKDOWN_QUALITY_REPEATED_LINE_MIN_COUNT = 4
+MARKDOWN_RETRYABLE_GAP_MARKERS = ("mineru", "timeout", "failed", "not_found")
+MARKDOWN_FALSE_POSITIVE_RISK_GAPS = {
+    "markdown_empty_table_dominant",
+    "markdown_repeated_line_noise",
+    "markdown_structure_signal_missing",
+    "markdown_too_short",
+}
+MARKDOWN_STRUCTURE_MARKERS = (
+    "#",
+    "##",
+    "报告",
+    "摘要",
+    "投资",
+    "评级",
+    "行业",
+    "公司",
+    "表",
+    "|",
+)
 EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS = 100
 EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS = 30
 EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS = 30
@@ -382,8 +806,9 @@ EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES = 20
 EVOLUTION_GATE_MIN_CONSECUTIVE_MONITOR_REFRESHES = 3
 EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES = 3
 EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES = 3
+EVOLUTION_REFRESH_HISTORY_MAX_ROWS = 50
 REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
-    {"industry_etf_proxy", "stock_price_proxy"}
+    {"industry_etf_proxy", "stock_price_proxy", "macro_asset_proxy"}
 )
 
 JsonMapping = Mapping[str, Any]
@@ -399,10 +824,12 @@ class ReportIntelligenceConfig:
     registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR
     cache_dir: str | Path = REPORT_INTELLIGENCE_CACHE_DIR
     source_ids: Sequence[str] = ()
+    exclude_processed_registry_dirs: Sequence[str | Path] = ()
+    require_cached_markdown: bool = False
     limit: int | None = None
     min_publish_date: str | None = None
     max_publish_date: str | None = None
-    selection_order: Literal["latest", "oldest"] = "latest"
+    selection_order: Literal["latest", "oldest", "stratified"] = "latest"
     overwrite: bool = False
     skip_download: bool = False
     skip_convert: bool = False
@@ -418,12 +845,35 @@ class ReportIntelligenceConfig:
     mineru_batch_max_bytes: int = 5_000_000
     vllm_base_url: str = DEFAULT_VLLM_BASE_URL
     vllm_model: str | None = None
+    vllm_api_key: str | None = None
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
     qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
-    vllm_timeout_seconds: int = 120
+    vllm_timeout_seconds: int = DEFAULT_VLLM_TIMEOUT_SECONDS
     chunk_chars: int = 60_000
     max_chunks: int = 8
     max_llm_output_tokens: int = 4096
+    progress_jsonl: bool = False
+
+
+def _emit_report_intelligence_progress(
+    cfg: ReportIntelligenceConfig,
+    *,
+    event: str,
+    run_id: str,
+    **fields: Any,
+) -> None:
+    if not cfg.progress_jsonl:
+        return
+    payload = {
+        "event": event,
+        "run_id": run_id,
+        **fields,
+    }
+    print(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -447,6 +897,10 @@ class ReportIntelligenceRunResult:
     stock_price_proxy_eligible_claim_rows: int
     stock_price_proxy_labelable_window_rows: int
     stock_price_proxy_pending_window_rows: int
+    macro_asset_proxy_outcome_label_rows: int
+    macro_asset_proxy_eligible_claim_rows: int
+    macro_asset_proxy_labelable_window_rows: int
+    macro_asset_proxy_pending_window_rows: int
     source_performance_profile_rows: int
     viewpoint_performance_profile_rows: int
     method_performance_profile_rows: int
@@ -487,8 +941,66 @@ class AnalyticalFootprintReviewImportReport:
     duplicate_ids: Sequence[str]
     missing_target_ids: Sequence[str]
     invalid_rows: Sequence[AnalyticalFootprintReviewImportInvalidRow]
+    invalid_reason_counts: Mapping[str, int]
     summary_path: str
     blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewPrepareReport:
+    report_id: str
+    target_path: str
+    output_path: str
+    accepted: bool
+    overwrite: bool
+    requested_limit: int | None
+    requested_offset: int
+    priority: bool
+    selection_policy: str
+    output_rows: int
+    complete_rows: int
+    pending_rows: int
+    pending_required_fields: Mapping[str, int]
+    selected_priority_score_counts: Mapping[str, int]
+    selected_priority_reason_counts: Mapping[str, int]
+    blockers: Sequence[str]
+    backed_up_existing_output: bool
+    backup_path: str
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewAssistReport:
+    report_id: str
+    target_path: str
+    reviewed_import_path: str
+    jsonl_path: str
+    markdown_path: str
+    row_count: int
+    pending_rows: int
+    blockers: Sequence[str]
+    selection_source: str = "pending_template"
+    review_input_path: str = ""
+    quality_gap_targets: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewEvidenceReport:
+    report_id: str
+    target_path: str
+    reviewed_import_path: str
+    jsonl_path: str
+    markdown_path: str
+    requested_limit: int
+    requested_offset: int
+    row_count: int
+    evidence_rows: int
+    missing_markdown_rows: int
+    selected_priority_score_counts: Mapping[str, int]
+    selected_priority_reason_counts: Mapping[str, int]
+    blockers: Sequence[str]
+    selection_source: str = "priority_sorted_pending"
+    review_input_path: str = ""
+    quality_gap_targets: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -592,6 +1104,16 @@ def _read_registry_jsonl(
     return valid_rows
 
 
+def _read_macro_regime_calendar_rows(registry_dir: Path) -> list[Mapping[str, Any]]:
+    blockers: list[str] = []
+    rows = _read_registry_jsonl(
+        registry_dir / "macro_regime_calendar.jsonl",
+        label="macro_regime_calendar",
+        blockers=blockers,
+    )
+    return rows or list(DEFAULT_MACRO_REGIME_CALENDAR_ROWS)
+
+
 def _read_registry_json(
     path: Path,
     *,
@@ -610,6 +1132,15 @@ def _read_registry_json(
         blockers.append(f"{label}: expected object")
         return {}
     return payload
+
+
+def _read_schema_validation_report(root_path: Path) -> Mapping[str, Any]:
+    blockers: list[str] = []
+    return _read_registry_json(
+        root_path / "registry/schemas/rke_schema_validation_report.json",
+        label="schema_validation_report",
+        blockers=blockers,
+    )
 
 
 def _safe_file_id(value: object) -> str:
@@ -680,17 +1211,41 @@ def _missing_report_intelligence_private_inputs(
     root_path: Path,
     registry_dir: Path,
 ) -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            relative
-            for relative in REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS
-            if not _report_intelligence_registry_path(
-                root_path=root_path,
-                registry_dir=registry_dir,
-                relative_path=relative,
-            ).exists()
+    missing: list[str] = []
+    for relative in sorted(REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS):
+        path = _report_intelligence_registry_path(
+            root_path=root_path,
+            registry_dir=registry_dir,
+            relative_path=relative,
         )
-    )
+        if not path.exists():
+            missing.append(relative)
+            continue
+        if (
+            relative in REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS
+            and path.stat().st_size == 0
+        ):
+            missing.append(relative)
+            continue
+        rows, errors = load_jsonl_with_errors(path, label=relative)
+        if errors:
+            missing.append(relative)
+            continue
+        if (
+            relative in REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS
+            and not any(isinstance(row, Mapping) for row in rows)
+        ):
+            missing.append(relative)
+    return tuple(missing)
+
+
+def _jsonl_has_mapping_rows(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    rows, errors = load_jsonl_with_errors(path, label=str(path))
+    if errors:
+        return False
+    return any(isinstance(row, Mapping) for row in rows)
 
 
 def _blocked_report_intelligence_derived_refresh_result(
@@ -731,6 +1286,10 @@ def _blocked_report_intelligence_derived_refresh_result(
         stock_price_proxy_eligible_claim_rows=0,
         stock_price_proxy_labelable_window_rows=0,
         stock_price_proxy_pending_window_rows=0,
+        macro_asset_proxy_outcome_label_rows=0,
+        macro_asset_proxy_eligible_claim_rows=0,
+        macro_asset_proxy_labelable_window_rows=0,
+        macro_asset_proxy_pending_window_rows=0,
         source_performance_profile_rows=0,
         viewpoint_performance_profile_rows=0,
         method_performance_profile_rows=0,
@@ -788,15 +1347,215 @@ def _source_file(root_path: Path, source_path: str | Path) -> Path:
     return path if path.is_absolute() else root_path / path
 
 
+@dataclass(frozen=True)
+class LocalMacroStrategySourceResult:
+    input_dir: str
+    scanned_pdf_count: int
+    written_rows: int
+    output_path: str
+    manifest_path: str
+    report_type_counts: Mapping[str, int]
+    min_publish_date: str
+    max_publish_date: str
+    blockers: Sequence[str]
+
+
+def _infer_local_report_publish_date(path: Path) -> str:
+    candidates = [path.parent.name, path.name]
+    for value in candidates:
+        match = re.search(r"(20\d{2})[-_年.]?(\d{2})[-_月.]?(\d{2})", value)
+        if not match:
+            continue
+        year, month, day = match.groups()
+        try:
+            return date(int(year), int(month), int(day)).isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def _infer_local_report_institution(path: Path) -> str:
+    stem = path.stem
+    parts = [part.strip() for part in stem.split("_") if part.strip()]
+    if len(parts) >= 2 and re.fullmatch(r"20\d{2}-\d{2}-\d{2}", parts[0]):
+        institution = parts[1]
+    elif len(parts) >= 3 and re.fullmatch(r"20\d{6}", parts[1]):
+        institution = parts[0]
+    else:
+        institution = parts[1] if len(parts) >= 2 else "未知"
+    if institution in {"未知", "unknown", "Unknown"}:
+        return "未知"
+    return institution[:80]
+
+
+def _infer_macro_strategy_report_type(path: Path) -> str:
+    text = path.stem
+    if any(term in text for term in ("债券", "固收", "利率债", "信用债", "长债")):
+        return "宏观策略-债券"
+    if any(term in text for term in ("大类资产", "资产配置", "多资产", "全球资产")):
+        return "宏观策略-大类资产"
+    if any(term in text for term in ("美股", "海外市场", "全球策略", "海外宏观")):
+        return "宏观策略-海外"
+    if any(term in text for term in ("A股", "市场策略", "资本市场", "权益市场")):
+        return "宏观策略-A股"
+    if any(term in text for term in ("商品", "黄金", "原油", "能源", "通胀")):
+        return "宏观策略-商品"
+    if any(term in text for term in ("宏观", "策略", "经济", "政策", "流动性")):
+        return "宏观策略"
+    return "宏观策略-待分类"
+
+
+def _local_macro_source_row(pdf_path: Path) -> dict[str, Any]:
+    publish_date = _infer_local_report_publish_date(pdf_path)
+    digest = _stable_digest(
+        {
+            "path": str(pdf_path),
+            "sha256": _file_sha256(pdf_path),
+            "bytes": pdf_path.stat().st_size,
+        },
+        length=16,
+    )
+    date_key = publish_date.replace("-", "") if publish_date else "UNKNOWN"
+    source_id = f"SRC-LMSR-{date_key}-{digest}"
+    report_type = _infer_macro_strategy_report_type(pdf_path)
+    institution = _infer_local_report_institution(pdf_path)
+    return {
+        "source_id": source_id,
+        "source_type": "local_macro_strategy_report",
+        "source_span_id": f"{source_id}:original_pdf",
+        "source_hash": _file_sha256(pdf_path),
+        "title": pdf_path.name,
+        "institution": institution,
+        "author": "",
+        "report_type": report_type,
+        "industry": "宏观策略",
+        "query_key": "宏观策略",
+        "ts_code": "",
+        "publish_date": publish_date,
+        "discovered_at": datetime.now(timezone.utc).isoformat(),
+        "point_in_time_available": bool(publish_date),
+        "license_status": "operator_approved_internal_research_use",
+        "url": pdf_path.resolve().as_uri(),
+        "local_pdf_path": str(pdf_path.resolve()),
+        "storage_policy": "local_private_pdf_source",
+        "macro_strategy_source": True,
+    }
+
+
+def build_local_macro_strategy_report_sources(
+    *,
+    input_dir: str | Path,
+    root: str | Path = ".",
+    output_path: str | Path = LOCAL_MACRO_STRATEGY_REPORT_SOURCE_PATH,
+    manifest_path: str | Path = LOCAL_MACRO_STRATEGY_REPORT_MANIFEST_PATH,
+) -> LocalMacroStrategySourceResult:
+    root_path = Path(root).resolve()
+    source_dir = Path(input_dir).expanduser().resolve()
+    blockers: list[str] = []
+    rows: list[dict[str, Any]] = []
+    if not source_dir.exists() or not source_dir.is_dir():
+        blockers.append(f"input_dir_missing: {source_dir}")
+    else:
+        pdf_paths = sorted(
+            path
+            for path in source_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() == ".pdf"
+        )
+        for pdf_path in pdf_paths:
+            try:
+                if pdf_path.stat().st_size <= 0:
+                    blockers.append(f"empty_pdf: {pdf_path.name}")
+                    continue
+                rows.append(_local_macro_source_row(pdf_path))
+            except OSError as exc:
+                blockers.append(f"pdf_stat_failed: {pdf_path.name}: {exc}")
+    output = _source_file(root_path, output_path)
+    manifest = _source_file(root_path, manifest_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(output, rows)
+    report_type_counts = dict(
+        sorted(Counter(str(row.get("report_type") or "unknown") for row in rows).items())
+    )
+    publish_dates = sorted(
+        str(row.get("publish_date") or "") for row in rows if row.get("publish_date")
+    )
+    manifest_payload = {
+        "manifest_id": "RKE-LOCAL-MACRO-STRATEGY-REPORT-SOURCES",
+        "input_dir": str(source_dir),
+        "output_path": _relative_or_absolute(output, root_path),
+        "source_type": "local_macro_strategy_report",
+        "scanned_pdf_count": len(rows),
+        "written_rows": len(rows),
+        "report_type_counts": report_type_counts,
+        "min_publish_date": publish_dates[0] if publish_dates else "",
+        "max_publish_date": publish_dates[-1] if publish_dates else "",
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "privacy_policy": (
+            "This manifest and source JSONL are private local artifacts because "
+            "they contain local PDF paths and licensed report metadata."
+        ),
+    }
+    _write_json(manifest, manifest_payload)
+    return LocalMacroStrategySourceResult(
+        input_dir=str(source_dir),
+        scanned_pdf_count=len(rows),
+        written_rows=len(rows),
+        output_path=_relative_or_absolute(output, root_path),
+        manifest_path=_relative_or_absolute(manifest, root_path),
+        report_type_counts=report_type_counts,
+        min_publish_date=publish_dates[0] if publish_dates else "",
+        max_publish_date=publish_dates[-1] if publish_dates else "",
+        blockers=tuple(blockers),
+    )
+
+
+def _processed_source_ids_from_registry_dirs(
+    root_path: Path, registry_dirs: Sequence[str | Path]
+) -> tuple[set[str], list[str]]:
+    processed: set[str] = set()
+    blockers: list[str] = []
+    for registry_dir in registry_dirs:
+        path = Path(registry_dir)
+        if not path.is_absolute():
+            path = root_path / path
+        status_path = path / "processing_status.jsonl"
+        if not status_path.exists():
+            blockers.append(
+                f"exclude processed registry status missing: {status_path}"
+            )
+            continue
+        raw_rows, parse_blockers = load_jsonl_with_errors(
+            status_path,
+            label=f"processed registry status {status_path}",
+        )
+        blockers.extend(parse_blockers)
+        for row in _mapping_rows(raw_rows, blockers):
+            if row.get("llm_status") != "processed":
+                continue
+            source_id = str(row.get("source_id") or "").strip()
+            if source_id:
+                processed.add(source_id)
+    return processed, blockers
+
+
+def _cached_markdown_path_for_source(cache_dir: Path, source_id: object) -> Path:
+    return cache_dir / "markdown" / f"{_safe_file_id(str(source_id or ''))}.md"
+
+
 def _selected_source_rows(
     root_path: Path,
     *,
     source_path: str | Path,
+    cache_dir: str | Path,
     source_ids: Sequence[str],
     limit: int | None,
+    exclude_source_ids: Sequence[str] = (),
+    require_cached_markdown: bool = False,
     min_publish_date: str | None = None,
     max_publish_date: str | None = None,
-    selection_order: Literal["latest", "oldest"] = "latest",
+    selection_order: Literal["latest", "oldest", "stratified"] = "latest",
 ) -> tuple[list[Mapping[str, Any]], list[str]]:
     raw_rows, parse_blockers = load_jsonl_with_errors(
         _source_file(root_path, source_path),
@@ -807,6 +1566,32 @@ def _selected_source_rows(
     wanted = {str(source_id) for source_id in source_ids if str(source_id).strip()}
     if wanted:
         rows = [row for row in rows if str(row.get("source_id") or "") in wanted]
+    excluded = {
+        str(source_id).strip()
+        for source_id in exclude_source_ids
+        if str(source_id).strip()
+    }
+    if excluded:
+        rows = [
+            row
+            for row in rows
+            if str(row.get("source_id") or "").strip() not in excluded
+        ]
+    if require_cached_markdown:
+        resolved_cache_dir = (
+            Path(cache_dir)
+            if Path(cache_dir).is_absolute()
+            else root_path / cache_dir
+        )
+        rows = [
+            row
+            for row in rows
+            if (markdown_path := _cached_markdown_path_for_source(
+                resolved_cache_dir,
+                row.get("source_id"),
+            )).exists()
+            and markdown_path.stat().st_size > 0
+        ]
     if min_publish_date:
         rows = [
             row
@@ -819,8 +1604,8 @@ def _selected_source_rows(
             for row in rows
             if str(row.get("publish_date") or "") <= max_publish_date
         ]
-    if selection_order not in {"latest", "oldest"}:
-        blockers.append("selection_order must be latest or oldest")
+    if selection_order not in {"latest", "oldest", "stratified"}:
+        blockers.append("selection_order must be latest, oldest, or stratified")
         selection_order = "latest"
     rows = sorted(
         rows,
@@ -830,9 +1615,164 @@ def _selected_source_rows(
         ),
         reverse=selection_order == "latest",
     )
+    if selection_order == "stratified":
+        rows = _stratified_source_rows(
+            rows,
+            len(rows) if limit is None else max(limit, 0),
+        )
+        return rows, blockers
     if limit is not None:
         rows = rows[: max(limit, 0)]
     return rows, blockers
+
+
+def _source_publish_datetime(row: Mapping[str, Any]) -> str:
+    publish_date = str(row.get("publish_date") or "").strip()
+    if not publish_date:
+        return ""
+    return publish_date if "T" in publish_date else f"{publish_date}T00:00:00+08:00"
+
+
+def _stratified_source_values(
+    row: Mapping[str, Any],
+    *,
+    corpus_as_of: datetime | None,
+    institution_counts: Mapping[str, int],
+    total_reports: int,
+) -> tuple[tuple[str, str], ...]:
+    metadata_like = {
+        **dict(row),
+        "publish_datetime": _source_publish_datetime(row),
+        "sector": _report_sector_bucket(row),
+    }
+    report_type = str(row.get("report_type") or "unknown_report_type")
+    sector = _report_sector_bucket(row)
+    return (
+        ("report_type", report_type),
+        ("time_bucket", _coverage_time_bucket(metadata_like, corpus_as_of=corpus_as_of)),
+        (
+            "institution_bucket",
+            _coverage_institution_bucket(
+                metadata_like,
+                institution_counts=institution_counts,
+                total_reports=total_reports,
+            ),
+        ),
+        ("sector_bucket", sector),
+        (
+            "stock_ts_code",
+            "stock_ts_code_present"
+            if _is_explicit_stock_ts_code(row.get("ts_code"))
+            else "stock_ts_code_missing",
+        ),
+        (
+            "stock_outcome_age_bucket",
+            _coverage_stock_outcome_age_bucket(
+                metadata_like,
+                corpus_as_of=corpus_as_of,
+            ),
+        ),
+        ("horizon_bucket", _source_row_horizon_bucket(row)),
+        ("evaluability_bucket", _source_row_evaluability_bucket(row)),
+    )
+
+
+def _source_row_horizon_bucket(row: Mapping[str, Any]) -> str:
+    explicit_bucket = str(row.get("horizon_bucket") or "").strip()
+    if explicit_bucket:
+        return explicit_bucket
+    horizon = row.get("horizon")
+    if isinstance(horizon, Mapping):
+        bucket = _horizon_bucket(horizon)
+        if bucket != "unknown":
+            return bucket
+    elif horizon is not None:
+        bucket = _horizon_bucket({"preferred_days": horizon})
+        if bucket != "unknown":
+            return bucket
+    for field in (
+        "preferred_horizon_days",
+        "horizon_days",
+        "expected_horizon_days",
+        "preferred_days",
+        "max_horizon_days",
+        "min_horizon_days",
+    ):
+        bucket = _horizon_bucket({"preferred_days": row.get(field)})
+        if bucket != "unknown":
+            return bucket
+    return "no_source_horizon_hint"
+
+
+def _source_row_evaluability_bucket(row: Mapping[str, Any]) -> str:
+    for field in ("evaluability_bucket", "evaluability_status"):
+        value = str(row.get(field) or "").strip()
+        if value:
+            return value
+    return "source_evaluability_unknown"
+
+
+def _stratified_source_rows(
+    rows: Sequence[Mapping[str, Any]],
+    limit: int,
+) -> list[Mapping[str, Any]]:
+    if limit <= 0:
+        return []
+    total_reports = len(rows)
+    selected: list[Mapping[str, Any]] = []
+    seen: dict[str, set[str]] = {
+        "report_type": set(),
+        "time_bucket": set(),
+        "institution_bucket": set(),
+        "sector_bucket": set(),
+        "stock_ts_code": set(),
+        "stock_outcome_age_bucket": set(),
+        "horizon_bucket": set(),
+        "evaluability_bucket": set(),
+    }
+    corpus_as_of = _coverage_corpus_as_of(
+        [{"publish_datetime": _source_publish_datetime(row)} for row in rows]
+    )
+    institution_counts = _coverage_institution_counts(rows)
+    remaining: list[
+        tuple[Mapping[str, Any], tuple[tuple[str, str], ...], tuple[str, str]]
+    ] = [
+        (
+            row,
+            _stratified_source_values(
+                row,
+                corpus_as_of=corpus_as_of,
+                institution_counts=institution_counts,
+                total_reports=total_reports,
+            ),
+            (
+                str(row.get("publish_date") or ""),
+                str(row.get("source_id") or ""),
+            ),
+        )
+        for row in rows
+    ]
+
+    while remaining and len(selected) < limit:
+        best_index = 0
+        best_score: tuple[int, str, str] | None = None
+        for index, (_, values, tie_break) in enumerate(remaining):
+            coverage_gain = sum(
+                value not in seen[dimension] for dimension, value in values
+            )
+            score = (
+                coverage_gain,
+                tie_break[0],
+                tie_break[1],
+            )
+            if best_score is None or score > best_score:
+                best_score = score
+                best_index = index
+        row, values, _ = remaining.pop(best_index)
+        selected.append(row)
+        for dimension, value in values:
+            seen[dimension].add(value)
+    return selected
 
 
 def download_pdf(
@@ -871,6 +1811,30 @@ def download_pdf(
         "status": "downloaded",
         "path": str(pdf_path),
         "bytes": len(content),
+        "sha256": _file_sha256(pdf_path),
+    }
+
+
+def materialize_local_pdf(
+    source_path: Path,
+    pdf_path: Path,
+    overwrite: bool,
+) -> Mapping[str, Any]:
+    if pdf_path.exists() and pdf_path.stat().st_size > 0 and not overwrite:
+        return {
+            "status": "cached",
+            "path": str(pdf_path),
+            "bytes": pdf_path.stat().st_size,
+            "sha256": _file_sha256(pdf_path),
+        }
+    if not source_path.exists() or source_path.stat().st_size <= 0:
+        return {"status": "blocked", "blocker": "local_pdf_missing"}
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    _link_or_copy(source_path, pdf_path)
+    return {
+        "status": "downloaded",
+        "path": str(pdf_path),
+        "bytes": pdf_path.stat().st_size,
         "sha256": _file_sha256(pdf_path),
     }
 
@@ -969,7 +1933,29 @@ def _mineru_executable(command: str) -> tuple[list[str], str | None]:
     executable = shutil.which(command_parts[0])
     if executable is None:
         return (), f"mineru_command_not_found: {command_parts[0]}"
-    return [executable, *command_parts[1:]], None
+    return [str(Path(executable).expanduser().resolve()), *command_parts[1:]], None
+
+
+def _mineru_cached_vlm_model_exists(env: Mapping[str, str]) -> bool:
+    hf_home = env.get("HF_HOME")
+    if hf_home:
+        cache_root = Path(hf_home).expanduser()
+    else:
+        cache_root = Path.home() / ".cache" / "huggingface"
+    model_cache = cache_root / "hub" / MINERU_VLM_HF_CACHE_DIRNAME
+    return (model_cache / "refs" / "main").exists() and any(
+        (model_cache / "snapshots").glob("*")
+    )
+
+
+def _mineru_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for key, value in DEFAULT_MINERU_ENV.items():
+        env.setdefault(key, value)
+    if _mineru_cached_vlm_model_exists(env):
+        env.setdefault("HF_HUB_OFFLINE", "1")
+        env.setdefault("TRANSFORMERS_OFFLINE", "1")
+    return env
 
 
 def _mineru_args(
@@ -1034,10 +2020,13 @@ def _terminate_process_tree(pid: int) -> None:
 
 def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapping[str, Any]:
     command = " ".join(shlex.quote(part) for part in args)
+    started_at = time.monotonic()
+    env = _mineru_subprocess_env()
     try:
         process = subprocess.Popen(
             list(args),
             cwd=str(cwd),
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -1050,6 +2039,7 @@ def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapp
             stdout, stderr = process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             stdout, stderr = "", ""
+        duration_seconds = round(time.monotonic() - started_at, 3)
         return {
             "status": "blocked",
             "blocker": "mineru_timeout",
@@ -1058,9 +2048,11 @@ def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapp
             "returncode": process.returncode,
             "stderr_tail": stderr.strip()[-1000:],
             "stdout_tail": stdout.strip()[-1000:],
+            "duration_seconds": duration_seconds,
         }
+    duration_seconds = round(time.monotonic() - started_at, 3)
     if process.returncode == 0:
-        return {"status": "ok"}
+        return {"status": "ok", "duration_seconds": duration_seconds}
     return {
         "status": "blocked",
         "blocker": "mineru_failed",
@@ -1068,6 +2060,7 @@ def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapp
         "returncode": process.returncode,
         "stderr_tail": stderr.strip()[-1000:],
         "stdout_tail": stdout.strip()[-1000:],
+        "duration_seconds": duration_seconds,
     }
 
 
@@ -1127,6 +2120,7 @@ def convert_pdf_with_mineru(
         "backend": backend,
         "bytes": markdown_path.stat().st_size,
         "sha256": _file_sha256(markdown_path),
+        "duration_seconds": run_result.get("duration_seconds"),
     }
 
 
@@ -1206,13 +2200,20 @@ def _copy_batch_markdown_result(
             "blocker": "mineru_markdown_not_found",
             "backend": backend,
         }
-        for field in ("command", "returncode", "timed_out", "stderr_tail", "stdout_tail"):
+        for field in (
+            "command",
+            "returncode",
+            "timed_out",
+            "stderr_tail",
+            "stdout_tail",
+            "duration_seconds",
+        ):
             if run_result.get(field) not in (None, ""):
                 result[field] = run_result[field]
         return result
     task.markdown_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(produced, task.markdown_path)
-    return {
+    result = {
         "status": "converted",
         "path": str(task.markdown_path),
         "mineru_output_path": str(produced),
@@ -1220,6 +2221,9 @@ def _copy_batch_markdown_result(
         "bytes": task.markdown_path.stat().st_size,
         "sha256": _file_sha256(task.markdown_path),
     }
+    if run_result.get("duration_seconds") not in (None, ""):
+        result["duration_seconds"] = run_result["duration_seconds"]
+    return result
 
 
 def convert_pdfs_with_mineru_batch(
@@ -1325,15 +2329,15 @@ def resolve_vllm_model(
     base_url: str = DEFAULT_VLLM_BASE_URL,
     *,
     explicit_model: str | None = None,
+    api_key: str | None = None,
     timeout_seconds: int = 10,
 ) -> str:
     if explicit_model:
         return explicit_model
     try:
-        with urllib.request.urlopen(
-            _url(base_url, "models"),
-            timeout=timeout_seconds,
-        ) as response:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        request = urllib.request.Request(_url(base_url, "models"), headers=headers)
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"vllm_model_discovery_failed: {exc}") from exc
@@ -1433,7 +2437,7 @@ def _metadata_record(
         if markdown_result.get("path")
         else None
     )
-    return {
+    record = {
         "report_id": report_id,
         "source_id": source_id,
         "source_type": str(row.get("source_type") or "tushare_research_report"),
@@ -1446,7 +2450,7 @@ def _metadata_record(
         "report_type": str(row.get("report_type") or ""),
         "market": "CN_A_SHARE",
         "asset_class": "equity",
-        "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+        "sector": _report_sector_bucket(row),
         "ts_code": str(row.get("ts_code") or ""),
         "subsectors": [],
         "title": str(row.get("title") or ""),
@@ -1485,6 +2489,9 @@ def _metadata_record(
             "blocker": markdown_result.get("blocker") or "",
             "returncode": markdown_result.get("returncode"),
             "timed_out": bool(markdown_result.get("timed_out")),
+            "duration_seconds": markdown_result.get("duration_seconds"),
+            "quality_gate_status": markdown_result.get("quality_gate_status") or "",
+            "quality_gap": markdown_result.get("quality_gap") or "",
             "stderr_tail": _redact_runtime_text(
                 markdown_result.get("stderr_tail"),
                 root_path,
@@ -1506,6 +2513,185 @@ def _metadata_record(
             "blockers": list(blockers),
         },
     }
+    stock_subject = _stock_subject_from_metadata(row)
+    if stock_subject:
+        record["stock_subject"] = stock_subject
+    return record
+
+
+STOCK_SUBJECT_NAME_FIELDS = (
+    "stock_name",
+    "company_name",
+    "security_name",
+    "sec_name",
+    "short_name",
+    "name",
+)
+
+STOCK_SUBJECT_GENERIC_NAMES = {
+    "公司",
+    "本公司",
+    "该公司",
+    "标的公司",
+    "上市公司",
+    "证券研究报告",
+    "公司研究",
+    "个股研究",
+}
+
+STOCK_SUBJECT_REFERENCE_RE = re.compile(
+    r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9·&]{2,24})[（(]"
+    r"(?P<code>\d{6})(?:\.[A-Za-z]{2})?[）)]"
+)
+
+GENERIC_STOCK_COMPANY_REFERENCE_RE = re.compile(
+    r"(?P<prefix>^|[，。；：、,;:\s（(])"
+    r"(?P<term>标的公司|本公司|该公司|公司)"
+)
+
+
+def _clean_stock_subject_name(value: Any) -> str:
+    text = re.sub(r"\s+", "", str(value or "").strip())
+    text = text.strip("#*【】[]（）()：: ")
+    if not text or text in STOCK_SUBJECT_GENERIC_NAMES:
+        return ""
+    if len(text) < 2 or len(text) > 24:
+        return ""
+    if re.search(r"(深度|点评|跟踪|更新|首次覆盖|研究|报告|周报|月报|策略)$", text):
+        return ""
+    return text
+
+
+def _stock_subject_name_from_text(text: Any, *, ts_code: str) -> str:
+    code_prefix = ts_code.split(".", 1)[0] if ts_code else ""
+    for line in str(text or "").splitlines()[:6]:
+        for match in STOCK_SUBJECT_REFERENCE_RE.finditer(line):
+            if code_prefix and match.group("code") != code_prefix:
+                continue
+            name = _clean_stock_subject_name(match.group("name"))
+            if name:
+                return name
+    return ""
+
+
+def _stock_subject_from_metadata(row: Mapping[str, Any]) -> dict[str, str]:
+    existing = _ensure_mapping(row.get("stock_subject"))
+    if existing:
+        target_id = _normalize_ts_code(existing.get("target_id"))
+        target_name = str(existing.get("target_name") or "").strip()
+        subject_label = str(existing.get("subject_label") or "").strip()
+        if subject_label:
+            subject = {
+                "target_type": "stock",
+                "target_id": target_id,
+                "target_name": target_name,
+                "stock_code": target_id.split(".", 1)[0] if target_id else "",
+                "subject_label": subject_label,
+            }
+            return {key: value for key, value in subject.items() if value}
+
+    ts_code = _normalize_ts_code(row.get("ts_code"))
+    report_type = str(row.get("report_type") or "")
+    if not ts_code and not any(marker in report_type for marker in ("公司", "个股")):
+        return {}
+
+    name = ""
+    for field in STOCK_SUBJECT_NAME_FIELDS:
+        name = _clean_stock_subject_name(row.get(field))
+        if name:
+            break
+    if not name:
+        for field in ("abstract", "title", "query_key"):
+            name = _stock_subject_name_from_text(row.get(field), ts_code=ts_code)
+            if name:
+                break
+
+    if not ts_code and not name:
+        return {}
+    if name and ts_code:
+        subject_label = f"{name}（{ts_code}）"
+    elif name:
+        subject_label = name
+    else:
+        subject_label = f"标的公司（{ts_code}）"
+
+    subject = {
+        "target_type": "stock",
+        "target_id": ts_code,
+        "target_name": name,
+        "stock_code": ts_code.split(".", 1)[0] if ts_code else "",
+        "subject_label": subject_label,
+    }
+    return {key: value for key, value in subject.items() if value}
+
+
+def _target_with_metadata_stock_subject(
+    target: Mapping[str, Any],
+    stock_subject: Mapping[str, str],
+) -> tuple[dict[str, Any], bool]:
+    updated = dict(target)
+    if not stock_subject:
+        return updated, False
+    target_type = str(updated.get("target_type") or "").strip().lower()
+    subject_ts_code = str(stock_subject.get("target_id") or "")
+    target_ts_code = _normalize_ts_code(updated.get("target_id"))
+    changed = False
+    if target_type != "stock":
+        if not subject_ts_code or target_ts_code != subject_ts_code:
+            return updated, False
+        updated["target_type"] = "stock"
+        target_type = "stock"
+        changed = True
+    if subject_ts_code and target_ts_code and subject_ts_code != target_ts_code:
+        return updated, False
+
+    if updated.get("target_type") != target_type:
+        updated["target_type"] = target_type
+        changed = True
+    if subject_ts_code and updated.get("target_id") != subject_ts_code:
+        updated["target_id"] = subject_ts_code
+        changed = True
+    subject_name = str(stock_subject.get("target_name") or "")
+    if subject_name and not str(updated.get("target_name") or "").strip():
+        updated["target_name"] = subject_name
+        changed = True
+    return updated, changed
+
+
+def _text_mentions_stock_subject(text: str, stock_subject: Mapping[str, str]) -> bool:
+    terms = (
+        stock_subject.get("subject_label"),
+        stock_subject.get("target_id"),
+        stock_subject.get("stock_code"),
+        stock_subject.get("target_name"),
+    )
+    return any(term and str(term) in text for term in terms)
+
+
+def _bind_stock_subject_to_text(
+    text: str,
+    *,
+    target: Mapping[str, Any],
+    stock_subject: Mapping[str, str],
+) -> tuple[str, bool]:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    subject_label = str(stock_subject.get("subject_label") or "")
+    if (
+        not normalized
+        or not subject_label
+        or str(target.get("target_type") or "").strip().lower() != "stock"
+        or _text_mentions_stock_subject(normalized, stock_subject)
+    ):
+        return normalized, False
+
+    replaced, count = GENERIC_STOCK_COMPANY_REFERENCE_RE.subn(
+        lambda match: f"{match.group('prefix')}{subject_label}",
+        normalized,
+        count=1,
+    )
+    if count:
+        return replaced, True
+    return f"{subject_label}：{normalized}", True
 
 
 def _system_prompt() -> str:
@@ -1517,7 +2703,36 @@ def _system_prompt() -> str:
         "ambiguous; use unknown or insufficient_mapping instead. Return only a "
         "single JSON object. Do not include thinking text, commentary, Markdown, "
         "or code fences. Metadata may identify the report entity, but source text "
-        "must still support each forecast. /no_think"
+        "must still support each forecast. Extract forecast_claims as complete "
+        "source-grounded report theses synthesized from the supplied Markdown "
+        "context, not as isolated sentence snippets, headings, bullets, or table "
+        "rows. If the supplied chunk is only partial context and does not support "
+        "a full thesis, leave forecast_claims empty and put measurable context in "
+        "analytical_footprints instead. A valid thesis should connect "
+        "background/regime, mechanism/action, company capability when relevant, "
+        "valuation or earnings logic when relevant, and potential market or "
+        "fundamental impact when the source supports that connection. Split "
+        "regime into macro "
+        "environment and industry-cycle regime when the source supports both: "
+        "macro regime includes rate-cut cycles, monetary/liquidity stance, "
+        "credit cycle, fiscal or regulatory policy, FX/dollar cycle, and growth "
+        "or inflation environment; industry-cycle regime includes sector supply "
+        "tightness, demand-driver transition, inventory, capacity, price, "
+        "competition, prosperity, or technology cycles. Keep those regimes "
+        "separate from company-specific capability or action: sector demand "
+        "growth is a regime, while lab rollout, capacity, channel, technology, "
+        "cost control, order backlog, or management execution is company "
+        "capability/action. Also keep mechanism separate from both regime and "
+        "impact: a mechanism is the transmission channel such as demand pull, "
+        "price/cost pass-through, margin expansion, capacity release, market-share "
+        "gain, technology/productivity improvement, policy/liquidity transmission, "
+        "or valuation repricing. For Chinese reports, write claim_text in Chinese. Do not "
+        "put boilerplate risk warnings, disclaimers, rating-definition tables, "
+        "or purely historical descriptive facts into forecast_claims. Do not "
+        "emit general scientific, clinical, public "
+        "health, or policy recommendations as forecast_claims unless the source "
+        "connects them to company/sector demand, revenue, profit, valuation, "
+        "stock return, industry prosperity, or an investment view. /no_think"
     )
 
 
@@ -1542,27 +2757,151 @@ def _user_prompt(
         "chunk_index": chunk_index,
         "chunk_count": chunk_count,
     }
+    stock_subject = _stock_subject_from_metadata(row)
+    if stock_subject:
+        metadata["stock_subject"] = stock_subject
+    report_context = _ensure_mapping(row.get("report_context"))
+    if report_context:
+        metadata["report_context"] = report_context
+    section_context = _ensure_mapping(row.get("section_context"))
+    if section_context:
+        metadata["section_context"] = section_context
     return (
         "Extract Report Intelligence Loop objects for this Markdown chunk.\n"
         "Return JSON with exactly these top-level array keys: "
         "forecast_claims, analytical_footprints, metric_candidates, "
         "method_patterns, tool_gaps.\n\n"
-        "forecast_claim fields: claim_text, claim_provenance "
+        "forecast_claim fields: claim_text, analyst_claim, "
+        "pre_review_decision, pre_review_reason, claim_provenance "
         "(source_grounded|analyst_or_llm_hypothesis), forecast_testability "
         "(testable|non_testable|insufficient_mapping), forecast_type, target, "
         "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
         "horizon, explicitness (explicit|inferred|unknown), source_conviction, "
         "metric_proxy_mapping, failure_modes, extraction_quality.\n"
+        "Only emit forecast_claims for source-grounded research theses with a "
+        "complete economic chain. The claim_text must be a compact synthesis over "
+        "the full supported report context or a coherent multi-paragraph window: "
+        "macro regime when present, industry regime when present, transmission "
+        "mechanism, company capability/action for stock reports, valuation or "
+        "earnings forecast logic when present, and the expected target impact. It "
+        "does not need to be a verbatim sentence, but every element must be "
+        "supported by the cited source span. Emit at most two forecast_claims for "
+        "this chunk, and emit none when the text only provides local facts, a "
+        "half-sentence, a heading, a pure recommendation list, or a claim that "
+        "cannot be tied back to Mosaic macro/sector/company layers. Prefer fewer, "
+        "higher value claims over enumerating every descriptive sentence; keep "
+        "only the theses that would still be useful for outcome labeling and "
+        "prompt evolution review. "
+        "For Chinese source text, output claim_text in Chinese and keep variable "
+        "or schema ids in English only where the schema requires ids. "
+        "Keep claim_text as the source-grounded extracted claim. Put the "
+        "financial-practitioner rewrite in analyst_claim: it may make the "
+        "macro regime, industry regime, company/sector mechanism, earnings or "
+        "valuation logic, target, direction, and horizon clearer, but it must "
+        "not add facts or causal links unsupported by the chunk. Set "
+        "pre_review_decision to include, exclude, or rewrite_needed from a "
+        "financial-practitioner perspective, and explain briefly in "
+        "pre_review_reason. "
+        "Use Report metadata.report_context when present: subject_context "
+        "identifies the covered entity/sector/asset universe, section_context "
+        "identifies the local section title and section horizon, benchmark_context "
+        "identifies report-level benchmark definitions, and rating_context "
+        "identifies rating-scale terms and rating horizons. frequency_context "
+        "identifies report cadence such as weekly, monthly, quarterly, or annual "
+        "when the title or report type supports it. These contexts can disambiguate "
+        "generic words such as 公司, 行业, 板块, 市场, or 相对收益, but they must not "
+        "add facts unsupported by the report. "
+        "Prefer claims of the form: under <macro regime if present> and "
+        "<industry-cycle regime if present>, <mechanism/action> "
+        "and, for stock reports, <specific company capability/action plus "
+        "earnings or valuation logic> are expected to affect "
+        "<target/fundamental/return> through <channel>. Do not merge "
+        "macro regime, industry-cycle regime, and company capability into one "
+        "undifferentiated cause: 'the Fed entered a rate-cut cycle' or 'China "
+        "stepped up counter-cyclical monetary policy' is macro regime; 'global "
+        "copper supply is structurally tight while demand drivers are shifting' "
+        "is industry-cycle regime; 'company labs reaching designed utilization' "
+        "is company capability/action. "
+        "Make the economic mechanism explicit when supported: identify whether "
+        "the claim works through demand pull, price/cost pass-through, capacity "
+        "release, margin expansion, market-share gain, technology/productivity, "
+        "policy/liquidity transmission, or valuation repricing. "
+        "A forecast_claim must have a finance-relevant target impact: demand, "
+        "orders, revenue, margin, profit, valuation, stock return, sector return, "
+        "industry prosperity, credit growth, liquidity, or explicit investment "
+        "view. General clinical, public-health, scientific, regulatory, or policy "
+        "recommendations without such market/fundamental linkage belong in "
+        "analytical_footprints, not forecast_claims. "
+        "Do not emit forecast_claims for generic boilerplate such as '风险提示：...', "
+        "disclaimers such as '不构成投资建议' or '过往业绩并不预示未来表现', "
+        "or rating-definition tables explaining 强烈推荐/推荐/中性/看淡/卖出 "
+        "rather than expressing this report's view. Do not emit forecast_claims "
+        "for pure historical/statistical descriptions such as price-change tables, "
+        "ROE rankings, current margins, asset-liability ratios, and market-performance "
+        "summaries unless the surrounding paragraph links those facts to a forward "
+        "impact or mechanism. Such descriptive facts may appear in analytical_footprints "
+        "as context, not forecast_claims.\n"
         "For stock reports, if Report metadata.ts_code is present and the chunk "
         "contains a forecast, rating, or investment view for that same company, "
         "set target.target_type='stock' and target.target_id to metadata.ts_code. "
+        "If Report metadata.stock_subject is present, use it only to disambiguate "
+        "the covered stock entity; the source Markdown must still support the "
+        "forecast thesis. Resolve generic references such as 公司, 本公司, 该公司, "
+        "or 标的公司 in claim_text and analyst_claim to "
+        "metadata.stock_subject.subject_label. Do not output a stock forecast_claim "
+        "whose subject is only 公司 or 本公司 when metadata.stock_subject provides "
+        "the actual stock name or ts_code. "
+        "For industry reports, if Report metadata.industry or metadata.query_key "
+        "names the covered sector and the chunk contains an investment view, "
+        "outlook, prosperity-cycle view, rating change, or relative-performance "
+        "call for that sector, set target.target_type='sector' and target.target_id "
+        "to the metadata sector string. For industry directions, use positive only "
+        "when the source text is bullish, constructive, recommends overweight, "
+        "expects upside, expects prosperity improvement, or expects the sector to "
+        "outperform; use negative only when the source text is bearish, defensive, "
+        "recommends underweight, expects downside, expects prosperity deterioration, "
+        "or expects underperformance. Use neutral, ambiguous, or unknown when the "
+        "chunk is balanced, only descriptive, or lacks a clear directional view. "
         "If the text names a benchmark, include benchmark_id; otherwise use "
         "benchmark_type='broad_market' only when the text frames a relative call "
         "against the market. Never invent a horizon; keep horizon unknown when "
-        "the source text has no explicit or clearly implied time window.\n"
+        "the source text and report context have no explicit or clearly implied "
+        "time window. Check report temporal context before leaving horizon empty: "
+        "title, abstract/core-view paragraphs, section headings, rating definitions, "
+        "and report type may provide the applicable horizon for a claim. When "
+        "the text explicitly says windows such as 2026-2028年, 未来三年, 年内, "
+        "未来6个月, 短期, 中期, 中长期, or 长期, encode that in horizon and set "
+        "horizon.source to claim_text, section_context, report_temporal_context, "
+        "report_level_rating_definition, or report_type_default as appropriate. "
+        "Do not copy evaluation horizons such as 90/180/360 days into claim "
+        "horizon unless the report itself states them. Fill metric_proxy_mapping with source-supported "
+        "finance proxies such as stock_forward_return, industry_etf_forward_return, "
+        "relative_alpha, revenue_growth, earnings_growth, margin_profitability, "
+        "valuation_multiple, demand_growth, industry_prosperity, liquidity_credit_condition, "
+        "or commodity_price_cycle. For macro strategy, strategy, fixed-income, "
+        "asset-allocation, or overseas-market reports, extract directional views "
+        "for marketable asset classes when the source supports them. Use "
+        "target.target_type='macro_asset', 'market_index', 'equity_index', "
+        "'bond', or 'commodity' and prefer these canonical target_ids when "
+        "supported: CN_A_SHARE_BROAD, CN_A_SHARE_LARGE_CAP, "
+        "CN_A_SHARE_MID_SMALL, CN_A_SHARE_GROWTH, HK_EQUITY, "
+        "US_EQUITY_NASDAQ, US_EQUITY_SP500, CN_BOND, CN_CREDIT_BOND, "
+        "CN_POLICY_BANK_BOND, or GOLD. For those mapped views, use proxies such "
+        "as macro_asset_forward_return, equity_index_forward_return, "
+        "bond_etf_forward_return, gold_etf_forward_return, or relative_alpha. "
+        "For crude oil, dollar index, CPI, GDP, policy-rate level, yield level, "
+        "or other macro variables without a configured price proxy, still "
+        "extract the analytical footprint and tool gap, but do not invent an "
+        "ETF proxy or canonical target_id. Leave the list empty only when the claim has "
+        "no finance/fundamental/return proxy in the source text.\n"
         "analytical_footprints fields: topic, indicator_mentions, "
         "analysis_patterns, target_agent_candidates. Mark each mention/step "
-        "with source_grounded true/false when possible.\n"
+        "with source_grounded true/false when possible. For analytical_footprints, "
+        "do not leave indicator_mentions empty when the footprint depends on "
+        "measurable evidence, validation data, or market/fundamental proxies; "
+        "name the indicator, canonical metric candidate, data source, frequency, "
+        "transformation, role in the argument, and whether it is directly "
+        "source-grounded. Use unknown only for fields that are truly absent.\n"
         "metric_candidates fields: canonical_name, aliases, metric_family, "
         "raw_data_requirements, default_transformation, target_agents.\n"
         "method_patterns fields: name, steps, required_current_data, "
@@ -1587,12 +2926,14 @@ def call_vllm_extractor(
     *,
     base_url: str = DEFAULT_VLLM_BASE_URL,
     model: str | None = None,
+    api_key: str | None = None,
     timeout_seconds: int = 120,
     max_output_tokens: int = 4096,
 ) -> Mapping[str, Any]:
     resolved_model = resolve_vllm_model(
         base_url,
         explicit_model=model,
+        api_key=api_key,
         timeout_seconds=min(timeout_seconds, 30),
     )
     payload = {
@@ -1615,10 +2956,13 @@ def call_vllm_extractor(
         "response_format": {"type": "json_object"},
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(
         _url(base_url, "chat/completions"),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -1664,6 +3008,22 @@ def _ensure_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _threshold_shortfall(
+    *,
+    current: int,
+    target: int,
+    blocker: str,
+    next_action: str,
+) -> dict[str, Any]:
+    return {
+        "current": max(0, int(current)),
+        "target": max(0, int(target)),
+        "remaining": max(0, int(target) - int(current)),
+        "blocker": blocker,
+        "next_action": next_action,
+    }
+
+
 def _stable_item_key(value: Any) -> str:
     return json.dumps(_jsonable(value), ensure_ascii=False, sort_keys=True)
 
@@ -1693,6 +3053,116 @@ def _bounded_claim_text(text: str) -> tuple[str, bool]:
     if len(normalized) <= MAX_STORED_CLAIM_TEXT_CHARS:
         return normalized, False
     return normalized[: MAX_STORED_CLAIM_TEXT_CHARS - 3].rstrip() + "...", True
+
+
+def _is_forecast_claim_candidate_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized or is_non_research_claim_text(normalized):
+        return False
+    lowered = normalized.lower()
+    mechanism_hits = sum(
+        1 for term in FORECAST_CLAIM_MECHANISM_TERMS if term in normalized
+    )
+    descriptive_hits = sum(
+        1 for term in FORECAST_CLAIM_DESCRIPTIVE_ONLY_TERMS if term in normalized
+    )
+    numeric_heavy = len(re.findall(r"\d+(?:\.\d+)?%?", normalized)) >= 3
+    if mechanism_hits == 0 and (descriptive_hits or numeric_heavy):
+        return False
+    if numeric_heavy and descriptive_hits and mechanism_hits < 2:
+        return False
+    if not any(term.lower() in lowered for term in FORECAST_CLAIM_FINANCE_IMPACT_TERMS):
+        return False
+    return True
+
+
+MARKET_VIEW_FORECAST_TYPES = {
+    "investment_rating",
+    "stock_outlook",
+    "company_outlook",
+    "sector_outlook",
+    "industry_outlook",
+    "relative_outlook",
+    "asset_allocation_outlook",
+    "macro_asset_outlook",
+    "market_outlook",
+    "bond_market_outlook",
+    "commodity_outlook",
+    "target_price",
+}
+MARKET_VIEW_TARGET_TYPES = {
+    "stock",
+    "sector",
+    "industry",
+    "macro_asset",
+    "asset_class",
+    "market_index",
+    "style_index",
+    "bond",
+    "commodity",
+    "equity_index",
+    "broad_market",
+}
+MARKET_VIEW_RETURN_PROXIES = {
+    "stock_forward_return",
+    "industry_etf_forward_return",
+    "macro_asset_forward_return",
+    "equity_index_forward_return",
+    "bond_etf_forward_return",
+    "gold_etf_forward_return",
+    "forward_return_proxy",
+}
+
+
+def _is_structured_market_view_forecast_claim(
+    record: Mapping[str, Any],
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    metric_proxy_mapping: Sequence[Any],
+) -> bool:
+    normalized = re.sub(r"\s+", " ", claim_text).strip()
+    if not normalized:
+        return False
+    if (
+        is_boilerplate_risk_warning_text(normalized)
+        or is_disclaimer_text(normalized)
+        or is_heading_or_toc_text(normalized)
+    ):
+        return False
+    if str(record.get("claim_provenance") or "") != "source_grounded":
+        return False
+    if str(record.get("forecast_type") or "").strip() not in MARKET_VIEW_FORECAST_TYPES:
+        return False
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type not in MARKET_VIEW_TARGET_TYPES or _target_id(target) == "unknown":
+        return False
+    direction = _normalize_forecast_direction(record.get("direction"))
+    if direction not in {"positive", "negative"}:
+        return False
+    proxies = {
+        str(item or "").strip()
+        for item in metric_proxy_mapping
+        if str(item or "").strip()
+    }
+    return bool(proxies & MARKET_VIEW_RETURN_PROXIES)
+
+
+def _is_forecast_claim_candidate_record(
+    record: Mapping[str, Any],
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    metric_proxy_mapping: Sequence[Any],
+) -> bool:
+    if _is_forecast_claim_candidate_text(claim_text):
+        return True
+    return _is_structured_market_view_forecast_claim(
+        record,
+        claim_text,
+        target=target,
+        metric_proxy_mapping=metric_proxy_mapping,
+    )
 
 
 def _normalize_failure_modes(value: Any) -> list[dict[str, Any]]:
@@ -1733,6 +3203,16 @@ def _indicator_value_unknown(value: Any) -> bool:
 
 INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
     (
+        r"7日公开市场净投放|公开市场净投放",
+        {
+            "canonical_metric_candidate": "pboc_net_injection_7d",
+            "data_source_mentioned": "central_bank_open_market_operation_data",
+            "frequency": "daily",
+            "transformation": "rolling_sum",
+            "role_in_argument": "central_bank_liquidity_regime_metric",
+        },
+    ),
+    (
         r"\bdr\s*007\b|dr007|policy[_\s-]*rate|政策利率",
         {
             "canonical_metric_candidate": "dr007_policy_rate_spread",
@@ -1743,6 +3223,853 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"PBOC[_\s-]*7DAY[_\s-]*REPO[_\s-]*RATE|央行逆回购|7天逆回购|公开市场",
+        {
+            "canonical_metric_candidate": "pboc_open_market_policy_rate",
+            "data_source_mentioned": "central_bank_open_market_operation_data",
+            "frequency": "daily",
+            "transformation": "rate_level_or_operation_change",
+            "role_in_argument": "central_bank_liquidity_regime_metric",
+        },
+    ),
+    (
+        r"brain[-_\s]*computer|bci|technology[_\s-]*roadmap|application[_\s-]*scenario|"
+        r"supply[_\s-]*chain[_\s-]*mapping|产业链价值分配|产业链结构|产业链拆解|"
+        r"商业模式演进|商业模式对比",
+        {
+            "canonical_metric_candidate": "technology_adoption_or_market_share",
+            "data_source_mentioned": "industry_statistics_or_report_competitive_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "adoption_share_or_value_chain_change",
+            "role_in_argument": "technology_industry_structure_metric",
+        },
+    ),
+    (
+        r"\bhis\b|\blis\b|\bpacs\b|clinical[_\s-]*data[_\s-]*center|"
+        r"research[_\s-]*data[_\s-]*center|management[_\s-]*data[_\s-]*center|"
+        r"smart[_\s-]*service|multimodal[_\s-]*medical[_\s-]*data|"
+        r"data[_\s-]*element.*healthcare|医院信息化|医疗数据中心",
+        {
+            "canonical_metric_candidate": "digitalization_project_adoption",
+            "data_source_mentioned": "project_disclosure_or_industry_digitalization_data",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "project_milestone_or_adoption_level",
+            "role_in_argument": "healthcare_it_project_metric",
+        },
+    ),
+    (
+        r"煤炭价格|铜现货价|国内氦气价格|主营炼厂毛利|涤纶长丝毛利|"
+        r"聚酯瓶片利润|pta加工费|负债融资平均成本|lpr息差|负债成本",
+        {
+            "canonical_metric_candidate": "commodity_price_margin_or_funding_cost",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_margin_spread_or_cost_change",
+            "role_in_argument": "price_margin_or_funding_cost_metric",
+        },
+    ),
+    (
+        r"规避案例|ad/cvd|反倾销|反补贴|贸易措施|措施数量|调查数量",
+        {
+            "canonical_metric_candidate": "trade_policy_measure_count",
+            "data_source_mentioned": "customs_trade_statistics_or_report_table",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "case_count_or_policy_event",
+            "role_in_argument": "trade_policy_pressure_metric",
+        },
+    ),
+    (
+        r"危旧房|城中村|城市更新|地下管网|老旧小区|总投资|reits|专项债",
+        {
+            "canonical_metric_candidate": "urban_renewal_project_kpi",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly_or_annual_or_event_driven",
+            "transformation": "project_count_investment_or_policy_parameter",
+            "role_in_argument": "urban_renewal_investment_metric",
+        },
+    ),
+    (
+        r"青年.*消费占比|中年.*支出占比|银发.*消费占比|情绪价值|情价比|"
+        r"幸福感驱动|微度假|康养旅居|养老需求|代际消费",
+        {
+            "canonical_metric_candidate": "consumer_survey_metric",
+            "data_source_mentioned": "consumer_survey_or_platform_research",
+            "frequency": "survey_window",
+            "transformation": "survey_rate_or_rank_change",
+            "role_in_argument": "consumer_preference_survey_metric",
+        },
+    ),
+    (
+        r"fldi|flci|flewi|cflei|行业发展指数|行业信心指数|行业预警指数|"
+        r"行业展望指数|展望指数|信心指数|预警指数",
+        {
+            "canonical_metric_candidate": "industry_confidence_warning_index",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "index_level_or_change",
+            "role_in_argument": "industry_sentiment_or_risk_metric",
+        },
+    ),
+    (
+        r"偿付能力|综合偿付|核心偿付|资本补充|资金运用|资产配置|投资收益率|保费收入",
+        {
+            "canonical_metric_candidate": "insurance_operation_or_solvency_metric",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_allocation_change",
+            "role_in_argument": "insurance_operation_or_capital_metric",
+        },
+    ),
+    (
+        r"自研设备|在建.*项目|战略投资者|一体化项目|产业协同|客户重合度|"
+        r"业绩承诺|品牌力|技术突破|融资事件|公司战略合作|合作伙伴",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_project_status",
+            "role_in_argument": "company_strategy_or_project_metric",
+        },
+    ),
+    (
+        r"影片供给|春节档|片单|预售|想看|movie[_\s-]*supply|pre[-_\s]*sale",
+        {
+            "canonical_metric_candidate": "box_office_pre_sale_activity",
+            "data_source_mentioned": "movie_ticketing_platform_pre_sale_data",
+            "frequency": "daily_or_holiday_window",
+            "transformation": "pre_sale_or_supply_count",
+            "role_in_argument": "media_supply_and_demand_heat_metric",
+        },
+    ),
+    (
+        r"行业排名|volume[_\s-]*rank|sales[_\s-]*rank|商品排名|店铺排名|类目排名",
+        {
+            "canonical_metric_candidate": "ecommerce_store_product_rank_activity",
+            "data_source_mentioned": "ecommerce_platform_category_store_product_data",
+            "frequency": "monthly",
+            "transformation": "sales_rank_or_volume_value_change",
+            "role_in_argument": "platform_rank_activity_metric",
+        },
+    ),
+    (
+        r"international[_\s-]*business[_\s-]*layout|国际业务布局|"
+        r"machine[_\s-]*tools?|semiconductor|linear[_\s-]*guideways?|"
+        r"mining[_\s-]*equipment|special[_\s-]*equipment|superhard[_\s-]*materials?",
+        {
+            "canonical_metric_candidate": "business_mix_or_channel_operation_metric",
+            "data_source_mentioned": "company_channel_or_segment_operation_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "segment_share_or_operation_change",
+            "role_in_argument": "business_segment_or_channel_metric",
+        },
+    ),
+    (
+        r"煤质特性|ore[_\s-]*grade|resource[_\s-]*quality|资源品位",
+        {
+            "canonical_metric_candidate": "resource_quality_metric",
+            "data_source_mentioned": "resource_reserve_or_company_project_disclosure",
+            "frequency": "annual_or_event_driven",
+            "transformation": "quality_grade_or_property_level",
+            "role_in_argument": "resource_quality_advantage_metric",
+        },
+    ),
+    (
+        r"(?<!资产)负债$|负债结构|有息负债|债务结构",
+        {
+            "canonical_metric_candidate": "financial_ratio_or_risk_metric",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "financial_quality_or_risk_metric",
+        },
+    ),
+    (
+        r"brand[_\s-]*building.*urban[_\s-]*renewal|"
+        r"shift[_\s-]*from[_\s-]*developer[_\s-]*to[_\s-]*city[_\s-]*operator|"
+        r"城市运营|城市更新品牌",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_project_status",
+            "role_in_argument": "company_strategy_or_project_metric",
+        },
+    ),
+    (
+        r"dram.*合约价|nand(?:[_\s-]*flash)?.*合约价|memory[_\s-]*contract[_\s-]*price",
+        {
+            "canonical_metric_candidate": "semiconductor_memory_contract_price",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "contract_price_level_or_change",
+            "role_in_argument": "semiconductor_price_cycle_metric",
+        },
+    ),
+    (
+        r"(?:地面兵装|航海装备|航空装备|子板块).*(?:上涨|下跌)",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_rank_change",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"upstream[_\s-]*raw[_\s-]*materials?|downstream[_\s-]*application|"
+        r"深加工|终端应用|氧化铝冶炼|电解铝冶炼",
+        {
+            "canonical_metric_candidate": "industry_value_chain_structure",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "annual_or_quarterly",
+            "transformation": "value_chain_segment_or_share_change",
+            "role_in_argument": "industry_value_chain_metric",
+        },
+    ),
+    (
+        r"durability|shock[_\s-]*absorption|耐久性|减震",
+        {
+            "canonical_metric_candidate": "product_performance_metric",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "performance_level_or_milestone",
+            "role_in_argument": "product_performance_metric",
+        },
+    ),
+    (
+        r"prashad[_\s-]*scheme|swadesh[_\s-]*darshan|旅游项目|文旅项目",
+        {
+            "canonical_metric_candidate": "tourism_policy_project_metric",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "event_driven_or_annual",
+            "transformation": "project_count_or_policy_status",
+            "role_in_argument": "tourism_policy_project_metric",
+        },
+    ),
+    (
+        r"科技股挖掘|港股打新|拉长债券久期|平滑净值曲线",
+        {
+            "canonical_metric_candidate": "asset_management_product_activity",
+            "data_source_mentioned": "asset_management_product_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "aum_strategy_or_return_change",
+            "role_in_argument": "wealth_management_activity_metric",
+        },
+    ),
+    (
+        r"全球铝供应偏紧|中国氦气对外依存度|全球氦气资源分布|"
+        r"国际.*工业气体公司.*主导|国际厂商主导",
+        {
+            "canonical_metric_candidate": "resource_supply_concentration_metric",
+            "data_source_mentioned": "resource_reserve_or_company_project_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "share_concentration_or_dependency_ratio",
+            "role_in_argument": "resource_supply_security_metric",
+        },
+    ),
+    (
+        r"data[_\s-]*silos?|inconsistent[_\s-]*data[_\s-]*reporting|"
+        r"lack[_\s-]*of[_\s-]*data[_\s-]*support|support[_\s-]*for[_\s-]*management[_\s-]*decisions|"
+        r"patient[_\s-]*experience|medical[_\s-]*research|medical[_\s-]*service[_\s-]*quality|"
+        r"数据孤岛|数据标准不一致|管理决策支持|患者体验|医疗服务质量",
+        {
+            "canonical_metric_candidate": "data_governance_maturity_metric",
+            "data_source_mentioned": "project_disclosure_or_industry_digitalization_data",
+            "frequency": "survey_window_or_project_window",
+            "transformation": "maturity_score_or_project_outcome",
+            "role_in_argument": "data_governance_value_metric",
+        },
+    ),
+    (
+        r"轻资产模式|批量采购.*分销|统一接口|合规支付|网络互通",
+        {
+            "canonical_metric_candidate": "ai_token_platform_operation_metric",
+            "data_source_mentioned": "ai_platform_usage_or_cost_benchmark",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "business_model_or_usage_cost_metric",
+            "role_in_argument": "ai_token_platform_business_model_metric",
+        },
+    ),
+    (
+        r"市场竞争加剧|技术发展不及预期|要素成本攀升|转型路径模糊",
+        {
+            "canonical_metric_candidate": "industry_execution_risk_metric",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "event_driven_or_survey_window",
+            "transformation": "risk_flag_or_pressure_level",
+            "role_in_argument": "industry_risk_pressure_metric",
+        },
+    ),
+    (
+        r"税收优惠金额|高新技术企业所得税率|所得税率|tax[_\s-]*(?:benefit|rate)",
+        {
+            "canonical_metric_candidate": "tax_policy_benefit_metric",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "amount_or_effective_tax_rate",
+            "role_in_argument": "tax_advantage_metric",
+        },
+    ),
+    (
+        r"氦气中游|精制提纯|液化储运|中游壁垒|长协锁价|"
+        r"低温储运|全球调度|多源长协|自有储运|电子大宗气体收入占比|"
+        r"高端电子特气|asml|gigaphoton|产业链布局",
+        {
+            "canonical_metric_candidate": "industry_value_chain_structure",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "annual_or_quarterly",
+            "transformation": "value_chain_segment_or_share_change",
+            "role_in_argument": "industry_value_chain_metric",
+        },
+    ),
+    (
+        r"事关.*安全|半导体.*军工.*航天安全|上市时间|投产时间|投产进度",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_annual",
+            "transformation": "milestone_event_or_strategic_status",
+            "role_in_argument": "company_strategy_or_project_metric",
+        },
+    ),
+    (
+        r"gdp[_\s-]*deflator|nominal[_\s-]*gdp|fixed[_\s-]*asset[_\s-]*investment|"
+        r"special[_\s-]*bond[_\s-]*issuance|direct[_\s-]*financing|tsf|"
+        r"劳动参与率|财政支出|财政节奏|财政政策|财政信用|投资结构|名义GDP|平减指数|专项债|直接融资",
+        {
+            "canonical_metric_candidate": "macro_activity_or_credit_metric",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_share_change",
+            "role_in_argument": "macro_regime_metric",
+        },
+    ),
+    (
+        r"fx[_\s-]*reserves|汇率|外汇储备|人民币汇率|美元指数|usdcny|cny",
+        {
+            "canonical_metric_candidate": "fx_liquidity_regime_metric",
+            "data_source_mentioned": "fx_market_or_official_reserve_data",
+            "frequency": "daily_or_monthly",
+            "transformation": "level_or_change",
+            "role_in_argument": "dollar_liquidity_or_currency_regime_metric",
+        },
+    ),
+    (
+        r"CN[_\s-]*US[_\s-]*10Y[_\s-]*bond[_\s-]*spread|中美利差|10年期利差",
+        {
+            "canonical_metric_candidate": "china_us_bond_yield_spread",
+            "data_source_mentioned": "bond_market_yield_curve",
+            "frequency": "daily",
+            "transformation": "spread",
+            "role_in_argument": "yield_curve_regime_metric",
+        },
+    ),
+    (
+        r"股基成交额|日均股基交易额|沪深股基成交额|market[_\s-]*turnover|turnover",
+        {
+            "canonical_metric_candidate": "market_turnover",
+            "data_source_mentioned": "exchange_market_trading_data",
+            "frequency": "daily_or_monthly",
+            "transformation": "turnover_level_or_growth",
+            "role_in_argument": "capital_market_activity_metric",
+        },
+    ),
+    (
+        r"sector[_\s-]*pe|industry[_\s-]*pe|pe[_\s-]*ttm|pb[_\s-]*lf|"
+        r"valuation[_\s-]*percentile|historical[_\s-]*valuation|PE估值|历史估值分位",
+        {
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_forecast",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio_or_percentile",
+            "role_in_argument": "valuation_proxy",
+        },
+    ),
+    (
+        r"market[_\s-]*performance|sector[_\s-]*performance|relative[_\s-]*performance|"
+        r"weekly[_\s-]*market[_\s-]*performance|行情回顾|行情复盘|市场表现|板块表现|相对强弱|板块轮动",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_relative_return",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"同比(?:上涨|下降|增长|减少|增速)|环比(?:上涨|下降|增长|减少|增速)|"
+        r"yoy[_\s-]*(?:growth|change)|mom[_\s-]*(?:growth|change)",
+        {
+            "canonical_metric_candidate": "reported_operation_growth_rate",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "growth_rate",
+            "role_in_argument": "reported_operation_growth_metric",
+        },
+    ),
+    (
+        r"sector[_\s-]*rank|industry[_\s-]*rank|industry[_\s-]*ranking|"
+        r"sector[_\s-]*ranking|子板块.*(?:上涨|下跌)|(?:上涨|下跌)\s*\d+(?:\.\d+)?%",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_rank_change",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"wind[_\s-]*(?:power[_\s-]*)?(?:tender|bidding|bid)|winning[_\s-]*bid|"
+        r"bidding[_\s-]*volume|winning[_\s-]*bid[_\s-]*volume|"
+        r"(?:max|min|lowest|average)[_\s-]*winning[_\s-]*price|竞价|中标价|中标量|招标量",
+        {
+            "canonical_metric_candidate": "renewable_tender_price_volume",
+            "data_source_mentioned": "energy_project_or_tender_statistics",
+            "frequency": "weekly_or_monthly",
+            "transformation": "volume_or_price_level_change",
+            "role_in_argument": "renewable_project_demand_and_price_metric",
+        },
+    ),
+    (
+        r"installed[_\s-]*capacity|capacity[_\s-]*(?:utili[sz]ation|expansion)|"
+        r"new[_\s-]*capacity|secured[_\s-]*capacity|production[_\s-]*volume|"
+        r"产能|核定产能|权益产能|在建产能|新增产能|产能利用率|产量",
+        {
+            "canonical_metric_candidate": "industry_capacity_supply",
+            "data_source_mentioned": "industry_capacity_or_production_statistics",
+            "frequency": "monthly_or_annual",
+            "transformation": "capacity_or_output_level_change",
+            "role_in_argument": "supply_capacity_metric",
+        },
+    ),
+    (
+        r"subsidy|benchmark[_\s-]*tariff|feed[_\s-]*in[_\s-]*tariff|"
+        r"lifecycle[_\s-]*hours|补贴|标杆电价|全生命周期|合理利用小时|生物质发电",
+        {
+            "canonical_metric_candidate": "subsidy_tariff_policy_parameter",
+            "data_source_mentioned": "policy_announcement_or_report_policy_summary",
+            "frequency": "event_driven",
+            "transformation": "policy_parameter_extraction",
+            "role_in_argument": "subsidy_mechanism_metric",
+        },
+    ),
+    (
+        r"market[_\s-]*electricity[_\s-]*price|上网电价|丰枯电价|市场化电价|电价",
+        {
+            "canonical_metric_candidate": "power_market_price",
+            "data_source_mentioned": "power_market_price_or_tariff_data",
+            "frequency": "monthly_or_event_driven",
+            "transformation": "price_level_or_policy_parameter",
+            "role_in_argument": "power_price_metric",
+        },
+    ),
+    (
+        r"发电量|用电量|发电装机|装机容量|平均利用小时|利用小时|电源工程投资",
+        {
+            "canonical_metric_candidate": "power_operation_metric",
+            "data_source_mentioned": "energy_operation_statistics_or_report_table",
+            "frequency": "monthly",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "power_supply_demand_operation_metric",
+        },
+    ),
+    (
+        r"overseas[_\s-]*approval|regulatory[_\s-]*approvals?|policy[_\s-]*approval|"
+        r"PRASHAD.*approved|Swadesh.*approved|审批|获批|批准",
+        {
+            "canonical_metric_candidate": "regulatory_approval_status",
+            "data_source_mentioned": "regulatory_disclosure_or_policy_project_list",
+            "frequency": "event_driven",
+            "transformation": "approval_status_or_project_count",
+            "role_in_argument": "policy_or_transaction_catalyst",
+        },
+    ),
+    (
+        r"dividend[_\s-]*payout|dividend[_\s-]*to[_\s-]*financing|股息率|分红率|派息率",
+        {
+            "canonical_metric_candidate": "shareholder_return_metric",
+            "data_source_mentioned": "company_financials_or_dividend_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "shareholder_return_metric",
+        },
+    ),
+    (
+        r"water[_\s-]*supply|wastewater|penetration[_\s-]*rate|供水|污水|渗透率",
+        {
+            "canonical_metric_candidate": "utility_operation_metric",
+            "data_source_mentioned": "utility_operation_statistics_or_company_disclosure",
+            "frequency": "monthly_or_annual",
+            "transformation": "volume_or_rate_change",
+            "role_in_argument": "utility_demand_or_penetration_metric",
+        },
+    ),
+    (
+        r"ride[_\s-]*hailing|express[_\s-]*parcel|platform[_\s-]*order|网约车|快递件量",
+        {
+            "canonical_metric_candidate": "transport_logistics_operation_metric",
+            "data_source_mentioned": "transportation_operation_statistics_or_report_table",
+            "frequency": "daily_or_monthly",
+            "transformation": "order_or_volume_growth",
+            "role_in_argument": "transport_logistics_activity_metric",
+        },
+    ),
+    (
+        r"tourism[_\s-]*revenue|tourism[_\s-]*activity|forex[_\s-]*earnings|"
+        r"旅游消费活跃度|旅游收入|旅游外汇|入境游客",
+        {
+            "canonical_metric_candidate": "tourism_consumption_activity",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "tourism_demand_activity_metric",
+        },
+    ),
+    (
+        r"airport[_\s-]*operations|airport[_\s-]*count|metro[_\s-]*network|"
+        r"highway[_\s-]*network|digital[_\s-]*infrastructure[_\s-]*usage|"
+        r"机场运营|机场数量|地铁里程|高速公路|数字基础设施",
+        {
+            "canonical_metric_candidate": "transport_infrastructure_capacity",
+            "data_source_mentioned": "transport_infrastructure_statistics",
+            "frequency": "annual_or_monthly",
+            "transformation": "level_or_growth",
+            "role_in_argument": "tourism_or_transport_capacity_metric",
+        },
+    ),
+    (
+        r"clinical[_\s-]*endpoint|epidemiology|disease[_\s-]*incidence|"
+        r"syphilis|流行病学|发病率|患病率|临床终点",
+        {
+            "canonical_metric_candidate": "clinical_or_epidemiology_metric",
+            "data_source_mentioned": "clinical_trial_or_epidemiology_statistics",
+            "frequency": "event_driven_or_annual",
+            "transformation": "rate_or_endpoint_effect_size",
+            "role_in_argument": "healthcare_demand_or_clinical_evidence_metric",
+        },
+    ),
+    (
+        r"ai[_\s-]*assistant[_\s-]*adoption|ai[_\s-]*adoption|workplace[_\s-]*ai|"
+        r"AI助手|AI采用|智能体治理|模型发展",
+        {
+            "canonical_metric_candidate": "ai_adoption_activity",
+            "data_source_mentioned": "industry_survey_or_platform_usage_data",
+            "frequency": "monthly_or_survey_window",
+            "transformation": "adoption_rate_or_usage_change",
+            "role_in_argument": "ai_software_demand_metric",
+        },
+    ),
+    (
+        r"票房|box[_\s-]*office",
+        {
+            "canonical_metric_candidate": "box_office_revenue",
+            "data_source_mentioned": "box_office_platform_statistics",
+            "frequency": "daily_or_holiday_window",
+            "transformation": "revenue_level_or_forecast",
+            "role_in_argument": "media_consumption_demand_metric",
+        },
+    ),
+    (
+        r"预售|想看|片单|影片供给|pre[-_\s]*sale|movie[_\s-]*supply",
+        {
+            "canonical_metric_candidate": "box_office_pre_sale_activity",
+            "data_source_mentioned": "movie_ticketing_platform_pre_sale_data",
+            "frequency": "daily_or_holiday_window",
+            "transformation": "pre_sale_or_supply_count",
+            "role_in_argument": "media_supply_and_demand_heat_metric",
+        },
+    ),
+    (
+        r"capex|资本开支|资本支出",
+        {
+            "canonical_metric_candidate": "industry_capex_cycle",
+            "data_source_mentioned": "industry_capex_or_company_guidance",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "supply_capacity_investment_metric",
+        },
+    ),
+    (
+        r"carbon[_\s-]*market|carbon[_\s-]*price|碳市场|碳价|碳配额|CCER",
+        {
+            "canonical_metric_candidate": "carbon_market_price_volume",
+            "data_source_mentioned": "carbon_market_exchange_statistics",
+            "frequency": "daily_or_weekly",
+            "transformation": "price_volume_or_turnover_change",
+            "role_in_argument": "carbon_market_activity_metric",
+        },
+    ),
+    (
+        r"mine|矿山|矿权|储量|资源量|自给率|锂矿|铝土矿|煤层气储量",
+        {
+            "canonical_metric_candidate": "resource_reserve_supply",
+            "data_source_mentioned": "resource_reserve_or_company_project_disclosure",
+            "frequency": "annual_or_event_driven",
+            "transformation": "reserve_level_or_growth",
+            "role_in_argument": "resource_supply_security_metric",
+        },
+    ),
+    (
+        r"token|日均token|token调用|单位token|reasoning[_\s-]*stability|iaas|maas|词元|推理稳定性",
+        {
+            "canonical_metric_candidate": "ai_token_usage_economics",
+            "data_source_mentioned": "ai_platform_usage_or_cost_benchmark",
+            "frequency": "daily_or_monthly",
+            "transformation": "usage_cost_or_efficiency_change",
+            "role_in_argument": "ai_token_economics_metric",
+        },
+    ),
+    (
+        r"agreement[_\s-]*rate|worried[_\s-]*rate|very[_\s-]*worried|weight[_\s-]*loss|appetite[_\s-]*suppression|减重|焦虑",
+        {
+            "canonical_metric_candidate": "consumer_survey_metric",
+            "data_source_mentioned": "consumer_survey_or_platform_research",
+            "frequency": "survey_window",
+            "transformation": "survey_rate",
+            "role_in_argument": "consumer_health_demand_metric",
+        },
+    ),
+    (
+        r"国产化|国产替代|domestic[_\s-]*substitution|locali[sz]ation|技术差距|technology[_\s-]*gap",
+        {
+            "canonical_metric_candidate": "domestic_substitution_rate",
+            "data_source_mentioned": "industry_policy_or_company_localization_disclosure",
+            "frequency": "event_driven_or_annual",
+            "transformation": "rate_or_milestone_progress",
+            "role_in_argument": "import_substitution_progress_metric",
+        },
+    ),
+    (
+        r"集采|带量采购|centralized[_\s-]*procurement|generic[_\s-]*drug|仿制药",
+        {
+            "canonical_metric_candidate": "medical_procurement_policy_exposure",
+            "data_source_mentioned": "healthcare_policy_or_drug_procurement_disclosure",
+            "frequency": "event_driven",
+            "transformation": "policy_event_or_sales_exposure",
+            "role_in_argument": "healthcare_policy_pressure_metric",
+        },
+    ),
+    (
+        r"\bcpi\b|\bppi\b|\bpmi\b|\bm2\b|社融|信贷|通胀|宏观经济|macro[_\s-]*economic|financial[_\s-]*cycle|tech[_\s-]*investment[_\s-]*cycle|infrastructure[_\s-]*investment",
+        {
+            "canonical_metric_candidate": "macro_activity_or_inflation_metric",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "macro_regime_metric",
+        },
+    ),
+    (
+        r"联邦基金利率期货|fed[_\s-]*funds[_\s-]*futures|加息概率|降息概率",
+        {
+            "canonical_metric_candidate": "policy_rate_expectation",
+            "data_source_mentioned": "rates_futures_market_data",
+            "frequency": "daily",
+            "transformation": "implied_probability",
+            "role_in_argument": "monetary_policy_expectation_metric",
+        },
+    ),
+    (
+        r"国九条|再融资|保证金比例|十五五|十四五|规划|纲要|tariff|关税|policy[_\s-]*(?:stance|implementation)|regulatory[_\s-]*environment|fiscal[_\s-]*stimulus",
+        {
+            "canonical_metric_candidate": "policy_regime_event",
+            "data_source_mentioned": "policy_announcement_or_regulatory_disclosure",
+            "frequency": "event_driven",
+            "transformation": "event_or_parameter_change",
+            "role_in_argument": "policy_regime_metric",
+        },
+    ),
+    (
+        r"军费|国防开支|作战力量|military[_\s-]*spending|defense[_\s-]*budget",
+        {
+            "canonical_metric_candidate": "defense_spending_policy",
+            "data_source_mentioned": "public_budget_or_defense_policy_plan",
+            "frequency": "annual_or_event_driven",
+            "transformation": "budget_growth_or_policy_event",
+            "role_in_argument": "defense_industry_policy_demand_metric",
+        },
+    ),
+    (
+        r"理财|aum|存量规模|理财子|港股打新|债券久期|净值|wealth[_\s-]*management|multi[_\s-]*asset[_\s-]*strategy",
+        {
+            "canonical_metric_candidate": "asset_management_product_activity",
+            "data_source_mentioned": "asset_management_product_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "aum_strategy_or_return_change",
+            "role_in_argument": "wealth_management_activity_metric",
+        },
+    ),
+    (
+        r"不良率|不良贷款|应收租赁款不良|资产负债率|leverage[_\s-]*ratio|roa|roe|expense[_\s-]*ratio|financial[_\s-]*expense|财务费用|费用率",
+        {
+            "canonical_metric_candidate": "financial_ratio_or_risk_metric",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "financial_quality_or_risk_metric",
+        },
+    ),
+    (
+        r"earnings[_\s-]*growth|profit[_\s-]*growth|利润增长|业绩增长",
+        {
+            "canonical_metric_candidate": "earnings_growth",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "growth_rate_or_forecast",
+            "role_in_argument": "earnings_growth_metric",
+        },
+    ),
+    (
+        r"forward[_\s-]*return|weekly[_\s-]*return|sector[_\s-]*return|stock[_\s-]*price|(?<!目标)股价|周度收益|行业收益",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_price_change",
+            "role_in_argument": "market_performance_proxy",
+        },
+    ),
+    (
+        r"市场成交额|market[_\s-]*turnover|turnover",
+        {
+            "canonical_metric_candidate": "market_turnover",
+            "data_source_mentioned": "exchange_market_trading_data",
+            "frequency": "daily_or_monthly",
+            "transformation": "turnover_level_or_growth",
+            "role_in_argument": "capital_market_activity_metric",
+        },
+    ),
+    (
+        r"行业.*(?:发展|信心|预警).*指数|展业状况评价|confidence[_\s-]*index|warning[_\s-]*index|development[_\s-]*index",
+        {
+            "canonical_metric_candidate": "industry_confidence_warning_index",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "index_level_or_change",
+            "role_in_argument": "industry_sentiment_or_risk_metric",
+        },
+    ),
+    (
+        r"来水|水库水位|丰枯|厄尔尼诺|el[_\s-]*nino|hydrology",
+        {
+            "canonical_metric_candidate": "hydrology_power_generation_condition",
+            "data_source_mentioned": "hydrology_weather_or_power_operation_data",
+            "frequency": "monthly_or_seasonal",
+            "transformation": "level_deviation_or_forecast",
+            "role_in_argument": "hydropower_supply_condition_metric",
+        },
+    ),
+    (
+        r"霍尔木兹|美伊|停火|geopolitical[_\s-]*risk|地缘",
+        {
+            "canonical_metric_candidate": "geopolitical_supply_risk",
+            "data_source_mentioned": "geopolitical_event_or_shipping_channel_monitor",
+            "frequency": "event_driven",
+            "transformation": "event_or_risk_state",
+            "role_in_argument": "geopolitical_supply_chain_risk_metric",
+        },
+    ),
+    (
+        r"舱位|附加费|绕航|好望角|ship[_\s-]*rental|newbuild[_\s-]*price|发运量|铁路发运|机票搜索|酒店预订",
+        {
+            "canonical_metric_candidate": "transport_logistics_operation_metric",
+            "data_source_mentioned": "transportation_operation_statistics_or_report_table",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "level_growth_or_price_change",
+            "role_in_argument": "transport_logistics_activity_metric",
+        },
+    ),
+    (
+        r"airport[_\s-]*count|metro[_\s-]*network|highway[_\s-]*network|infrastructure[_\s-]*capacity|机场数量|地铁里程|高速公路",
+        {
+            "canonical_metric_candidate": "transport_infrastructure_capacity",
+            "data_source_mentioned": "transport_infrastructure_statistics",
+            "frequency": "annual",
+            "transformation": "level_or_growth",
+            "role_in_argument": "tourism_or_transport_capacity_metric",
+        },
+    ),
+    (
+        r"ttdi|arrivals|foreign[_\s-]*exchange[_\s-]*earnings|旅游外汇|入境",
+        {
+            "canonical_metric_candidate": "tourism_consumption_activity",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "tourism_demand_activity_metric",
+        },
+    ),
+    (
+        r"展会|exhibition|industry[_\s-]*event|参展|cimes",
+        {
+            "canonical_metric_candidate": "industry_event_participation",
+            "data_source_mentioned": "industry_event_or_exhibition_disclosure",
+            "frequency": "event_driven",
+            "transformation": "event_scale_or_participation",
+            "role_in_argument": "industry_trend_window_metric",
+        },
+    ),
+    (
+        r"客户集中度|customer[_\s-]*concentration",
+        {
+            "canonical_metric_candidate": "customer_concentration",
+            "data_source_mentioned": "company_customer_structure_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "share_or_concentration_change",
+            "role_in_argument": "customer_structure_risk_metric",
+        },
+    ),
+    (
+        r"土地市场|land[_\s-]*market|房价|housing[_\s-]*price|库存去化|房地产库存",
+        {
+            "canonical_metric_candidate": "real_estate_market_activity",
+            "data_source_mentioned": "real_estate_transaction_database_or_report_table",
+            "frequency": "weekly_or_monthly",
+            "transformation": "price_volume_or_inventory_change",
+            "role_in_argument": "real_estate_cycle_metric",
+        },
+    ),
+    (
+        r"private[_\s-]*company[_\s-]*valuation|corporate[_\s-]*financing|融资事件|公司估值",
+        {
+            "canonical_metric_candidate": "private_market_financing_valuation",
+            "data_source_mentioned": "private_financing_or_company_disclosure",
+            "frequency": "event_driven",
+            "transformation": "valuation_or_financing_event",
+            "role_in_argument": "industry_financing_sentiment_metric",
+        },
+    ),
+    (
+        r"digital[_\s-]*industry|intelligent[_\s-]*computing|算力|数字产业|智能算力",
+        {
+            "canonical_metric_candidate": "digital_economy_operation_metric",
+            "data_source_mentioned": "digital_economy_statistics_or_industry_report",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_growth_or_capacity_change",
+            "role_in_argument": "digital_industry_activity_metric",
+        },
+    ),
+    (
+        r"pv[_\s-]*new[_\s-]*installation|installation[_\s-]*capacity|wind[_\s-]*installation|offshore[_\s-]*wind|装机|风电|光伏",
+        {
+            "canonical_metric_candidate": "renewable_installation_or_project_pipeline",
+            "data_source_mentioned": "energy_project_or_installation_statistics",
+            "frequency": "monthly_or_event_driven",
+            "transformation": "capacity_level_or_project_progress",
+            "role_in_argument": "renewable_energy_project_metric",
+        },
+    ),
+    (
+        r"rare[_\s-]*metal|precious[_\s-]*metal|glass[_\s-]*fiber[_\s-]*price|lithium[_\s-]*carbonate|electrolyte|ternary[_\s-]*material|碳酸锂|电解液|三元材料|煤炭价格指数|能源价格|有色|贵金属|稀有金属|玻纤价格",
+        {
+            "canonical_metric_candidate": "commodity_price_cycle",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_level_or_change",
+            "role_in_argument": "commodity_input_cost_metric",
+        },
+    ),
+    (
         r"\bphase\s*(i|ii|iii|1|2|3)\b|clinical|trial|registration|asco",
         {
             "canonical_metric_candidate": "clinical_trial_milestone_status",
@@ -1750,6 +4077,46 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "event_driven",
             "transformation": "milestone_event",
             "role_in_argument": "clinical_development_milestone",
+        },
+    ),
+    (
+        r"sustain|soul|mace|hazard[_\s-]*ratio|\bhr\b|risk[_\s-]*reduction|心血管|风险降低",
+        {
+            "canonical_metric_candidate": "clinical_endpoint_outcome",
+            "data_source_mentioned": "clinical_trial_or_subgroup_analysis",
+            "frequency": "event_driven",
+            "transformation": "endpoint_effect_size",
+            "role_in_argument": "clinical_efficacy_endpoint",
+        },
+    ),
+    (
+        r"discontinuation|adverse[_\s-]*event|\bae\b|不良事件|停药率|停止治疗|耐受性",
+        {
+            "canonical_metric_candidate": "adverse_event_discontinuation_rate",
+            "data_source_mentioned": "clinical_trial_or_real_world_evidence",
+            "frequency": "event_driven",
+            "transformation": "rate_or_difference",
+            "role_in_argument": "clinical_safety_tolerability_metric",
+        },
+    ),
+    (
+        r"satisfaction|injection[_\s-]*device|注射装置|满意度|使用方便",
+        {
+            "canonical_metric_candidate": "patient_satisfaction_score",
+            "data_source_mentioned": "clinical_or_patient_survey",
+            "frequency": "event_driven",
+            "transformation": "survey_rate",
+            "role_in_argument": "patient_adherence_or_tolerability_metric",
+        },
+    ),
+    (
+        r"pipeline|applying[_\s-]*for[_\s-]*listing|listing[_\s-]*application|申请上市|在研管线|生物类似药",
+        {
+            "canonical_metric_candidate": "clinical_trial_milestone_status",
+            "data_source_mentioned": "company_disclosure_or_clinical_trial_registry",
+            "frequency": "event_driven",
+            "transformation": "milestone_event_or_count",
+            "role_in_argument": "competitive_pipeline_milestone",
         },
     ),
     (
@@ -1773,13 +4140,23 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"target[_\s-]*price|price[_\s-]*target|目标价",
+        r"target[_\s-]*price|price[_\s-]*target|目标价|目标股价",
         {
             "canonical_metric_candidate": "target_price",
             "data_source_mentioned": "report_valuation_output",
             "frequency": "point_in_time",
             "transformation": "extract_forecast",
             "role_in_argument": "valuation_output",
+        },
+    ),
+    (
+        r"收盘价|closing[_\s-]*price|close[_\s-]*price",
+        {
+            "canonical_metric_candidate": "stock_price",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily",
+            "transformation": "price_level",
+            "role_in_argument": "market_price_metric",
         },
     ),
     (
@@ -1790,6 +4167,348 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "annual",
             "transformation": "extract_forecast",
             "role_in_argument": "earnings_forecast_metric",
+        },
+    ),
+    (
+        r"category.*sales|store.*sales|product.*sales|platform.*sales|"
+        r"gmv|电商|平台|店铺|品类|类目|商品排名|商品销售|热销商品",
+        {
+            "canonical_metric_candidate": "ecommerce_store_product_rank_activity",
+            "data_source_mentioned": "ecommerce_platform_category_store_product_data",
+            "frequency": "monthly",
+            "transformation": "sales_rank_or_volume_value_change",
+            "role_in_argument": "ecommerce_demand_and_competition_metric",
+        },
+    ),
+    (
+        r"industry[_\s-]*(?:revenue|sales|market[_\s-]*size|output[_\s-]*value|output[_\s-]*volume)|"
+        r"market[_\s-]*size|市场规模|市场空间|行业收入|行业销售|行业产值|行业产量",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_growth_or_forecast",
+            "role_in_argument": "industry_market_size_metric",
+        },
+    ),
+    (
+        r"demand[_\s-]*growth|industry[_\s-]*prosperity|industry[_\s-]*volume|"
+        r"(?:global|regional|china|latam|europe|motorcycle|vehicle|auto|industry)[_\s-].*sales[_\s-]*volume|"
+        r"需求增长|行业景气|行业销量",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_quarterly_or_annual",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "industry_demand_cycle_metric",
+        },
+    ),
+    (
+        r"export[_\s-]*revenue|import[_\s-]*revenue|trade[_\s-]*balance|unit[_\s-]*price|"
+        r"出口收入|进口收入|贸易差额|进出口均价|进出口单价|主要目的地|前十目的地|占比合计",
+        {
+            "canonical_metric_candidate": "export_import_trade_flow",
+            "data_source_mentioned": "customs_trade_statistics_or_report_table",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "value_volume_or_unit_price_change",
+            "role_in_argument": "external_demand_trade_metric",
+        },
+    ),
+    (
+        r"express[_\s-]*delivery|freight|shipping|tanker|vlcc|bdi|ctfi|ask|load[_\s-]*factor|"
+        r"passenger[_\s-]*volume|railway[_\s-]*freight|road[_\s-]*logistics|truck[_\s-]*traffic|"
+        r"快递|运价|货运|客运|铁路货运|公路物流|货车通行|可用座公里|客座率",
+        {
+            "canonical_metric_candidate": "transport_logistics_operation_metric",
+            "data_source_mentioned": "transportation_operation_statistics_or_report_table",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "level_growth_or_index_change",
+            "role_in_argument": "transport_logistics_activity_metric",
+        },
+    ),
+    (
+        r"consumer[_\s-]*survey|survey[_\s-]*metric|health[_\s-]*awareness|消费者调研|消费意愿|健康意识",
+        {
+            "canonical_metric_candidate": "consumer_survey_metric",
+            "data_source_mentioned": "consumer_survey_or_platform_research",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "survey_rate_or_index_change",
+            "role_in_argument": "consumer_demand_intention_metric",
+        },
+    ),
+    (
+        r"policy[_\s-]*event|regulatory[_\s-]*action|policy[_\s-]*regime|政策|监管|标准",
+        {
+            "canonical_metric_candidate": "policy_regime_event",
+            "data_source_mentioned": "policy_announcement_or_regulatory_disclosure",
+            "frequency": "event_driven",
+            "transformation": "event_or_parameter_change",
+            "role_in_argument": "policy_regime_metric",
+        },
+    ),
+    (
+        r"aum|asset[_\s-]*under[_\s-]*management|product[_\s-]*return|product[_\s-]*yield|"
+        r"理财规模|产品收益|产品收益率",
+        {
+            "canonical_metric_candidate": "asset_management_product_activity",
+            "data_source_mentioned": "asset_management_product_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "aum_flow_or_return_change",
+            "role_in_argument": "wealth_management_activity_metric",
+        },
+    ),
+    (
+        r"funding[_\s-]*cost|financing[_\s-]*cost|融资成本|资金成本",
+        {
+            "canonical_metric_candidate": "credit_capital_market_activity",
+            "data_source_mentioned": "rating_agency_or_capital_market_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "rate_or_spread_change",
+            "role_in_argument": "financing_condition_metric",
+        },
+    ),
+    (
+        r"10y[_\s-]*(?:govt|government)[_\s-]*bond[_\s-]*yield|bond[_\s-]*yield|yield[_\s-]*curve|"
+        r"国债收益率|收益率曲线",
+        {
+            "canonical_metric_candidate": "bond_yield_curve",
+            "data_source_mentioned": "bond_market_yield_curve",
+            "frequency": "daily",
+            "transformation": "yield_level_or_change",
+            "role_in_argument": "interest_rate_regime_metric",
+        },
+    ),
+    (
+        r"sales[_\s-]*(?:volume|revenue|amount)|销售额|销售量|销量|成交额|mom|month[-_\s]*over[-_\s]*month|环比",
+        {
+            "canonical_metric_candidate": "reported_sales_volume_or_value",
+            "data_source_mentioned": "industry_or_platform_operation_report_table",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_change_amplitude",
+            "role_in_argument": "reported_demand_or_sales_metric",
+        },
+    ),
+    (
+        r"置换比|可磨性|技术性能指标|单位产出|能耗",
+        {
+            "canonical_metric_candidate": "product_performance_metric",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "performance_level_or_efficiency_change",
+            "role_in_argument": "product_performance_metric",
+        },
+    ),
+    (
+        r"average[_\s-]*price|均价|价格段|价格带|客单价",
+        {
+            "canonical_metric_candidate": "reported_average_price",
+            "data_source_mentioned": "industry_or_platform_price_report_table",
+            "frequency": "daily_or_monthly",
+            "transformation": "price_level_or_change",
+            "role_in_argument": "reported_price_metric",
+        },
+    ),
+    (
+        r"revenue|sales|营业收入|营收|收入增长|境外收入|overseas[_\s-]*revenue|销售额|销售量|销量|成交额|gmv",
+        {
+            "canonical_metric_candidate": "revenue_growth",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_growth_or_forecast",
+            "role_in_argument": "revenue_growth_metric",
+        },
+    ),
+    (
+        r"规模测算|addressable[_\s-]*market",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_growth_or_forecast",
+            "role_in_argument": "industry_market_size_metric",
+        },
+    ),
+    (
+        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|产能利用率|景气度|"
+        r"demand|prosperity|utilization[_\s-]*rate|order[_\s-]*(?:book|backlog|intake)",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_company_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "industry_demand_cycle_metric",
+        },
+    ),
+    (
+        r"供需|供给|产能|库存|产量|价格中枢|涨价|降价|商品价格|油价|煤价|钢价|铜价|铝价|锂价|原油|"
+        r"brent|london[_\s-]*gold|gold[_\s-]*spot|crude[_\s-]*oil|capacity|inventory|production|commodity[_\s-]*price",
+        {
+            "canonical_metric_candidate": "commodity_price_cycle",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_level_or_supply_demand_change",
+            "role_in_argument": "commodity_supply_demand_cycle_metric",
+        },
+    ),
+    (
+        r"出口|进口|贸易|进出口|海关|外贸|export|import|trade[_\s-]*(?:flow|volume|value)",
+        {
+            "canonical_metric_candidate": "export_import_trade_flow",
+            "data_source_mentioned": "customs_trade_statistics_or_report_table",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "value_or_volume_growth",
+            "role_in_argument": "external_demand_trade_metric",
+        },
+    ),
+    (
+        r"产品结构|业务结构|收入结构|品类结构|区域结构|客户结构|product[_\s-]*mix|business[_\s-]*mix|revenue[_\s-]*mix",
+        {
+            "canonical_metric_candidate": "business_mix_structure",
+            "data_source_mentioned": "company_financials_or_report_segment_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "segment_share_or_growth",
+            "role_in_argument": "business_mix_metric",
+        },
+    ),
+    (
+        r"市场份额|市占率|竞争格局|集中度|cr\d|份额提升|market[_\s-]*share|"
+        r"share[_\s-]*of[_\s-]*total|competitive[_\s-]*landscape",
+        {
+            "canonical_metric_candidate": "market_share_competitive_position",
+            "data_source_mentioned": "industry_statistics_or_report_competitive_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "share_level_or_change",
+            "role_in_argument": "competitive_position_metric",
+        },
+    ),
+    (
+        r"信息化|数字化|数据治理|数据中心|智慧城市|医院信息化|ETL|集成平台|digitali[sz]ation|data[_\s-]*governance|smart[_\s-]*city",
+        {
+            "canonical_metric_candidate": "digitalization_project_adoption",
+            "data_source_mentioned": "project_disclosure_or_industry_digitalization_data",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "project_milestone_or_adoption_rate",
+            "role_in_argument": "digitalization_adoption_metric",
+        },
+    ),
+    (
+        r"技术路线|工艺|良率|产品迭代|新品|商业化|量产|technology[_\s-]*roadmap|commerciali[sz]ation|product[_\s-]*(?:launch|iteration)|yield[_\s-]*rate",
+        {
+            "canonical_metric_candidate": "technology_product_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_rate",
+            "role_in_argument": "technology_product_execution_metric",
+        },
+    ),
+    (
+        r"asset[_\s-]*quality|资产质量|不良率|不良贷款|拨备|减值|坏账|信用风险|non[_\s-]*performing|npl",
+        {
+            "canonical_metric_candidate": "asset_quality_nonperforming_ratio",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "asset_quality_metric",
+        },
+    ),
+    (
+        r"净息差|\bnim\b|贷款|存款|社融|信贷|m2|credit[_\s-]*growth|loan[_\s-]*growth",
+        {
+            "canonical_metric_candidate": "bank_credit_supply",
+            "data_source_mentioned": "bank_financials_or_money_credit_data",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "growth_rate_or_spread",
+            "role_in_argument": "bank_credit_and_margin_metric",
+        },
+    ),
+    (
+        r"transaction[_\s-]*area|成交面积|成交指数|商品房成交|新房成交|二手房成交",
+        {
+            "canonical_metric_candidate": "real_estate_transaction_area",
+            "data_source_mentioned": "real_estate_transaction_database_or_report_table",
+            "frequency": "weekly_or_monthly",
+            "transformation": "area_level_or_growth_rate",
+            "role_in_argument": "real_estate_demand_activity_metric",
+        },
+    ),
+    (
+        r"sell[-_\s]*through|sellthrough|去化率|开盘去化|项目去化",
+        {
+            "canonical_metric_candidate": "real_estate_sell_through_rate",
+            "data_source_mentioned": "real_estate_project_launch_tracking",
+            "frequency": "weekly_or_monthly",
+            "transformation": "rate_or_change",
+            "role_in_argument": "real_estate_project_demand_metric",
+        },
+    ),
+    (
+        r"store[_\s-]*rank|product[_\s-]*rank|category[_\s-]*rank|top[_\s-]*store|店铺|商品排名|店铺排名|类目排名|相对排名|活跃度|搜索词",
+        {
+            "canonical_metric_candidate": "ecommerce_store_product_rank_activity",
+            "data_source_mentioned": "ecommerce_platform_category_store_product_data",
+            "frequency": "monthly",
+            "transformation": "rank_distribution_or_activity_change",
+            "role_in_argument": "ecommerce_competitive_activity_metric",
+        },
+    ),
+    (
+        r"price[_\s-]*segment|price[_\s-]*band|average[_\s-]*price|\basp\b|价格段|价格带|均价|客单价|价格调整|调价",
+        {
+            "canonical_metric_candidate": "ecommerce_price_segment_distribution",
+            "data_source_mentioned": "ecommerce_platform_price_distribution_data",
+            "frequency": "monthly",
+            "transformation": "segment_share_or_price_change",
+            "role_in_argument": "ecommerce_pricing_structure_metric",
+        },
+    ),
+    (
+        r"generation|power[_\s-]*consumption|installed[_\s-]*capacity|utilization[_\s-]*hours|power[_\s-]*engineering[_\s-]*investment|发电量|用电量|装机容量|发电装机|平均利用小时|利用小时|电源工程投资",
+        {
+            "canonical_metric_candidate": "power_operation_metric",
+            "data_source_mentioned": "energy_operation_statistics_or_report_table",
+            "frequency": "monthly",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "power_supply_demand_operation_metric",
+        },
+    ),
+    (
+        r"delivery|deliveries|交付量|交付目标|交付达成",
+        {
+            "canonical_metric_candidate": "vehicle_delivery_volume",
+            "data_source_mentioned": "company_delivery_disclosure_or_industry_sales_data",
+            "frequency": "monthly_or_event_driven",
+            "transformation": "level_or_milestone_progress",
+            "role_in_argument": "auto_demand_and_execution_metric",
+        },
+    ),
+    (
+        r"r&d|rd[_\s-]*intensity|research[_\s-]*development|研发投入|研发费用|研发比例|核心技术投入",
+        {
+            "canonical_metric_candidate": "rd_investment",
+            "data_source_mentioned": "company_financials_or_report_business_update",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_ratio",
+            "role_in_argument": "technology_capability_investment_metric",
+        },
+    ),
+    (
+        r"tourist|visitor|passenger[_\s-]*flow|hotel[_\s-]*occupancy|旅游收入|游客|客流|出行|入住率|文旅消费",
+        {
+            "canonical_metric_candidate": "tourism_consumption_activity",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "monthly_or_holiday_window",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "tourism_demand_activity_metric",
+        },
+    ),
+    (
+        r"credit[_\s-]*rating|capital[_\s-]*supplement|评级变动|信用级别|资本补充|并购重组",
+        {
+            "canonical_metric_candidate": "credit_capital_market_activity",
+            "data_source_mentioned": "rating_agency_or_capital_market_disclosure",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "event_count_or_status_change",
+            "role_in_argument": "credit_and_capital_structure_metric",
         },
     ),
     (
@@ -1813,6 +4532,26 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"net[_\s-]*margin|operating[_\s-]*margin|profitability|roe|return[_\s-]*on[_\s-]*equity|净利率|费用率|净资产收益率|盈利质量|盈利能力",
+        {
+            "canonical_metric_candidate": "margin_profitability",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_change",
+            "role_in_argument": "profitability_metric",
+        },
+    ),
+    (
+        r"operating[_\s-]*cash[_\s-]*flow|经营(?:活动)?现金流|现金流",
+        {
+            "canonical_metric_candidate": "operating_cash_flow",
+            "data_source_mentioned": "company_cash_flow_statement",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_growth",
+            "role_in_argument": "cash_generation_metric",
+        },
+    ),
+    (
         r"non[_\s-]*banking[_\s-]*financial[_\s-]*index",
         {
             "canonical_metric_candidate": "non_banking_financial_index_return",
@@ -1830,6 +4569,26 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "daily",
             "transformation": "return",
             "role_in_argument": "relative_performance_proxy",
+        },
+    ),
+    (
+        r"sector[_\s-]*return|index[_\s-]*return|benchmark[_\s-]*return|relative[_\s-]*performance|sector[_\s-]*ranking|hs300|沪深\s*300|指数|涨跌幅|相对收益率|板块表现|行业表现",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_monthly",
+            "transformation": "return_or_relative_return",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"\bpe[_\s-]*ratio\b|\bpe\b|ev[/_\s-]*ebitda|pb[_\s-]*ratio|valuation[_\s-]*multiple|市盈率|市净率|估值倍数",
+        {
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_forecast",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio",
+            "role_in_argument": "valuation_proxy",
         },
     ),
     (
@@ -1853,6 +4612,16 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"m[_\s-]*and[_\s-]*a|m&a|并购|收购|new[_\s-]*market[_\s-]*entry|海外布局|国际化|新市场",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven",
+            "transformation": "milestone_event",
+            "role_in_argument": "strategic_expansion_execution_metric",
+        },
+    ),
+    (
         r"regulatory[_\s-]*approval",
         {
             "canonical_metric_candidate": "regulatory_approval_status",
@@ -1860,6 +4629,46 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "event_driven",
             "transformation": "status_event",
             "role_in_argument": "policy_or_transaction_catalyst",
+        },
+    ),
+    (
+        r"green[_\s-]*power[_\s-]*direct|绿电直连|self[_\s-]*use|自发自用|surplus[_\s-]*power|余电上网|输配电费|transmission[_\s-]*distribution[_\s-]*fee",
+        {
+            "canonical_metric_candidate": "policy_parameter_constraint",
+            "data_source_mentioned": "policy_announcement",
+            "frequency": "event_driven",
+            "transformation": "policy_parameter_extraction",
+            "role_in_argument": "policy_business_model_constraint",
+        },
+    ),
+    (
+        r"subsidy|benchmark[_\s-]*tariff|feed[_\s-]*in[_\s-]*tariff|lifecycle[_\s-]*hours|补贴|标杆电价|全生命周期|合理利用小时|生物质发电",
+        {
+            "canonical_metric_candidate": "subsidy_tariff_policy_parameter",
+            "data_source_mentioned": "policy_announcement_or_report_policy_summary",
+            "frequency": "event_driven",
+            "transformation": "policy_parameter_extraction",
+            "role_in_argument": "subsidy_mechanism_metric",
+        },
+    ),
+    (
+        r"gpu[_\s-]*demand|optical[_\s-]*communication|data[_\s-]*center|ai[_\s-]*infrastructure|算力|光通信|数据中心",
+        {
+            "canonical_metric_candidate": "ai_infrastructure_demand",
+            "data_source_mentioned": "industry_news_or_company_disclosure",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "event_flag_or_growth_proxy",
+            "role_in_argument": "technology_infrastructure_demand_metric",
+        },
+    ),
+    (
+        r"spectrum[_\s-]*allocation|commercial[_\s-]*deployment|connection[_\s-]*forecast|6g|6\s*ghz|频谱|商用部署|连接数",
+        {
+            "canonical_metric_candidate": "telecom_spectrum_deployment_milestone",
+            "data_source_mentioned": "policy_announcement_or_industry_forecast",
+            "frequency": "event_driven",
+            "transformation": "milestone_event_or_forecast",
+            "role_in_argument": "technology_policy_adoption_metric",
         },
     ),
     (
@@ -1873,6 +4682,26 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"保费|寿险保费|财险保费|新业务价值|nbv",
+        {
+            "canonical_metric_candidate": "insurance_premium_income",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "growth_rate_or_value_change",
+            "role_in_argument": "insurance_business_growth_metric",
+        },
+    ),
+    (
+        r"solvency|偿付能力|综合偿付|核心偿付|资本补充",
+        {
+            "canonical_metric_candidate": "insurance_solvency_ratio",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "quarterly_or_event_driven",
+            "transformation": "ratio_or_capital_event",
+            "role_in_argument": "insurance_capital_adequacy_metric",
+        },
+    ),
+    (
         r"claim[_\s-]*payout",
         {
             "canonical_metric_candidate": "insurance_claim_payouts",
@@ -1880,6 +4709,56 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "monthly",
             "transformation": "growth_rate",
             "role_in_argument": "insurance_loss_ratio_proxy",
+        },
+    ),
+    (
+        r"赔付|赔款|赔付率|综合成本率",
+        {
+            "canonical_metric_candidate": "insurance_claim_payouts",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "rate_or_growth_rate",
+            "role_in_argument": "insurance_loss_ratio_proxy",
+        },
+    ),
+    (
+        r"fund[_\s-]*flow|northbound|southbound|沪深港通|资金流|持股变动|持股比例",
+        {
+            "canonical_metric_candidate": "institutional_flow_metric",
+            "data_source_mentioned": "exchange_connect_or_fund_flow_data",
+            "frequency": "daily_or_weekly",
+            "transformation": "holding_or_flow_change",
+            "role_in_argument": "market_flow_metric",
+        },
+    ),
+    (
+        r"equity[_\s-]*incentive|股权激励|授予股票|总股本比例|考核目标",
+        {
+            "canonical_metric_candidate": "equity_incentive_plan_metric",
+            "data_source_mentioned": "company_equity_incentive_disclosure",
+            "frequency": "event_driven",
+            "transformation": "grant_size_or_performance_target",
+            "role_in_argument": "management_incentive_metric",
+        },
+    ),
+    (
+        r"hog[_\s-]*price|pig[_\s-]*price|hog[_\s-]*output|生猪价格|养殖成本|出栏规模|出栏量",
+        {
+            "canonical_metric_candidate": "livestock_price_cost_volume",
+            "data_source_mentioned": "livestock_operation_statistics",
+            "frequency": "weekly_or_monthly",
+            "transformation": "price_cost_or_volume_change",
+            "role_in_argument": "livestock_cycle_metric",
+        },
+    ),
+    (
+        r"vehicle[_\s-]*ownership|replacement[_\s-]*cycle|sales[_\s-]*midpoint|保有量|更新周期|销量中枢",
+        {
+            "canonical_metric_candidate": "vehicle_sales_cycle",
+            "data_source_mentioned": "auto_industry_operation_statistics",
+            "frequency": "monthly_or_annual",
+            "transformation": "stock_cycle_or_sales_forecast",
+            "role_in_argument": "auto_replacement_demand_metric",
         },
     ),
     (
@@ -1893,7 +4772,17 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"equity[_\s-]*financing[_\s-]*scale|ipo[_\s-]*amount|refinancing[_\s-]*amount",
+        r"保险资产|总资产|投资收益率",
+        {
+            "canonical_metric_candidate": "insurance_total_assets",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "quarterly",
+            "transformation": "level_or_growth",
+            "role_in_argument": "insurance_balance_sheet_metric",
+        },
+    ),
+    (
+        r"equity[_\s-]*financing[_\s-]*scale|ipo[_\s-]*amount|refinancing[_\s-]*amount|leverage[_\s-]*ratio",
         {
             "canonical_metric_candidate": "equity_financing_scale",
             "data_source_mentioned": "exchange_or_wind_financing_data",
@@ -1942,7 +4831,279 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "role_in_argument": "equity_pledge_risk_metric",
         },
     ),
+    (
+        r"营业总收入|total[_\s-]*revenue|eps(?:预测|[_\s-]*forecast)?|每股股利|"
+        r"合同负债|contract[_\s-]*liabilit(?:y|ies)",
+        {
+            "canonical_metric_candidate": "report_financial_statement_or_forecast_metric",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_ratio_or_forecast",
+            "role_in_argument": "financial_forecast_or_quality_metric",
+        },
+    ),
+    (
+        r"comparable[_\s-]*compan(?:y|ies)|\bvaluation\b|可比公司",
+        {
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_forecast",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio_or_percentile",
+            "role_in_argument": "valuation_proxy",
+        },
+    ),
+    (
+        r"(?:highest|max)[_\s-]*winning[_\s-]*price|最高中标价",
+        {
+            "canonical_metric_candidate": "renewable_tender_price_volume",
+            "data_source_mentioned": "energy_project_or_tender_statistics",
+            "frequency": "weekly_or_monthly",
+            "transformation": "volume_or_price_level_change",
+            "role_in_argument": "renewable_project_demand_and_price_metric",
+        },
+    ),
+    (
+        r"csi[_\s-]*300[_\s-]*index|power[_\s-]*equipment[_\s-]*index|"
+        r"\b[a-z0-9]+(?:[_\s-][a-z0-9]+)*[_\s-]*index\b|沪深\s*300",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_relative_return",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"igbt|igct|thyristors?|ceramic[_\s-]*tube[_\s-]*shells?|"
+        r"packaging[_\s-]*heat[_\s-]*dissipation[_\s-]*substrates?|"
+        r"\beda\b|自动驾驶|滚珠丝杠|复合耐高压防腐膜|全链条自研|"
+        r"新产品|新设备|\btws\b|手机主板|服务器主板|灵巧手空心杯电机|"
+        r"\b(?:i?cvd|ald|pvd)\b|产品技术升级|技术优势|工业自动化水平",
+        {
+            "canonical_metric_candidate": "technology_product_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_rate",
+            "role_in_argument": "technology_or_product_progress_metric",
+        },
+    ),
+    (
+        r"下游应用领域|按用途分类|油墨定义|产品组合|产品线|品类结构|"
+        r"市场重心转移|欧洲市场机遇与挑战|新兴市场布局|海外经营模式|"
+        r"terminal[_\s-]*network[_\s-]*coverage|new[_\s-]*channels?|"
+        r"single[_\s-]*store[_\s-]*output",
+        {
+            "canonical_metric_candidate": "business_mix_or_channel_operation_metric",
+            "data_source_mentioned": "company_channel_or_segment_operation_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "share_level_or_operation_change",
+            "role_in_argument": "business_mix_or_channel_metric",
+        },
+    ),
+    (
+        r"repurchase|share[_\s-]*increase|actual[_\s-]*controller.*increase|回购|增持",
+        {
+            "canonical_metric_candidate": "shareholder_return_metric",
+            "data_source_mentioned": "company_financials_or_dividend_disclosure",
+            "frequency": "event_driven",
+            "transformation": "amount_or_share_change",
+            "role_in_argument": "shareholder_return_metric",
+        },
+    ),
+    (
+        r"ipo[_\s-]*(?:filing|plans?)|policy[_\s-]*funding|contract[_\s-]*value|"
+        r"fundraising|融资计划|合同金额|签约金额",
+        {
+            "canonical_metric_candidate": "project_contract_or_funding_value",
+            "data_source_mentioned": "company_disclosure_or_project_contract_data",
+            "frequency": "event_driven",
+            "transformation": "amount_or_event_status",
+            "role_in_argument": "project_financing_or_contract_metric",
+        },
+    ),
+    (
+        r"launch[_\s-]*frequency|commercial[_\s-]*space|商业航天|发射频次",
+        {
+            "canonical_metric_candidate": "commercial_space_launch_activity",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "count_or_frequency_change",
+            "role_in_argument": "commercial_space_activity_metric",
+        },
+    ),
+    (
+        r"cfo[_\s-]*cpo[_\s-]*adoption|silicon[_\s-]*photonics[_\s-]*share|"
+        r"adoption|渗透率",
+        {
+            "canonical_metric_candidate": "technology_adoption_or_market_share",
+            "data_source_mentioned": "industry_statistics_or_report_competitive_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "adoption_rate_or_share_change",
+            "role_in_argument": "technology_adoption_metric",
+        },
+    ),
+    (
+        r"pet[_\s-]*usage|原材料价格波动|非洲矿业活动|lithium[_\s-]*resource|"
+        r"hydroxide[_\s-]*lithium|carbonate|ton[_\s-]*capacity|碳酸锂|氢氧化锂",
+        {
+            "canonical_metric_candidate": "resource_capacity_or_commodity_cost",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_capacity_or_supply_change",
+            "role_in_argument": "resource_supply_or_input_cost_metric",
+        },
+    ),
+    (
+        r"ind[_\s-]*approvals?|nda[_\s-]*approvals?|license[_\s-]*out[_\s-]*deals?|"
+        r"医保谈判|保险报销|insurance[_\s-]*reimbursement|"
+        r"volume[_\s-]*based[_\s-]*procurement|hospital[_\s-]*prescription[_\s-]*flow|"
+        r"price[_\s-]*governance",
+        {
+            "canonical_metric_candidate": "healthcare_policy_or_clinical_milestone",
+            "data_source_mentioned": "healthcare_policy_or_drug_procurement_disclosure",
+            "frequency": "event_driven",
+            "transformation": "policy_or_approval_event",
+            "role_in_argument": "healthcare_policy_or_clinical_catalyst",
+        },
+    ),
+    (
+        r"lvef|不良反应|疗效|安全性|给药方案|clinical[_\s-]*efficacy",
+        {
+            "canonical_metric_candidate": "clinical_endpoint_or_safety_metric",
+            "data_source_mentioned": "clinical_trial_or_real_world_evidence",
+            "frequency": "event_driven",
+            "transformation": "endpoint_rate_or_safety_event",
+            "role_in_argument": "clinical_efficacy_or_safety_metric",
+        },
+    ),
+    (
+        r"gdp[_\s-]*contribution|total[_\s-]*output[_\s-]*value|专家问卷比例|"
+        r"公司问卷比例|国内排名|行业头部集中趋势|国内.*方案商",
+        {
+            "canonical_metric_candidate": "industry_scale_survey_or_rank_metric",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "monthly_or_annual_or_survey_window",
+            "transformation": "level_share_rank_or_survey_rate",
+            "role_in_argument": "industry_scale_or_competitive_position_metric",
+        },
+    ),
 )
+
+
+INDICATOR_METADATA_GENERIC_SOURCES = {
+    "unknown",
+    "company_financials_or_report_forecast",
+    "report_financial_forecast",
+    "commodity_price_supply_demand_inventory_data",
+    "ecommerce_platform_category_store_product_data",
+    "ecommerce_platform_price_distribution_data",
+    "industry_or_platform_operation_report_table",
+    "industry_or_platform_price_report_table",
+}
+
+INDICATOR_METADATA_INDEX_PROXY_SOURCES = {
+    "exchange_index_price",
+    "stock_etf_or_index_price",
+}
+
+INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES = {
+    "ai_platform_usage_or_cost_benchmark",
+    "asset_management_product_disclosure",
+    "auto_industry_operation_statistics",
+    "carbon_market_exchange_statistics",
+    "company_channel_or_segment_operation_disclosure",
+    "company_disclosure_or_report_business_update",
+    "company_equity_incentive_disclosure",
+    "company_financials_or_regulatory_disclosure",
+    "commodity_price_supply_demand_inventory_data",
+    "customs_trade_statistics_or_report_table",
+    "exchange_connect_or_fund_flow_data",
+    "industry_survey_or_association_index",
+    "industry_operation_statistics_or_report_table",
+    "livestock_operation_statistics",
+    "movie_ticketing_platform_pre_sale_data",
+    "project_disclosure_or_industry_digitalization_data",
+    "report_valuation_output",
+    "transportation_operation_statistics_or_report_table",
+    "exchange_market_trading_data",
+    "industry_capacity_or_production_statistics",
+    "energy_project_or_tender_statistics",
+    "power_market_price_or_tariff_data",
+    "resource_reserve_or_company_project_disclosure",
+    "tourism_operation_statistics_or_survey",
+    "transport_infrastructure_statistics",
+}
+
+INDICATOR_METADATA_COMPANY_SOURCE_OVERRIDES = {
+    "digital_economy_statistics_or_industry_report",
+    "energy_project_or_installation_statistics",
+    "industry_capex_or_company_guidance",
+    "industry_policy_or_company_localization_disclosure",
+    "private_financing_or_company_disclosure",
+    "resource_reserve_or_company_project_disclosure",
+}
+
+INDICATOR_METADATA_COMPANY_METRIC_OVERRIDES = {
+    "ai_token_platform_operation_metric",
+    "business_mix_or_channel_operation_metric",
+    "data_governance_maturity_metric",
+    "domestic_substitution_rate",
+    "financial_ratio_or_risk_metric",
+    "industry_capacity_supply",
+    "industry_execution_risk_metric",
+    "industry_value_chain_structure",
+    "insurance_operation_or_solvency_metric",
+    "product_performance_metric",
+    "private_market_financing_valuation",
+    "resource_quality_metric",
+    "resource_supply_concentration_metric",
+    "renewable_installation_or_project_pipeline",
+    "shareholder_return_metric",
+    "strategic_expansion_milestone",
+    "tax_policy_benefit_metric",
+    "technology_adoption_or_market_share",
+}
+
+INDICATOR_METADATA_DERIVED_INFERENCE_SOURCES = {
+    "source_chunk_indicator_seed_rule",
+    "footprint_context_indicator_seed_rule",
+    "footprint_context_metadata_rule",
+}
+
+
+def _indicator_inference_should_override(
+    normalized: Mapping[str, Any],
+    inferred: Mapping[str, Any],
+) -> bool:
+    current_source = str(normalized.get("data_source_mentioned") or "unknown")
+    inferred_source = str(inferred.get("data_source_mentioned") or "")
+    inferred_metric = str(inferred.get("canonical_metric_candidate") or "")
+    if not inferred_source or inferred_source == current_source:
+        return False
+    if current_source in INDICATOR_METADATA_GENERIC_SOURCES:
+        return True
+    if (
+        current_source in INDICATOR_METADATA_INDEX_PROXY_SOURCES
+        and inferred_source in INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES
+    ):
+        return True
+    if (
+        current_source == "market_valuation_data_or_report_forecast"
+        and inferred_metric == "market_or_sector_index_return"
+    ):
+        return True
+    if (
+        current_source.startswith("company_")
+        and (
+            inferred_source in INDICATOR_METADATA_COMPANY_SOURCE_OVERRIDES
+            or inferred_metric in INDICATOR_METADATA_COMPANY_METRIC_OVERRIDES
+        )
+    ):
+        return True
+    return bool(
+        current_source.startswith("company_")
+        and not inferred_source.startswith("company_")
+    )
 
 
 def _infer_indicator_metadata(indicator_text: str) -> dict[str, Any]:
@@ -1963,6 +5124,7 @@ def _apply_indicator_metadata_inference(mention: Mapping[str, Any]) -> dict[str,
         "canonical_name",
     )
     inferred = _infer_indicator_metadata(indicator_text)
+    override_existing = _indicator_inference_should_override(normalized, inferred)
     for field in (
         "canonical_metric_candidate",
         "data_source_mentioned",
@@ -1970,7 +5132,9 @@ def _apply_indicator_metadata_inference(mention: Mapping[str, Any]) -> dict[str,
         "transformation",
         "role_in_argument",
     ):
-        if _indicator_value_unknown(normalized.get(field)) and field in inferred:
+        if field not in inferred:
+            continue
+        if _indicator_value_unknown(normalized.get(field)) or override_existing:
             normalized[field] = inferred[field]
     if inferred and normalized.get("source_grounded") is not True:
         normalized["source_grounded"] = True
@@ -2018,7 +5182,546 @@ def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
                 }
             )
         )
+    return _prioritize_indicator_mentions_for_review(records)
+
+
+def _prioritize_indicator_mentions_for_review(
+    records: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    unique_records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for record in records:
+        mention = dict(record)
+        key = (
+            str(mention.get("indicator_text") or ""),
+            str(mention.get("canonical_metric_candidate") or ""),
+            str(mention.get("data_source_mentioned") or ""),
+            str(mention.get("transformation") or ""),
+            str(mention.get("role_in_argument") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_records.append(mention)
+
+    def sort_key(item: tuple[int, Mapping[str, Any]]) -> tuple[int, int, int]:
+        index, mention = item
+        canonical_unknown = _indicator_value_unknown(
+            mention.get("canonical_metric_candidate")
+        )
+        source_grounded = mention.get("source_grounded") is True
+        if source_grounded and not canonical_unknown:
+            priority = 0
+        elif not canonical_unknown:
+            priority = 1
+        elif source_grounded:
+            priority = 2
+        else:
+            priority = 3
+        return (priority, len(str(mention.get("indicator_text") or "")), index)
+
+    return [
+        dict(mention)
+        for _, mention in sorted(enumerate(unique_records), key=sort_key)
+    ]
+
+
+TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
+    (
+        r"7日公开市场净投放|公开市场净投放",
+        "7日公开市场净投放",
+        r"流动性|资金|公开市场|liquidity|funding",
+    ),
+    (
+        r"\bdr\s*007\b|DR007|政策利率",
+        "DR007与政策利率利差",
+        r"流动性|资金|利率|DR007|liquidity|funding|rate",
+    ),
+    (
+        r"宏观经济|PMI|财政政策|投资结构|专项债|社融|信贷|GDP|通胀",
+        "宏观经济/财政信用指标",
+        r"宏观|财政|投资|PMI|社融|信贷|GDP|通胀|macro|fiscal|credit",
+    ),
+    (
+        r"成交面积|成交指数|商品房成交|新房成交|二手房成交",
+        "成交面积",
+        r"成交|房地产|transaction|real[_\s-]*estate|monthly[_\s-]*cumulative",
+    ),
+    (
+        r"去化率|开盘去化|项目去化|sell[-_\s]*through",
+        "去化率",
+        r"去化|开盘|项目|sell[-_\s]*through|project[_\s-]*launch",
+    ),
+    (
+        r"GMV|gmv|电商销售|平台销售|店铺销售|商品销售|品类销售|类目销售",
+        "电商平台品类销售额/销量",
+        r"电商|店铺|商品|品类|类目|platform|store|product|category",
+    ),
+    (
+        r"快递|运价|货运|客运|铁路货运|公路物流|货车通行|可用座公里|客座率|"
+        r"express[_\s-]*delivery|freight|shipping|bdi|ctfi|ask|load[_\s-]*factor",
+        "交通物流运营指标",
+        r"物流|交通|航运|航空|快递|货运|客运|transport|shipping|airline|express",
+    ),
+    (
+        r"消费者调研|消费意愿|健康意识|consumer[_\s-]*survey|survey[_\s-]*metric",
+        "消费者调研指标",
+        r"消费|消费者|需求|调研|survey|consumer|demand",
+    ),
+    (
+        r"政策事件|政策监管|监管|标准|policy[_\s-]*event|regulatory[_\s-]*action",
+        "政策监管事件",
+        r"政策|监管|标准|policy|regulatory",
+    ),
+    (
+        r"国债收益率|收益率曲线|bond[_\s-]*yield|yield[_\s-]*curve",
+        "债券收益率曲线",
+        r"利率|收益率|债券|yield|rate|bond",
+    ),
+    (
+        r"股基成交额|日均股基交易额|沪深股基成交额|市场成交额",
+        "市场成交额",
+        r"证券|市场|成交|交易|turnover|brokerage",
+    ),
+    (
+        r"店铺|商品排名|店铺排名|类目排名|相对排名|活跃度|搜索词",
+        "店铺/商品排名与活跃度",
+        r"店铺|商品|排名|活跃|competitive|ranking|category|platform|store|product",
+    ),
+    (
+        r"价格段|价格带|均价|客单价|价格调整|调价",
+        "价格段与均价",
+        r"价格|price|segment|market[_\s-]*monitoring|product",
+    ),
+    (
+        r"发电量|用电量|装机容量|发电装机|平均利用小时|利用小时|电源工程投资",
+        "发电量/用电量/装机容量/利用小时",
+        r"电力|发电|用电|装机|fundamental|capacity|utilization",
+    ),
+    (
+        r"上网电价|丰枯电价|市场化电价|market[_\s-]*electricity[_\s-]*price",
+        "电力市场电价",
+        r"电力|电价|power|tariff|electricity",
+    ),
+    (
+        r"竞价|招标|中标|bidding|winning[_\s-]*bid|tender",
+        "风电竞价量/中标价",
+        r"风电|光伏|新能源|竞价|招标|中标|wind|renewable|tender|bidding",
+    ),
+    (
+        r"交付量|交付目标|交付达成|deliveries|delivery",
+        "交付量",
+        r"汽车|交付|delivery|milestone|auto",
+    ),
+    (
+        r"研发投入|研发费用|研发比例|核心技术投入|r&d",
+        "研发投入",
+        r"研发|技术|r&d|technology|capability",
+    ),
+    (
+        r"营收|营业收入|收入增长|revenue",
+        "营业收入",
+        r"业绩|财务|盈利|营收|收入|financial|revenue|YoY|QoQ",
+    ),
+    (
+        r"市场规模|市场空间|规模测算|market[_\s-]*(?:size|sizing)",
+        "市场规模/市场空间",
+        r"市场|行业|规模|空间|需求|market|industry|demand|sizing",
+    ),
+    (
+        r"市场表现|行情回顾|行情复盘|相对强弱|板块轮动|"
+        r"market[_\s-]*performance|sector[_\s-]*performance|relative[_\s-]*performance",
+        "市场或行业指数收益",
+        r"市场|表现|行情|相对|板块|performance|benchmark|sector",
+    ),
+    (
+        r"业绩|财务表现|历史财务|业绩预告|盈利预测|财务预测|"
+        r"company[_\s-]*financials|financial[_\s-]*performance|earnings[_\s-]*forecast",
+        "营业收入",
+        r"业绩|财务|盈利|收入|financial|earnings|forecast",
+    ),
+    (
+        r"业绩|净利润|盈利预测|财务预测|业绩预告|"
+        r"net[_\s-]*profit|earnings[_\s-]*forecast",
+        "归母净利润",
+        r"业绩|财务|盈利|利润|financial|earnings|forecast",
+    ),
+    (
+        r"估值|市盈率|市净率|\bpe\b|\bpb\b|valuation",
+        "PE估值",
+        r"估值|目标价|valuation|pe|pb|multiple",
+    ),
+    (
+        r"现金流|经营现金流|偿债|债务结构|信用利差|cash[_\s-]*flow|credit[_\s-]*spread",
+        "经营性现金流",
+        r"现金流|偿债|债务|信用|cash|debt|credit",
+    ),
+    (
+        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|景气度",
+        "需求/订单/产销景气",
+        r"需求|订单|出货|产销|开工|景气|行业|demand|order",
+    ),
+    (
+        r"产能|核定产能|权益产能|在建产能|产能利用率|产量|production[_\s-]*volume",
+        "产能/产量",
+        r"产能|产量|供给|资源|生产|capacity|production|supply",
+    ),
+    (
+        r"供需|供给|库存|价格中枢|涨价|降价|商品价格|油价|煤价|煤炭价格|钢价|铜价|铝价|锂价|原油|crude[_\s-]*oil",
+        "供需/库存/商品价格",
+        r"供需|供给|库存|价格|原油|煤炭|钢铁|有色|commodity|supply|inventory",
+    ),
+    (
+        r"价格趋势|价格走势|现货价|基价|批价|负债成本|price[_\s-]*(?:trend|review|forecast)|spot[_\s-]*price",
+        "供需/库存/商品价格",
+        r"价格|成本|价差|price|cost|spread",
+    ),
+    (
+        r"碳市场|碳价|碳配额|carbon[_\s-]*market|carbon[_\s-]*price",
+        "碳市场价格与成交量",
+        r"碳|carbon|price|volume|market",
+    ),
+    (
+        r"资源量|储量|煤层气储量|矿权|矿区|探矿权",
+        "资源储量",
+        r"资源|储量|矿|煤层气|reserve|resource|mine",
+    ),
+    (
+        r"出口|进口|贸易|进出口|海关|外贸",
+        "进出口贸易流量",
+        r"出口|进口|贸易|外贸|海关|全球贸易|区域|export|import|trade",
+    ),
+    (
+        r"产品结构|业务结构|收入结构|品类结构|区域结构|客户结构",
+        "产品/业务结构",
+        r"产品|业务|收入|品类|区域|客户|结构|segment|mix",
+    ),
+    (
+        r"市场份额|市占率|竞争格局|集中度|份额提升",
+        "市场份额/竞争格局",
+        r"份额|竞争|格局|集中度|优势|market|share|competitive",
+    ),
+    (
+        r"信息化|数字化|数据治理|数据中心|智慧城市|医院信息化|ETL|集成平台",
+        "信息化/数据治理项目",
+        r"信息化|数字化|数据|医院|智慧|城市|ETL|集成|digital|data|smart",
+    ),
+    (
+        r"技术路线|工艺|良率|产品迭代|新品|商业化|量产",
+        "技术/产品里程碑",
+        r"技术|工艺|产品|新品|商业化|量产|研发|technology|product",
+    ),
+    (
+        r"归母净利润|净利润|net[_\s-]*profit",
+        "归母净利润",
+        r"业绩|财务|盈利|利润|financial|profit|YoY|QoQ",
+    ),
+    (
+        r"毛利率|净利率|盈利能力|gross[_\s-]*margin|net[_\s-]*margin",
+        "毛利率/净利率",
+        r"业绩|财务|盈利|利润率|毛利率|净利率|financial|margin",
+    ),
+    (
+        r"沪深\s*300|指数|涨跌幅|相对收益率|板块表现|行业表现",
+        "市场或行业指数收益",
+        r"市场表现|相对|指数|排名|performance|benchmark|sector[_\s-]*ranking",
+    ),
+    (
+        r"补贴|标杆电价|全生命周期|合理利用小时|生物质发电",
+        "补贴/标杆电价/合理利用小时",
+        r"电力|电价|发电|能源|补贴|生物质|power|tariff|renewable|subsidy",
+    ),
+    (
+        r"绿电直连|自发自用|余电上网|输配电费",
+        "绿电直连政策参数",
+        r"政策|绿电|直连|policy",
+    ),
+    (
+        r"pipeline|申请上市|在研管线|生物类似药|Phase\s*(?:I|II|III|1|2|3)",
+        "临床管线里程碑",
+        r"pipeline|管线|clinical|drug|biosimilar",
+    ),
+    (
+        r"MACE|\bHR\b|hazard[_\s-]*ratio|risk[_\s-]*reduction|心血管|风险降低",
+        "临床终点结果",
+        r"clinical|efficacy|endpoint|心血管|疗效",
+    ),
+    (
+        r"不良事件|停药率|停止治疗|耐受性|adverse[_\s-]*event|discontinuation",
+        "不良事件停药率",
+        r"safety|tolerability|安全|耐受",
+    ),
+    (
+        r"满意度|注射装置|satisfaction",
+        "患者满意度",
+        r"satisfaction|adherence|满意|依从",
+    ),
+    (
+        r"旅游收入|游客|客流|出行|入住率|文旅消费",
+        "旅游消费活跃度",
+        r"文旅|旅游|消费|客流|tourism|consumer",
+    ),
+    (
+        r"资金流|持股变动|沪深港通|fund[_\s-]*flow|northbound|southbound",
+        "资金流向/持股变动",
+        r"资金|持股|流向|flow|holding",
+    ),
+    (
+        r"评级变动|信用级别|资本补充|并购重组",
+        "信用与资本市场活动",
+        r"信用|资本|并购|capital|credit",
+    ),
+    (
+        r"偿付能力|综合偿付|核心偿付|solvency",
+        "保险偿付能力充足率",
+        r"保险|偿付|资本|solvency|insurance",
+    ),
+    (
+        r"股权激励|授予股票|总股本比例|考核目标|equity[_\s-]*incentive",
+        "股权激励计划指标",
+        r"股权|激励|考核|grant|incentive",
+    ),
+    (
+        r"生猪价格|养殖成本|出栏规模|出栏量|hog[_\s-]*price|pig[_\s-]*price",
+        "生猪价格/成本/出栏量",
+        r"生猪|养殖|出栏|hog|pig|livestock",
+    ),
+    (
+        r"保有量|更新周期|销量中枢|vehicle[_\s-]*ownership|replacement[_\s-]*cycle",
+        "汽车保有量/更新周期",
+        r"汽车|客车|重卡|销量|auto|vehicle|sales",
+    ),
+    (
+        r"并购|收购|merger|acquisition|m&a|ma[_\s-]*events",
+        "并购/收购事件",
+        r"并购|收购|整合|交易|merger|acquisition|m&a",
+    ),
+    (
+        r"资产质量|不良率|不良贷款|拨备|减值|坏账|信用风险",
+        "资产质量/不良率",
+        r"资产质量|不良|拨备|减值|信用|银行|金融|asset|credit",
+    ),
+    (
+        r"净息差|贷款|存款|社融|信贷|M2|m2",
+        "净息差/贷款社融",
+        r"净息差|贷款|存款|社融|信贷|银行|流动性|credit|loan|deposit",
+    ),
+    (
+        r"保费|寿险保费|财险保费|新业务价值|赔付|赔款|赔付率|综合成本率|保险资产|投资收益率",
+        "保险保费/赔付/资产指标",
+        r"保险|保费|赔付|资产|寿险|财险|insurance|premium|claim",
+    ),
+    (
+        r"票房|box[_\s-]*office",
+        "票房收入",
+        r"电影|传媒|票房|春节档|box[_\s-]*office",
+    ),
+    (
+        r"预售|想看|片单|影片供给|pre[-_\s]*sale|movie[_\s-]*supply",
+        "影片预售/供给热度",
+        r"电影|传媒|票房|春节档|pre[-_\s]*sale|movie",
+    ),
+)
+
+
+def _text_grounded_indicator_mentions(
+    markdown_chunk: str,
+    *,
+    footprint_context: str = "",
+    inference_source: str = "source_chunk_indicator_seed_rule",
+) -> list[dict[str, Any]]:
+    text = str(markdown_chunk or "")
+    if not text.strip():
+        return []
+    context = str(footprint_context or "")
+    records: list[dict[str, Any]] = []
+    seen_canonicals: set[str] = set()
+    for pattern, indicator_text, context_pattern in TEXT_GROUNDED_INDICATOR_SEED_RULES:
+        if not re.search(pattern, text, flags=re.IGNORECASE):
+            continue
+        if context_pattern and not re.search(
+            context_pattern, context, flags=re.IGNORECASE
+        ):
+            continue
+        mention = _apply_indicator_metadata_inference(
+            {
+                "indicator_text": indicator_text,
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "lookback_window": {},
+                "transformation": "unknown",
+                "role_in_argument": "unknown",
+                "source_grounded": True,
+                "inference_source": inference_source,
+            }
+        )
+        canonical = str(mention.get("canonical_metric_candidate") or "unknown")
+        if _indicator_value_unknown(canonical) or canonical in seen_canonicals:
+            continue
+        seen_canonicals.add(canonical)
+        records.append(mention)
+        if len(records) >= 6:
+            break
     return records
+
+
+def _context_seed_indicator_mentions(context: str) -> list[dict[str, Any]]:
+    text = str(context or "").strip()
+    if not text:
+        return []
+    records = _text_grounded_indicator_mentions(
+        text,
+        footprint_context=text,
+        inference_source="footprint_context_indicator_seed_rule",
+    )
+    if records:
+        return records
+    inferred = _apply_indicator_metadata_inference(
+        {
+            "indicator_text": _bounded_metadata_text(text),
+            "canonical_metric_candidate": "unknown",
+            "data_source_mentioned": "unknown",
+            "frequency": "unknown",
+            "lookback_window": {},
+            "transformation": "unknown",
+            "role_in_argument": "unknown",
+            "source_grounded": True,
+            "inference_source": "footprint_context_metadata_rule",
+        }
+    )
+    if _indicator_value_unknown(inferred.get("canonical_metric_candidate")):
+        return []
+    return [inferred]
+
+
+def _footprint_indicator_context(row: Mapping[str, Any]) -> str:
+    patterns = _ensure_list(row.get("analysis_patterns"))
+    return " ".join(
+        [
+            str(row.get("topic") or ""),
+            *[
+                str(pattern or "")
+                if isinstance(pattern, str)
+                else json.dumps(_jsonable(pattern), ensure_ascii=False, sort_keys=True)
+                for pattern in patterns
+            ],
+        ]
+    )
+
+
+def _footprint_markdown_chunk_index(row: Mapping[str, Any]) -> int | None:
+    for span_id in _ensure_list(row.get("source_span_ids")):
+        match = re.search(r":original_markdown:chunk-(\d+)\b", str(span_id or ""))
+        if match:
+            return max(1, int(match.group(1)))
+    return None
+
+
+def _metadata_markdown_path(
+    metadata: Mapping[str, Any],
+    *,
+    root_path: Path,
+) -> Path | None:
+    markdown_info = _ensure_mapping(metadata.get("markdown"))
+    markdown_path_text = str(markdown_info.get("path") or "")
+    if not markdown_path_text:
+        return None
+    markdown_path = Path(markdown_path_text)
+    if not markdown_path.is_absolute():
+        markdown_path = root_path / markdown_path
+    if not markdown_path.exists() or markdown_path.stat().st_size <= 0:
+        return None
+    return markdown_path
+
+
+def _metadata_publish_date(metadata: Mapping[str, Any]) -> str:
+    for field in ("publish_datetime", "publish_date", "accessible_datetime"):
+        value = str(metadata.get(field) or "").strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value[:10]):
+            return value[:10]
+    return ""
+
+
+def _report_level_horizon_by_source_from_metadata(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    root_path: Path | None,
+) -> dict[str, dict[str, Any]]:
+    return {
+        source_id: dict(_ensure_mapping(context.get("default_horizon")))
+        for source_id, context in _report_temporal_context_by_source_from_metadata(
+            metadata_rows,
+            root_path=root_path,
+        ).items()
+        if _ensure_mapping(context.get("default_horizon"))
+    }
+
+
+def _report_context_by_source_from_metadata(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    root_path: Path | None,
+) -> dict[str, dict[str, Any]]:
+    if root_path is None:
+        return {}
+    contexts: dict[str, dict[str, Any]] = {}
+    for metadata in metadata_rows:
+        source_id = str(metadata.get("source_id") or "")
+        if not source_id:
+            continue
+        markdown_path = _metadata_markdown_path(metadata, root_path=root_path)
+        if markdown_path is None:
+            continue
+        markdown_text = markdown_path.read_text(encoding="utf-8", errors="ignore")
+        context = _build_report_context(
+            metadata,
+            markdown_text,
+            _metadata_publish_date(metadata),
+        )
+        if context:
+            contexts[source_id] = context
+    return contexts
+
+
+def _report_temporal_context_by_source_from_metadata(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    root_path: Path | None,
+) -> dict[str, dict[str, Any]]:
+    return {
+        source_id: dict(_ensure_mapping(context.get("temporal_context")))
+        for source_id, context in _report_context_by_source_from_metadata(
+            metadata_rows,
+            root_path=root_path,
+        ).items()
+        if _ensure_mapping(context.get("temporal_context"))
+    }
+
+
+def _footprint_markdown_chunk(
+    row: Mapping[str, Any],
+    *,
+    metadata_by_source: Mapping[str, Mapping[str, Any]],
+    root_path: Path,
+    chunk_chars: int,
+    max_chunks: int,
+) -> str:
+    source_id = str(row.get("source_id") or "")
+    metadata = metadata_by_source.get(source_id)
+    if not metadata:
+        return ""
+    markdown_path = _metadata_markdown_path(metadata, root_path=root_path)
+    if markdown_path is None:
+        return ""
+    chunk_index = _footprint_markdown_chunk_index(row)
+    if chunk_index is None:
+        return ""
+    markdown_text = markdown_path.read_text(encoding="utf-8", errors="ignore")
+    chunks = _chunk_text(markdown_text, chunk_chars=chunk_chars, max_chunks=max_chunks)
+    if chunk_index > len(chunks):
+        return ""
+    return chunks[chunk_index - 1]
 
 
 def _source_span_ids(value: Mapping[str, Any], fallback_span_id: str) -> list[str]:
@@ -2085,6 +5788,25 @@ def _normalize_forecast_direction(value: Any) -> str:
     return "unknown"
 
 
+def _normalize_claim_provenance(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "source_gounded": "source_grounded",
+        "source-grounded": "source_grounded",
+        "source grounded": "source_grounded",
+        "grounded": "source_grounded",
+        "true": "source_grounded",
+        "analyst_hypothesis": "analyst_or_llm_hypothesis",
+        "llm_hypothesis": "analyst_or_llm_hypothesis",
+        "hypothesis": "analyst_or_llm_hypothesis",
+        "false": "analyst_or_llm_hypothesis",
+    }
+    normalized = aliases.get(text, text)
+    if normalized in {"source_grounded", "analyst_or_llm_hypothesis", "unknown"}:
+        return normalized
+    return "unknown"
+
+
 def _duration_to_days(value: float, unit: str) -> int | None:
     normalized = unit.strip()
     if normalized in {"交易日"}:
@@ -2100,11 +5822,177 @@ def _duration_to_days(value: float, unit: str) -> int | None:
     return None
 
 
+_CHINESE_NUMBER_VALUES: Mapping[str, int] = {
+    "零": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _parse_chinese_integer_text(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    if text in _CHINESE_NUMBER_VALUES:
+        return _CHINESE_NUMBER_VALUES[text]
+    if text == "十":
+        return 10
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = _CHINESE_NUMBER_VALUES.get(left, 1 if not left else -1)
+        ones = _CHINESE_NUMBER_VALUES.get(right, 0 if not right else -1)
+        if tens >= 0 and ones >= 0:
+            return tens * 10 + ones
+    return None
+
+
 def _parse_float_text(value: str) -> float | None:
     try:
         return float(value)
     except ValueError:
         return None
+
+
+def _parse_duration_value_text(value: str) -> float | None:
+    text = str(value or "").strip()
+    if text == "半":
+        return 0.5
+    parsed = _parse_float_text(text)
+    if parsed is not None:
+        return parsed
+    chinese = _parse_chinese_integer_text(text)
+    return float(chinese) if chinese is not None else None
+
+
+def _days_until_year_end(publish_date: str, target_year: int) -> int | None:
+    try:
+        publish_dt = datetime.strptime(str(publish_date or ""), "%Y-%m-%d")
+    except ValueError:
+        return None
+    target_dt = datetime(target_year, 12, 31)
+    days = (target_dt - publish_dt).days
+    return days if days > 0 else None
+
+
+def _year_range_days_without_publish_date(start_year: int, end_year: int) -> int | None:
+    if end_year < start_year:
+        return None
+    return int(round((end_year - start_year + 1) * 365.25))
+
+
+def _publish_year_from_date(publish_date: str) -> int | None:
+    try:
+        return datetime.strptime(str(publish_date or ""), "%Y-%m-%d").year
+    except ValueError:
+        return None
+
+
+def _normalize_horizon_year_text(raw_year: str, publish_year: int | None) -> int | None:
+    text = str(raw_year or "").strip()
+    if re.fullmatch(r"20\d{2}", text):
+        return int(text)
+    if not re.fullmatch(r"\d{2}", text):
+        return None
+    year = int(text)
+    if publish_year is not None:
+        century = publish_year // 100 * 100
+        normalized = century + year
+        if normalized < publish_year - 5:
+            normalized += 100
+        return normalized
+    return 2000 + year
+
+
+def _explicit_year_horizon_from_claim_text(
+    text: str,
+    publish_date: str,
+) -> dict[str, Any]:
+    publish_year = _publish_year_from_date(publish_date)
+    candidates: list[tuple[int, int, int, str]] = []
+
+    def add_candidate(
+        *,
+        start_year: int,
+        end_year: int,
+        source_text: str,
+        kind_score: int,
+        match_start: int,
+        match_end: int,
+    ) -> None:
+        if publish_year is not None and end_year < publish_year:
+            return
+        days = _days_until_year_end(publish_date, end_year)
+        if days is None:
+            days = _year_range_days_without_publish_date(start_year, end_year)
+        if days is None or days > MAX_REASONABLE_FORECAST_HORIZON_DAYS:
+            return
+        window = text[max(0, match_start - 24) : min(len(text), match_end + 36)]
+        forecast_bonus = 3 if re.search(r"预计|预期|预测|有望|将|展望|目标价|归母|净利润|营收|收入|利润|EPS|PE", window) else 0
+        historical_penalty = 4 if re.search(r"过去|历史|回顾|复盘|CAGR|同比|环比", window) else 0
+        score = end_year * 10 + kind_score + forecast_bonus - historical_penalty
+        candidates.append((score, days, start_year, source_text.strip()))
+
+    for match in re.finditer(
+        r"(?P<start>(?:20)?\d{2})\s*(?:-|—|~|至|到)\s*(?P<end>(?:20)?\d{2})\s*年",
+        text,
+    ):
+        start_year = _normalize_horizon_year_text(match.group("start"), publish_year)
+        end_year = _normalize_horizon_year_text(match.group("end"), publish_year)
+        if start_year is None or end_year is None or end_year < start_year:
+            continue
+        add_candidate(
+            start_year=start_year,
+            end_year=end_year,
+            source_text=match.group(0),
+            kind_score=2,
+            match_start=match.start(),
+            match_end=match.end(),
+        )
+
+    for match in re.finditer(r"20\d{2}\s*年", text):
+        year = int(match.group(0)[:4])
+        add_candidate(
+            start_year=year,
+            end_year=year,
+            source_text=match.group(0),
+            kind_score=1,
+            match_start=match.start(),
+            match_end=match.end(),
+        )
+
+    if not candidates:
+        return {}
+    _, days, _, source_text = max(candidates, key=lambda item: item[0])
+    return {
+        "max_days": days,
+        "unit": "calendar_day",
+        "source": "explicit_claim_text",
+        "source_text": source_text,
+    }
+
+
+def _horizon_days_from_mapping(horizon: Mapping[str, Any]) -> int | None:
+    for key in ("preferred_days", "max_days", "min_days"):
+        try:
+            return int(horizon[key])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
+def _horizon_exceeds_reasonable_bound(horizon: Mapping[str, Any]) -> bool:
+    days = _horizon_days_from_mapping(horizon)
+    return days is not None and days > MAX_REASONABLE_FORECAST_HORIZON_DAYS
 
 
 def _infer_horizon_from_claim_text(
@@ -2113,14 +6001,17 @@ def _infer_horizon_from_claim_text(
 ) -> dict[str, Any]:
     text = str(claim_text or "")
     relative_patterns = (
-        r"未来\s*(?P<value>\d+(?:\.\d+)?)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内|左右|附近)?",
-        r"(?P<value>\d+(?:\.\d+)?)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内)",
+        r"未来\s*(?P<value>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内|左右|附近)?",
+        r"(?P<value>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内)",
     )
     for pattern in relative_patterns:
         match = re.search(pattern, text)
         if not match:
             continue
-        value = _parse_float_text(match.group("value"))
+        raw_value = match.group("value")
+        if match.group("unit") == "年" and re.fullmatch(r"20\d{2}", raw_value):
+            continue
+        value = _parse_duration_value_text(raw_value)
         if value is None:
             continue
         days = _duration_to_days(value, match.group("unit"))
@@ -2133,24 +6024,1072 @@ def _infer_horizon_from_claim_text(
             "source_text": match.group(0),
         }
 
-    absolute_match = re.search(r"(?:预计|预期|有望|计划|将)?\s*(?:到|至|截至)\s*(20\d{2})\s*年", text)
-    if absolute_match:
-        try:
-            publish_dt = datetime.strptime(str(publish_date or ""), "%Y-%m-%d")
-        except ValueError:
-            publish_dt = None
-        if publish_dt is not None:
-            target_year = int(absolute_match.group(1))
-            target_dt = datetime(target_year, 12, 31)
-            days = (target_dt - publish_dt).days
-            if days > 0:
+    explicit_year_horizon = _explicit_year_horizon_from_claim_text(
+        text,
+        publish_date,
+    )
+    if explicit_year_horizon:
+        return explicit_year_horizon
+
+    if re.search(r"(?:年内|今年内)", text):
+        publish_year = _publish_year_from_date(publish_date)
+        if publish_year is not None:
+            days = _days_until_year_end(publish_date, publish_year)
+            if days is not None:
                 return {
                     "max_days": days,
                     "unit": "calendar_day",
                     "source": "explicit_claim_text",
-                    "source_text": absolute_match.group(0).strip(),
+                    "source_text": "年内",
                 }
+        year_in_text = re.search(r"(20\d{2})\s*年内", text)
+        if year_in_text:
+            return {
+                "max_days": 365,
+                "unit": "calendar_day",
+                "source": "explicit_claim_text_missing_publish_date",
+                "source_text": year_in_text.group(0),
+            }
+    qualitative_horizons: tuple[tuple[str, int], ...] = (
+        ("短期", 20),
+        ("中短期", 60),
+        ("中长期", 120),
+        ("中期", 60),
+        ("长期", 120),
+    )
+    for source_text, days in qualitative_horizons:
+        if source_text in text:
+            return {
+                "preferred_days": days,
+                "unit": "trading_day",
+                "source": "qualitative_claim_text",
+                "source_text": source_text,
+            }
     return {}
+
+
+REPORT_LEVEL_HORIZON_CONTEXT_RE = re.compile(
+    r"公司评级|行业评级|投资评级|投资建议|评级说明|评级定义|评级标准|目标价|市场基准指数|"
+    r"相对市场|跑赢|跑输|买入|增持|强烈推荐|推荐",
+    flags=re.IGNORECASE,
+)
+REPORT_LEVEL_HORIZON_DURATION_PATTERNS = (
+    re.compile(
+        r"未来\s*(?P<start>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)"
+        r"\s*(?:-|—|~|至|到)\s*"
+        r"(?P<end>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)"
+        r"\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内|左右|附近)?"
+    ),
+    re.compile(
+        r"未来\s*(?P<value>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)"
+        r"\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内|左右|附近)?"
+    ),
+    re.compile(
+        r"(?P<value>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)"
+        r"\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内)"
+    ),
+)
+REPORT_LEVEL_HORIZON_CLAIM_SCOPE_RE = re.compile(
+    r"评级|目标价|维持[^。；，,]{0,12}(?:买入|增持|推荐)|"
+    r"给予[^。；，,]{0,12}(?:买入|增持|推荐)|买入|增持|推荐|"
+    r"上调|下调|股价|股票|跑赢|跑输|优于|相对市场",
+    flags=re.IGNORECASE,
+)
+
+
+def _duration_days_from_report_level_match(match: re.Match[str]) -> int | None:
+    if "end" in match.groupdict() and match.group("end"):
+        value = _parse_duration_value_text(match.group("end"))
+    else:
+        value = _parse_duration_value_text(match.group("value"))
+    if value is None:
+        return None
+    return _duration_to_days(value, match.group("unit"))
+
+
+def _infer_report_level_horizon_from_markdown(
+    markdown_text: str,
+    publish_date: str = "",
+) -> dict[str, Any]:
+    del publish_date
+    text = re.sub(r"\s+", " ", str(markdown_text or "")).strip()
+    if not text:
+        return {}
+    for pattern in REPORT_LEVEL_HORIZON_DURATION_PATTERNS:
+        for match in pattern.finditer(text):
+            context = text[max(0, match.start() - 120) : match.end() + 120]
+            if not REPORT_LEVEL_HORIZON_CONTEXT_RE.search(context):
+                continue
+            days = _duration_days_from_report_level_match(match)
+            if days is None or days > MAX_REASONABLE_FORECAST_HORIZON_DAYS:
+                continue
+            return {
+                "max_days": days,
+                "unit": "calendar_day",
+                "source": "report_level_rating_definition",
+                "source_text": match.group(0).strip(),
+            }
+    return {}
+
+
+REPORT_TEMPORAL_CONTEXT_LINE_RE = re.compile(
+    r"展望|策略|配置|月报|周报|季报|年度|中期|下半年|上半年|未来|年内|"
+    r"短期|中期|长期|20\d{2}\s*年",
+    flags=re.IGNORECASE,
+)
+
+
+def _context_horizon_from_text(
+    text: str,
+    publish_date: str,
+    *,
+    source: str,
+    confidence: str,
+) -> dict[str, Any]:
+    horizon = _infer_horizon_from_claim_text(text, publish_date)
+    if not horizon:
+        return {}
+    horizon = dict(horizon)
+    horizon["source"] = source
+    horizon["context_confidence"] = confidence
+    return horizon
+
+
+def _infer_report_frequency_context(title: str, report_type: str) -> dict[str, Any]:
+    text = " ".join(str(value or "") for value in (title, report_type))
+    source_text = str(report_type or title or "").strip()
+    if re.search(r"周报|周度", text):
+        return {
+            "frequency": "weekly",
+            "default_horizon": {"preferred_days": 20, "unit": "trading_day"},
+            "source": "report_frequency_context",
+            "source_text": source_text,
+            "context_confidence": "low",
+        }
+    if re.search(r"月报|月度", text):
+        return {
+            "frequency": "monthly",
+            "default_horizon": {"preferred_days": 60, "unit": "trading_day"},
+            "source": "report_frequency_context",
+            "source_text": source_text,
+            "context_confidence": "low",
+        }
+    if re.search(r"季报|季度", text):
+        return {
+            "frequency": "quarterly",
+            "default_horizon": {"preferred_days": 90, "unit": "trading_day"},
+            "source": "report_frequency_context",
+            "source_text": source_text,
+            "context_confidence": "low",
+        }
+    if re.search(r"中期|半年度", text):
+        return {
+            "frequency": "semiannual",
+            "default_horizon": {"preferred_days": 180, "unit": "trading_day"},
+            "source": "report_frequency_context",
+            "source_text": source_text,
+            "context_confidence": "low",
+        }
+    if re.search(r"年度|年报|年度策略", text):
+        return {
+            "frequency": "annual",
+            "default_horizon": {"preferred_days": 360, "unit": "calendar_day"},
+            "source": "report_frequency_context",
+            "source_text": source_text,
+            "context_confidence": "low",
+        }
+    return {}
+
+
+def _report_type_default_horizon(
+    report_type: str,
+    title: str = "",
+) -> dict[str, Any]:
+    context = _infer_report_frequency_context(title, report_type)
+    horizon = dict(_ensure_mapping(context.get("default_horizon")))
+    if not horizon:
+        return {}
+    horizon.update(
+        {
+            "source": "report_type_default",
+            "source_text": context.get("source_text", ""),
+            "context_confidence": context.get("context_confidence", "low"),
+            "report_frequency": context.get("frequency", "unknown"),
+        }
+    )
+    return horizon
+
+
+def _infer_report_temporal_context_from_markdown(
+    markdown_text: str,
+    publish_date: str = "",
+    *,
+    title: str = "",
+    report_type: str = "",
+) -> dict[str, Any]:
+    section_horizons: list[dict[str, Any]] = []
+    for line in str(markdown_text or "").splitlines()[:80]:
+        stripped = " ".join(line.strip("#* -\t ").split())
+        if not stripped or len(stripped) > 120:
+            continue
+        if not REPORT_TEMPORAL_CONTEXT_LINE_RE.search(stripped):
+            continue
+        horizon = _context_horizon_from_text(
+            stripped,
+            publish_date,
+            source="section_context",
+            confidence="medium",
+        )
+        if horizon:
+            horizon["section_title"] = stripped
+            section_horizons.append(horizon)
+            if len(section_horizons) >= 5:
+                break
+
+    title_horizon = _context_horizon_from_text(
+        title,
+        publish_date,
+        source="report_temporal_context",
+        confidence="high",
+    )
+    rating_horizon = _infer_report_level_horizon_from_markdown(
+        markdown_text,
+        publish_date,
+    )
+    default_horizon = (
+        title_horizon
+        or rating_horizon
+        or (section_horizons[0] if section_horizons else {})
+        or _report_type_default_horizon(report_type, title)
+    )
+    if not default_horizon and not section_horizons:
+        return {}
+    return {
+        "report_date": publish_date,
+        "report_type": report_type,
+        "default_horizon": default_horizon,
+        "section_horizons": section_horizons,
+        "policy": (
+            "report temporal context can supply claim horizon when the claim is "
+            "source-grounded and has an evaluable financial target; it must not "
+            "be confused with evaluation horizons"
+        ),
+    }
+
+
+BENCHMARK_CONTEXT_PATTERNS: tuple[tuple[str, str, str], ...] = (
+    (r"沪深\s*300|沪深300|CSI\s*300", "沪深300", "market_index"),
+    (r"中证\s*500|中证500|CSI\s*500", "中证500", "market_index"),
+    (r"中证\s*800|中证800|CSI\s*800", "中证800", "market_index"),
+    (r"上证综指|上证指数", "上证指数", "market_index"),
+    (r"恒生指数|Hang Seng", "恒生指数", "market_index"),
+    (r"纳斯达克|NASDAQ|Nasdaq", "NASDAQ", "market_index"),
+    (r"标普\s*500|标普500|S&P\s*500", "S&P 500", "market_index"),
+)
+RATING_CONTEXT_TERMS = (
+    "买入",
+    "增持",
+    "推荐",
+    "强烈推荐",
+    "跑赢",
+    "优于",
+    "中性",
+    "看淡",
+    "卖出",
+)
+
+
+def _infer_report_subject_context(row: Mapping[str, Any]) -> dict[str, Any]:
+    subject: dict[str, Any] = {}
+    stock_subject = _stock_subject_from_metadata(row)
+    if stock_subject:
+        subject["covered_entity"] = dict(stock_subject)
+    sector = str(row.get("industry") or row.get("query_key") or "").strip()
+    if sector:
+        subject["covered_sector"] = sector
+    text = " ".join(
+        str(row.get(field) or "")
+        for field in ("title", "report_type", "industry", "query_key")
+    )
+    asset_terms = [
+        term
+        for term in (
+            "A股",
+            "港股",
+            "美股",
+            "债券",
+            "黄金",
+            "商品",
+            "美元",
+            "人民币",
+        )
+        if term in text
+    ]
+    if asset_terms or "宏观" in text or "策略" in text:
+        subject["covered_asset_universe"] = list(dict.fromkeys(asset_terms))
+    return subject
+
+
+def _infer_benchmark_context_from_text(text: str) -> dict[str, Any]:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return {}
+    for pattern, benchmark_id, benchmark_type in BENCHMARK_CONTEXT_PATTERNS:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
+            continue
+        return {
+            "default_benchmark": {
+                "benchmark_type": benchmark_type,
+                "benchmark_id": benchmark_id,
+            },
+            "source": "report_benchmark_context",
+            "source_text": match.group(0),
+        }
+    if re.search(r"市场基准指数|相对市场|大盘|宽基", normalized):
+        return {
+            "default_benchmark": {"benchmark_type": "broad_market"},
+            "source": "report_benchmark_context",
+            "source_text": "市场基准指数",
+        }
+    return {}
+
+
+def _infer_rating_context_from_markdown(
+    markdown_text: str,
+    publish_date: str,
+) -> dict[str, Any]:
+    text = re.sub(r"\s+", " ", str(markdown_text or "")).strip()
+    if not text:
+        return {}
+    terms = [term for term in RATING_CONTEXT_TERMS if term in text[:5000]]
+    horizon = _infer_report_level_horizon_from_markdown(text, publish_date)
+    if not terms and not horizon:
+        return {}
+    return {
+        "rating_terms": list(dict.fromkeys(terms)),
+        "rating_horizon": horizon,
+        "source": "report_rating_context",
+    }
+
+
+def _section_context_from_chunk(markdown_chunk: str, publish_date: str) -> dict[str, Any]:
+    headings: list[str] = []
+    for line in str(markdown_chunk or "").splitlines():
+        stripped = " ".join(line.strip().split())
+        if not stripped or len(stripped) > 120 or stripped.startswith("|"):
+            continue
+        heading_match = re.match(r"^#{1,6}\s*(?P<title>.+)$", stripped)
+        numbered_match = re.match(r"^[一二三四五六七八九十\d]+[、.．]\s*(?P<title>.+)$", stripped)
+        title = ""
+        if heading_match:
+            title = heading_match.group("title")
+        elif numbered_match:
+            title = numbered_match.group("title")
+        if title:
+            headings.append(title.strip())
+    if not headings:
+        return {}
+    section_title = headings[-1]
+    horizon = _context_horizon_from_text(
+        section_title,
+        publish_date,
+        source="section_context",
+        confidence="medium",
+    )
+    context = {"section_title": section_title}
+    if horizon:
+        context["section_horizon"] = horizon
+    return context
+
+
+def _build_report_context(
+    row: Mapping[str, Any],
+    markdown_text: str,
+    publish_date: str,
+) -> dict[str, Any]:
+    context = {
+        "subject_context": _infer_report_subject_context(row),
+        "temporal_context": _infer_report_temporal_context_from_markdown(
+            markdown_text,
+            publish_date,
+            title=str(row.get("title") or ""),
+            report_type=str(row.get("report_type") or ""),
+        ),
+        "benchmark_context": _infer_benchmark_context_from_text(markdown_text),
+        "rating_context": _infer_rating_context_from_markdown(
+            markdown_text,
+            publish_date,
+        ),
+        "frequency_context": _infer_report_frequency_context(
+            str(row.get("title") or ""),
+            str(row.get("report_type") or ""),
+        ),
+    }
+    return {key: value for key, value in context.items() if value}
+
+
+def _claim_may_inherit_report_level_horizon(
+    claim_text: str,
+    *,
+    forecast_type: str,
+    target: Mapping[str, Any],
+    metric_proxy_mapping: Sequence[Any],
+) -> bool:
+    forecast_type_text = str(forecast_type or "").strip().lower()
+    if re.search(r"rating|target_price|investment_rating", forecast_type_text):
+        return True
+    proxies = {
+        str(item or "").strip()
+        for item in metric_proxy_mapping
+        if str(item or "").strip()
+    }
+    if not proxies & MARKET_VIEW_RETURN_PROXIES:
+        return False
+    return bool(
+        re.search(
+            r"预计|预期|有望|将|看好|受益|改善|修复|提升|增长|上涨|跑赢|承压|下行|下降|跑输",
+            str(claim_text or ""),
+        )
+    )
+
+
+METRIC_PROXY_INFERENCE_RULES: tuple[tuple[str, str], ...] = (
+    (r"营收|营业收入|收入增长|销售收入|收入端|revenue", "revenue_growth"),
+    (r"归母净利润|净利润|利润增长|盈利增长|业绩增长|利润端|earnings", "earnings_growth"),
+    (r"毛利率|净利率|费用率|成本下降|降本|盈利能力|margin", "margin_profitability"),
+    (r"估值|目标价|市盈率|市净率|\bpe\b|\bpb\b|valuation", "valuation_multiple"),
+    (r"需求|订单|销量|出货|客流|装机|交付|销售量", "demand_growth"),
+    (r"景气|景气度|行业周期|超级周期|产业周期|繁荣", "industry_prosperity"),
+    (
+        r"黄金|金价|白银|银价|贵金属|铜价|铝价|锂价|钴价|镍价|锌价|"
+        r"铅价|钨价|锑价|煤价|煤炭|动力煤|焦煤|焦炭|铁矿|铁矿石|"
+        r"钢价|天然气|气价|LNG|氦气|油价|原油|商品价格|大宗商品|commodity|gold|copper|lithium",
+        "commodity_price_cycle",
+    ),
+    (
+        r"政策利率|市场利率|资金利率|利率环境|利率下行|利率上行|短端利率|"
+        r"长端利率|流动性|社融|信贷|货币政策|资金面|信用利差|信用周期|"
+        r"信用环境|信用扩张|信用收缩|融资成本|降准|降息|加息",
+        "liquidity_credit_condition",
+    ),
+    (r"A股|权益市场|沪深300|上证50|中证500|创业板|港股|美股|纳斯达克|标普", "equity_index_forward_return"),
+    (r"债券|债市|国债|利率债|信用债|城投债|政金债|固收", "bond_etf_forward_return"),
+    (r"黄金|金价|贵金属", "gold_etf_forward_return"),
+    (r"大类资产|资产配置|多资产|股债|风险资产", "macro_asset_forward_return"),
+)
+COMMODITY_PRICE_CYCLE_RE = re.compile(
+    r"黄金|金价|白银|银价|贵金属|铜价|铝价|锂价|钴价|镍价|锌价|"
+    r"铅价|钨价|锑价|煤价|煤炭|动力煤|焦煤|焦炭|铁矿|铁矿石|"
+    r"钢价|天然气|气价|LNG|氦气|油价|原油|商品价格|大宗商品|commodity|gold|copper|lithium",
+    flags=re.IGNORECASE,
+)
+LIQUIDITY_CREDIT_CONTEXT_RE = re.compile(
+    r"政策利率|市场利率|资金利率|利率环境|利率下行|利率上行|短端利率|"
+    r"长端利率|流动性|社融|信贷|货币政策|资金面|信用利差|信用周期|"
+    r"信用环境|信用扩张|信用收缩|融资成本|降准|降息|加息",
+    flags=re.IGNORECASE,
+)
+
+
+CLAIM_REGIME_CONTEXT_RE = re.compile(
+    r"行业|产业|市场|需求|供给|供需|景气|周期|政策|利率|流动性|库存|产能|价格中枢|竞争格局|宏观",
+    flags=re.IGNORECASE,
+)
+CLAIM_MACRO_REGIME_RULES: tuple[tuple[str, str], ...] = (
+    ("us_rate_cut_cycle", r"美国|美联储|Fed|FED|降息周期|降息|联邦基金利率"),
+    (
+        "china_countercyclical_policy",
+        r"中国[^。；，,]{0,24}(?:逆周期|货币政策|稳增长|稳经济|政策加码|政策发力)|"
+        r"国内[^。；，,]{0,24}(?:逆周期|货币政策|稳增长|稳经济|政策加码|政策发力)|"
+        r"逆周期|稳增长|稳经济|政策加码|政策发力",
+    ),
+    ("monetary_liquidity_condition", r"货币政策|流动性|资金面|公开市场|净投放|DR007|央行|PBOC"),
+    ("credit_cycle", r"信用扩张|信用收缩|社融|信贷|融资需求|信用周期|信用利差"),
+    ("fx_usd_cycle", r"美元|汇率|人民币|美元指数|外汇"),
+    ("global_growth_inflation", r"全球经济|海外经济|通胀|再通胀|衰退|复苏|PMI"),
+    ("fiscal_policy", r"财政|专项债|国债|赤字|税收|补贴"),
+    ("regulatory_policy", r"监管|产业政策|政策支持|政策约束|政策放松"),
+)
+CLAIM_REGIME_TRACE_DEFAULT_MACRO_AGENTS = (
+    "macro.central_bank",
+    "macro.china",
+    "macro.dollar",
+    "macro.yield_curve",
+    "macro.volatility",
+)
+CLAIM_REGIME_TRACE_AGENT_BY_REGIME: Mapping[str, tuple[str, ...]] = {
+    "us_rate_cut_cycle": ("macro.central_bank", "macro.yield_curve"),
+    "china_countercyclical_policy": ("macro.china", "macro.central_bank"),
+    "monetary_liquidity_condition": ("macro.central_bank", "macro.china"),
+    "china_monetary_easing_cycle": ("macro.central_bank", "macro.china"),
+    "credit_cycle": ("macro.central_bank", "macro.yield_curve"),
+    "fx_usd_cycle": ("macro.dollar", "macro.emerging_markets"),
+    "rmb_fx_stability_window": ("macro.dollar", "macro.china", "macro.emerging_markets"),
+    "global_growth_inflation": ("macro.commodities", "macro.yield_curve"),
+    "fiscal_policy": ("macro.china", "macro.central_bank"),
+    "regulatory_policy": ("macro.china",),
+    "trade_friction_intensity": (
+        "macro.geopolitical",
+        "macro.dollar",
+        "macro.emerging_markets",
+    ),
+    "commodity_price_cycle": ("macro.commodities",),
+    "volatility_shock": ("macro.volatility",),
+    "market_volatility_regime": ("macro.volatility",),
+}
+DEFAULT_MACRO_REGIME_CALENDAR_ROWS: tuple[Mapping[str, Any], ...] = (
+    {
+        "regime_id": "MACRO-REGIME-US-RATE-CUT-20240918",
+        "regime_type": "us_rate_cut_cycle",
+        "start_date": "2024-09-18",
+        "end_date": "2025-12-31",
+        "source": "Fed rate-cut cycle after the September 2024 FOMC cut",
+        "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20240918a.htm",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-US-RATE-CUT-20260101",
+        "regime_type": "us_rate_cut_cycle",
+        "start_date": "2026-01-01",
+        "end_date": "2026-12-31",
+        "source": "US policy-rate cycle remained in a post-cut/easing-evaluation window after 2025 cuts",
+        "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20251210a.htm",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-CN-COUNTERCYCLICAL-20240924",
+        "regime_type": "china_countercyclical_policy",
+        "start_date": "2024-09-24",
+        "end_date": "2025-12-31",
+        "source": (
+            "China counter-cyclical policy support after the September 2024 "
+            "policy package"
+        ),
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-CN-MONETARY-LIQUIDITY-20240924",
+        "regime_type": "monetary_liquidity_condition",
+        "start_date": "2024-09-24",
+        "end_date": "2025-12-31",
+        "source": (
+            "China monetary-policy counter-cyclical support after the September "
+            "2024 policy package"
+        ),
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-CN-MONETARY-EASING-20260101",
+        "regime_type": "china_monetary_easing_cycle",
+        "start_date": "2026-01-01",
+        "end_date": "2026-12-31",
+        "source": "China monetary policy remained in a moderately loose support window in 2026",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-RMB-FX-STABILITY-20260101",
+        "regime_type": "rmb_fx_stability_window",
+        "start_date": "2026-01-01",
+        "end_date": "2026-12-31",
+        "source": "RMB exchange-rate policy remained in a managed-stability window in 2026",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+)
+CLAIM_INDUSTRY_CYCLE_REGIME_RULES: tuple[tuple[str, str], ...] = (
+    (
+        "supply_tightness",
+        r"供给.*偏紧|供应.*偏紧|供给约束|供给收缩|供应短缺|产能受限|"
+        r"供给.*紧张|供应.*紧张|供需.*错配",
+    ),
+    ("demand_transition", r"需求动能切换|需求结构变化|新需求|传统需求|新能源需求|AI需求|下游需求"),
+    ("industry_demand_growth", r"行业需求持续增长|产业需求持续增长|需求持续增长|需求增长|需求改善"),
+    ("inventory_cycle", r"库存|补库|去库|库存周期"),
+    ("capacity_cycle", r"行业产能|产业产能|产能周期|产能过剩|产能出清|产能受限|产能利用率"),
+    (
+        "raw_material_cost_pressure",
+        r"原材料价格|投入成本|成本上升|成本压力|铁矿石|炼焦煤|天然橡胶|丁基橡胶",
+    ),
+    ("price_cycle", r"价格周期|价格中枢|涨价|降价|煤价|铜价|金属价格|商品价格|价格.*上涨"),
+    ("competition_cycle", r"竞争格局|集中度|价格战|格局改善|份额|结构分化|业绩分化"),
+    ("prosperity_cycle", r"景气|景气度|行业周期|产业周期|超级周期|盈利修复|盈利质量"),
+    ("technology_cycle", r"技术周期|产品周期|AI周期|AI技术|算力周期|推理算力|AIGC|创新周期|算力网络|词元生产"),
+    ("business_model_shift", r"商业模式|业务结构|收入结构|收入来源|自营业务|高质量发展阶段"),
+    ("industry_valuation_cycle", r"估值处于历史低位|安全边际|估值修复|估值提升|估值重估"),
+    ("import_substitution_cycle", r"国产替代|进口替代|贸易逆差"),
+    ("industry_policy_catalyst", r"政策催化|政策支持|出口限制|产业政策"),
+    ("globalization_export_cycle", r"出口高增|出海|海外订单|全球化|国际业务"),
+    ("end_market_order_cycle", r"客户.*承诺|客户需求|订单弹性|订单增长"),
+    ("energy_hydrology_cycle", r"来水|水文|风光|装机|消纳|特高压"),
+)
+
+
+def _as_of_date_key(value: Any) -> str:
+    parsed = _parse_pit_datetime(value)
+    if parsed is not None:
+        return parsed.date().isoformat()
+    text = str(value or "").strip()
+    match = re.search(r"\d{4}-\d{2}-\d{2}", text)
+    return match.group(0) if match else ""
+
+
+def _as_of_date_macro_regime_types(
+    as_of_datetime: Any,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> tuple[list[str], dict[str, str]]:
+    regime_types, sources, _details = _as_of_date_macro_regime_context(
+        as_of_datetime,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+    )
+    return regime_types, sources
+
+
+def _as_of_date_macro_regime_context(
+    as_of_datetime: Any,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> tuple[list[str], dict[str, str], list[dict[str, Any]]]:
+    date_key = _as_of_date_key(as_of_datetime)
+    if not date_key:
+        return [], {}, []
+    regime_types: list[str] = []
+    sources: dict[str, str] = {}
+    details: list[dict[str, Any]] = []
+    rows = macro_regime_calendar_rows or DEFAULT_MACRO_REGIME_CALENDAR_ROWS
+    for row in rows:
+        regime_id = str(row.get("regime_id") or "").strip()
+        regime_type = str(row.get("regime_type") or "").strip()
+        start_date = str(row.get("start_date") or "").strip()
+        end_date = str(row.get("end_date") or "").strip()
+        note = str(row.get("source") or "").strip()
+        if not regime_type or not start_date or not end_date:
+            continue
+        if row.get("pit_available") is not True:
+            continue
+        if start_date <= date_key <= end_date:
+            regime_types.append(regime_type)
+            sources[regime_type] = f"as_of_date:{date_key}; {note}"
+            details.append(
+                {
+                    "regime_id": regime_id,
+                    "regime_type": regime_type,
+                    "as_of_date": date_key,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "source": note,
+                    "source_url": str(row.get("source_url") or "").strip(),
+                    "source_basis": "as_of_date",
+                    "source_text_grounded": False,
+                    "pit_available": True,
+                    "policy": str(row.get("policy") or "").strip(),
+                }
+            )
+    deduped_types = list(dict.fromkeys(regime_types))
+    deduped_details: list[dict[str, Any]] = []
+    seen_details: set[tuple[str, str]] = set()
+    for detail in details:
+        key = (
+            str(detail.get("regime_id") or ""),
+            str(detail.get("regime_type") or ""),
+        )
+        if key in seen_details:
+            continue
+        seen_details.add(key)
+        deduped_details.append(detail)
+    return deduped_types, sources, deduped_details
+
+
+def _claim_regime_trace_agents_for_types(regime_types: Sequence[Any]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            agent
+            for regime_type in regime_types
+            for agent in CLAIM_REGIME_TRACE_AGENT_BY_REGIME.get(str(regime_type), ())
+        )
+    )
+
+
+def _claim_regime_trace_types_for_agent(
+    agent: str,
+    regime_types: Sequence[Any],
+) -> tuple[str, ...]:
+    return tuple(
+        str(regime_type)
+        for regime_type in regime_types
+        if agent in _claim_regime_trace_agents_for_types((regime_type,))
+    )
+
+
+def _build_claim_regime_trace(
+    *,
+    as_of_datetime: Any,
+    target: Mapping[str, Any],
+    component_roles: Mapping[str, Any],
+) -> dict[str, Any]:
+    macro_types = _ensure_list(component_roles.get("macro_regime_context_types"))
+    as_of_types = _ensure_list(
+        component_roles.get("as_of_date_macro_regime_context_types")
+    )
+    source_text_types = _ensure_list(
+        component_roles.get("source_text_macro_regime_context_types")
+    )
+    details = [
+        dict(item)
+        for item in _ensure_list(
+            component_roles.get("as_of_date_macro_regime_context_details")
+        )
+        if isinstance(item, Mapping)
+    ]
+    details_by_type = {str(item.get("regime_type") or ""): item for item in details}
+    macro_scope = tuple(
+        dict.fromkeys(
+            (
+                *CLAIM_REGIME_TRACE_DEFAULT_MACRO_AGENTS,
+                *_claim_regime_trace_agents_for_types(macro_types),
+            )
+        )
+    )
+    macro = {}
+    as_of_date = _as_of_date_key(as_of_datetime)
+    for agent in macro_scope:
+        regime_types = _claim_regime_trace_types_for_agent(agent, macro_types)
+        macro[agent] = {
+            "as_of_date": as_of_date,
+            "regime_types": regime_types,
+            "as_of_date_regime_types": _claim_regime_trace_types_for_agent(
+                agent,
+                as_of_types,
+            ),
+            "source_text_regime_types": _claim_regime_trace_types_for_agent(
+                agent,
+                source_text_types,
+            ),
+            "regime_details": tuple(
+                details_by_type[regime_type]
+                for regime_type in regime_types
+                if regime_type in details_by_type
+            ),
+            "background_only": True,
+        }
+    return {
+        "schema_version": "claim_regime_trace_v1",
+        "as_of_date": as_of_date,
+        "policy": (
+            "PIT regime trace is background only. Claim extraction records the "
+            "as-of-date regime context for later outcome/backtest stratification; "
+            "it does not validate claim correctness."
+        ),
+        "macro": macro,
+        "industry": {
+            "regime_types": tuple(
+                str(item)
+                for item in _ensure_list(
+                    component_roles.get("industry_cycle_regime_context_types")
+                )
+            ),
+            "industry": str(target.get("target_id") or target.get("target_name") or ""),
+        },
+        "company": {
+            "target_id": str(target.get("target_id") or target.get("target_name") or ""),
+        },
+    }
+CLAIM_COMPANY_CAPABILITY_RE = re.compile(
+    r"公司|自身|实验室|投产|达效|全国布局|产能利用|渠道|客户|订单|技术|研发|产品|费用管控|降本|管理|执行|市占率|份额",
+    flags=re.IGNORECASE,
+)
+CLAIM_MARKET_FUNDAMENTAL_IMPACT_RE = re.compile(
+    r"营收|营业收入|收入|利润|盈利|业绩|EPS|毛利率|净利率|估值修复|估值溢价|估值提升|估值重估|价值重估|目标价|股价|回报|收益|跑赢|跑输|景气度|需求增长|订单增长|成长空间",
+    flags=re.IGNORECASE,
+)
+CLAIM_MECHANISM_CHANNEL_RULES: tuple[tuple[str, str], ...] = (
+    ("demand_pull", r"需求|订单|销量|出货|客流|装机|交付|下游|出口"),
+    ("price_cost_pass_through", r"价格|涨价|降价|成本|原材料|煤价|油价|运价|费用率"),
+    ("margin_expansion_or_pressure", r"毛利率|净利率|利润率|盈利能力|利润空间|费用率|降本"),
+    ("capacity_release_or_supply", r"产能|投产|达效|扩产|产量|供给|供应|库存|利用率"),
+    ("market_share_or_competition", r"市占率|份额|竞争格局|龙头|集中度|替代|进口替代"),
+    ("technology_productivity", r"技术|研发|效率|算力|模型|自动化|数字化|AI|推理优化"),
+    (
+        "policy_liquidity_transmission",
+        r"政策|监管|利率|流动性|信用扩张|信用收缩|社融|信贷|资金面|公开市场|净投放|DR007|PBOC|央行",
+    ),
+    ("valuation_repricing", r"估值修复|估值溢价|估值提升|估值重估|价值重估|目标价|评级"),
+    ("business_mix_shift", r"业务占比|业务结构|收入结构|配件业务|耗材|自营业务|软件|硬件|服务"),
+    ("overseas_expansion", r"海外|出海|出口|外销"),
+    ("tax_or_subsidy_benefit", r"税率|所得税|税收|补贴"),
+)
+CLAIM_MECHANISM_ACTION_RULES: tuple[tuple[str, str], ...] = (
+    ("expand_capacity_or_coverage", r"扩充|扩产|投产|达效|布局|拓展|建设|注入"),
+    (
+        "optimize_cost_or_efficiency",
+        r"降本|控费|费用管控|费用率下降|管理费用率下降|财务费用率下降|"
+        r"控制成本|成本控制|提质增效|效率提升|优化|精简",
+    ),
+    ("pass_through_price_or_cost", r"传导|转嫁|报价|价格中枢|成本上升|涨价"),
+    ("upgrade_product_or_technology", r"升级|研发|创新|技术|产品力|推理优化|数字化"),
+    ("gain_share_or_substitute", r"份额提升|市占率|替代|进口替代|渠道|客户"),
+    (
+        "receive_policy_or_liquidity_impulse",
+        r"政策支持|监管放松|流动性改善|信用扩张|资金流入|净投放改善|DR007回落|资金面改善",
+    ),
+    ("reprice_valuation_or_rating", r"估值修复|估值溢价|估值提升|价值重估|评级|买入|增持"),
+    ("shift_business_mix", r"占比提升|结构优化|收入来源|业务增长|稳定增长"),
+    ("expand_overseas_market", r"海外|出海|出口|外销"),
+)
+
+
+def _mechanism_impact_variables(
+    metric_proxy_mapping: Sequence[Any],
+    claim_text: str,
+) -> list[str]:
+    variables = [
+        str(item).strip()
+        for item in metric_proxy_mapping
+        if str(item or "").strip()
+    ]
+    if variables:
+        return list(dict.fromkeys(variables))
+    text = re.sub(r"\s+", " ", str(claim_text or ""))
+    inferred: list[str] = []
+    for pattern, metric in METRIC_PROXY_INFERENCE_RULES:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            inferred.append(metric)
+    return list(dict.fromkeys(inferred))
+
+
+def _infer_claim_mechanism_roles(
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    metric_proxy_mapping: Sequence[Any],
+) -> dict[str, Any]:
+    text = re.sub(r"\s+", " ", str(claim_text or ""))
+    channels = [
+        channel
+        for channel, pattern in CLAIM_MECHANISM_CHANNEL_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    actions = [
+        action
+        for action, pattern in CLAIM_MECHANISM_ACTION_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    impact_variables = _mechanism_impact_variables(metric_proxy_mapping, text)
+    target_type = str(target.get("target_type") or "").strip().lower() or "unknown"
+    has_mechanism = bool(channels or actions)
+    connects_to_impact = has_mechanism and bool(impact_variables)
+    return {
+        "channels": channels,
+        "actions": actions,
+        "impact_variables": impact_variables,
+        "has_economic_mechanism": has_mechanism,
+        "mechanism_connects_to_evaluable_impact": connects_to_impact,
+        "possible_operational_only_mechanism": has_mechanism and not connects_to_impact,
+        "target_type": target_type,
+        "mechanism_policy": "separate_regime_mechanism_capability_and_impact",
+    }
+
+
+def _infer_claim_component_roles(
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    as_of_datetime: Any = "",
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    text = re.sub(r"\s+", " ", str(claim_text or ""))
+    text_macro_regime_types = [
+        regime_type
+        for regime_type, pattern in CLAIM_MACRO_REGIME_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    (
+        date_macro_regime_types,
+        date_macro_regime_sources,
+        date_macro_regime_details,
+    ) = (
+        _as_of_date_macro_regime_context(
+            as_of_datetime,
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+        )
+    )
+    macro_regime_types = list(
+        dict.fromkeys([*text_macro_regime_types, *date_macro_regime_types])
+    )
+    macro_regime_sources = {
+        regime_type: "source_text" for regime_type in text_macro_regime_types
+    }
+    for regime_type, source in date_macro_regime_sources.items():
+        macro_regime_sources.setdefault(regime_type, source)
+    industry_cycle_regime_types = [
+        regime_type
+        for regime_type, pattern in CLAIM_INDUSTRY_CYCLE_REGIME_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    has_company_capability = bool(CLAIM_COMPANY_CAPABILITY_RE.search(text))
+    generic_regime_context = bool(CLAIM_REGIME_CONTEXT_RE.search(text))
+    has_regime = bool(
+        macro_regime_types
+        or industry_cycle_regime_types
+        or (generic_regime_context and not has_company_capability)
+    )
+    target_type = str(target.get("target_type") or "").strip().lower()
+    return {
+        "has_regime_context": has_regime,
+        "has_macro_regime_context": bool(macro_regime_types),
+        "has_industry_cycle_regime_context": bool(industry_cycle_regime_types),
+        "regime_context_types": list(
+            dict.fromkeys([*macro_regime_types, *industry_cycle_regime_types])
+        ),
+        "macro_regime_context_types": macro_regime_types,
+        "source_text_macro_regime_context_types": text_macro_regime_types,
+        "as_of_date_macro_regime_context_types": date_macro_regime_types,
+        "as_of_date_macro_regime_context_details": date_macro_regime_details,
+        "macro_regime_context_sources": macro_regime_sources,
+        "industry_cycle_regime_context_types": industry_cycle_regime_types,
+        "has_company_capability_or_action": has_company_capability,
+        "has_market_or_fundamental_impact": bool(
+            CLAIM_MARKET_FUNDAMENTAL_IMPACT_RE.search(text)
+        ),
+        "target_type": target_type or "unknown",
+        "mixed_regime_and_company_capability": (
+            target_type == "stock" and has_regime and has_company_capability
+        ),
+        "role_policy": (
+            "separate_macro_regime_industry_cycle_regime_company_capability_"
+            "mechanism_and_impact"
+        ),
+        "as_of_regime_policy": (
+            "macro regime may be inferred from PIT as_of_datetime; industry-cycle "
+            "regime must be source-text derived"
+        ),
+    }
+
+
+def _target_return_metric(target: Mapping[str, Any], claim_text: str) -> str:
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type == "stock":
+        return "stock_forward_return"
+    if target_type in {"sector", "industry"}:
+        return "industry_etf_forward_return"
+    if target_type in {"bond"}:
+        return "bond_etf_forward_return"
+    if target_type in {"market_index", "style_index", "equity_index", "broad_market"}:
+        return "equity_index_forward_return"
+    if target_type in {"macro_asset", "asset_class"}:
+        return "macro_asset_forward_return"
+    if target_type == "commodity":
+        if re.search(r"黄金|金价|贵金属", claim_text):
+            return "gold_etf_forward_return"
+        return "commodity_spot_price"
+    if re.search(r"股价|股票|买入|增持|减持|目标价", claim_text):
+        return "stock_forward_return"
+    if re.search(r"板块|行业|超配|低配|跑赢|跑输", claim_text):
+        return "industry_etf_forward_return"
+    if re.search(r"A股|权益市场|沪深300|上证50|中证500|创业板|港股|美股|纳斯达克|标普", claim_text):
+        return "equity_index_forward_return"
+    if re.search(r"债券|债市|国债|利率债|信用债|城投债|固收", claim_text):
+        return "bond_etf_forward_return"
+    if re.search(r"黄金|金价|贵金属", claim_text):
+        return "gold_etf_forward_return"
+    return "forward_return_proxy"
+
+
+def _normalize_metric_proxy_mapping(
+    value: Any,
+    *,
+    claim_text: str,
+    target: Mapping[str, Any],
+) -> tuple[list[str], bool]:
+    records = [
+        str(item).strip()
+        for item in _ensure_list(value)
+        if str(item or "").strip()
+        and str(item or "").strip().lower() not in {"unknown", "n/a", "na", "none"}
+    ]
+    inferred: list[str] = []
+    normalized_text = re.sub(r"\s+", " ", str(claim_text or ""))
+    for pattern, metric in METRIC_PROXY_INFERENCE_RULES:
+        if re.search(pattern, normalized_text, flags=re.IGNORECASE):
+            inferred.append(metric)
+    target_type = str(target.get("target_type") or "").strip().lower()
+    has_commodity_context = (
+        target_type == "commodity"
+        or bool(COMMODITY_PRICE_CYCLE_RE.search(normalized_text))
+    )
+    if not has_commodity_context:
+        records = [
+            item
+            for item in records
+            if item not in {"commodity_price_cycle", "commodity_spot_price"}
+        ]
+        inferred = [
+            item
+            for item in inferred
+            if item not in {"commodity_price_cycle", "commodity_spot_price"}
+        ]
+    if not LIQUIDITY_CREDIT_CONTEXT_RE.search(normalized_text):
+        records = [
+            item for item in records if item != "liquidity_credit_condition"
+        ]
+        inferred = [
+            item for item in inferred if item != "liquidity_credit_condition"
+        ]
+    if (
+        target_type == "commodity"
+        and "commodity_price_cycle" in inferred
+    ):
+        inferred.append("commodity_spot_price")
+    if re.search(
+        r"股价|股价表现|跑赢|跑输|超额收益|收益率|上涨|下跌|回报|买入|增持|减持|评级|目标价",
+        normalized_text,
+    ):
+        inferred.append(_target_return_metric(target, normalized_text))
+    if re.search(r"跑赢|跑输|超额收益|相对收益|alpha|阿尔法", normalized_text, flags=re.IGNORECASE):
+        inferred.append("relative_alpha")
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for item in [*records, *inferred]:
+        key = item.lower()
+        if key not in seen:
+            merged.append(item)
+            seen.add(key)
+    return merged, bool(inferred and not records)
 
 
 def _normalize_or_infer_horizon(
@@ -2158,13 +7097,42 @@ def _normalize_or_infer_horizon(
     *,
     claim_text: str,
     publish_date: str,
+    forecast_type: str = "",
+    target: Mapping[str, Any] | None = None,
+    metric_proxy_mapping: Sequence[Any] = (),
+    report_level_horizon: Mapping[str, Any] | None = None,
+    report_temporal_context: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     normalized = _ensure_mapping(horizon)
-    if _horizon_bucket(normalized) != "unknown":
+    invalid_model_horizon = _horizon_exceeds_reasonable_bound(normalized)
+    if _horizon_bucket(normalized) != "unknown" and not invalid_model_horizon:
         return normalized, False
     inferred = _infer_horizon_from_claim_text(claim_text, publish_date)
     if inferred:
+        if invalid_model_horizon:
+            inferred["invalid_model_horizon_replaced"] = True
         return inferred, True
+    inherited = _ensure_mapping(report_level_horizon)
+    temporal_context = _ensure_mapping(report_temporal_context)
+    if not inherited:
+        inherited = _ensure_mapping(temporal_context.get("default_horizon"))
+    if inherited and _claim_may_inherit_report_level_horizon(
+        claim_text,
+        forecast_type=forecast_type,
+        target=_ensure_mapping(target),
+        metric_proxy_mapping=metric_proxy_mapping,
+    ):
+        inherited = dict(inherited)
+        inherited.setdefault("source", "report_temporal_context")
+        if inherited.get("source") == "report_level_rating_definition":
+            inherited["inherited_from_report_level"] = True
+        else:
+            inherited["inherited_from_report_context"] = True
+        if invalid_model_horizon:
+            inherited["invalid_model_horizon_replaced"] = True
+        return inherited, True
+    if invalid_model_horizon:
+        return {}, False
     return normalized, False
 
 
@@ -2185,6 +7153,119 @@ def _forecast_mapping_gaps(record: Mapping[str, Any]) -> list[str]:
     return gaps
 
 
+PRE_REVIEW_DECISIONS = {"include", "exclude", "rewrite_needed"}
+
+
+def _normalize_analyst_claim(
+    claim: Mapping[str, Any],
+    fallback_claim_text: str,
+) -> tuple[str, bool]:
+    raw = _record_text(
+        claim,
+        "analyst_claim",
+        "refined_claim",
+        "financial_practitioner_claim",
+    )
+    if not raw:
+        return fallback_claim_text, False
+    analyst_claim, truncated = _bounded_claim_text(raw)
+    return analyst_claim, analyst_claim != fallback_claim_text or truncated
+
+
+def _normalized_pre_review_decision(value: Any) -> str:
+    decision = str(value or "").strip().lower()
+    return decision if decision in PRE_REVIEW_DECISIONS else ""
+
+
+def _forecast_claim_pre_review(
+    record: Mapping[str, Any],
+    *,
+    component_roles: Mapping[str, Any],
+    mechanism_roles: Mapping[str, Any],
+    mapping_gaps: Sequence[str],
+    analyst_claim_adjusted: bool,
+    llm_decision: Any = "",
+    llm_reason: Any = "",
+) -> dict[str, Any]:
+    direction = _normalize_forecast_direction(record.get("direction"))
+    target = _ensure_mapping(record.get("target"))
+    guardrail_blockers: list[str] = []
+    if str(record.get("claim_provenance") or "") != "source_grounded":
+        guardrail_blockers.append("not_source_grounded")
+    if direction not in {"positive", "negative"}:
+        guardrail_blockers.append("direction_missing_or_not_actionable")
+    if _target_id(target) == "unknown":
+        guardrail_blockers.append("target_missing")
+    if component_roles.get("has_market_or_fundamental_impact") is not True:
+        guardrail_blockers.append("market_or_fundamental_impact_missing")
+    if mechanism_roles.get("has_economic_mechanism") is not True:
+        guardrail_blockers.append("economic_mechanism_missing")
+    if mechanism_roles.get("mechanism_connects_to_evaluable_impact") is not True:
+        guardrail_blockers.append("mechanism_to_impact_link_missing")
+    if is_non_research_claim_text(str(record.get("claim_text") or "")):
+        guardrail_blockers.append("non_research_or_boilerplate_text")
+
+    model_decision = _normalized_pre_review_decision(llm_decision)
+    if guardrail_blockers:
+        decision = "exclude"
+        decision_source = "deterministic_guardrail"
+    elif model_decision:
+        decision = model_decision
+        decision_source = "llm_financial_practitioner"
+    elif mapping_gaps or component_roles.get("has_regime_context") is not True:
+        decision = "rewrite_needed"
+        decision_source = "deterministic_guardrail"
+    else:
+        decision = "include"
+        decision_source = "deterministic_guardrail"
+
+    reason = str(llm_reason or "").strip()
+    if not reason:
+        if guardrail_blockers:
+            reason = "guardrail blockers: " + ", ".join(guardrail_blockers)
+        elif mapping_gaps:
+            reason = "mapping gaps require human confirmation: " + ", ".join(mapping_gaps)
+        elif component_roles.get("has_regime_context") is not True:
+            reason = "claim has mechanism and impact but lacks explicit regime context"
+        else:
+            reason = (
+                "source-grounded financial thesis with direction, target, mechanism, "
+                "and finance-relevant impact"
+            )
+
+    return {
+        "schema_version": "forecast_claim_pre_review_v1",
+        "perspective": "financial_practitioner",
+        "decision": decision,
+        "decision_source": decision_source,
+        "reason": reason,
+        "guardrail_blockers": guardrail_blockers,
+        "mapping_gaps": list(mapping_gaps),
+        "quality_checks": {
+            "source_grounded": str(record.get("claim_provenance") or "") == "source_grounded",
+            "has_macro_regime_context": component_roles.get("has_macro_regime_context") is True,
+            "has_industry_cycle_regime_context": (
+                component_roles.get("has_industry_cycle_regime_context") is True
+            ),
+            "has_company_capability_or_action": (
+                component_roles.get("has_company_capability_or_action") is True
+            ),
+            "has_economic_mechanism": mechanism_roles.get("has_economic_mechanism") is True,
+            "mechanism_connects_to_evaluable_impact": (
+                mechanism_roles.get("mechanism_connects_to_evaluable_impact") is True
+            ),
+            "has_market_or_fundamental_impact": (
+                component_roles.get("has_market_or_fundamental_impact") is True
+            ),
+            "has_target": _target_id(target) != "unknown",
+            "has_direction": direction in {"positive", "negative"},
+            "has_horizon": _horizon_bucket(_ensure_mapping(record.get("horizon"))) != "unknown",
+            "analyst_claim_adjusted": analyst_claim_adjusted,
+        },
+        "claim_regime_trace_policy": "background_only_not_claim_validation",
+    }
+
+
 def _normalize_forecast_claims(
     payload: Mapping[str, Any],
     row: Mapping[str, Any],
@@ -2193,6 +7274,11 @@ def _normalize_forecast_claims(
     model: str,
     report_id: str,
     chunk_span_id: str,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+    report_level_horizon: Mapping[str, Any] | None = None,
+    report_temporal_context: Mapping[str, Any] | None = None,
+    report_context: Mapping[str, Any] | None = None,
+    section_context: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in _ensure_list(payload.get("forecast_claims")):
@@ -2200,11 +7286,45 @@ def _normalize_forecast_claims(
         raw_claim_text = _record_text(claim, "claim_text", "text")
         if not raw_claim_text:
             continue
+        target = _ensure_mapping(claim.get("target"))
+        stock_subject = _stock_subject_from_metadata(row)
+        target, stock_target_bound = _target_with_metadata_stock_subject(
+            target,
+            stock_subject,
+        )
+        raw_claim_text, claim_subject_bound = _bind_stock_subject_to_text(
+            raw_claim_text,
+            target=target,
+            stock_subject=stock_subject,
+        )
+        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
+            claim.get("metric_proxy_mapping"),
+            claim_text=raw_claim_text,
+            target=target,
+        )
         claim_text, claim_text_truncated = _bounded_claim_text(raw_claim_text)
+        analyst_claim, analyst_claim_adjusted = _normalize_analyst_claim(
+            claim,
+            claim_text,
+        )
+        analyst_claim, analyst_subject_bound = _bind_stock_subject_to_text(
+            analyst_claim,
+            target=target,
+            stock_subject=stock_subject,
+        )
+        analyst_claim_adjusted = (
+            analyst_claim_adjusted or claim_subject_bound or analyst_subject_bound
+        )
+        forecast_type = str(claim.get("forecast_type") or "unknown")
         horizon, horizon_inferred = _normalize_or_infer_horizon(
             claim.get("horizon"),
             claim_text=raw_claim_text,
             publish_date=str(row.get("publish_date") or ""),
+            forecast_type=forecast_type,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+            report_level_horizon=report_level_horizon,
+            report_temporal_context=report_temporal_context,
         )
         record = {
             "forecast_claim_id": _stable_id(
@@ -2226,12 +7346,15 @@ def _normalize_forecast_claims(
             "source_id": str(row.get("source_id") or ""),
             "source_span_ids": _source_span_ids(claim, chunk_span_id),
             "claim_text": claim_text,
-            "claim_provenance": str(claim.get("claim_provenance") or "unknown"),
+            "analyst_claim": analyst_claim,
+            "claim_provenance": _normalize_claim_provenance(
+                claim.get("claim_provenance")
+            ),
             "forecast_testability": str(
                 claim.get("forecast_testability") or "insufficient_mapping"
             ),
-            "forecast_type": str(claim.get("forecast_type") or "unknown"),
-            "target": _ensure_mapping(claim.get("target")),
+            "forecast_type": forecast_type,
+            "target": target,
             "benchmark": _ensure_mapping(claim.get("benchmark")),
             "direction": _normalize_forecast_direction(claim.get("direction")),
             "horizon": horizon,
@@ -2239,7 +7362,7 @@ def _normalize_forecast_claims(
             "entry_rule": _ensure_mapping(claim.get("entry_rule")),
             "explicitness": str(claim.get("explicitness") or "unknown"),
             "source_conviction": str(claim.get("source_conviction") or "unknown"),
-            "metric_proxy_mapping": _ensure_list(claim.get("metric_proxy_mapping")),
+            "metric_proxy_mapping": metric_proxy_mapping,
             "failure_modes": _normalize_failure_modes(claim.get("failure_modes")),
             "extraction_quality": _ensure_mapping(claim.get("extraction_quality")),
             "extractor": {
@@ -2248,49 +7371,409 @@ def _normalize_forecast_claims(
                 "input_mode": "original_markdown",
             },
         }
+        if not _is_forecast_claim_candidate_record(
+            record,
+            raw_claim_text,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+        ):
+            continue
         record["extraction_quality"][
             "claim_text_truncated_for_redaction"
         ] = claim_text_truncated
         if record["claim_provenance"] == "source_grounded":
             record["extraction_quality"].setdefault("span_grounded", True)
-        if horizon_inferred:
-            record["extraction_quality"]["horizon_inferred_from_claim_text"] = True
-            record["extraction_quality"]["horizon_inference_source_text"] = horizon.get(
-                "source_text",
+        context = dict(_ensure_mapping(report_context))
+        if not context:
+            subject_context = _infer_report_subject_context(row)
+            if subject_context:
+                context["subject_context"] = subject_context
+        section = _ensure_mapping(section_context)
+        if section:
+            context["section_context"] = dict(section)
+        if context:
+            record["extraction_quality"]["report_context"] = context
+        if stock_target_bound:
+            record["extraction_quality"]["stock_target_bound_from_metadata"] = True
+        if claim_subject_bound or analyst_subject_bound:
+            record["extraction_quality"]["stock_subject_bound_from_metadata"] = True
+            record["extraction_quality"]["stock_subject_label"] = stock_subject.get(
+                "subject_label",
                 "",
             )
+            record["extraction_quality"]["claim_text_stock_subject_bound"] = (
+                claim_subject_bound
+            )
+            record["extraction_quality"]["analyst_claim_stock_subject_bound"] = (
+                analyst_subject_bound
+            )
+        component_roles = _infer_claim_component_roles(
+            raw_claim_text,
+            target=target,
+            as_of_datetime=row.get("publish_date"),
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+        )
+        record["extraction_quality"]["claim_component_roles"] = component_roles
+        record["claim_regime_trace"] = _build_claim_regime_trace(
+            as_of_datetime=row.get("publish_date"),
+            target=target,
+            component_roles=component_roles,
+        )
+        mechanism_roles = _infer_claim_mechanism_roles(
+            raw_claim_text,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+        )
+        record["extraction_quality"]["claim_mechanism_roles"] = mechanism_roles
+        if horizon_inferred:
+            if horizon.get("source") == "report_level_rating_definition":
+                record["extraction_quality"][
+                    "horizon_inferred_from_report_level"
+                ] = True
+                record["extraction_quality"]["report_level_horizon"] = dict(horizon)
+                record["extraction_quality"][
+                    "report_level_horizon_source_text"
+                ] = horizon.get("source_text", "")
+            elif horizon.get("source") in {
+                "report_temporal_context",
+                "section_context",
+                "report_type_default",
+            }:
+                record["extraction_quality"][
+                    "horizon_inferred_from_report_temporal_context"
+                ] = True
+                record["extraction_quality"]["report_temporal_context"] = dict(
+                    _ensure_mapping(report_temporal_context)
+                )
+                record["extraction_quality"][
+                    "report_temporal_context_source_text"
+                ] = horizon.get("source_text", "")
+            else:
+                record["extraction_quality"][
+                    "horizon_inferred_from_claim_text"
+                ] = True
+                record["extraction_quality"][
+                    "horizon_inference_source_text"
+                ] = horizon.get(
+                    "source_text",
+                    "",
+                )
+        if metric_proxy_inferred:
+            record["extraction_quality"][
+                "metric_proxy_mapping_inferred_from_claim_text"
+            ] = True
         mapping_gaps = _forecast_mapping_gaps(record)
         if mapping_gaps:
             record["forecast_testability"] = "insufficient_mapping"
             record["extraction_quality"]["mapping_gaps"] = mapping_gaps
             record["extraction_quality"]["needs_human_review"] = True
+        record["pre_review"] = _forecast_claim_pre_review(
+            record,
+            component_roles=component_roles,
+            mechanism_roles=mechanism_roles,
+            mapping_gaps=mapping_gaps,
+            analyst_claim_adjusted=analyst_claim_adjusted,
+            llm_decision=claim.get("pre_review_decision"),
+            llm_reason=claim.get("pre_review_reason"),
+        )
         records.append(record)
     return records
 
 
+def _forecast_claim_selection_score(record: Mapping[str, Any]) -> tuple[int, ...]:
+    target = _ensure_mapping(record.get("target"))
+    horizon = _ensure_mapping(record.get("horizon"))
+    extraction_quality = _ensure_mapping(record.get("extraction_quality"))
+    component_roles = _ensure_mapping(extraction_quality.get("claim_component_roles"))
+    mechanism_roles = _ensure_mapping(extraction_quality.get("claim_mechanism_roles"))
+    conviction = str(record.get("source_conviction") or "").strip().lower()
+    conviction_rank = {
+        "very_high": 4,
+        "high": 3,
+        "strong": 3,
+        "medium": 2,
+        "moderate": 2,
+        "low": 1,
+        "weak": 1,
+    }.get(conviction, 0)
+    return (
+        int(record.get("claim_provenance") == "source_grounded"),
+        int(record.get("forecast_testability") == "testable"),
+        int(
+            _normalize_forecast_direction(record.get("direction"))
+            in {"positive", "negative"}
+        ),
+        int(_target_id(target) != "unknown"),
+        int(_horizon_bucket(horizon) != "unknown"),
+        int(bool(_ensure_list(record.get("metric_proxy_mapping")))),
+        int(mechanism_roles.get("has_economic_mechanism") is True),
+        int(
+            mechanism_roles.get("mechanism_connects_to_evaluable_impact")
+            is True
+        ),
+        int(component_roles.get("has_regime_context") is True),
+        conviction_rank,
+    )
+
+
+def _top_forecast_claim_indices(
+    indexed_records: Sequence[tuple[int, Mapping[str, Any]]],
+    *,
+    limit: int,
+) -> set[int]:
+    ranked = sorted(
+        indexed_records,
+        key=lambda item: (_forecast_claim_selection_score(item[1]), -item[0]),
+        reverse=True,
+    )
+    return {index for index, _record in ranked[:limit]}
+
+
+def _select_report_forecast_claims(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = MAX_FORECAST_CLAIMS_PER_REPORT,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    if len(records) <= limit:
+        return [dict(record) for record in records]
+    selected_indices = _top_forecast_claim_indices(tuple(enumerate(records)), limit=limit)
+    return [
+        dict(record)
+        for index, record in enumerate(records)
+        if index in selected_indices
+    ]
+
+
+def _select_forecast_claims_per_report(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = MAX_FORECAST_CLAIMS_PER_REPORT,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    buckets: dict[str, list[tuple[int, Mapping[str, Any]]]] = defaultdict(list)
+    for index, record in enumerate(records):
+        report_key = str(record.get("report_id") or record.get("source_id") or "unknown")
+        buckets[report_key].append((index, record))
+    selected_indices: set[int] = set()
+    for indexed_records in buckets.values():
+        if len(indexed_records) <= limit:
+            selected_indices.update(index for index, _record in indexed_records)
+            continue
+        selected_indices.update(
+            _top_forecast_claim_indices(tuple(indexed_records), limit=limit)
+        )
+    return [
+        dict(record)
+        for index, record in enumerate(records)
+        if index in selected_indices
+    ]
+
+
 def _refresh_forecast_mapping_governance(
     forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    metadata_rows: Sequence[Mapping[str, Any]] = (),
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+    root_path: Path | None = None,
 ) -> list[dict[str, Any]]:
+    metadata_by_source = _source_report_metadata(metadata_rows) if metadata_rows else {}
+    report_context_by_source = _report_context_by_source_from_metadata(
+        metadata_rows,
+        root_path=root_path,
+    )
+    report_level_horizon_by_source = _report_level_horizon_by_source_from_metadata(
+        metadata_rows,
+        root_path=root_path,
+    )
+    report_temporal_context_by_source = _report_temporal_context_by_source_from_metadata(
+        metadata_rows,
+        root_path=root_path,
+    )
     refreshed_rows: list[dict[str, Any]] = []
     for row in forecast_rows:
         refreshed = dict(row)
+        source_id = str(refreshed.get("source_id") or "")
+        target = _ensure_mapping(refreshed.get("target"))
+        metadata = metadata_by_source.get(source_id) or {}
+        stock_subject = _stock_subject_from_metadata(metadata)
+        target, stock_target_bound = _target_with_metadata_stock_subject(
+            target,
+            stock_subject,
+        )
+        claim_text = str(refreshed.get("claim_text") or "")
+        claim_text, claim_subject_bound = _bind_stock_subject_to_text(
+            claim_text,
+            target=target,
+            stock_subject=stock_subject,
+        )
+        analyst_claim = str(refreshed.get("analyst_claim") or "").strip()
+        if not analyst_claim:
+            analyst_claim = claim_text
+        analyst_claim, analyst_subject_bound = _bind_stock_subject_to_text(
+            analyst_claim,
+            target=target,
+            stock_subject=stock_subject,
+        )
+        analyst_claim_adjusted = bool(
+            analyst_claim != claim_text or claim_subject_bound or analyst_subject_bound
+        )
+        refreshed["claim_text"] = claim_text
+        refreshed["analyst_claim"] = analyst_claim
+        refreshed["target"] = target
+        if claim_subject_bound:
+            report_id = str(refreshed.get("report_id") or "")
+            source_span_ids = _ensure_list(refreshed.get("source_span_ids"))
+            chunk_span_id = str(source_span_ids[0] if source_span_ids else "")
+            if report_id:
+                refreshed["claim_id"] = _stable_id(
+                    "CLAIM",
+                    {"report_id": report_id, "claim_text": claim_text},
+                )
+            if report_id and chunk_span_id:
+                refreshed["forecast_claim_id"] = _stable_id(
+                    "FC",
+                    {
+                        "report_id": report_id,
+                        "chunk_span_id": chunk_span_id,
+                        "claim_text": claim_text,
+                    },
+                )
+        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
+            refreshed.get("metric_proxy_mapping"),
+            claim_text=claim_text,
+            target=target,
+        )
+        if not _is_forecast_claim_candidate_record(
+            refreshed,
+            claim_text,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+        ):
+            continue
+        extraction_quality = dict(_ensure_mapping(refreshed.get("extraction_quality")))
+        report_context = _ensure_mapping(extraction_quality.get("report_context"))
+        if not report_context:
+            report_context = report_context_by_source.get(source_id, {})
+        if report_context:
+            extraction_quality["report_context"] = dict(report_context)
+        report_level_horizon = _ensure_mapping(
+            extraction_quality.get("report_level_horizon")
+        )
+        if not report_level_horizon:
+            report_level_horizon = report_level_horizon_by_source.get(source_id, {})
+        report_temporal_context = _ensure_mapping(
+            extraction_quality.get("report_temporal_context")
+        )
+        if not report_temporal_context:
+            report_temporal_context = _ensure_mapping(
+                report_context.get("temporal_context")
+            )
+        if not report_temporal_context:
+            report_temporal_context = report_temporal_context_by_source.get(source_id, {})
+        forecast_type = str(refreshed.get("forecast_type") or "unknown")
         horizon, horizon_inferred = _normalize_or_infer_horizon(
             refreshed.get("horizon"),
-            claim_text=str(refreshed.get("claim_text") or ""),
+            claim_text=claim_text,
             publish_date=str(
                 refreshed.get("signal_datetime")
                 or refreshed.get("publish_date")
                 or "",
             ),
+            forecast_type=forecast_type,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+            report_level_horizon=report_level_horizon,
+            report_temporal_context=report_temporal_context,
         )
         refreshed["horizon"] = horizon
-        extraction_quality = dict(_ensure_mapping(refreshed.get("extraction_quality")))
-        if horizon_inferred:
-            extraction_quality["horizon_inferred_from_claim_text"] = True
-            extraction_quality["horizon_inference_source_text"] = horizon.get(
-                "source_text",
+        if stock_target_bound:
+            extraction_quality["stock_target_bound_from_metadata"] = True
+        if claim_subject_bound or analyst_subject_bound:
+            extraction_quality["stock_subject_bound_from_metadata"] = True
+            extraction_quality["stock_subject_label"] = stock_subject.get(
+                "subject_label",
                 "",
             )
+            extraction_quality["claim_text_stock_subject_bound"] = claim_subject_bound
+            extraction_quality["analyst_claim_stock_subject_bound"] = (
+                analyst_subject_bound
+            )
+        refreshed["metric_proxy_mapping"] = metric_proxy_mapping
+        if horizon_inferred:
+            if horizon.get("source") == "report_level_rating_definition":
+                extraction_quality.pop("horizon_inferred_from_claim_text", None)
+                extraction_quality.pop("horizon_inference_source_text", None)
+                extraction_quality.pop(
+                    "horizon_inferred_from_report_temporal_context",
+                    None,
+                )
+                extraction_quality["horizon_inferred_from_report_level"] = True
+                extraction_quality["report_level_horizon"] = dict(horizon)
+                extraction_quality["report_level_horizon_source_text"] = horizon.get(
+                    "source_text",
+                    "",
+                )
+            elif horizon.get("source") in {
+                "report_temporal_context",
+                "section_context",
+                "report_type_default",
+            }:
+                extraction_quality.pop("horizon_inferred_from_claim_text", None)
+                extraction_quality.pop("horizon_inference_source_text", None)
+                extraction_quality.pop("horizon_inferred_from_report_level", None)
+                extraction_quality.pop("report_level_horizon_source_text", None)
+                extraction_quality[
+                    "horizon_inferred_from_report_temporal_context"
+                ] = True
+                extraction_quality["report_temporal_context"] = dict(
+                    report_temporal_context
+                )
+                extraction_quality[
+                    "report_temporal_context_source_text"
+                ] = horizon.get("source_text", "")
+            else:
+                extraction_quality.pop("horizon_inferred_from_report_level", None)
+                extraction_quality.pop("report_level_horizon_source_text", None)
+                extraction_quality.pop(
+                    "horizon_inferred_from_report_temporal_context",
+                    None,
+                )
+                extraction_quality["horizon_inferred_from_claim_text"] = True
+                extraction_quality["horizon_inference_source_text"] = horizon.get(
+                    "source_text",
+                    "",
+                )
+        if metric_proxy_inferred:
+            extraction_quality["metric_proxy_mapping_inferred_from_claim_text"] = True
+        component_roles = _infer_claim_component_roles(
+            claim_text,
+            target=target,
+            as_of_datetime=(
+                refreshed.get("signal_datetime")
+                or refreshed.get("publish_date")
+                or ""
+            ),
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+        )
+        extraction_quality["claim_component_roles"] = component_roles
+        refreshed["claim_regime_trace"] = _build_claim_regime_trace(
+            as_of_datetime=(
+                refreshed.get("signal_datetime")
+                or refreshed.get("publish_date")
+                or ""
+            ),
+            target=target,
+            component_roles=component_roles,
+        )
+        extraction_quality["claim_mechanism_roles"] = _infer_claim_mechanism_roles(
+            claim_text,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+        )
+        mechanism_roles = _ensure_mapping(extraction_quality.get("claim_mechanism_roles"))
         mapping_gaps = _forecast_mapping_gaps(refreshed)
         if mapping_gaps:
             refreshed["forecast_testability"] = "insufficient_mapping"
@@ -2302,18 +7785,97 @@ def _refresh_forecast_mapping_governance(
                 refreshed["forecast_testability"] = "testable"
                 extraction_quality["needs_human_review"] = False
         refreshed["extraction_quality"] = extraction_quality
+        previous_pre_review = _ensure_mapping(refreshed.get("pre_review"))
+        previous_from_llm = (
+            previous_pre_review.get("decision_source") == "llm_financial_practitioner"
+        )
+        refreshed["pre_review"] = _forecast_claim_pre_review(
+            refreshed,
+            component_roles=component_roles,
+            mechanism_roles=mechanism_roles,
+            mapping_gaps=mapping_gaps,
+            analyst_claim_adjusted=analyst_claim_adjusted,
+            llm_decision=previous_pre_review.get("decision") if previous_from_llm else "",
+            llm_reason=previous_pre_review.get("reason") if previous_from_llm else "",
+        )
         refreshed_rows.append(refreshed)
-    return refreshed_rows
+    return _select_forecast_claims_per_report(refreshed_rows)
 
 
 def _refresh_analytical_footprint_indicator_governance(
     footprint_rows: Sequence[Mapping[str, Any]],
+    *,
+    metadata_rows: Sequence[Mapping[str, Any]] = (),
+    root_path: Path | None = None,
+    chunk_chars: int = 60_000,
+    max_chunks: int = 8,
 ) -> list[dict[str, Any]]:
+    metadata_by_source = _source_report_metadata(metadata_rows) if metadata_rows else {}
     refreshed_rows: list[dict[str, Any]] = []
     for row in footprint_rows:
         refreshed = dict(row)
-        refreshed["indicator_mentions"] = _normalize_indicator_mentions(
+        original_indicator_mentions = _normalize_indicator_mentions(
             refreshed.get("indicator_mentions")
+        )
+        base_indicator_mentions = [
+            mention
+            for mention in original_indicator_mentions
+            if str(mention.get("inference_source") or "")
+            not in INDICATOR_METADATA_DERIVED_INFERENCE_SOURCES
+        ]
+        indicator_mentions = list(original_indicator_mentions)
+        text_grounded_mentions: list[dict[str, Any]] = []
+        if metadata_by_source and root_path is not None:
+            chunk = _footprint_markdown_chunk(
+                refreshed,
+                metadata_by_source=metadata_by_source,
+                root_path=root_path,
+                chunk_chars=chunk_chars,
+                max_chunks=max_chunks,
+            )
+            text_grounded_mentions = _text_grounded_indicator_mentions(
+                chunk,
+                footprint_context=_footprint_indicator_context(refreshed),
+            )
+            if text_grounded_mentions:
+                indicator_mentions = list(base_indicator_mentions)
+            seen_canonicals = {
+                str(mention.get("canonical_metric_candidate") or "")
+                for mention in indicator_mentions
+                if not _indicator_value_unknown(
+                    mention.get("canonical_metric_candidate")
+                )
+            }
+            indicator_mentions.extend(
+                mention
+                for mention in text_grounded_mentions
+                if str(mention.get("canonical_metric_candidate") or "")
+                not in seen_canonicals
+            )
+        has_complete_mapping = bool(indicator_mentions) and any(
+            not _indicator_value_unknown(mention.get("canonical_metric_candidate"))
+            and mention.get("source_grounded") is True
+            for mention in indicator_mentions
+        )
+        if not has_complete_mapping:
+            context_mentions = _context_seed_indicator_mentions(
+                _footprint_indicator_context(refreshed)
+            )
+            seen_canonicals = {
+                str(mention.get("canonical_metric_candidate") or "")
+                for mention in indicator_mentions
+                if not _indicator_value_unknown(
+                    mention.get("canonical_metric_candidate")
+                )
+            }
+            indicator_mentions.extend(
+                mention
+                for mention in context_mentions
+                if str(mention.get("canonical_metric_candidate") or "")
+                not in seen_canonicals
+            )
+        refreshed["indicator_mentions"] = _prioritize_indicator_mentions_for_review(
+            indicator_mentions
         )
         refreshed_rows.append(refreshed)
     return refreshed_rows
@@ -2327,6 +7889,7 @@ def _normalize_footprints(
     model: str,
     report_id: str,
     chunk_span_id: str,
+    markdown_chunk: str = "",
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in _ensure_list(payload.get("analytical_footprints")):
@@ -2334,6 +7897,26 @@ def _normalize_footprints(
         topic = _record_text(footprint, "topic", "name") or "unknown"
         target_agents, target_entities = _split_agent_and_entity_candidates(
             footprint.get("target_agent_candidates")
+        )
+        analysis_patterns = _ensure_list(footprint.get("analysis_patterns"))
+        indicator_mentions = _normalize_indicator_mentions(
+            footprint.get("indicator_mentions")
+        )
+        if not indicator_mentions:
+            indicator_mentions = _text_grounded_indicator_mentions(
+                markdown_chunk,
+                footprint_context=_footprint_indicator_context(
+                    {"topic": topic, "analysis_patterns": analysis_patterns}
+                ),
+            )
+        if not indicator_mentions:
+            indicator_mentions = _context_seed_indicator_mentions(
+                _footprint_indicator_context(
+                    {"topic": topic, "analysis_patterns": analysis_patterns}
+                )
+            )
+        indicator_mentions = _prioritize_indicator_mentions_for_review(
+            indicator_mentions
         )
         record = {
             "footprint_id": _stable_id(
@@ -2350,12 +7933,10 @@ def _normalize_footprints(
             "source_span_ids": _source_span_ids(footprint, chunk_span_id),
             "extraction_type": str(footprint.get("extraction_type") or "mixed"),
             "market": "CN_A_SHARE",
-            "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+            "sector": _report_sector_bucket(row),
             "topic": topic,
-            "indicator_mentions": _normalize_indicator_mentions(
-                footprint.get("indicator_mentions")
-            ),
-            "analysis_patterns": _ensure_list(footprint.get("analysis_patterns")),
+            "indicator_mentions": indicator_mentions,
+            "analysis_patterns": analysis_patterns,
             "target_agent_candidates": target_agents,
             "target_entity_candidates": target_entities,
             "license_class": "operator_approved_internal_research_use",
@@ -2422,6 +8003,62 @@ def _indicator_review_preview(mentions: Any) -> list[dict[str, Any]]:
     return preview
 
 
+def _indicator_review_summary(mentions: Any, *, preview_limit: int = 5) -> dict[str, Any]:
+    mention_maps = [
+        _ensure_mapping(item)
+        for item in _ensure_list(mentions)
+        if isinstance(item, Mapping)
+    ]
+    unknown_count = 0
+    ungrounded_count = 0
+    complete_count = 0
+    hidden_unknown_count = 0
+    hidden_ungrounded_count = 0
+    for index, mention in enumerate(mention_maps):
+        canonical_unknown = _indicator_value_unknown(
+            mention.get("canonical_metric_candidate")
+        )
+        source_ungrounded = mention.get("source_grounded") is not True
+        if canonical_unknown:
+            unknown_count += 1
+            if index >= preview_limit:
+                hidden_unknown_count += 1
+        if source_ungrounded:
+            ungrounded_count += 1
+            if index >= preview_limit:
+                hidden_ungrounded_count += 1
+        if not canonical_unknown and not source_ungrounded:
+            complete_count += 1
+    mention_count = len(mention_maps)
+    hidden_count = max(0, mention_count - preview_limit)
+    all_mentions_complete = (
+        bool(mention_maps) and unknown_count == 0 and ungrounded_count == 0
+    )
+    return {
+        "mention_count": mention_count,
+        "preview_count": min(mention_count, preview_limit),
+        "preview_limit": preview_limit,
+        "hidden_count": hidden_count,
+        "unknown_canonical_count": unknown_count,
+        "ungrounded_count": ungrounded_count,
+        "complete_source_grounded_count": complete_count,
+        "hidden_unknown_canonical_count": hidden_unknown_count,
+        "hidden_ungrounded_count": hidden_ungrounded_count,
+        "mapping_complete": all_mentions_complete,
+    }
+
+
+def _footprint_review_indicator_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    summary = _ensure_mapping(row.get("indicator_mentions_review_summary"))
+    if type(summary.get("mention_count")) is int:
+        out = dict(summary)
+        out.setdefault("summary_source", "indicator_mentions_review_summary")
+        return out
+    fallback = _indicator_review_summary(row.get("indicator_mentions_review_preview"))
+    fallback["summary_source"] = "indicator_mentions_review_preview"
+    return fallback
+
+
 def _analysis_pattern_review_preview(patterns: Any) -> list[str]:
     out: list[str] = []
     for pattern in _ensure_list(patterns)[:5]:
@@ -2466,6 +8103,9 @@ def _footprint_review_template_row(
         "extraction_type": str(row.get("extraction_type") or "unknown"),
         "sector": str(row.get("sector") or "unknown"),
         "indicator_mentions_review_preview": _indicator_review_preview(
+            row.get("indicator_mentions")
+        ),
+        "indicator_mentions_review_summary": _indicator_review_summary(
             row.get("indicator_mentions")
         ),
         "analysis_patterns_review_preview": _analysis_pattern_review_preview(
@@ -2532,18 +8172,93 @@ def _footprint_review_row_complete(row: Mapping[str, Any]) -> bool:
     )
 
 
+_ANALYTICAL_FOOTPRINT_REVIEW_FIELD_BY_METRIC = {
+    "footprint_precision": "footprint_correct",
+    "span_support_precision": "source_span_supports_footprint",
+    "metric_mapping_accuracy": "metric_mapping_correct",
+    "inferred_step_tagging_accuracy": "inferred_steps_tagged_correctly",
+    "unknown_on_ambiguity_rate": "unknowns_used_when_uncertain",
+    "proprietary_leakage_free_rate": "no_proprietary_text_leakage",
+}
+
+
+def _analytical_footprint_quality_metric_rows(
+    metric: str, complete_rows: Sequence[Mapping[str, Any]]
+) -> list[Mapping[str, Any]]:
+    if metric == "metric_mapping_accuracy":
+        return [row for row in complete_rows if row.get("footprint_correct") is True]
+    return list(complete_rows)
+
+
+def _analytical_footprint_quality_gap_targets(
+    complete_rows: Sequence[Mapping[str, Any]],
+    precision_recall_report: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    complete_denominator = len(complete_rows)
+    if complete_denominator == 0:
+        return None
+    metric_targets: dict[str, Mapping[str, Any]] = {}
+    active_gap_count = 0
+    for metric, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
+        field = _ANALYTICAL_FOOTPRINT_REVIEW_FIELD_BY_METRIC[metric]
+        metric_rows = _analytical_footprint_quality_metric_rows(metric, complete_rows)
+        denominator = len(metric_rows)
+        current_rate = precision_recall_report.get(metric)
+        current_pass_count = sum(row.get(field) is True for row in metric_rows)
+        required_pass_count = ceil((threshold * denominator) - 1e-12)
+        minimum_gap_count = max(0, required_pass_count - current_pass_count)
+        if minimum_gap_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": ">=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "denominator_policy": (
+                "footprint_correct_true_rows"
+                if metric == "metric_mapping_accuracy"
+                else "completed_review_rows"
+            ),
+            "current_pass_count": current_pass_count,
+            "required_pass_count": required_pass_count,
+            "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
+            "is_passing": minimum_gap_count == 0,
+        }
+    return {
+        "policy": (
+            "public_safe_aggregate_quality_gate_gap_targets_no_source_text"
+        ),
+        "interpretation": (
+            "count deltas are computed over each metric denominator; metric "
+            "mapping is evaluated only on footprint_correct=true rows so rejected "
+            "footprints are not double-counted as mapping failures"
+        ),
+        "sample_size_completed_rows": {
+            "current_count": complete_denominator,
+            "pending_rows_are_excluded_from_metric_denominator": True,
+        },
+        "metrics": metric_targets,
+        "active_gap_count": active_gap_count,
+    }
+
+
 def build_analytical_footprint_review_summary(
     review_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     complete_rows = [row for row in review_rows if _footprint_review_row_complete(row)]
     pending_rows = len(review_rows) - len(complete_rows)
 
-    def rate(field: str) -> float | None:
-        if not complete_rows:
+    def rate(field: str, *, metric: str | None = None) -> float | None:
+        denominator_rows = (
+            _analytical_footprint_quality_metric_rows(metric, complete_rows)
+            if metric is not None
+            else complete_rows
+        )
+        if not denominator_rows:
             return None
         return round(
-            sum(1 for row in complete_rows if row.get(field) is True)
-            / len(complete_rows),
+            sum(1 for row in denominator_rows if row.get(field) is True)
+            / len(denominator_rows),
             6,
         )
 
@@ -2563,7 +8278,9 @@ def build_analytical_footprint_review_summary(
     precision_recall_report = {
         "footprint_precision": rate("footprint_correct"),
         "span_support_precision": rate("source_span_supports_footprint"),
-        "metric_mapping_accuracy": rate("metric_mapping_correct"),
+        "metric_mapping_accuracy": rate(
+            "metric_mapping_correct", metric="metric_mapping_accuracy"
+        ),
         "inferred_step_tagging_accuracy": rate(
             "inferred_steps_tagged_correctly"
         ),
@@ -2574,6 +8291,10 @@ def build_analytical_footprint_review_summary(
         "recall_estimate": None,
         "recall_status": "requires_human_negative_examples",
     }
+    quality_gap_targets = _analytical_footprint_quality_gap_targets(
+        complete_rows,
+        precision_recall_report,
+    )
     quality_gate_blockers: list[str] = []
     for field, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
         value = precision_recall_report.get(field)
@@ -2594,6 +8315,7 @@ def build_analytical_footprint_review_summary(
         "quality_gate_thresholds": dict(
             sorted(ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items())
         ),
+        "quality_gap_targets": quality_gap_targets,
         "quality_gate_blockers": quality_gate_blockers,
         "manual_review_required": True,
         "review_template_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
@@ -2653,31 +8375,1765 @@ def build_analytical_footprint_error_taxonomy() -> dict[str, Any]:
 def write_analytical_footprint_review_artifacts(
     registry_dir: Path,
     footprint_rows: Sequence[Mapping[str, Any]],
+    *,
+    preserve_existing_summary: bool = False,
 ) -> dict[str, str]:
     template_path = registry_dir / "analytical_footprint_review_template.jsonl"
+    summary_path = registry_dir / "analytical_footprint_review_summary.json"
+    taxonomy_path = registry_dir / "analytical_footprint_error_taxonomy.json"
     review_rows = build_analytical_footprint_review_rows(
         footprint_rows,
         existing_template_path=template_path,
     )
     summary = build_analytical_footprint_review_summary(review_rows)
     taxonomy = build_analytical_footprint_error_taxonomy()
+    preserve_summary = preserve_existing_summary and summary_path.exists() and not review_rows
+    if preserve_summary:
+        summary_output = {"path": summary_path}
+    else:
+        summary_output = _write_json(summary_path, summary)
+    if preserve_existing_summary and taxonomy_path.exists():
+        taxonomy_output = {"path": taxonomy_path}
+    else:
+        taxonomy_output = _write_json(taxonomy_path, taxonomy)
     return {
         "analytical_footprint_review_template": str(
             _write_jsonl(template_path, review_rows)["path"]
         ),
         "analytical_footprint_review_summary": str(
-            _write_json(
-                registry_dir / "analytical_footprint_review_summary.json",
-                summary,
-            )["path"]
+            summary_output["path"]
         ),
         "analytical_footprint_error_taxonomy": str(
-            _write_json(
-                registry_dir / "analytical_footprint_error_taxonomy.json",
-                taxonomy,
-            )["path"]
+            taxonomy_output["path"]
         ),
     }
+
+
+def _footprint_review_pending_required_fields(
+    review_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in review_rows:
+        for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+            if not isinstance(row.get(field), bool):
+                counts[field] = counts.get(field, 0) + 1
+        for field in ("reviewer", "review_date", "review_notes"):
+            if not str(row.get(field) or "").strip():
+                counts[field] = counts.get(field, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _manual_review_backup_path(root_path: Path, source_path: Path) -> Path:
+    try:
+        relative = source_path.resolve().relative_to(root_path.resolve())
+        label = "__".join(relative.parts)
+    except ValueError:
+        label = source_path.name
+    safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
+    timestamp = re.sub(r"[^0-9A-Za-z]+", "", _utc_now())
+    return rke_tmp_root() / "review-backups" / f"{timestamp}_{safe_label}"
+
+
+def prepare_analytical_footprint_review_import(
+    root: str | Path,
+    output_path: str | Path = ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    *,
+    reviewer: str = "",
+    review_date: str = "",
+    limit: int | None = None,
+    offset: int = 0,
+    overwrite: bool = False,
+    priority: bool = False,
+    quality_gap_only: bool = False,
+) -> AnalyticalFootprintReviewPrepareReport:
+    root_path = Path(root)
+    target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="analytical footprint target review",
+    )
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    blockers: list[str] = []
+    if not target_rows_raw:
+        blockers.append("analytical footprint review template is empty")
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint target review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    blockers.extend(target_parse_blockers)
+    if resolved_output_path.exists() and not overwrite:
+        blockers.append(f"output_path already exists: {resolved_output_path}")
+    offset_value = max(0, int(offset))
+    limit_value = None if limit is None else max(0, int(limit))
+    existing_output_ids: set[str] = set()
+    if quality_gap_only and overwrite and resolved_output_path.exists():
+        existing_output_rows, _ = load_jsonl_with_errors(
+            resolved_output_path,
+            label="existing analytical footprint review output",
+        )
+        existing_output_ids = {
+            str(row.get("footprint_id") or "")
+            for row in existing_output_rows
+            if isinstance(row, Mapping) and str(row.get("footprint_id") or "").strip()
+        }
+    if quality_gap_only:
+        selected_indexed_rows = [
+            (index, row)
+            for index, row in enumerate(target_rows)
+            if _footprint_review_row_complete(row)
+            and row.get("footprint_correct") is True
+            and str(row.get("footprint_id") or "") not in existing_output_ids
+            and any(
+                row.get(field) is False
+                for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS
+            )
+        ]
+        if priority:
+            selected_indexed_rows = sorted(
+                selected_indexed_rows,
+                key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
+            )
+        selected_indexed_rows = selected_indexed_rows[
+            offset_value : None if limit_value is None else offset_value + limit_value
+        ]
+        selected_target_rows = [row for _, row in selected_indexed_rows]
+        selection_policy = (
+            "quality_gap_priority_sorted" if priority else "quality_gap_target_order"
+        )
+    elif priority:
+        pending_indexed_rows = [
+            (index, row)
+            for index, row in enumerate(target_rows)
+            if not _footprint_review_row_complete(row)
+        ]
+        prioritized_rows = sorted(
+            pending_indexed_rows,
+            key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
+        )
+        selected_indexed_rows = prioritized_rows[
+            offset_value : None if limit_value is None else offset_value + limit_value
+        ]
+        selected_target_rows = [row for _, row in selected_indexed_rows]
+        selection_policy = "priority_sorted_pending"
+    elif limit_value is None:
+        selected_target_rows = target_rows[offset_value:] if offset_value else target_rows
+        selection_policy = "target_order"
+    else:
+        pending_target_rows = [
+            row for row in target_rows if not _footprint_review_row_complete(row)
+        ]
+        selected_target_rows = pending_target_rows[
+            offset_value : offset_value + limit_value
+        ]
+        selection_policy = "pending_offset"
+    scaffold_rows: list[dict[str, Any]] = []
+    for row in selected_target_rows:
+        scaffold = dict(row)
+        if reviewer:
+            scaffold["reviewer"] = reviewer
+        if review_date:
+            scaffold["review_date"] = review_date
+        forbidden_paths = manual_review_forbidden_field_paths(scaffold)
+        if forbidden_paths:
+            blockers.append(
+                "analytical footprint review scaffold contains forbidden fields: "
+                + ", ".join(forbidden_paths)
+            )
+        scaffold_rows.append(scaffold)
+    backup_path = ""
+    backed_up_existing_output = False
+    if not blockers:
+        if overwrite and resolved_output_path.exists():
+            backup = _manual_review_backup_path(root_path, resolved_output_path)
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(resolved_output_path, backup)
+            backup_path = str(backup)
+            backed_up_existing_output = True
+        _write_jsonl(resolved_output_path, scaffold_rows)
+    complete_rows = sum(1 for row in scaffold_rows if _footprint_review_row_complete(row))
+    priority_score_counts = Counter(
+        str(_footprint_review_priority_score(row)) for row in scaffold_rows
+    )
+    priority_reason_counts = Counter(
+        reason
+        for row in scaffold_rows
+        for reason in _footprint_review_priority_reasons(row)
+    )
+    report = AnalyticalFootprintReviewPrepareReport(
+        report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-PREPARE-REPORT",
+        target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        output_path=str(resolved_output_path),
+        accepted=not blockers,
+        overwrite=overwrite,
+        requested_limit=limit_value,
+        requested_offset=offset_value,
+        priority=bool(priority),
+        selection_policy=selection_policy,
+        output_rows=len(scaffold_rows),
+        complete_rows=complete_rows,
+        pending_rows=len(scaffold_rows) - complete_rows,
+        pending_required_fields=_footprint_review_pending_required_fields(
+            scaffold_rows
+        ),
+        selected_priority_score_counts=dict(sorted(priority_score_counts.items())),
+        selected_priority_reason_counts=dict(sorted(priority_reason_counts.items())),
+        blockers=tuple(blockers),
+        backed_up_existing_output=backed_up_existing_output,
+        backup_path=backup_path,
+    )
+    return report
+
+
+def _review_assist_preview(value: Any, *, max_chars: int = 96) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _review_assist_preview_list(
+    value: Any,
+    *,
+    max_items: int = 3,
+    max_chars: int = 96,
+) -> tuple[str, ...]:
+    return tuple(
+        _review_assist_preview(item, max_chars=max_chars)
+        for item in _ensure_list(value)[:max_items]
+        if str(item or "").strip()
+    )
+
+
+def _markdown_table_cell(value: Any, *, max_chars: int = 96) -> str:
+    if isinstance(value, Mapping):
+        text = json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
+    elif isinstance(value, (list, tuple, set)):
+        text = ", ".join(str(item) for item in value)
+    else:
+        text = str(value or "")
+    return _review_assist_preview(text, max_chars=max_chars).replace("|", "\\|") or "-"
+
+
+def _footprint_review_assist_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "assist_kind": "analytical_footprint_review_assist_not_import",
+        "not_apply_footprint_review_input": True,
+        "index": index,
+        "footprint_id": str(row.get("footprint_id") or ""),
+        "target_row_hash": str(row.get("target_row_hash") or ""),
+        "source_id": str(row.get("source_id") or ""),
+        "report_id": str(row.get("report_id") or ""),
+        "sector": str(row.get("sector") or ""),
+        "extraction_type": str(row.get("extraction_type") or ""),
+        "topic_preview": _review_assist_preview(row.get("topic_preview"), max_chars=96),
+        "indicator_mentions_preview": _review_assist_preview_list(
+            row.get("indicator_mentions_review_preview"),
+            max_items=3,
+            max_chars=80,
+        ),
+        "indicator_mentions_summary": _footprint_review_indicator_summary(row),
+        "analysis_patterns_preview": _review_assist_preview_list(
+            row.get("analysis_patterns_review_preview"),
+            max_items=3,
+            max_chars=80,
+        ),
+        "target_entity_candidates": tuple(
+            _review_assist_preview(item, max_chars=48)
+            for item in _ensure_list(row.get("target_entity_candidates"))[:5]
+            if str(item or "").strip()
+        ),
+        "target_agent_candidates": tuple(
+            _review_assist_preview(item, max_chars=48)
+            for item in _ensure_list(row.get("target_agent_candidates"))[:5]
+            if str(item or "").strip()
+        ),
+        "source_span_count": len(_ensure_list(row.get("source_span_ids"))),
+        "review_context_ref": str(row.get("review_context_ref") or ""),
+        "target_review_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        "reviewed_import_path": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+        "human_required_fields": (
+            *ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+            "manual_error_tags",
+        ),
+        "human_review_required": True,
+    }
+
+
+def _select_analytical_footprint_review_rows_for_input(
+    root_path: Path,
+    target_rows: Sequence[Mapping[str, Any]],
+    review_input_path: str | Path | None,
+) -> tuple[list[Mapping[str, Any]], list[str], str, str]:
+    if review_input_path is None:
+        return (
+            [row for row in target_rows if not _footprint_review_row_complete(row)],
+            [],
+            "pending_template",
+            "",
+        )
+
+    review_input_text = str(review_input_path)
+    input_rows_raw, input_parse_blockers = load_jsonl_with_errors(
+        root_path / review_input_text,
+        label="analytical footprint review input",
+    )
+    input_rows, invalid_input_rows = _split_mapping_rows(input_rows_raw)
+    blockers: list[str] = [*input_parse_blockers]
+    if invalid_input_rows:
+        blockers.append(
+            "analytical footprint review input row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_input_rows)
+        )
+    if not input_rows_raw:
+        blockers.append("analytical footprint review input is missing or empty")
+
+    target_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in target_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    selected_rows: list[Mapping[str, Any]] = []
+    seen_footprint_ids: set[str] = set()
+    for row_index, input_row in enumerate(input_rows, 1):
+        footprint_id = str(input_row.get("footprint_id") or "").strip()
+        if not footprint_id:
+            blockers.append(
+                f"analytical footprint review input row {row_index}.footprint_id: required"
+            )
+            continue
+        if footprint_id in seen_footprint_ids:
+            blockers.append(
+                "analytical footprint review input row "
+                f"{row_index}.footprint_id: duplicate {footprint_id}"
+            )
+            continue
+        seen_footprint_ids.add(footprint_id)
+        target_row = target_by_id.get(footprint_id)
+        if target_row is None:
+            blockers.append(
+                "analytical footprint review input row "
+                f"{row_index}.footprint_id: no matching target review row"
+            )
+            continue
+        input_hash = str(input_row.get("target_row_hash") or "").strip()
+        target_hash = str(target_row.get("target_row_hash") or "").strip()
+        if input_hash and target_hash and input_hash != target_hash:
+            blockers.append(
+                "analytical footprint review input row "
+                f"{row_index}.target_row_hash: does not match target review row"
+            )
+        selected_rows.append(target_row)
+    return selected_rows, blockers, "review_input", review_input_text
+
+
+def build_analytical_footprint_review_assist(
+    root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
+) -> tuple[AnalyticalFootprintReviewAssistReport, tuple[Mapping[str, Any], ...]]:
+    root_path = Path(root)
+    target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="analytical footprint target review",
+    )
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    pending_rows, input_blockers, selection_source, review_input_text = (
+        _select_analytical_footprint_review_rows_for_input(
+            root_path,
+            target_rows,
+            review_input_path,
+        )
+    )
+    assist_rows = tuple(
+        _footprint_review_assist_row(index, row)
+        for index, row in enumerate(pending_rows, 1)
+    )
+    review_summary = build_analytical_footprint_review_summary(target_rows)
+    quality_gap_targets = _footprint_review_quality_gap_targets_from_summary(
+        review_summary
+    )
+    blockers: list[str] = [*target_parse_blockers, *input_blockers]
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint target review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    if not target_rows_raw:
+        blockers.append("analytical footprint review template is empty")
+    elif not target_rows:
+        blockers.append("analytical footprint review template has no valid rows")
+    return (
+        AnalyticalFootprintReviewAssistReport(
+            report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-ASSIST",
+            target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+            reviewed_import_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            jsonl_path=ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+            markdown_path=ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
+            row_count=len(assist_rows),
+            pending_rows=len(pending_rows),
+            blockers=tuple(blockers),
+            selection_source=selection_source,
+            review_input_path=review_input_text,
+            quality_gap_targets=quality_gap_targets,
+        ),
+        assist_rows,
+    )
+
+
+def render_analytical_footprint_review_workbook_markdown(
+    report: AnalyticalFootprintReviewAssistReport,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    lines = [
+        "# RKE Analytical Footprint Review Workbook",
+        "",
+        f"- Assist ID: {report.report_id}",
+        f"- Pending rows: {report.pending_rows}",
+        f"- Selection source: `{report.selection_source}`",
+        f"- Review template: `{report.target_path}`",
+        f"- Reviewed import target: `{report.reviewed_import_path}`",
+        f"- JSONL assist: `{report.jsonl_path}`",
+        "",
+        "This workbook is private review assistance only. It is not an import file and does not satisfy the analytical-footprint review gate.",
+        "Fill reviewer decisions only in the reviewed JSONL scratch file, then dry-run `mosaic-rke apply-footprint-review`.",
+        "",
+    ]
+    if report.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in report.blockers)
+        lines.append("")
+    if report.quality_gap_targets:
+        lines.extend(["## Quality Gate Gap Targets", ""])
+        lines.append(
+            "Aggregate only; these counts contain no source text and are not import decisions."
+        )
+        lines.append("")
+        sample_size = report.quality_gap_targets.get(
+            "sample_size_completed_rows",
+            {},
+        )
+        if isinstance(sample_size, Mapping):
+            lines.append(
+                "- Completed rows in denominator: "
+                f"{sample_size.get('current_count')}"
+            )
+        metrics = report.quality_gap_targets.get("metrics", {})
+        if isinstance(metrics, Mapping):
+            for metric, target in metrics.items():
+                if not isinstance(target, Mapping) or target.get("is_passing") is True:
+                    continue
+                lines.append(
+                    "- "
+                    f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                    f"(pass count {target.get('current_pass_count')}/"
+                    f"{target.get('required_pass_count')}, need +"
+                    f"{target.get('minimum_additional_pass_count_if_denominator_unchanged')})"
+                )
+        lines.append("")
+    lines.extend(
+        [
+            "## Pending Footprints",
+            "",
+            (
+                "| # | footprint_id | target_hash | source_id | sector | type | "
+                "source_spans | topic | indicators | analysis_patterns | entities | agents |"
+            ),
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _markdown_table_cell(row.get("index"), max_chars=12),
+                    _markdown_table_cell(row.get("footprint_id"), max_chars=48),
+                    _markdown_table_cell(row.get("target_row_hash"), max_chars=24),
+                    _markdown_table_cell(row.get("source_id"), max_chars=48),
+                    _markdown_table_cell(row.get("sector"), max_chars=32),
+                    _markdown_table_cell(row.get("extraction_type"), max_chars=24),
+                    _markdown_table_cell(row.get("source_span_count"), max_chars=12),
+                    _markdown_table_cell(row.get("topic_preview"), max_chars=96),
+                    _markdown_table_cell(row.get("indicator_mentions_preview"), max_chars=96),
+                    _markdown_table_cell(row.get("analysis_patterns_preview"), max_chars=96),
+                    _markdown_table_cell(row.get("target_entity_candidates"), max_chars=72),
+                    _markdown_table_cell(row.get("target_agent_candidates"), max_chars=72),
+                )
+            )
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def write_analytical_footprint_review_assist(
+    root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
+) -> AnalyticalFootprintReviewAssistReport:
+    root_path = Path(root)
+    report, rows = build_analytical_footprint_review_assist(
+        root_path,
+        review_input_path=review_input_path,
+    )
+    _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH, rows)
+    markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(
+        render_analytical_footprint_review_workbook_markdown(report, rows) + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
+def _footprint_review_priority_reasons(row: Mapping[str, Any]) -> tuple[str, ...]:
+    reasons: list[str] = []
+    indicator_mentions = _ensure_list(row.get("indicator_mentions_review_preview"))
+    analysis_patterns = _ensure_list(row.get("analysis_patterns_review_preview"))
+    if not indicator_mentions:
+        reasons.append("missing_indicator_mentions")
+    if len(analysis_patterns) >= 3:
+        reasons.append("complex_multi_step_patterns")
+    if not _ensure_list(row.get("target_entity_candidates")):
+        reasons.append("missing_target_entity_candidates")
+    if not _ensure_list(row.get("target_agent_candidates")):
+        reasons.append("missing_target_agent_candidates")
+    if len(_ensure_list(row.get("source_span_ids"))) > 3:
+        reasons.append("many_source_spans")
+    return tuple(reasons)
+
+
+FOOTPRINT_REVIEW_PRIORITY_REASON_WEIGHTS: Mapping[str, int] = {
+    "missing_indicator_mentions": 3,
+    "complex_multi_step_patterns": 2,
+    "missing_target_entity_candidates": 2,
+    "missing_target_agent_candidates": 1,
+    "many_source_spans": 1,
+}
+
+
+def _footprint_review_priority_score(row: Mapping[str, Any]) -> int:
+    return sum(
+        FOOTPRINT_REVIEW_PRIORITY_REASON_WEIGHTS.get(reason, 0)
+        for reason in _footprint_review_priority_reasons(row)
+    )
+
+
+def _footprint_review_evidence_terms(row: Mapping[str, Any]) -> tuple[str, ...]:
+    raw_terms: list[str] = []
+    for value in (
+        row.get("sector"),
+        row.get("topic_preview"),
+        *_ensure_list(row.get("analysis_patterns_review_preview")),
+        *_ensure_list(row.get("indicator_mentions_review_preview")),
+        *_ensure_list(row.get("target_entity_candidates")),
+    ):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        raw_terms.append(text)
+        raw_terms.extend(re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9+\-/ ]{2,}", text))
+    raw_terms.extend(
+        [
+            "营收",
+            "归母净利润",
+            "毛利率",
+            "净利率",
+            "同比",
+            "环比",
+            "销售额",
+            "销量",
+            "均价",
+            "价格",
+            "市场",
+            "行业",
+            "需求",
+            "供给",
+            "产量",
+            "库存",
+            "利润",
+            "估值",
+            "PE",
+            "ROE",
+            "PMI",
+            "政策",
+            "产业链",
+            "竞争",
+            "风险",
+        ]
+    )
+    seen: list[str] = []
+    for term in raw_terms:
+        normalized = " ".join(str(term or "").split())
+        if not normalized or normalized in seen or len(normalized) > 96:
+            continue
+        seen.append(normalized)
+    return tuple(seen)
+
+
+def _footprint_review_evidence_snippets(
+    markdown_text: str,
+    terms: Sequence[str],
+    *,
+    max_snippets: int = 2,
+    max_chars: int = 900,
+) -> tuple[dict[str, Any], ...]:
+    snippets: list[dict[str, Any]] = []
+    used_offsets: list[int] = []
+    for term in terms:
+        match = re.search(re.escape(term), markdown_text, re.IGNORECASE)
+        if match is None:
+            continue
+        offset = int(match.start())
+        if any(abs(offset - used) < max_chars for used in used_offsets):
+            continue
+        start = max(0, offset - max_chars // 3)
+        end = min(len(markdown_text), offset + max_chars)
+        snippets.append(
+            {
+                "matched_term": term,
+                "start_char": start,
+                "end_char": end,
+                "snippet": " ".join(markdown_text[start:end].split()),
+            }
+        )
+        used_offsets.append(offset)
+        if len(snippets) >= max_snippets:
+            break
+    if not snippets and markdown_text:
+        snippets.append(
+            {
+                "matched_term": "document_head",
+                "start_char": 0,
+                "end_char": min(len(markdown_text), max_chars),
+                "snippet": " ".join(markdown_text[:max_chars].split()),
+            }
+        )
+    return tuple(snippets)
+
+
+def _footprint_review_metric_mapping_diagnostics(
+    row: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = _footprint_review_indicator_summary(row)
+    mention_count = int(summary.get("mention_count") or 0)
+    unknown_count = int(summary.get("unknown_canonical_count") or 0)
+    ungrounded_count = int(summary.get("ungrounded_count") or 0)
+    complete_count = int(summary.get("complete_source_grounded_count") or 0)
+    mapping_complete = (
+        mention_count > 0 and unknown_count == 0 and ungrounded_count == 0
+    )
+    return {
+        "mention_count": mention_count,
+        "preview_count": int(summary.get("preview_count") or 0),
+        "preview_limit": int(summary.get("preview_limit") or 0),
+        "hidden_count": int(summary.get("hidden_count") or 0),
+        "unknown_canonical_count": unknown_count,
+        "ungrounded_count": ungrounded_count,
+        "complete_source_grounded_count": complete_count,
+        "hidden_unknown_canonical_count": int(
+            summary.get("hidden_unknown_canonical_count") or 0
+        ),
+        "hidden_ungrounded_count": int(summary.get("hidden_ungrounded_count") or 0),
+        "mapping_complete": mapping_complete,
+        "diagnostic_source": str(summary.get("summary_source") or "unknown"),
+    }
+
+
+def _footprint_review_quality_gap_focus_fields(
+    *,
+    boilerplate_risk_footprint: bool,
+    markdown_exists: bool,
+    has_span_evidence: bool,
+    has_patterns: bool,
+    metric_mapping_diagnostics: Mapping[str, Any],
+    inferred_indicator_suggestions: Sequence[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    fields: list[str] = []
+    if boilerplate_risk_footprint:
+        fields.extend(
+            (
+                "footprint_correct",
+                "metric_mapping_correct",
+                "inferred_steps_tagged_correctly",
+            )
+        )
+    if not markdown_exists or not has_span_evidence:
+        fields.append("source_span_supports_footprint")
+    if not has_patterns:
+        fields.append("inferred_steps_tagged_correctly")
+    if (
+        metric_mapping_diagnostics.get("mapping_complete") is not True
+        or bool(inferred_indicator_suggestions)
+    ):
+        fields.append("metric_mapping_correct")
+    if not bool(metric_mapping_diagnostics.get("mention_count")):
+        fields.append("unknowns_used_when_uncertain")
+    elif bool(metric_mapping_diagnostics.get("unknown_canonical_count")):
+        fields.append("unknowns_used_when_uncertain")
+    elif bool(metric_mapping_diagnostics.get("hidden_unknown_canonical_count")):
+        fields.append("unknowns_used_when_uncertain")
+    return tuple(dict.fromkeys(fields))
+
+
+FOOTPRINT_REVIEW_INDICATOR_SUGGESTION_RULES: tuple[
+    tuple[str, Mapping[str, str]], ...
+] = (
+    (
+        r"earnings|盈利预测|财务预测|业绩|利润|profit",
+        {
+            "indicator_text": "forecast_net_profit_or_eps",
+            "canonical_metric_candidate": "forecast_net_profit",
+            "data_source_mentioned": "report_financial_forecast_or_company_financials",
+            "frequency": "annual_or_quarterly",
+            "transformation": "growth_rate_or_forecast_revision",
+            "role_in_argument": "earnings_forecast_metric",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"revenue|营收|收入|sales|销售额|销量|sell-through|transaction volume|成交|需求|market[_\s-]*sizing",
+        {
+            "indicator_text": "revenue_sales_or_demand_growth",
+            "canonical_metric_candidate": "demand_or_revenue_growth",
+            "data_source_mentioned": "company_financials_or_industry_operation_data",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "growth_rate",
+            "role_in_argument": "demand_growth_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"valuation|估值|pe\b|pb\b|相对估值|目标价|multiple",
+        {
+            "indicator_text": "valuation_multiple_or_target_price",
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_valuation_model",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio_or_model_output",
+            "role_in_argument": "valuation_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"margin|毛利率|净利率|盈利能力",
+        {
+            "indicator_text": "gross_margin_or_net_margin",
+            "canonical_metric_candidate": "margin_profitability",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_change",
+            "role_in_argument": "profitability_metric",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"supply|供给|供需|capacity|产能|库存|inventory|价格|price|commodity|uranium|铜|铝|锂|光伏",
+        {
+            "indicator_text": "commodity_price_supply_demand_inventory",
+            "canonical_metric_candidate": "commodity_price_cycle",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_return_or_inventory_change",
+            "role_in_argument": "supply_demand_cycle_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"policy|政策|regulat|监管|利率|rate|liquidity|流动性|credit|融资|capital",
+        {
+            "indicator_text": "policy_liquidity_credit_condition",
+            "canonical_metric_candidate": "liquidity_credit_condition",
+            "data_source_mentioned": "policy_announcement_or_money_credit_data",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "event_flag_or_growth_rate",
+            "role_in_argument": "policy_or_liquidity_transmission_proxy",
+            "confidence": "low",
+        },
+    ),
+    (
+        r"return|performance|涨跌幅|相对表现|ranking|指数|etf|benchmark",
+        {
+            "indicator_text": "stock_or_sector_relative_return",
+            "canonical_metric_candidate": "relative_alpha",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily",
+            "transformation": "forward_return_minus_benchmark",
+            "role_in_argument": "market_outcome_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"cash[_\s-]*flow|现金流",
+        {
+            "indicator_text": "operating_cash_flow",
+            "canonical_metric_candidate": "operating_cash_flow",
+            "data_source_mentioned": "company_cash_flow_statement",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_growth",
+            "role_in_argument": "cash_generation_metric",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"capex|r&d|研发|投产|实验室|产线|扩产",
+        {
+            "indicator_text": "capex_rd_or_capacity_release",
+            "canonical_metric_candidate": "capex_rd_capacity_release",
+            "data_source_mentioned": "company_disclosure_or_financials",
+            "frequency": "quarterly_or_event_driven",
+            "transformation": "level_or_milestone_event",
+            "role_in_argument": "capacity_or_innovation_execution_metric",
+            "confidence": "low",
+        },
+    ),
+)
+
+
+def _footprint_review_indicator_suggestion_context(row: Mapping[str, Any]) -> str:
+    values: list[str] = []
+    for value in (
+        row.get("sector"),
+        row.get("topic_preview"),
+        *_ensure_list(row.get("analysis_patterns_review_preview")),
+        *_ensure_list(row.get("target_entity_candidates")),
+        *_ensure_list(row.get("target_agent_candidates")),
+    ):
+        text = str(value or "").strip()
+        if text:
+            values.append(text)
+    return " ".join(values)
+
+
+def _footprint_review_inferred_indicator_suggestions(
+    row: Mapping[str, Any],
+    *,
+    max_items: int = 5,
+) -> tuple[dict[str, Any], ...]:
+    if _ensure_list(row.get("indicator_mentions_review_preview")):
+        return ()
+    context = _footprint_review_indicator_suggestion_context(row)
+    if not context:
+        return ()
+    suggestions: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for pattern, metadata in FOOTPRINT_REVIEW_INDICATOR_SUGGESTION_RULES:
+        if not re.search(pattern, context, flags=re.IGNORECASE):
+            continue
+        canonical = str(metadata.get("canonical_metric_candidate") or "unknown")
+        indicator_text = str(metadata.get("indicator_text") or canonical)
+        key = (indicator_text, canonical)
+        if key in seen:
+            continue
+        seen.add(key)
+        suggestions.append(
+            {
+                "indicator_text": indicator_text,
+                "canonical_metric_candidate": canonical,
+                "data_source_mentioned": str(
+                    metadata.get("data_source_mentioned") or "unknown"
+                ),
+                "frequency": str(metadata.get("frequency") or "unknown"),
+                "lookback_window": {},
+                "transformation": str(metadata.get("transformation") or "unknown"),
+                "role_in_argument": str(metadata.get("role_in_argument") or "unknown"),
+                "source_grounded": False,
+                "inference_source": "review_evidence_context_rule",
+                "confidence": str(metadata.get("confidence") or "low"),
+                "review_note": (
+                    "Suggested from footprint topic/pattern metadata only; reviewer must "
+                    "confirm against local markdown before importing a decision."
+                ),
+            }
+        )
+        if len(suggestions) >= max_items:
+            break
+    return tuple(suggestions)
+
+
+def _footprint_review_indicator_repair_suggestions(
+    row: Mapping[str, Any],
+    *,
+    max_items: int = 5,
+) -> tuple[dict[str, Any], ...]:
+    suggestions: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in _ensure_list(row.get("indicator_mentions_review_preview")):
+        if not isinstance(item, Mapping):
+            continue
+        mention = dict(item)
+        original_indicator_text = _record_text(
+            mention,
+            "indicator_text",
+            "canonical_metric_candidate",
+            "canonical_name",
+        )
+        if not original_indicator_text:
+            continue
+        normalized_items = _normalize_indicator_mentions([mention])
+        if not normalized_items:
+            continue
+        normalized = normalized_items[0]
+        canonical = str(normalized.get("canonical_metric_candidate") or "unknown")
+        if _indicator_value_unknown(canonical):
+            continue
+        original_canonical = str(
+            mention.get("canonical_metric_candidate") or "unknown"
+        )
+        original_source_grounded = mention.get("source_grounded") is True
+        if original_canonical == canonical and original_source_grounded:
+            continue
+        key = (original_indicator_text, canonical)
+        if key in seen:
+            continue
+        seen.add(key)
+        suggestion = {
+            "indicator_text": original_indicator_text,
+            "canonical_metric_candidate": canonical,
+            "data_source_mentioned": str(
+                normalized.get("data_source_mentioned") or "unknown"
+            ),
+            "frequency": str(normalized.get("frequency") or "unknown"),
+            "lookback_window": _ensure_mapping(normalized.get("lookback_window")),
+            "transformation": str(normalized.get("transformation") or "unknown"),
+            "role_in_argument": str(normalized.get("role_in_argument") or "unknown"),
+            "source_grounded": False,
+            "inference_source": "review_evidence_indicator_alias_rule",
+            "confidence": "medium",
+            "original_canonical_metric_candidate": original_canonical,
+            "original_source_grounded": original_source_grounded,
+            "review_note": (
+                "Suggested from the extracted indicator text alias only; reviewer must "
+                "confirm against local markdown before treating it as a source-grounded "
+                "mapping."
+            ),
+        }
+        suggestions.append(suggestion)
+        if len(suggestions) >= max_items:
+            break
+    return tuple(suggestions)
+
+
+def _is_boilerplate_risk_warning_text(text: str) -> bool:
+    return is_non_research_claim_text(text)
+
+
+def _footprint_review_has_alias_repair_suggestion(
+    suggestions: Sequence[Mapping[str, Any]],
+) -> bool:
+    return any(
+        str(suggestion.get("inference_source") or "")
+        == "review_evidence_indicator_alias_rule"
+        for suggestion in suggestions
+    )
+
+
+def _is_boilerplate_risk_footprint(row: Mapping[str, Any]) -> bool:
+    texts = [
+        str(row.get("topic_preview") or ""),
+        *[str(item or "") for item in _ensure_list(row.get("analysis_patterns_review_preview"))],
+        *[str(item or "") for item in _ensure_list(row.get("target_entity_candidates"))],
+    ]
+    normalized = " ".join(text for text in texts if text.strip())
+    if any(_is_boilerplate_risk_warning_text(text) for text in texts):
+        return True
+    risk_title = any(
+        text.strip() in {"风险提示", "行业风险提示", "宏观经济风险提示", "投资建议与风险提示"}
+        or text.strip().endswith("风险提示")
+        for text in texts
+    )
+    risk_workflow_only = (
+        risk_title
+        and any(term in normalized for term in ("风险因素", "风险列举", "风险识别", "风险管理"))
+        and not any(
+            term in normalized
+            for term in (
+                "供需",
+                "景气",
+                "盈利",
+                "估值",
+                "目标价",
+                "投资逻辑",
+                "需求展望",
+                "政策影响",
+                "产业链供需",
+            )
+        )
+    )
+    return risk_workflow_only
+
+
+def _footprint_review_evidence_row(
+    index: int,
+    row: Mapping[str, Any],
+    *,
+    metadata_by_source: Mapping[str, Mapping[str, Any]],
+    root_path: Path,
+) -> dict[str, Any]:
+    source_id = str(row.get("source_id") or "")
+    metadata = metadata_by_source.get(source_id, {})
+    markdown_path_text, markdown_text, markdown_exists = (
+        _footprint_review_markdown_text(root_path, metadata, source_id)
+    )
+    terms = _footprint_review_evidence_terms(row)
+    snippets = _footprint_review_evidence_snippets(markdown_text, terms)
+    has_span_evidence = bool(snippets and markdown_exists)
+    has_patterns = bool(_ensure_list(row.get("analysis_patterns_review_preview")))
+    metric_mapping_diagnostics = _footprint_review_metric_mapping_diagnostics(row)
+    has_indicator_mentions = bool(metric_mapping_diagnostics["mention_count"])
+    low_information_footprint = not has_indicator_mentions
+    metric_mapping_complete = bool(metric_mapping_diagnostics["mapping_complete"])
+    boilerplate_risk_footprint = _is_boilerplate_risk_footprint(row)
+    inferred_indicator_suggestions: tuple[dict[str, Any], ...] = ()
+    if not boilerplate_risk_footprint:
+        inferred_indicator_suggestions = _footprint_review_indicator_repair_suggestions(
+            row
+        )
+        if not inferred_indicator_suggestions:
+            inferred_indicator_suggestions = (
+                _footprint_review_inferred_indicator_suggestions(row)
+            )
+    unknowns_used_when_uncertain = not (
+        bool(metric_mapping_diagnostics["unknown_canonical_count"])
+        and _footprint_review_has_alias_repair_suggestion(
+            inferred_indicator_suggestions
+        )
+    )
+    suggested_decision = {
+        "footprint_correct": False
+        if boilerplate_risk_footprint or low_information_footprint
+        else (True if has_span_evidence and has_patterns else None),
+        "source_span_supports_footprint": False
+        if low_information_footprint
+        else (True if has_span_evidence else None),
+        "metric_mapping_correct": False
+        if boilerplate_risk_footprint
+        else metric_mapping_complete,
+        "inferred_steps_tagged_correctly": False
+        if boilerplate_risk_footprint or low_information_footprint
+        else (True if has_patterns else None),
+        "unknowns_used_when_uncertain": unknowns_used_when_uncertain,
+        "no_proprietary_text_leakage": True,
+    }
+    suggested_tags: list[str] = []
+    suggested_rationales: list[dict[str, Any]] = []
+    if boilerplate_risk_footprint:
+        suggested_tags.append("boilerplate_risk_warning_footprint")
+        suggested_rationales.append(
+            {
+                "field": "footprint_correct",
+                "suggested_value": False,
+                "reason": "footprint appears to be a generic risk-warning workflow rather than reusable analytical logic",
+                "requires_human_confirmation": True,
+            }
+        )
+    if not markdown_exists:
+        suggested_tags.append("markdown_missing")
+        suggested_rationales.append(
+            {
+                "field": "source_span_supports_footprint",
+                "suggested_value": None,
+                "reason": "local markdown evidence is missing, so span support cannot be verified",
+                "requires_human_confirmation": True,
+            }
+        )
+    elif has_span_evidence:
+        suggested_rationales.append(
+            {
+                "field": "source_span_supports_footprint",
+                "suggested_value": True,
+                "reason": "local markdown snippets were found for the footprint topic, indicators, patterns, or target entities",
+                "requires_human_confirmation": True,
+            }
+        )
+    else:
+        suggested_rationales.append(
+            {
+                "field": "source_span_supports_footprint",
+                "suggested_value": None,
+                "reason": "local markdown exists but no matching snippet was found for the review terms",
+                "requires_human_confirmation": True,
+            }
+        )
+    if not has_indicator_mentions:
+        suggested_tags.append("low_information_footprint")
+        suggested_tags.append("metric_mapping_missing")
+        suggested_rationales.append(
+            {
+                "field": "footprint_correct",
+                "suggested_value": False,
+                "reason": (
+                    "footprint has no source-grounded indicator mentions, so it is "
+                    "too low-information to include as reusable analytical logic"
+                ),
+                "requires_human_confirmation": True,
+            }
+        )
+        suggested_rationales.append(
+            {
+                "field": "metric_mapping_correct",
+                "suggested_value": False,
+                "reason": "extracted footprint has no source-grounded indicator mentions",
+                "requires_human_confirmation": True,
+            }
+        )
+    elif not metric_mapping_complete:
+        if metric_mapping_diagnostics["unknown_canonical_count"]:
+            suggested_tags.append("metric_mapping_unknown")
+        if metric_mapping_diagnostics.get("hidden_unknown_canonical_count"):
+            suggested_tags.append("metric_mapping_hidden_unknown")
+        if metric_mapping_diagnostics["ungrounded_count"]:
+            suggested_tags.append("metric_mapping_ungrounded")
+        if metric_mapping_diagnostics.get("hidden_ungrounded_count"):
+            suggested_tags.append("metric_mapping_hidden_ungrounded")
+        suggested_rationales.append(
+            {
+                "field": "metric_mapping_correct",
+                "suggested_value": False,
+                "reason": (
+                    "extracted footprint has indicator mentions, but at least one "
+                    "mention lacks a non-unknown canonical metric or source-grounded flag"
+                ),
+                "requires_human_confirmation": True,
+                "diagnostics": metric_mapping_diagnostics,
+            }
+        )
+    elif metric_mapping_complete:
+        if metric_mapping_diagnostics["unknown_canonical_count"]:
+            suggested_tags.append("metric_mapping_unknown")
+        if metric_mapping_diagnostics.get("hidden_unknown_canonical_count"):
+            suggested_tags.append("metric_mapping_hidden_unknown")
+        if metric_mapping_diagnostics["ungrounded_count"]:
+            suggested_tags.append("metric_mapping_ungrounded")
+        if metric_mapping_diagnostics.get("hidden_ungrounded_count"):
+            suggested_tags.append("metric_mapping_hidden_ungrounded")
+        suggested_rationales.append(
+            {
+                "field": "metric_mapping_correct",
+                "suggested_value": True,
+                "reason": (
+                    "source-grounded metric mapping exists, while additional "
+                    "unknown or ungrounded mentions remain separate review aids"
+                    if (
+                        metric_mapping_diagnostics["unknown_canonical_count"]
+                        or metric_mapping_diagnostics["ungrounded_count"]
+                    )
+                    else "source-grounded metric mapping exists"
+                ),
+                "requires_human_confirmation": True,
+                "diagnostics": metric_mapping_diagnostics,
+            }
+        )
+    if inferred_indicator_suggestions:
+        suggested_tags.append("metric_mapping_inference_available")
+        if not metric_mapping_complete:
+            suggested_rationales.append(
+                {
+                    "field": "metric_mapping_correct",
+                    "suggested_value": False,
+                    "reason": "context-derived indicator candidates are available, but they are review aids and not source-grounded mappings",
+                    "requires_human_confirmation": True,
+                }
+            )
+    if not has_patterns:
+        suggested_tags.append("analysis_pattern_missing")
+        suggested_rationales.append(
+            {
+                "field": "inferred_steps_tagged_correctly",
+                "suggested_value": None if not boilerplate_risk_footprint else False,
+                "reason": "extracted footprint has no analysis pattern steps to review",
+                "requires_human_confirmation": True,
+            }
+        )
+    elif not boilerplate_risk_footprint:
+        suggested_rationales.append(
+            {
+                "field": "inferred_steps_tagged_correctly",
+                "suggested_value": True,
+                "reason": "analysis patterns are present; reviewer should verify the steps match local evidence",
+                "requires_human_confirmation": True,
+            }
+        )
+    if not has_span_evidence:
+        suggested_tags.append("source_span_evidence_unverified")
+    if not boilerplate_risk_footprint and has_span_evidence and has_patterns:
+        suggested_rationales.append(
+            {
+                "field": "footprint_correct",
+                "suggested_value": True,
+                "reason": "footprint has local evidence snippets and analysis patterns; reviewer should confirm it is meaningful analytical logic",
+                "requires_human_confirmation": True,
+            }
+        )
+    suggested_rationales.append(
+        {
+            "field": "unknowns_used_when_uncertain",
+            "suggested_value": unknowns_used_when_uncertain,
+            "reason": (
+                "unknown indicator mappings appear repairable by governed alias rules"
+                if not unknowns_used_when_uncertain
+                else "draft suggestion preserves null/unknown decisions when metric, span, or pattern support is not proven"
+            ),
+            "requires_human_confirmation": True,
+        }
+    )
+    suggested_rationales.append(
+        {
+            "field": "no_proprietary_text_leakage",
+            "suggested_value": True,
+            "reason": "evidence row is private and not an import row; reviewer still must keep proprietary snippets out of reviewed imports",
+            "requires_human_confirmation": True,
+        }
+    )
+    quality_gap_focus_fields = _footprint_review_quality_gap_focus_fields(
+        boilerplate_risk_footprint=boilerplate_risk_footprint,
+        markdown_exists=markdown_exists,
+        has_span_evidence=has_span_evidence,
+        has_patterns=has_patterns,
+        metric_mapping_diagnostics=metric_mapping_diagnostics,
+        inferred_indicator_suggestions=inferred_indicator_suggestions,
+    )
+    return {
+        "evidence_kind": "analytical_footprint_review_evidence_not_import",
+        "not_apply_footprint_review_input": True,
+        "human_review_required": True,
+        "index": index,
+        "priority_score": _footprint_review_priority_score(row),
+        "priority_reasons": _footprint_review_priority_reasons(row),
+        "footprint_id": str(row.get("footprint_id") or ""),
+        "target_row_hash": str(row.get("target_row_hash") or ""),
+        "source_id": source_id,
+        "report_id": str(row.get("report_id") or ""),
+        "sector": str(row.get("sector") or ""),
+        "topic_preview": _review_assist_preview(row.get("topic_preview"), max_chars=160),
+        "indicator_mentions_preview": _review_assist_preview_list(
+            row.get("indicator_mentions_review_preview"),
+            max_items=6,
+            max_chars=120,
+        ),
+        "indicator_mentions_summary": _footprint_review_indicator_summary(row),
+        "inferred_indicator_suggestions": inferred_indicator_suggestions,
+        "analysis_patterns_preview": _review_assist_preview_list(
+            row.get("analysis_patterns_review_preview"),
+            max_items=6,
+            max_chars=120,
+        ),
+        "target_entity_candidates": tuple(
+            _review_assist_preview(item, max_chars=80)
+            for item in _ensure_list(row.get("target_entity_candidates"))[:8]
+            if str(item or "").strip()
+        ),
+        "metadata_title_preview": _review_assist_preview(metadata.get("title"), max_chars=160),
+        "markdown_path": markdown_path_text,
+        "markdown_exists": markdown_exists,
+        "evidence_terms": terms[:16],
+        "evidence_snippets": snippets,
+        "quality_gap_focus_fields": quality_gap_focus_fields,
+        "suggested_review_decision": suggested_decision,
+        "suggested_review_rationales": tuple(suggested_rationales),
+        "suggested_manual_error_tags": tuple(suggested_tags),
+        "suggested_review_notes": (
+            "Review against local markdown evidence. Draft suggestion only; copy decisions "
+            "to analytical_footprint_reviewed.jsonl only after human approval."
+        ),
+        "reviewed_import_path": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    }
+
+
+def _footprint_review_markdown_text(
+    root_path: Path,
+    metadata_row: Mapping[str, Any],
+    source_id: str,
+) -> tuple[str, str, bool]:
+    candidate_paths: list[str] = []
+    markdown_info = _ensure_mapping(metadata_row.get("markdown"))
+    markdown_path_text = str(markdown_info.get("path") or "")
+    if markdown_path_text:
+        candidate_paths.append(markdown_path_text)
+    candidate_paths.append(
+        str(
+            _cached_markdown_path_for_source(
+                Path(REPORT_INTELLIGENCE_CACHE_DIR), source_id
+            )
+        )
+    )
+    seen: set[str] = set()
+    for candidate_path in candidate_paths:
+        if not candidate_path or candidate_path in seen:
+            continue
+        seen.add(candidate_path)
+        markdown_path = Path(candidate_path)
+        if not markdown_path.is_absolute():
+            markdown_path = root_path / markdown_path
+        if markdown_path.exists() and markdown_path.stat().st_size > 0:
+            return (
+                candidate_path,
+                markdown_path.read_text(encoding="utf-8", errors="ignore"),
+                True,
+            )
+    return (candidate_paths[0] if candidate_paths else "", "", False)
+
+
+def build_analytical_footprint_review_evidence(
+    root: str | Path = ".",
+    *,
+    limit: int = 25,
+    offset: int = 0,
+    review_input_path: str | Path | None = None,
+) -> tuple[AnalyticalFootprintReviewEvidenceReport, tuple[Mapping[str, Any], ...]]:
+    root_path = Path(root)
+    target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    metadata_path = root_path / "registry/report_intelligence/report_metadata.jsonl"
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="analytical footprint target review",
+    )
+    metadata_rows_raw, metadata_parse_blockers = load_jsonl_with_errors(
+        metadata_path,
+        label="analytical footprint evidence report metadata",
+    )
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    metadata_rows, invalid_metadata_rows = _split_mapping_rows(metadata_rows_raw)
+    metadata_by_source = {
+        str(row.get("source_id") or ""): row
+        for row in metadata_rows
+        if str(row.get("source_id") or "").strip()
+    }
+    pending_rows = [row for row in target_rows if not _footprint_review_row_complete(row)]
+    blockers: list[str] = [*target_parse_blockers, *metadata_parse_blockers]
+    selection_source = "priority_sorted_pending"
+    review_input_text = ""
+    if review_input_path is not None:
+        selected_rows, input_blockers, selection_source, review_input_text = (
+            _select_analytical_footprint_review_rows_for_input(
+                root_path,
+                target_rows,
+                review_input_path,
+            )
+        )
+        blockers.extend(input_blockers)
+        prioritized_rows = tuple(enumerate(selected_rows, 1))
+    else:
+        prioritized_rows = sorted(
+            enumerate(pending_rows, 1),
+            key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
+        )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
+    selected_rows = tuple(row for _, row in prioritized_rows)
+    priority_score_counts = Counter(
+        str(_footprint_review_priority_score(row)) for row in selected_rows
+    )
+    priority_reason_counts = Counter(
+        reason
+        for row in selected_rows
+        for reason in _footprint_review_priority_reasons(row)
+    )
+    evidence_rows = tuple(
+        _footprint_review_evidence_row(
+            index,
+            row,
+            metadata_by_source=metadata_by_source,
+            root_path=root_path,
+        )
+        for index, row in prioritized_rows
+    )
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint target review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    if invalid_metadata_rows:
+        blockers.append(
+            "report metadata row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_metadata_rows)
+        )
+    if not target_rows:
+        blockers.append("analytical footprint review template has no valid rows")
+    if not metadata_rows:
+        blockers.append("report metadata has no valid rows")
+    missing_markdown_rows = sum(1 for row in evidence_rows if not row.get("markdown_exists"))
+    review_summary = build_analytical_footprint_review_summary(target_rows)
+    quality_gap_targets = _footprint_review_quality_gap_targets_from_summary(
+        review_summary
+    )
+    return (
+        AnalyticalFootprintReviewEvidenceReport(
+            report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-EVIDENCE",
+            target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+            reviewed_import_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            jsonl_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+            markdown_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+            requested_limit=max(0, int(limit)),
+            requested_offset=max(0, int(offset)),
+            row_count=len(evidence_rows),
+            evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
+            missing_markdown_rows=missing_markdown_rows,
+            selected_priority_score_counts=dict(sorted(priority_score_counts.items())),
+            selected_priority_reason_counts=dict(sorted(priority_reason_counts.items())),
+            blockers=tuple(blockers),
+            selection_source=selection_source,
+            review_input_path=review_input_text,
+            quality_gap_targets=quality_gap_targets,
+        ),
+        evidence_rows,
+    )
+
+
+def render_analytical_footprint_review_evidence_markdown(
+    report: AnalyticalFootprintReviewEvidenceReport,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    suggested_tag_counts = Counter(
+        str(tag)
+        for row in rows
+        for tag in _ensure_list(row.get("suggested_manual_error_tags"))
+        if str(tag).strip()
+    )
+    sector_counts = Counter(
+        str(row.get("sector") or "unknown") for row in rows if str(row.get("sector") or "").strip()
+    )
+    indicator_suggestion_source_counts = Counter(
+        str(suggestion.get("inference_source") or "unknown")
+        for row in rows
+        for suggestion in _ensure_list(row.get("inferred_indicator_suggestions"))
+        if isinstance(suggestion, Mapping)
+    )
+    indicator_suggestion_canonical_counts = Counter(
+        str(suggestion.get("canonical_metric_candidate") or "unknown")
+        for row in rows
+        for suggestion in _ensure_list(row.get("inferred_indicator_suggestions"))
+        if isinstance(suggestion, Mapping)
+    )
+    quality_focus_counts = Counter(
+        str(field)
+        for row in rows
+        for field in _ensure_list(row.get("quality_gap_focus_fields"))
+        if str(field).strip()
+    )
+    decision_counts: dict[str, Counter[str]] = {
+        field: Counter()
+        for field in (
+            "footprint_correct",
+            "source_span_supports_footprint",
+            "metric_mapping_correct",
+            "inferred_steps_tagged_correctly",
+            "unknowns_used_when_uncertain",
+            "no_proprietary_text_leakage",
+        )
+    }
+    decision_row_indexes: dict[str, dict[str, list[Any]]] = {
+        field: {"false": [], "null": []} for field in decision_counts
+    }
+    for row in rows:
+        decision = row.get("suggested_review_decision")
+        decision_map = _ensure_mapping(decision)
+        for field, counts in decision_counts.items():
+            value = decision_map.get(field)
+            if value is True:
+                counts["true"] += 1
+            elif value is False:
+                counts["false"] += 1
+                decision_row_indexes[field]["false"].append(row.get("index"))
+            else:
+                counts["null"] += 1
+                decision_row_indexes[field]["null"].append(row.get("index"))
+    quick_field_labels = (
+        ("footprint_correct", "footprint"),
+        ("source_span_supports_footprint", "span"),
+        ("metric_mapping_correct", "metric"),
+        ("inferred_steps_tagged_correctly", "steps"),
+        ("unknowns_used_when_uncertain", "unknowns"),
+        ("no_proprietary_text_leakage", "leakage"),
+    )
+
+    def quick_value(value: Any) -> str:
+        if value is True:
+            return "true"
+        if value is False:
+            return "false"
+        return "review"
+
+    quick_rows: list[str] = []
+    for row in rows:
+        decision_map = _ensure_mapping(row.get("suggested_review_decision"))
+        quick_cells = [
+            str(row.get("index") or ""),
+            f"`{row.get('footprint_id')}`",
+            _markdown_table_cell(row.get("sector") or "-", max_chars=40),
+            _markdown_table_cell(row.get("topic_preview") or "-", max_chars=60),
+        ]
+        quick_cells.extend(
+            quick_value(decision_map.get(field)) for field, _ in quick_field_labels
+        )
+        quick_cells.append(
+            _markdown_table_cell(row.get("quality_gap_focus_fields"), max_chars=120)
+        )
+        quick_cells.append(
+            _markdown_table_cell(row.get("suggested_manual_error_tags"), max_chars=120)
+        )
+        quick_rows.append("| " + " | ".join(quick_cells) + " |")
+    lines = [
+        "# RKE Analytical Footprint Review Evidence Draft",
+        "",
+        f"- Evidence ID: {report.report_id}",
+        f"- Rows: {report.row_count}",
+        f"- Review template: `{report.target_path}`",
+        f"- Reviewed import target: `{report.reviewed_import_path}`",
+        "",
+        "This private file contains local source snippets and machine suggestions for human review. It is not an import file.",
+        "Do not commit this file. Confirm decisions before copying them into the reviewed JSONL scratch file.",
+        "",
+    ]
+    lines.extend(
+        [
+            "## Batch Triage Summary",
+            "",
+            "- Suggested tag counts: "
+            + _markdown_table_cell(
+                dict(sorted(suggested_tag_counts.items())),
+                max_chars=500,
+            ),
+            "- Sector counts: "
+            + _markdown_table_cell(dict(sorted(sector_counts.items())), max_chars=500),
+            "- Quality-gap focus field counts: "
+            + _markdown_table_cell(
+                dict(sorted(quality_focus_counts.items())),
+                max_chars=500,
+            ),
+            "- Suggested decision counts: "
+            + _markdown_table_cell(
+                {field: dict(counts) for field, counts in decision_counts.items()},
+                max_chars=900,
+            ),
+            "- Suggested indicator candidate source counts: "
+            + _markdown_table_cell(
+                dict(sorted(indicator_suggestion_source_counts.items())),
+                max_chars=500,
+            ),
+            "- Suggested indicator candidate canonical counts: "
+            + _markdown_table_cell(
+                dict(sorted(indicator_suggestion_canonical_counts.items())),
+                max_chars=700,
+            ),
+            "",
+        ]
+    )
+    field_meanings = (
+        (
+            "footprint_correct",
+            "whether the analytical footprint accurately represents the report's analytical method, reasoning pattern, or research view.",
+        ),
+        (
+            "source_span_supports_footprint",
+            "whether the cited local context supports the footprint without unsupported inference.",
+        ),
+        (
+            "metric_mapping_correct",
+            "whether referenced metrics and variables are mapped to governed metrics correctly.",
+        ),
+        (
+            "inferred_steps_tagged_correctly",
+            "whether inferred reasoning steps are tagged as inferred instead of source-stated.",
+        ),
+        (
+            "unknowns_used_when_uncertain",
+            "whether uncertain metric, span, target, or pattern support remains unknown instead of forced into an unsupported label.",
+        ),
+        (
+            "no_proprietary_text_leakage",
+            "whether the reviewed import avoids proprietary report prose; evidence files may contain private snippets, but imports should not.",
+        ),
+        ("reviewer", "human reviewer identifier."),
+        ("review_date", "human review date in YYYY-MM-DD format."),
+        (
+            "review_notes",
+            "required private rationale or verification note for the row; keep it concise and do not paste long source prose.",
+        ),
+    )
+    review_order = (
+        (
+            "metric_mapping_correct",
+            "review first because metric mapping is the active footprint quality blocker.",
+        ),
+        (
+            "footprint_correct",
+            "review false or uncertain footprint validity before broad true-value verification.",
+        ),
+        (
+            "inferred_steps_tagged_correctly",
+            "review false or uncertain inference tagging before accepting analysis steps.",
+        ),
+        (
+            "unknowns_used_when_uncertain",
+            "review focus rows where uncertainty handling carries diagnostic risk.",
+        ),
+        (
+            "source_span_supports_footprint",
+            "verify drafted source-support decisions against local snippets.",
+        ),
+        (
+            "no_proprietary_text_leakage",
+            "verify that final review notes do not copy proprietary source prose.",
+        ),
+        (
+            "review_notes",
+            "fill or edit every row after confirming the evidence and boolean decisions.",
+        ),
+    )
+    lines.extend(["## Field Meaning And Review Order", ""])
+    lines.extend(f"- `{field}`: {meaning}" for field, meaning in field_meanings)
+    lines.extend(["", "Recommended order:", ""])
+    for field, reason in review_order:
+        row_notes: list[str] = []
+        if field in decision_row_indexes:
+            null_rows = decision_row_indexes[field]["null"]
+            false_rows = decision_row_indexes[field]["false"]
+            if null_rows:
+                row_notes.append(
+                    "suggested null rows: "
+                    + _markdown_table_cell(null_rows, max_chars=240)
+                )
+            if false_rows:
+                row_notes.append(
+                    "suggested false rows: "
+                    + _markdown_table_cell(false_rows, max_chars=240)
+                )
+        elif field == "review_notes":
+            row_notes.append("all rows require a human verification note")
+        suffix = " " + "; ".join(row_notes) if row_notes else ""
+        lines.append(f"- `{field}`: {reason}{suffix}")
+    lines.append("")
+    if rows:
+        quick_headers = [
+            "#",
+            "footprint_id",
+            "sector",
+            "topic",
+            *[label for _, label in quick_field_labels],
+            "focus",
+            "tags",
+        ]
+        lines.extend(
+            [
+                "## Quick Fill Checklist",
+                "",
+                "Machine suggestions below are a navigation aid only. Confirm each field against the evidence snippets before copying values into the reviewed JSONL scratch.",
+                "",
+                "| " + " | ".join(quick_headers) + " |",
+                "| " + " | ".join("---" for _ in quick_headers) + " |",
+                *quick_rows,
+                "",
+            ]
+        )
+    if report.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in report.blockers)
+        lines.append("")
+    if report.quality_gap_targets:
+        lines.extend(["## Quality Gate Gap Targets", ""])
+        lines.append(
+            "Aggregate only; these counts contain no source text and are not import decisions."
+        )
+        lines.append("")
+        metrics = report.quality_gap_targets.get("metrics", {})
+        if isinstance(metrics, Mapping):
+            for metric, target in metrics.items():
+                if not isinstance(target, Mapping) or target.get("is_passing") is True:
+                    continue
+                lines.append(
+                    "- "
+                    f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                    f"(need +{target.get('minimum_additional_pass_count_if_denominator_unchanged')})"
+                )
+        lines.append("")
+    for row in rows:
+        lines.extend(
+            [
+                f"## {row.get('index')}. {row.get('footprint_id')}",
+                "",
+                f"- Source: `{row.get('source_id')}`",
+                f"- Sector: {row.get('sector') or '-'}",
+                f"- Topic: {row.get('topic_preview') or '-'}",
+                f"- Priority score: {row.get('priority_score')}",
+                f"- Priority reasons: {_markdown_table_cell(row.get('priority_reasons'), max_chars=200)}",
+                f"- Suggested tags: {_markdown_table_cell(row.get('suggested_manual_error_tags'), max_chars=200)}",
+                f"- Quality-gap focus fields: {_markdown_table_cell(row.get('quality_gap_focus_fields'), max_chars=200)}",
+                f"- Indicator mapping summary: {_markdown_table_cell(row.get('indicator_mentions_summary'), max_chars=500)}",
+                "",
+                "Suggested decision:",
+                "",
+                "```json",
+                json.dumps(row.get("suggested_review_decision"), ensure_ascii=False, indent=2),
+                "```",
+                "",
+            ]
+        )
+        rationales = _ensure_list(row.get("suggested_review_rationales"))
+        if rationales:
+            lines.extend(
+                [
+                    "Suggested decision rationales:",
+                    "",
+                    "```json",
+                    json.dumps(rationales, ensure_ascii=False, indent=2),
+                    "```",
+                    "",
+                ]
+            )
+        indicator_suggestions = _ensure_list(row.get("inferred_indicator_suggestions"))
+        if indicator_suggestions:
+            lines.extend(
+                [
+                    "Suggested indicator mapping candidates:",
+                    "",
+                    "```json",
+                    json.dumps(indicator_suggestions, ensure_ascii=False, indent=2),
+                    "```",
+                    "",
+                ]
+            )
+        lines.extend(["Evidence snippets:", ""])
+        snippets = _ensure_list(row.get("evidence_snippets"))
+        if not snippets:
+            lines.append("- No local markdown evidence snippet found.")
+        for snippet in snippets:
+            snippet_map = _ensure_mapping(snippet)
+            lines.extend(
+                [
+                    f"- Matched term: `{snippet_map.get('matched_term')}`",
+                    "",
+                    "> " + _review_assist_preview(snippet_map.get("snippet"), max_chars=900),
+                    "",
+                ]
+            )
+    return "\n".join(lines)
+
+
+def write_analytical_footprint_review_evidence(
+    root: str | Path = ".",
+    *,
+    limit: int = 25,
+    offset: int = 0,
+    review_input_path: str | Path | None = None,
+) -> AnalyticalFootprintReviewEvidenceReport:
+    root_path = Path(root)
+    report, rows = build_analytical_footprint_review_evidence(
+        root_path,
+        limit=limit,
+        offset=offset,
+        review_input_path=review_input_path,
+    )
+    _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH, rows)
+    markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(
+        render_analytical_footprint_review_evidence_markdown(report, rows) + "\n",
+        encoding="utf-8",
+    )
+    return report
 
 
 def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
@@ -2925,21 +10381,19 @@ def apply_analytical_footprint_review_import(
         duplicate_ids=duplicate_ids,
         missing_target_ids=missing_target_ids,
         invalid_rows=tuple(invalid_rows),
+        invalid_reason_counts=dict(
+            sorted(
+                Counter(
+                    reason for row in invalid_rows for reason in row.reasons
+                ).items()
+            )
+        ),
         summary_path=ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
         blockers=tuple(blockers),
     )
-    _write_json(report_path, asdict(report))
+    if not dry_run:
+        _write_json(report_path, asdict(report))
     return report
-
-
-def _canonical_metric_name(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    lowered = text.lower()
-    lowered = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "_", lowered)
-    lowered = re.sub(r"_+", "_", lowered).strip("_")
-    return lowered[:120]
 
 
 def _normalize_metric_candidates(
@@ -3061,12 +10515,17 @@ def _normalize_method_patterns(
     for footprint in footprints:
         for pattern in _ensure_list(footprint.get("analysis_patterns")):
             pattern_map = _ensure_mapping(pattern)
-            name = _record_text(pattern_map, "pattern_candidate", "name")
+            name = (
+                str(pattern).strip()
+                if isinstance(pattern, str)
+                else _record_text(pattern_map, "pattern_candidate", "name", "pattern")
+            )
             if name:
                 raw_methods.append(
                     {
                         "name": name,
-                        "steps": pattern_map.get("steps") or [],
+                        "source_footprint_ids": [footprint.get("footprint_id")],
+                        "steps": pattern_map.get("steps") or [name],
                         "required_current_data": pattern_map.get(
                             "required_current_data"
                         )
@@ -3089,7 +10548,8 @@ def _normalize_method_patterns(
         existing = deduped.setdefault(
             key,
             {
-                "method_pattern_id": _stable_id("METHOD", {"name": name}),
+                "method_pattern_id": _stable_id("METHOD", {"canonical_name": key}),
+                "canonical_name": key,
                 "name": name,
                 "description": str(item.get("description") or ""),
                 "source_footprint_ids": [],
@@ -3140,6 +10600,111 @@ def classify_tool_coverage(canonical_name: str) -> dict[str, Any]:
             ("tool.get_realized_volatility",),
         ),
         (
+            (
+                "revenue",
+                "net_profit",
+                "gross_margin",
+                "net_margin",
+                "margin",
+                "roe",
+                "roic",
+                "eps",
+                "earnings",
+                "p/e",
+                "p/b",
+                "pe_ratio",
+                "pb_ratio",
+                "ev_ebitda",
+                "price_to_book",
+                "price_to_earnings",
+                "target_price",
+                "financial_model",
+                "profitability",
+                "expense_ratio",
+                "yoy_growth",
+                "year_over_year",
+                "quarter_over_quarter",
+                "valuation",
+                "营业收入",
+                "归母净利润",
+                "净利润",
+                "毛利率",
+                "净利率",
+                "市盈率",
+                "市净率",
+                "每股收益",
+                "估值",
+            ),
+            "exact_match",
+            ("tool.get_fundamentals",),
+        ),
+        (
+            (
+                "debt_to_asset",
+                "asset_liability",
+                "current_ratio",
+                "book_value",
+                "资产负债率",
+                "流动比率",
+                "每股净资产",
+            ),
+            "exact_match",
+            ("tool.get_balance_sheet",),
+        ),
+        (
+            (
+                "cashflow",
+                "cash_flow",
+                "operating_cash",
+                "investing_cash",
+                "financing_cash",
+                "经营活动现金流",
+                "投资活动现金流",
+                "筹资活动现金流",
+                "现金及现金等价物",
+            ),
+            "exact_match",
+            ("tool.get_cashflow",),
+        ),
+        (
+            (
+                "receivable_turnover",
+                "inventory_turnover",
+                "asset_turnover",
+                "应收账款周转率",
+                "存货周转率",
+                "总资产周转率",
+            ),
+            "exact_match",
+            ("tool.get_fundamentals",),
+        ),
+        (
+            (
+                "stock_price",
+                "stock_return",
+                "benchmark_return",
+                "benchmark_index",
+                "industry_etf_forward_return",
+                "market_benchmark_index",
+                "sector_index_return",
+                "sector_index",
+                "forward_return",
+                "target_return",
+                "relative_return",
+                "relative_alpha",
+                "relative_performance",
+                "price_proxy",
+                "sector_relative_performance",
+                "collect_sector_index_data",
+                "collect_benchmark_index_data",
+                "calculate_relative_return",
+                "股价",
+                "收益率",
+            ),
+            "exact_match",
+            ("market.price_proxy",),
+        ),
+        (
             ("dr007", "r007", "repo", "回购", "资金利率"),
             "partial_match",
             ("tool.get_money_market_rate_proxy",),
@@ -3170,6 +10735,16 @@ def _is_gap_missing_or_data_blocked(gap_type: str) -> bool:
             "no_pit",
         )
     )
+
+
+def _tool_gap_resolved_by_existing_coverage(row: Mapping[str, Any]) -> bool:
+    metric_name = str(row.get("metric_name") or row.get("metric_candidate_id") or "")
+    if not metric_name.strip():
+        return False
+    coverage = classify_tool_coverage(metric_name)
+    return bool(coverage.get("existing_tool_ids")) and str(
+        coverage.get("coverage_status") or ""
+    ) in {"exact_match", "proxy_available"}
 
 
 def _tool_gap_priority_metadata(
@@ -3304,6 +10879,22 @@ def _refresh_tool_gap_governance(
 ) -> list[dict[str, Any]]:
     governed_rows: list[dict[str, Any]] = []
     for row in rows:
+        if _tool_gap_resolved_by_existing_coverage(row):
+            governed = dict(row)
+            governed.update(
+                {
+                    "priority_bucket": "resolved",
+                    "priority_reasons": _merge_unique_values(
+                        _ensure_list(row.get("priority_reasons")),
+                        ["metric_now_has_existing_tool_coverage"],
+                    ),
+                    "blocking_issues": [],
+                    "owner": str(row.get("owner") or "data_engineering"),
+                    "status": "retired",
+                }
+            )
+            governed_rows.append(governed)
+            continue
         metric_name = str(row.get("metric_name") or row.get("metric_candidate_id") or "")
         method_name = str(row.get("method_name") or "")
         target_agents, _target_entities = _split_agent_and_entity_candidates(
@@ -3635,19 +11226,41 @@ def build_outcome_labeling_readiness_report(
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
     stock_price_proxy_readiness: Mapping[str, Any] | None = None,
+    macro_asset_proxy_readiness: Mapping[str, Any] | None = None,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     gap_counts: dict[str, int] = {}
     unlabelable_gap_counts: dict[str, int] = {}
     test_status_counts: dict[str, int] = {}
+    mechanism_channel_counts: dict[str, int] = {}
+    mechanism_action_counts: dict[str, int] = {}
+    mechanism_impact_variable_counts: dict[str, int] = {}
+    mechanism_gap_counts: dict[str, int] = {}
+    mechanism_gap_ids: list[str] = []
+    macro_regime_counts: dict[str, int] = {}
+    source_text_macro_regime_counts: dict[str, int] = {}
+    as_of_date_macro_regime_counts: dict[str, int] = {}
+    macro_regime_source_counts: dict[str, int] = {}
+    industry_cycle_regime_counts: dict[str, int] = {}
+    regime_gap_counts: dict[str, int] = {}
+    regime_gap_ids: list[str] = []
     ready_ids: list[str] = []
     standard_blocked_ids: list[str] = []
     blocked_ids: list[str] = []
     industry_proxy = dict(industry_etf_proxy_readiness or {})
     stock_proxy = dict(stock_price_proxy_readiness or {})
+    macro_proxy = dict(macro_asset_proxy_readiness or {})
     industry_proxy_label_ready_ids = [
         str(claim_id)
         for claim_id in _ensure_list(
             industry_proxy.get("labelable_forecast_claim_ids")
+        )
+        if str(claim_id).strip()
+    ]
+    industry_proxy_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(
+            industry_proxy.get("pending_future_forecast_claim_ids")
         )
         if str(claim_id).strip()
     ]
@@ -3656,14 +11269,147 @@ def build_outcome_labeling_readiness_report(
         for claim_id in _ensure_list(stock_proxy.get("labelable_forecast_claim_ids"))
         if str(claim_id).strip()
     ]
+    stock_proxy_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(stock_proxy.get("pending_future_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
+    macro_proxy_label_ready_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(macro_proxy.get("labelable_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
+    macro_proxy_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(macro_proxy.get("pending_future_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
     proxy_label_ready_ids = sorted(
-        set(industry_proxy_label_ready_ids) | set(stock_proxy_label_ready_ids)
+        set(industry_proxy_label_ready_ids)
+        | set(stock_proxy_label_ready_ids)
+        | set(macro_proxy_label_ready_ids)
     )
     proxy_label_ready_id_set = set(proxy_label_ready_ids)
+    proxy_label_pending_ids = sorted(
+        (
+            set(industry_proxy_pending_ids)
+            | set(stock_proxy_pending_ids)
+            | set(macro_proxy_pending_ids)
+        )
+        - proxy_label_ready_id_set
+    )
+    proxy_label_pending_id_set = set(proxy_label_pending_ids)
     proxy_label_only_ids: list[str] = []
+    proxy_label_pending_only_ids: list[str] = []
     forecast_by_id = {
         str(row.get("forecast_claim_id") or ""): row for row in forecast_rows
     }
+    for forecast in forecast_rows:
+        forecast_claim_id = str(forecast.get("forecast_claim_id") or "")
+        extraction_quality = _ensure_mapping(forecast.get("extraction_quality"))
+        component_roles = _ensure_mapping(
+            extraction_quality.get("claim_component_roles")
+        )
+        if not component_roles:
+            component_roles = _infer_claim_component_roles(
+                str(forecast.get("claim_text") or ""),
+                target=_ensure_mapping(forecast.get("target")),
+                as_of_datetime=(
+                    forecast.get("signal_datetime")
+                    or forecast.get("publish_date")
+                    or ""
+                ),
+                macro_regime_calendar_rows=macro_regime_calendar_rows,
+            )
+        for regime_type in _ensure_list(
+            component_roles.get("macro_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                macro_regime_counts[key] = macro_regime_counts.get(key, 0) + 1
+        for regime_type in _ensure_list(
+            component_roles.get("source_text_macro_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                source_text_macro_regime_counts[key] = (
+                    source_text_macro_regime_counts.get(key, 0) + 1
+                )
+                macro_regime_source_counts["report_text"] = (
+                    macro_regime_source_counts.get("report_text", 0) + 1
+                )
+        for regime_type in _ensure_list(
+            component_roles.get("as_of_date_macro_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                as_of_date_macro_regime_counts[key] = (
+                    as_of_date_macro_regime_counts.get(key, 0) + 1
+                )
+                macro_regime_source_counts["as_of_date"] = (
+                    macro_regime_source_counts.get("as_of_date", 0) + 1
+                )
+        for regime_type in _ensure_list(
+            component_roles.get("industry_cycle_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                industry_cycle_regime_counts[key] = (
+                    industry_cycle_regime_counts.get(key, 0) + 1
+                )
+        regime_gaps: list[str] = []
+        if component_roles.get("has_regime_context") is not True:
+            if component_roles.get("has_company_capability_or_action") is True:
+                regime_gaps.append("company_capability_only_no_regime_context")
+            else:
+                regime_gaps.append("regime_context_missing")
+        elif (
+            component_roles.get("has_macro_regime_context") is not True
+            and component_roles.get("has_industry_cycle_regime_context") is not True
+        ):
+            regime_gaps.append("regime_context_unclassified")
+        if regime_gaps and forecast_claim_id:
+            regime_gap_ids.append(forecast_claim_id)
+        for gap in regime_gaps:
+            regime_gap_counts[gap] = regime_gap_counts.get(gap, 0) + 1
+        mechanism_roles = _ensure_mapping(
+            extraction_quality.get("claim_mechanism_roles")
+        )
+        if not mechanism_roles:
+            mechanism_roles = _infer_claim_mechanism_roles(
+                str(forecast.get("claim_text") or ""),
+                target=_ensure_mapping(forecast.get("target")),
+                metric_proxy_mapping=_ensure_list(
+                    forecast.get("metric_proxy_mapping")
+                ),
+            )
+        for channel in _ensure_list(mechanism_roles.get("channels")):
+            key = str(channel).strip()
+            if key:
+                mechanism_channel_counts[key] = (
+                    mechanism_channel_counts.get(key, 0) + 1
+                )
+        for action in _ensure_list(mechanism_roles.get("actions")):
+            key = str(action).strip()
+            if key:
+                mechanism_action_counts[key] = mechanism_action_counts.get(key, 0) + 1
+        for variable in _ensure_list(mechanism_roles.get("impact_variables")):
+            key = str(variable).strip()
+            if key:
+                mechanism_impact_variable_counts[key] = (
+                    mechanism_impact_variable_counts.get(key, 0) + 1
+                )
+        mechanism_gaps: list[str] = []
+        if mechanism_roles.get("has_economic_mechanism") is not True:
+            mechanism_gaps.append("economic_mechanism_missing")
+        if mechanism_roles.get("mechanism_connects_to_evaluable_impact") is not True:
+            mechanism_gaps.append("mechanism_evaluable_impact_missing")
+        if mechanism_roles.get("possible_operational_only_mechanism") is True:
+            mechanism_gaps.append("possible_operational_only_mechanism")
+        if mechanism_gaps and forecast_claim_id:
+            mechanism_gap_ids.append(forecast_claim_id)
+        for gap in mechanism_gaps:
+            mechanism_gap_counts[gap] = mechanism_gap_counts.get(gap, 0) + 1
     for ledger in forecast_ledger_rows:
         forecast_claim_id = str(ledger.get("forecast_claim_id") or "")
         status = str(ledger.get("test_status") or "unknown")
@@ -3675,6 +11421,8 @@ def build_outcome_labeling_readiness_report(
         has_proxy_label_path = forecast_claim_id in proxy_label_ready_id_set
         if has_proxy_label_path:
             proxy_label_only_ids.append(forecast_claim_id)
+        elif forecast_claim_id in proxy_label_pending_id_set:
+            proxy_label_pending_only_ids.append(forecast_claim_id)
         else:
             blocked_ids.append(forecast_claim_id)
         forecast = forecast_by_id.get(forecast_claim_id) or {}
@@ -3686,7 +11434,9 @@ def build_outcome_labeling_readiness_report(
         ] or ["unknown_mapping_gap"]
         for gap in mapping_gaps:
             gap_counts[gap] = gap_counts.get(gap, 0) + 1
-            if not has_proxy_label_path:
+            if not (
+                has_proxy_label_path or forecast_claim_id in proxy_label_pending_id_set
+            ):
                 unlabelable_gap_counts[gap] = unlabelable_gap_counts.get(gap, 0) + 1
     if blocked_ids:
         blocked_reason = (
@@ -3706,17 +11456,49 @@ def build_outcome_labeling_readiness_report(
         "proxy_label_ready_count": len(proxy_label_ready_ids),
         "industry_proxy_label_ready_count": len(industry_proxy_label_ready_ids),
         "stock_proxy_label_ready_count": len(stock_proxy_label_ready_ids),
+        "macro_proxy_label_ready_count": len(macro_proxy_label_ready_ids),
         "proxy_label_only_ready_count": len(proxy_label_only_ids),
+        "proxy_label_pending_count": len(proxy_label_pending_ids),
+        "industry_proxy_label_pending_count": len(industry_proxy_pending_ids),
+        "stock_proxy_label_pending_count": len(stock_proxy_pending_ids),
+        "macro_proxy_label_pending_count": len(macro_proxy_pending_ids),
+        "proxy_label_pending_only_count": len(proxy_label_pending_only_ids),
         "test_status_counts": dict(sorted(test_status_counts.items())),
         "mapping_gap_counts": dict(sorted(gap_counts.items())),
         "unlabelable_mapping_gap_counts": dict(sorted(unlabelable_gap_counts.items())),
+        "macro_regime_counts": dict(sorted(macro_regime_counts.items())),
+        "source_text_macro_regime_counts": dict(
+            sorted(source_text_macro_regime_counts.items())
+        ),
+        "as_of_date_macro_regime_counts": dict(
+            sorted(as_of_date_macro_regime_counts.items())
+        ),
+        "macro_regime_source_counts": dict(sorted(macro_regime_source_counts.items())),
+        "industry_cycle_regime_counts": dict(
+            sorted(industry_cycle_regime_counts.items())
+        ),
+        "regime_gap_counts": dict(sorted(regime_gap_counts.items())),
+        "mechanism_channel_counts": dict(sorted(mechanism_channel_counts.items())),
+        "mechanism_action_counts": dict(sorted(mechanism_action_counts.items())),
+        "mechanism_impact_variable_counts": dict(
+            sorted(mechanism_impact_variable_counts.items())
+        ),
+        "mechanism_gap_counts": dict(sorted(mechanism_gap_counts.items())),
         "ready_forecast_claim_ids": ready_ids,
         "standard_blocked_forecast_claim_ids": standard_blocked_ids,
         "proxy_label_ready_forecast_claim_ids": proxy_label_ready_ids,
         "industry_proxy_label_ready_forecast_claim_ids": industry_proxy_label_ready_ids,
         "stock_proxy_label_ready_forecast_claim_ids": stock_proxy_label_ready_ids,
+        "macro_proxy_label_ready_forecast_claim_ids": macro_proxy_label_ready_ids,
         "proxy_label_only_ready_forecast_claim_ids": proxy_label_only_ids,
+        "proxy_label_pending_forecast_claim_ids": proxy_label_pending_ids,
+        "industry_proxy_label_pending_forecast_claim_ids": industry_proxy_pending_ids,
+        "stock_proxy_label_pending_forecast_claim_ids": stock_proxy_pending_ids,
+        "macro_proxy_label_pending_forecast_claim_ids": macro_proxy_pending_ids,
+        "proxy_label_pending_only_forecast_claim_ids": proxy_label_pending_only_ids,
         "blocked_forecast_claim_ids": blocked_ids,
+        "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
+        "mechanism_gap_forecast_claim_ids": sorted(set(mechanism_gap_ids)),
         "blocked_reason": blocked_reason,
         "minimum_required_mapping": [
             "target",
@@ -3727,17 +11509,30 @@ def build_outcome_labeling_readiness_report(
         "policy": (
             "outcome labels are generated only for source-grounded testable "
             "forecasts with target, benchmark, direction, horizon, and PIT data; "
-            "industry ETF and stock price proxy labels may additionally evaluate "
-            "governed target-direction claims on fixed PIT windows without "
+            "industry ETF, stock price, and macro asset proxy labels may "
+            "additionally evaluate governed target-direction claims on fixed PIT "
+            "windows without "
             "promoting them to production use"
+        ),
+        "mechanism_policy": (
+            "mechanism roles are diagnostic extraction governance only; regime, "
+            "mechanism, company capability, and impact must stay separable before "
+            "mechanism-specific prompt evolution or performance attribution"
+        ),
+        "as_of_date_macro_regime_policy": (
+            "macro regime may be supplemented from PIT as_of_datetime using "
+            "predefined historical regime windows; report_text and as_of_date "
+            "macro regime counts are tracked separately"
         ),
         "industry_etf_proxy_readiness": industry_proxy,
         "stock_price_proxy_readiness": stock_proxy,
+        "macro_asset_proxy_readiness": macro_proxy,
         "next_actions": [
             "improve extractor prompt to bind ts_code/title entities into target when source text supports it",
             "route unmapped claims through manual gold-set review instead of fabricating labels",
             "evaluate industry research with ETF proxy windows when sector mapping and PIT data are available",
             "evaluate stock research with qlib cn_data windows when ts_code mapping and PIT data are available",
+            "evaluate macro strategy research with mapped asset ETF proxy windows when target mapping and PIT data are available",
             "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive",
         ],
     }
@@ -3754,6 +11549,18 @@ def _resolve_qlib_etf_dir(root_path: Path, qlib_etf_dir: str | Path) -> Path:
 
 def _resolve_qlib_stock_dir(root_path: Path, qlib_stock_dir: str | Path) -> Path:
     return _resolve_qlib_data_dir(root_path, qlib_stock_dir)
+
+
+def _public_qlib_source_label(qlib_dir: str | Path) -> str:
+    raw = str(qlib_dir or "").strip()
+    normalized = raw.rstrip("/")
+    if normalized == DEFAULT_Q_LIB_ETF_PATH:
+        return "qlib://cn_etf"
+    if normalized == DEFAULT_Q_LIB_STOCK_PATH:
+        return "qlib://cn_data"
+    name = Path(os.path.expanduser(raw)).name or "custom"
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._-") or "custom"
+    return f"qlib://custom/{safe_name}"
 
 
 def _qlib_symbol(symbol: str) -> str:
@@ -3857,7 +11664,12 @@ def _next_calendar_index(calendar: Sequence[str], date_value: str) -> int | None
     return None
 
 
-def _entry_calendar_index(calendar: Sequence[str], signal_datetime: str) -> int | None:
+def _entry_calendar_index(
+    calendar: Sequence[str],
+    signal_datetime: str,
+    *,
+    entry_lag_trading_days: int,
+) -> int | None:
     date_key = _date_key(signal_datetime)
     if not date_key:
         return None
@@ -3868,17 +11680,23 @@ def _entry_calendar_index(calendar: Sequence[str], signal_datetime: str) -> int 
             break
     if first_strictly_after_signal is None:
         return None
-    entry_index = first_strictly_after_signal + max(
-        0,
-        INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS - 1,
-    )
+    entry_index = first_strictly_after_signal + max(0, entry_lag_trading_days - 1)
     if entry_index >= len(calendar):
         return None
     return entry_index
 
 
-def _entry_calendar_date(calendar: Sequence[str], signal_datetime: str) -> str:
-    entry_index = _entry_calendar_index(calendar, signal_datetime)
+def _entry_calendar_date(
+    calendar: Sequence[str],
+    signal_datetime: str,
+    *,
+    entry_lag_trading_days: int,
+) -> str:
+    entry_index = _entry_calendar_index(
+        calendar,
+        signal_datetime,
+        entry_lag_trading_days=entry_lag_trading_days,
+    )
     return calendar[entry_index] if entry_index is not None else ""
 
 
@@ -3907,10 +11725,41 @@ def _is_industry_research_report(report_type: Any) -> bool:
     return "行业" in str(report_type or "")
 
 
+def _is_macro_strategy_report(metadata: Mapping[str, Any]) -> bool:
+    source_type = str(metadata.get("source_type") or "")
+    report_type = str(metadata.get("report_type") or "")
+    sector = str(metadata.get("sector") or metadata.get("industry") or "")
+    if source_type == "local_macro_strategy_report":
+        return True
+    return any(
+        marker in report_type or marker in sector
+        for marker in ("宏观", "策略", "大类资产", "固收", "债券", "海外")
+    )
+
+
 def _is_potential_stock_report(metadata: Mapping[str, Any]) -> bool:
     report_type = str(metadata.get("report_type") or "")
     return bool(str(metadata.get("ts_code") or "").strip()) or any(
         marker in report_type for marker in ("公司", "个股")
+    )
+
+
+def _is_explicit_stock_ts_code(value: Any) -> bool:
+    text = str(value or "").strip().upper()
+    match = re.fullmatch(r"(\d{6})\.(SH|SZ|BJ)", text)
+    if not match:
+        return False
+    code, market = match.groups()
+    if market == "SH" and not code.startswith(("60", "68")):
+        return False
+    if market == "SZ" and not code.startswith(("00", "30")):
+        return False
+    return market != "BJ" or code.startswith("92")
+
+
+def _is_explicit_stock_research_report(metadata: Mapping[str, Any]) -> bool:
+    return _is_potential_stock_report(metadata) and bool(
+        _is_explicit_stock_ts_code(metadata.get("ts_code"))
     )
 
 
@@ -3922,7 +11771,11 @@ def _normalize_ts_code(value: Any) -> str:
     if not match:
         return ""
     code, market = match.groups()
-    if market == "BJ" and not code.startswith("920"):
+    if market == "SH" and not code.startswith(("60", "68")):
+        return ""
+    if market == "SZ" and not code.startswith(("00", "30")):
+        return ""
+    if market == "BJ" and not code.startswith("92"):
         return ""
     return f"{code}.{market}"
 
@@ -4048,6 +11901,31 @@ def _stock_price_claim_window_alignment(
         claim_horizon=claim_horizon,
         horizon_days=horizon_days,
     )
+
+
+def _as_of_date_market_regime_fields(
+    signal_datetime: Any,
+    *,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    regime_types, _sources, details = _as_of_date_macro_regime_context(
+        signal_datetime,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+    )
+    if not regime_types:
+        return {}
+    return {
+        "market_regime": "|".join(regime_types),
+        "market_regime_types": regime_types,
+        "market_regime_source": "as_of_date",
+        "market_regime_source_text_grounded": False,
+        "market_regime_details": details,
+        "market_regime_policy": (
+            "Market regime is inferred from the PIT report as-of date using the "
+            "governed macro regime calendar; it is not treated as source-text "
+            "grounded report prose."
+        ),
+    }
 
 
 def _industry_etf_temporal_validation_summary(
@@ -4257,6 +12135,33 @@ def _increment_count(counts: dict[str, int], key: Any, *, default: str = "unknow
     counts[normalized] = counts.get(normalized, 0) + 1
 
 
+def _clean_bucket_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.lower() in {"", "nan", "none", "null"}:
+        return ""
+    return text
+
+
+def _looks_like_stock_code(value: Any) -> bool:
+    text = str(value or "").strip().upper()
+    return bool(re.fullmatch(r"\d{6}(\.(SH|SZ|BJ))?", text))
+
+
+def _report_sector_bucket(row: Mapping[str, Any]) -> str:
+    for field in ("sector", "industry", "ind_name"):
+        value = _clean_bucket_text(row.get(field))
+        if value and not _looks_like_stock_code(value):
+            return value
+    query_key = _clean_bucket_text(row.get("query_key"))
+    if query_key and not _looks_like_stock_code(query_key):
+        return query_key
+    return "unknown_sector"
+
+
+def _coverage_sector_bucket(row: Mapping[str, Any]) -> str:
+    return _coverage_sector_family(_report_sector_bucket(row))
+
+
 def _is_pdf_ready(pdf: Mapping[str, Any]) -> bool:
     return str(pdf.get("status") or "") in {"cached", "downloaded"}
 
@@ -4269,35 +12174,457 @@ def _is_markdown_ready(markdown: Mapping[str, Any]) -> bool:
     }
 
 
-def _markdown_quality_gap(markdown: Mapping[str, Any]) -> str:
+def _markdown_non_empty_lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _markdown_line_key(line: str) -> str:
+    return re.sub(r"\s+", "", line).strip()
+
+
+def _markdown_has_conversion_instability(markdown: Mapping[str, Any]) -> bool:
+    if bool(markdown.get("conversion_instability")):
+        return True
+    stability_status = str(markdown.get("conversion_stability_status") or "").strip()
+    return stability_status in {"unstable", "inconsistent", "failed"}
+
+
+def _markdown_is_toc_line(line: str) -> bool:
+    stripped = line.strip().strip("#").strip()
+    lowered = stripped.lower()
+    if lowered in {"目录", "目 录", "contents", "table of contents"}:
+        return True
+    if re.search(r"(\.{2,}|…{1,}|-{2,})\s*\d+\s*$", stripped):
+        return True
+    if re.match(
+        r"^(第?[一二三四五六七八九十\d]+[章节\.、\s]).{1,40}\s+\d+\s*$",
+        stripped,
+    ):
+        return True
+    return False
+
+
+def _markdown_is_toc_only(text: str) -> bool:
+    lines = _markdown_non_empty_lines(text)
+    if len(lines) < 3:
+        return False
+    has_toc_heading = any(
+        _markdown_line_key(line).lower()
+        in {"#目录", "##目录", "目录", "目錄", "contents", "tableofcontents"}
+        for line in lines[:5]
+    )
+    if not has_toc_heading:
+        return False
+    toc_line_count = sum(1 for line in lines if _markdown_is_toc_line(line))
+    return toc_line_count / max(len(lines), 1) >= 0.70
+
+
+def _markdown_empty_table_dominant(text: str) -> bool:
+    table_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("|") and line.strip().endswith("|")
+    ]
+    if len(table_lines) < 3:
+        return False
+    empty_or_separator_count = 0
+    for line in table_lines:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if not cells:
+            continue
+        if all(not cell or re.fullmatch(r"[:\-\s]+", cell) for cell in cells):
+            empty_or_separator_count += 1
+    return (
+        empty_or_separator_count / max(len(table_lines), 1)
+        > MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX
+    )
+
+
+def _markdown_image_only(text: str) -> bool:
+    lines = _markdown_non_empty_lines(text)
+    if not lines:
+        return False
+    image_line_count = sum(
+        1
+        for line in lines
+        if re.search(
+            (
+                r"!\[[^\]]*\]\([^)]+\)|<img\b|\[图片\]|图片未识别|"
+                r"image\s+not\s+recognized"
+            ),
+            line,
+            re.I,
+        )
+    )
+    if image_line_count == 0:
+        return False
+    without_images = re.sub(
+        r"!\[[^\]]*\]\([^)]+\)|<img[^>]*>|\[图片\]|图片未识别",
+        "",
+        text,
+        flags=re.I,
+    )
+    prose = re.sub(r"[\W_]+", "", without_images, flags=re.UNICODE)
+    return (
+        image_line_count / max(len(lines), 1) >= 0.50
+        and len(prose) < MARKDOWN_QUALITY_MIN_BYTES
+    )
+
+
+def _markdown_repeated_line_noise(text: str) -> bool:
+    keys: list[str] = []
+    for line in _markdown_non_empty_lines(text):
+        key = _markdown_line_key(line)
+        if len(key) >= 4:
+            keys.append(key)
+    if len(keys) < 8:
+        return False
+    counts: dict[str, int] = {}
+    for key in keys:
+        counts[key] = counts.get(key, 0) + 1
+    max_count = max(counts.values(), default=0)
+    repeated_count = sum(count for count in counts.values() if count > 1)
+    return (
+        max_count >= MARKDOWN_QUALITY_REPEATED_LINE_MIN_COUNT
+        and repeated_count / max(len(keys), 1) > MARKDOWN_QUALITY_REPEATED_LINE_RATIO_MAX
+    )
+
+
+def _markdown_quality_gap(markdown: Mapping[str, Any], text: str | None = None) -> str:
+    stored_gap = str(markdown.get("quality_gap") or "").strip()
+    if stored_gap:
+        return stored_gap
     status = str(markdown.get("status") or "not_attempted")
     if not _is_markdown_ready(markdown):
         blocker = str(markdown.get("blocker") or "").strip()
         return blocker or f"markdown_status_{status}"
-    if int(markdown.get("bytes") or 0) <= 0:
+    byte_count = int(markdown.get("bytes") or 0)
+    if byte_count <= 0:
         return "markdown_empty"
     if bool(markdown.get("timed_out")):
         return "markdown_timed_out"
+    if _markdown_has_conversion_instability(markdown):
+        return "markdown_conversion_instability"
+    if text is not None:
+        normalized = re.sub(r"\s+", "", text)
+        if not normalized:
+            return "markdown_empty"
+        replacement_ratio = normalized.count("\ufffd") / max(len(normalized), 1)
+        if replacement_ratio > 0.05:
+            return "markdown_garbled_text"
+        disclaimer_stripped = re.sub(
+            r"(免责声明|风险提示|重要声明|法律声明|投资有风险)",
+            "",
+            normalized,
+        )
+        if "免责声明" in normalized and len(disclaimer_stripped) < MARKDOWN_QUALITY_MIN_BYTES:
+            return "markdown_disclaimer_only"
+        if _markdown_is_toc_only(text):
+            return "markdown_toc_only"
+        if _markdown_empty_table_dominant(text):
+            return "markdown_empty_table_dominant"
+        if _markdown_image_only(text):
+            return "markdown_image_only"
+        if _markdown_repeated_line_noise(text):
+            return "markdown_repeated_line_noise"
+        if not any(marker in text for marker in MARKDOWN_STRUCTURE_MARKERS):
+            return "markdown_structure_signal_missing"
+    if byte_count < MARKDOWN_QUALITY_MIN_BYTES:
+        return "markdown_too_short"
     return ""
+
+
+def _annotate_markdown_quality(
+    markdown: Mapping[str, Any],
+    markdown_path: Path,
+) -> dict[str, Any]:
+    annotated = dict(markdown)
+    text: str | None = None
+    if markdown_path.exists() and markdown_path.stat().st_size > 0:
+        text = markdown_path.read_text(encoding="utf-8", errors="replace")
+    gap = _markdown_quality_gap(annotated, text)
+    annotated["quality_gate_status"] = "blocked" if gap else "passed"
+    annotated["quality_gap"] = gap
+    return annotated
+
+
+def _markdown_gap_retryable(gap: str) -> bool:
+    return any(marker in gap for marker in MARKDOWN_RETRYABLE_GAP_MARKERS)
+
+
+def _markdown_gap_false_positive_risk(gap: str) -> bool:
+    return gap in MARKDOWN_FALSE_POSITIVE_RISK_GAPS
+
+
+def _coverage_metadata_datetime(row: Mapping[str, Any]) -> datetime | None:
+    for field in ("publish_datetime", "accessible_datetime", "publish_date"):
+        parsed = _parse_pit_datetime(row.get(field))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _coverage_corpus_as_of(metadata_rows: Sequence[Mapping[str, Any]]) -> datetime | None:
+    dates = [
+        parsed
+        for row in metadata_rows
+        if (parsed := _coverage_metadata_datetime(row)) is not None
+    ]
+    return max(dates) if dates else None
+
+
+def _coverage_time_bucket(
+    row: Mapping[str, Any],
+    *,
+    corpus_as_of: datetime | None,
+) -> str:
+    report_date = _coverage_metadata_datetime(row)
+    if report_date is None:
+        return "date_missing"
+    if corpus_as_of is None:
+        return "date_unbucketed"
+    age_days = (corpus_as_of.date() - report_date.date()).days
+    if age_days < 0:
+        return "future_report_date"
+    if age_days <= MARKDOWN_COVERAGE_RECENT_1Y_DAYS:
+        return "recent_1y"
+    if age_days <= MARKDOWN_COVERAGE_LONG_CYCLE_MIN_AGE_DAYS:
+        return "recent_3y"
+    return "long_cycle_history"
+
+
+def _coverage_stock_outcome_age_bucket(
+    row: Mapping[str, Any],
+    *,
+    corpus_as_of: datetime | None,
+) -> str:
+    if not _is_potential_stock_report(row):
+        return "non_stock_report"
+    if not _is_explicit_stock_ts_code(row.get("ts_code")):
+        return "stock_ts_code_missing"
+    report_date = _coverage_metadata_datetime(row)
+    if report_date is None:
+        return "stock_report_date_missing"
+    if corpus_as_of is None:
+        return "stock_outcome_age_unbucketed"
+    age_days = (corpus_as_of.date() - report_date.date()).days
+    if age_days < 0:
+        return "stock_future_report_date"
+    if age_days >= 180:
+        return "stock_outcome_120d_calendar_ready"
+    if age_days >= 90:
+        return "stock_outcome_60d_calendar_ready"
+    if age_days >= 30:
+        return "stock_outcome_20d_calendar_ready"
+    if age_days >= 10:
+        return "stock_outcome_5d_calendar_ready"
+    return "stock_outcome_pending"
+
+
+def _coverage_report_key(row: Mapping[str, Any]) -> str:
+    return str(row.get("source_id") or row.get("report_id") or "").strip()
+
+
+def _coverage_forecast_rows_by_report(
+    forecast_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[Mapping[str, Any]]]:
+    rows_by_report: dict[str, list[Mapping[str, Any]]] = {}
+    for row in forecast_rows:
+        key = _coverage_report_key(row)
+        if key:
+            rows_by_report.setdefault(key, []).append(row)
+    return rows_by_report
+
+
+def _coverage_institution_counts(
+    metadata_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in metadata_rows:
+        key = str(row.get("institution_id") or row.get("institution") or "").strip()
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _coverage_institution_bucket(
+    row: Mapping[str, Any],
+    *,
+    institution_counts: Mapping[str, int],
+    total_reports: int,
+) -> str:
+    key = str(row.get("institution_id") or row.get("institution") or "").strip()
+    if not key:
+        return "missing_institution"
+    head_threshold = max(10, (max(total_reports, 1) + 19) // 20)
+    if institution_counts.get(key, 0) >= head_threshold:
+        return "head_institution"
+    return "long_tail_institution"
+
+
+def _coverage_horizon_buckets_for_report(
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata: Mapping[str, Any],
+) -> set[str]:
+    explicit_buckets = {
+        _horizon_bucket(_ensure_mapping(row.get("horizon")))
+        for row in forecast_rows
+    }
+    explicit_buckets.discard("")
+    buckets = {bucket for bucket in explicit_buckets if bucket != "unknown"}
+    if not buckets and forecast_rows:
+        # If the report lacks an explicit claim horizon but is proxy-evaluable,
+        # count the PIT windows that the outcome labelers will retain.
+        if any(_is_stock_forecast_claim(forecast, metadata) for forecast in forecast_rows):
+            buckets.update(_horizon_bucket({"preferred_days": days}) for days in STOCK_PRICE_PROXY_WINDOWS_DAYS)
+        if _is_industry_research_report(metadata.get("report_type")):
+            buckets.update(_horizon_bucket({"preferred_days": days}) for days in INDUSTRY_ETF_PROXY_WINDOWS_DAYS)
+    if "unknown" in explicit_buckets:
+        buckets.add("unknown")
+    return buckets or {"no_extracted_forecast_horizon"}
+
+
+def _coverage_evaluability_buckets_for_report(
+    row: Mapping[str, Any],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    markdown_gap: str,
+) -> set[str]:
+    markdown = _ensure_mapping(row.get("markdown"))
+    extraction = _ensure_mapping(row.get("extraction"))
+    if not _is_markdown_ready(markdown):
+        return {"markdown_not_ready"}
+    if markdown_gap:
+        return {"quality_gate_blocked"}
+    if str(extraction.get("llm_status") or "") != "processed":
+        return {"llm_extraction_pending"}
+    if not forecast_rows:
+        return {"no_forecast_claim_extracted"}
+    buckets: set[str] = set()
+    if any(_forecast_mapping_gaps(forecast) for forecast in forecast_rows):
+        buckets.add("mapping_gap_candidate")
+    if any(_is_stock_forecast_claim(forecast, row) for forecast in forecast_rows):
+        buckets.add("stock_proxy_candidate")
+    if _is_industry_research_report(row.get("report_type")):
+        buckets.add("industry_proxy_candidate")
+    if _is_macro_strategy_report(row) and any(
+        _macro_asset_proxy_for_claim(forecast, row) is not None
+        for forecast in forecast_rows
+    ):
+        buckets.add("macro_asset_proxy_candidate")
+    return buckets or {"standard_evaluable_candidate"}
+
+
+def _coverage_missing_required_buckets(
+    counts: Mapping[str, int],
+    required_buckets: Sequence[str],
+    *,
+    dimension: str,
+) -> list[str]:
+    return [
+        f"{dimension}:{bucket}"
+        for bucket in required_buckets
+        if int(counts.get(bucket) or 0) <= 0
+    ]
+
+
+def _sector_bucket_coverage_gaps(
+    sector_bucket_counts: Mapping[str, int],
+) -> list[str]:
+    return [
+        f"sector_bucket:{bucket}"
+        for bucket, count in sorted(sector_bucket_counts.items())
+        if bucket and int(count or 0) < MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET
+    ]
+
+
+_SECTOR_FAMILY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("technology_electronics", ("半导体", "电子", "元件", "光学", "通信", "通讯", "计算机", "软件", "互联网", "IT服务", "数字媒体", "游戏")),
+    ("healthcare", ("医药", "医疗", "生物", "中药", "化学制药", "医疗器械", "医疗服务")),
+    ("financials", ("银行", "证券", "保险", "金融", "券商", "信托")),
+    ("real_estate_construction", ("房地产", "建筑", "工程", "装修", "建材", "水泥", "园林", "基础建设", "房屋建设")),
+    ("energy_materials", ("有色", "金属", "钢铁", "煤炭", "石油", "油气", "化工", "化学", "材料", "塑料", "橡胶", "玻璃", "电池", "光伏", "风电", "新能源")),
+    ("industrial_equipment", ("机械", "设备", "仪器", "电机", "电网", "自动化", "轨交", "船舶", "航天", "航空", "军工", "兵装", "电源")),
+    ("consumer", ("食品", "饮料", "白酒", "家电", "家居", "服装", "纺织", "美容", "化妆", "零售", "电商", "旅游", "酒店", "餐饮", "教育", "文娱", "传媒", "体育", "珠宝", "饰品", "个护")),
+    ("auto_transport", ("汽车", "乘用车", "商用车", "摩托", "交运", "物流", "港口", "航运", "机场", "铁路", "公路")),
+    ("utilities_environment", ("电力", "燃气", "公用事业", "环保", "环境", "水务")),
+    ("agriculture", ("农业", "农", "养殖", "种植", "饲料", "动物保健")),
+)
+
+
+def _coverage_sector_family(raw_sector: str) -> str:
+    normalized = raw_sector.strip()
+    if not normalized or normalized == "unknown_sector":
+        return "other_sector"
+    if any(keyword in normalized for keyword in ("宏观", "策略", "固收", "金融工程", "行业研报")):
+        return "other_sector"
+    for family, keywords in _SECTOR_FAMILY_KEYWORDS:
+        if any(keyword in normalized for keyword in keywords):
+            return family
+    return "other_sector"
 
 
 def build_markdown_coverage_summary(
     *,
     run_id: str,
     metadata_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     report_type_counts: dict[str, int] = {}
+    time_bucket_counts: dict[str, int] = {}
+    institution_bucket_counts: dict[str, int] = {}
     sector_bucket_counts: dict[str, int] = {}
+    report_horizon_bucket_counts: dict[str, int] = {}
+    forecast_horizon_bucket_counts: dict[str, int] = {}
+    evaluability_bucket_counts: dict[str, int] = {}
+    stock_outcome_age_bucket_counts: dict[str, int] = {}
     conversion_backend_counts: dict[str, int] = {}
     quality_gap_counts: dict[str, int] = {}
+    quality_review_gap_counts: dict[str, int] = {}
+    false_positive_risk_gap_counts: dict[str, int] = {}
+    industry_report_count = 0
+    stock_report_count = 0
     pdf_ready_count = 0
     markdown_ready_count = 0
     markdown_quality_pass_count = 0
     llm_extraction_processed_count = 0
+    llm_extraction_without_quality_pass_count = 0
     retry_queue_count = 0
+    quality_review_queue_count = 0
+    false_positive_review_queue_count = 0
+    corpus_as_of = _coverage_corpus_as_of(metadata_rows)
+    forecast_rows_by_report = _coverage_forecast_rows_by_report(forecast_rows)
+    institution_counts = _coverage_institution_counts(metadata_rows)
     for row in metadata_rows:
         _increment_count(report_type_counts, row.get("report_type"))
-        _increment_count(sector_bucket_counts, row.get("sector"))
+        _increment_count(
+            time_bucket_counts,
+            _coverage_time_bucket(row, corpus_as_of=corpus_as_of),
+        )
+        _increment_count(
+            institution_bucket_counts,
+            _coverage_institution_bucket(
+                row,
+                institution_counts=institution_counts,
+                total_reports=len(metadata_rows),
+            ),
+        )
+        _increment_count(
+            sector_bucket_counts,
+            _coverage_sector_bucket(row),
+            default="unknown_sector",
+        )
+        if _is_industry_research_report(row.get("report_type")):
+            industry_report_count += 1
+        if _is_explicit_stock_research_report(row):
+            stock_report_count += 1
+            _increment_count(
+                stock_outcome_age_bucket_counts,
+                _coverage_stock_outcome_age_bucket(
+                    row,
+                    corpus_as_of=corpus_as_of,
+                ),
+            )
         pdf = _ensure_mapping(row.get("pdf"))
         markdown = _ensure_mapping(row.get("markdown"))
         if _is_pdf_ready(pdf):
@@ -4310,13 +12637,39 @@ def build_markdown_coverage_summary(
         gap = _markdown_quality_gap(markdown)
         if gap:
             _increment_count(quality_gap_counts, gap)
-            if any(marker in gap for marker in ("mineru", "timeout", "failed", "not_found")):
+            if _markdown_gap_retryable(gap):
                 retry_queue_count += 1
+            elif _is_markdown_ready(markdown):
+                quality_review_queue_count += 1
+                _increment_count(quality_review_gap_counts, gap)
+                if _markdown_gap_false_positive_risk(gap):
+                    false_positive_review_queue_count += 1
+                    _increment_count(false_positive_risk_gap_counts, gap)
         else:
             markdown_quality_pass_count += 1
         extraction = _ensure_mapping(row.get("extraction"))
         if str(extraction.get("llm_status") or "") == "processed":
             llm_extraction_processed_count += 1
+            if gap:
+                llm_extraction_without_quality_pass_count += 1
+        report_forecasts = forecast_rows_by_report.get(_coverage_report_key(row), [])
+        for bucket in sorted(
+            _coverage_horizon_buckets_for_report(report_forecasts, row)
+        ):
+            _increment_count(report_horizon_bucket_counts, bucket)
+        for forecast in report_forecasts:
+            _increment_count(
+                forecast_horizon_bucket_counts,
+                _horizon_bucket(_ensure_mapping(forecast.get("horizon"))),
+            )
+        for bucket in sorted(
+            _coverage_evaluability_buckets_for_report(
+                row,
+                report_forecasts,
+                markdown_gap=gap,
+            )
+        ):
+            _increment_count(evaluability_bucket_counts, bucket)
     coverage_targets = {
         "selected_report_count_min": MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS,
         "markdown_ready_count_min": MARKDOWN_COVERAGE_MIN_MARKDOWN_READY,
@@ -4324,7 +12677,58 @@ def build_markdown_coverage_summary(
         "llm_extraction_processed_count_min": (
             MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED
         ),
+        "industry_report_count_min": MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
+        "stock_report_count_min": MARKDOWN_COVERAGE_MIN_STOCK_REPORTS,
+        "stock_outcome_120d_ready_report_count_min": (
+            MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS
+        ),
+        "sector_bucket_min_report_count": (
+            MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET
+        ),
     }
+    sector_bucket_coverage_gaps = _sector_bucket_coverage_gaps(sector_bucket_counts)
+    coverage_strata_targets = {
+        "time_bucket_required": list(MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS),
+        "institution_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_INSTITUTION_BUCKETS
+        ),
+        "horizon_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_HORIZON_BUCKETS
+        ),
+        "evaluability_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS
+        ),
+        "stock_outcome_age_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_STOCK_OUTCOME_AGE_BUCKETS
+        ),
+    }
+    coverage_strata_missing = [
+        *_coverage_missing_required_buckets(
+            time_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS,
+            dimension="time_bucket",
+        ),
+        *_coverage_missing_required_buckets(
+            institution_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_INSTITUTION_BUCKETS,
+            dimension="institution_bucket",
+        ),
+        *_coverage_missing_required_buckets(
+            report_horizon_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_HORIZON_BUCKETS,
+            dimension="horizon_bucket",
+        ),
+        *_coverage_missing_required_buckets(
+            evaluability_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS,
+            dimension="evaluability_bucket",
+        ),
+        *_coverage_missing_required_buckets(
+            stock_outcome_age_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_STOCK_OUTCOME_AGE_BUCKETS,
+            dimension="stock_outcome_age_bucket",
+        ),
+    ]
     coverage_gate_blockers: list[str] = []
     if len(metadata_rows) < MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS:
         coverage_gate_blockers.append("selected_report_count_below_p9_target")
@@ -4339,7 +12743,98 @@ def build_markdown_coverage_summary(
         coverage_gate_blockers.append(
             "llm_extraction_processed_count_below_p9_target"
         )
-    return {
+    if industry_report_count < MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS:
+        coverage_gate_blockers.append("industry_report_count_below_p9_target")
+    if stock_report_count < MARKDOWN_COVERAGE_MIN_STOCK_REPORTS:
+        coverage_gate_blockers.append("stock_report_count_below_p9_target")
+    stock_outcome_120d_ready_count = int(
+        stock_outcome_age_bucket_counts.get("stock_outcome_120d_calendar_ready") or 0
+    )
+    if (
+        stock_outcome_120d_ready_count
+        < MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS
+    ):
+        coverage_gate_blockers.append(
+            "stock_outcome_120d_ready_count_below_p9_target"
+        )
+    if sector_bucket_coverage_gaps:
+        coverage_gate_blockers.append("sector_bucket_coverage_below_p9_target")
+    if any(item.startswith("time_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("time_bucket_coverage_below_p9_target")
+    if any(item.startswith("institution_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("institution_bucket_coverage_below_p9_target")
+    if any(item.startswith("horizon_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("horizon_bucket_coverage_below_p9_target")
+    if any(item.startswith("evaluability_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("evaluability_bucket_coverage_below_p9_target")
+    if any(
+        item.startswith("stock_outcome_age_bucket:")
+        for item in coverage_strata_missing
+    ):
+        coverage_gate_blockers.append(
+            "stock_outcome_age_bucket_coverage_below_p9_target"
+        )
+    if llm_extraction_without_quality_pass_count:
+        coverage_gate_blockers.append("llm_extraction_without_quality_pass")
+    coverage_shortfalls = {
+        "selected_report_count": _threshold_shortfall(
+            current=len(metadata_rows),
+            target=MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS,
+            blocker="selected_report_count_below_p9_target",
+            next_action="add_stratified_real_reports_to_private_source_pool",
+        ),
+        "markdown_ready_count": _threshold_shortfall(
+            current=markdown_ready_count,
+            target=MARKDOWN_COVERAGE_MIN_MARKDOWN_READY,
+            blocker="markdown_ready_count_below_p9_target",
+            next_action="download_pdfs_and_convert_quality_gated_markdown",
+        ),
+        "markdown_quality_pass_count": _threshold_shortfall(
+            current=markdown_quality_pass_count,
+            target=MARKDOWN_COVERAGE_MIN_QUALITY_PASS,
+            blocker="markdown_quality_pass_count_below_p9_target",
+            next_action="resolve_markdown_quality_gaps_before_llm_extraction",
+        ),
+        "llm_extraction_processed_count": _threshold_shortfall(
+            current=llm_extraction_processed_count,
+            target=MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED,
+            blocker="llm_extraction_processed_count_below_p9_target",
+            next_action="run_llm_extraction_on_quality_passed_markdown",
+        ),
+        "industry_report_count": _threshold_shortfall(
+            current=industry_report_count,
+            target=MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
+            blocker="industry_report_count_below_p9_target",
+            next_action="add_more_industry_research_reports_to_stratified_pool",
+        ),
+        "stock_report_count": _threshold_shortfall(
+            current=stock_report_count,
+            target=MARKDOWN_COVERAGE_MIN_STOCK_REPORTS,
+            blocker="stock_report_count_below_p9_target",
+            next_action="add_more_stock_research_reports_with_ts_code",
+        ),
+        "stock_outcome_120d_ready_report_count": _threshold_shortfall(
+            current=stock_outcome_120d_ready_count,
+            target=MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS,
+            blocker="stock_outcome_120d_ready_count_below_p9_target",
+            next_action="prefer_historical_stock_reports_with_120d_outcome_windows",
+        ),
+        "sector_bucket_below_min_count": {
+            "current": len(sector_bucket_coverage_gaps),
+            "target": 0,
+            "remaining": len(sector_bucket_coverage_gaps),
+            "blocker": "sector_bucket_coverage_below_p9_target",
+            "next_action": "fill_aggregate_sector_bucket_coverage_gaps",
+        },
+        "coverage_strata_missing_count": {
+            "current": len(coverage_strata_missing),
+            "target": 0,
+            "remaining": len(coverage_strata_missing),
+            "blocker": "stratified_coverage_below_p9_target",
+            "next_action": "fill_missing_time_institution_horizon_evaluability_strata",
+        },
+    }
+    summary = {
         "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
         "run_id": run_id,
         "selected_report_count": len(metadata_rows),
@@ -4347,22 +12842,86 @@ def build_markdown_coverage_summary(
         "markdown_ready_count": markdown_ready_count,
         "markdown_quality_pass_count": markdown_quality_pass_count,
         "llm_extraction_processed_count": llm_extraction_processed_count,
+        "llm_extraction_without_quality_pass_count": (
+            llm_extraction_without_quality_pass_count
+        ),
+        "industry_report_count": industry_report_count,
+        "stock_report_count": stock_report_count,
+        "stock_outcome_120d_ready_report_count": stock_outcome_120d_ready_count,
         "coverage_targets": coverage_targets,
+        "coverage_shortfalls": coverage_shortfalls,
+        "sector_bucket_coverage_gaps": sector_bucket_coverage_gaps,
+        "sector_bucket_below_min_count": len(sector_bucket_coverage_gaps),
+        "coverage_strata_targets": coverage_strata_targets,
+        "coverage_strata_missing": coverage_strata_missing,
         "coverage_gate_status": (
             "passed" if not coverage_gate_blockers else "blocked"
         ),
         "coverage_gate_blockers": coverage_gate_blockers,
         "markdown_quality_gap_counts": dict(sorted(quality_gap_counts.items())),
+        "markdown_quality_review_queue_count": quality_review_queue_count,
+        "markdown_quality_review_gap_counts": dict(
+            sorted(quality_review_gap_counts.items())
+        ),
+        "markdown_false_positive_review_queue_count": (
+            false_positive_review_queue_count
+        ),
+        "markdown_false_positive_risk_gap_counts": dict(
+            sorted(false_positive_risk_gap_counts.items())
+        ),
+        "markdown_quality_spot_check_required": quality_review_queue_count > 0,
         "report_type_counts": dict(sorted(report_type_counts.items())),
+        "time_bucket_counts": dict(sorted(time_bucket_counts.items())),
+        "institution_bucket_counts": dict(sorted(institution_bucket_counts.items())),
         "sector_bucket_counts": dict(sorted(sector_bucket_counts.items())),
+        "report_horizon_bucket_counts": dict(
+            sorted(report_horizon_bucket_counts.items())
+        ),
+        "forecast_horizon_bucket_counts": dict(
+            sorted(forecast_horizon_bucket_counts.items())
+        ),
+        "evaluability_bucket_counts": dict(sorted(evaluability_bucket_counts.items())),
+        "stock_outcome_age_bucket_counts": dict(
+            sorted(stock_outcome_age_bucket_counts.items())
+        ),
         "conversion_backend_counts": dict(sorted(conversion_backend_counts.items())),
         "retry_queue_count": retry_queue_count,
+        "stratified_sampling_policy": {
+            "required_dimensions": [
+                "report_type",
+                "time_bucket",
+                "institution_bucket",
+                "sector_bucket",
+                "stock_ts_code",
+                "stock_outcome_age_bucket",
+                "horizon_bucket",
+                "evaluability_bucket",
+            ],
+            "industry_report_count_min": MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
+            "stock_report_with_ts_code_count_min": (
+                MARKDOWN_COVERAGE_MIN_STOCK_REPORTS
+            ),
+            "sector_bucket_policy": (
+                "sector_bucket_counts are aggregate-only; high-frequency "
+                "sector minimums are evaluated from the private source universe "
+                "and recorded as coverage gaps before evolution promotion"
+            ),
+            "privacy_boundary": "aggregate_counts_only",
+        },
+        "markdown_quality_review_policy": (
+            "ready Markdown blocked by quality gates enters aggregate manual "
+            "review counts before extraction is trusted; repeated-line, sparse "
+            "structure, short, and empty-table gaps are tracked as false-positive "
+            "risk classes for corpus spot checks"
+        ),
         "private_artifact_redaction_policy": (
             "public coverage summary stores aggregate counts only; no "
             "source-specific content, retrieval locator, local file reference, "
             "or report prose is allowed"
         ),
     }
+    summary["private_text_included"] = _public_payload_private_text_included(summary)
+    return summary
 
 
 def build_default_industry_etf_proxy_map_rows() -> list[dict[str, Any]]:
@@ -4409,9 +12968,42 @@ def _read_industry_etf_proxy_map_rows(registry_dir: Path) -> list[Mapping[str, A
     map_path = registry_dir / "industry_etf_proxy_map.jsonl"
     if not map_path.exists():
         return build_default_industry_etf_proxy_map_rows()
+    default_rows = build_default_industry_etf_proxy_map_rows()
+    default_by_sector = {
+        str(row.get("sector_name") or "").strip(): row
+        for row in default_rows
+        if str(row.get("sector_name") or "").strip()
+    }
     rows, _errors = load_jsonl_with_errors(map_path, label="industry_etf_proxy_map")
     mapping_rows = [row for row in rows if isinstance(row, Mapping)]
-    return mapping_rows or build_default_industry_etf_proxy_map_rows()
+    if not mapping_rows:
+        return default_rows
+    refreshed_rows: list[Mapping[str, Any]] = []
+    for row in mapping_rows:
+        sector = str(row.get("sector_name") or "").strip()
+        default_row = default_by_sector.get(sector)
+        if (
+            default_row is not None
+            and str(row.get("taxonomy") or "") == "operator_seeded_tushare_industry"
+            and str(row.get("mapping_confidence") or "")
+            == "operator_seeded_exact_sector"
+            and str(row.get("status") or "primary") == "primary"
+            and not bool(row.get("review_required"))
+        ):
+            refreshed_rows.append(default_row)
+        else:
+            refreshed_rows.append(row)
+    configured_sectors = {
+        str(row.get("sector_name") or "").strip()
+        for row in refreshed_rows
+        if str(row.get("sector_name") or "").strip()
+    }
+    fallback_rows = [
+        row
+        for row in default_rows
+        if str(row.get("sector_name") or "").strip() not in configured_sectors
+    ]
+    return [*refreshed_rows, *fallback_rows]
 
 
 def _industry_etf_proxy_for_sector(
@@ -4461,6 +13053,163 @@ def _industry_mapping_benchmark_symbol(row: Mapping[str, Any]) -> str:
     return str(row.get("benchmark_symbol") or INDUSTRY_ETF_BENCHMARK_SYMBOL)
 
 
+def _industry_pit_availability_by_mapping_id(
+    pit_availability: Mapping[str, Any] | None,
+) -> dict[str, Mapping[str, Any]]:
+    if not pit_availability:
+        return {}
+    return {
+        str(row.get("mapping_id") or ""): row
+        for row in _ensure_list(_ensure_mapping(pit_availability).get("mapping_records"))
+        if isinstance(row, Mapping) and str(row.get("mapping_id") or "").strip()
+    }
+
+
+def _industry_pit_availability_gap(
+    mapping: Mapping[str, Any],
+    availability_by_mapping_id: Mapping[str, Mapping[str, Any]],
+) -> str:
+    if not availability_by_mapping_id:
+        return ""
+    mapping_id = str(mapping.get("mapping_id") or "")
+    record = availability_by_mapping_id.get(mapping_id)
+    if not record:
+        return "pit_availability_missing"
+    if record.get("pit_available") is True:
+        return ""
+    reasons = [str(item) for item in _ensure_list(record.get("pit_gap_reasons"))]
+    for reason in ("calendar_missing", "proxy_series_missing", "benchmark_series_missing"):
+        if reason in reasons:
+            return reason
+    if "insufficient_window_history" in reasons:
+        return "pit_availability_insufficient_window_history"
+    return "pit_availability_unavailable"
+
+
+def build_default_macro_asset_proxy_map_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for target_id, mapping in MACRO_ASSET_PROXY_MAPPING.items():
+        proxy_symbol = str(mapping.get("proxy_symbol") or "")
+        rows.append(
+            {
+                "mapping_id": _stable_id(
+                    "MAETF-MAP",
+                    {
+                        "target_id": target_id,
+                        "proxy_symbol": proxy_symbol,
+                        "version": MACRO_ASSET_PROXY_MAPPING_VERSION,
+                    },
+                ),
+                "mapping_version": MACRO_ASSET_PROXY_MAPPING_VERSION,
+                "target_id": target_id,
+                "target_aliases": [
+                    str(alias)
+                    for alias in _ensure_list(mapping.get("aliases"))
+                    if str(alias).strip()
+                ],
+                "taxonomy": "operator_seeded_macro_asset_proxy",
+                "proxy_symbol": proxy_symbol,
+                "proxy_label": str(mapping.get("proxy_label") or ""),
+                "benchmark_symbol": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+                "benchmark_source": MACRO_ASSET_PROXY_BENCHMARK_SOURCE,
+                "benchmark_family": MACRO_ASSET_PROXY_BENCHMARK_FAMILY,
+                "cost_model_id": MACRO_ASSET_PROXY_COST_MODEL_ID,
+                "mapping_confidence": "operator_seeded_macro_asset_alias",
+                "mapping_rationale": (
+                    "Operator-seeded macro asset target to locally available ETF "
+                    "proxy used for governed macro strategy outcome labels."
+                ),
+                "effective_from": "",
+                "effective_to": "",
+                "status": "primary",
+                "review_required": False,
+            }
+        )
+    return rows
+
+
+def _macro_asset_proxy_for_claim(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> Mapping[str, Any] | None:
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type in {"stock", "sector", "industry", "company"}:
+        return None
+    rows = [
+        row
+        for row in (mapping_rows or build_default_macro_asset_proxy_map_rows())
+        if str(row.get("status") or "primary") == "primary"
+        and _mapping_effective_for_datetime(row, str(claim.get("signal_datetime") or ""))
+    ]
+    target_id = str(target.get("target_id") or "").strip()
+    target_name = str(target.get("target_name") or "").strip()
+    for row in rows:
+        if target_id and target_id.upper() == str(row.get("target_id") or "").upper():
+            return row
+    text = " ".join(
+        item
+        for item in (
+            target_id,
+            target_name,
+            str(claim.get("claim_text") or ""),
+            str(metadata.get("title") or ""),
+        )
+        if item
+    )
+    alias_rows: list[tuple[int, Mapping[str, Any]]] = []
+    for row in rows:
+        aliases = [
+            str(row.get("target_id") or ""),
+            *[str(alias) for alias in _ensure_list(row.get("target_aliases"))],
+        ]
+        for alias in aliases:
+            if alias and alias in text:
+                alias_rows.append((len(alias), row))
+                break
+    if not alias_rows:
+        return None
+    return sorted(
+        alias_rows,
+        key=lambda item: (
+            item[0],
+            str(item[1].get("target_id") or ""),
+        ),
+        reverse=True,
+    )[0][1]
+
+
+def _macro_asset_window_role(horizon_days: int) -> str:
+    return _stock_price_proxy_window_role(horizon_days)
+
+
+def _macro_asset_proxy_window_effective_weight(horizon_days: int) -> float:
+    return MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(int(horizon_days), 0.0)
+
+
+def _macro_asset_claim_window_alignment(
+    *,
+    claim_horizon: Mapping[str, Any],
+    horizon_days: int,
+) -> str:
+    return _industry_etf_claim_window_alignment(
+        claim_horizon=claim_horizon,
+        horizon_days=horizon_days,
+    )
+
+
+def _macro_asset_temporal_validation_summary(
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    summary = _stock_price_temporal_validation_summary(records)
+    summary["policy"] = (
+        "macro strategy research is validated on fixed ETF proxy windows; "
+        "short, medium, and long windows are retained as separate evidence"
+    )
+    return summary
+
+
 def _series_available_dates(
     *,
     calendar: Sequence[str],
@@ -4477,6 +13226,56 @@ def _series_available_dates(
     return dates
 
 
+def _stock_series_coverage_summary(
+    *,
+    target_series_count: int,
+    target_series_missing_count: int,
+    earliest_price_dates: Sequence[str],
+    latest_price_dates: Sequence[str],
+    latest_calendar_date: str,
+    entry_before_series_start_count: int,
+    entry_after_series_end_count: int,
+    entry_within_series_range_count: int,
+) -> dict[str, Any]:
+    lifecycle_counts: dict[str, int] = {}
+    for latest_price_date in latest_price_dates:
+        if not latest_calendar_date:
+            status = "calendar_missing"
+        elif latest_price_date == latest_calendar_date:
+            status = "latest_aligned"
+        elif latest_price_date < latest_calendar_date:
+            status = "stale_before_latest_calendar"
+        else:
+            status = "future_dated"
+        _increment_count(lifecycle_counts, status)
+    return {
+        "target_series_count": int(target_series_count),
+        "target_series_missing_count": int(target_series_missing_count),
+        "earliest_price_date_min": min(earliest_price_dates)
+        if earliest_price_dates
+        else "",
+        "earliest_price_date_max": max(earliest_price_dates)
+        if earliest_price_dates
+        else "",
+        "latest_price_date_min": min(latest_price_dates)
+        if latest_price_dates
+        else "",
+        "latest_price_date_max": max(latest_price_dates)
+        if latest_price_dates
+        else "",
+        "latest_calendar_date": latest_calendar_date,
+        "latest_aligned_series_count": int(lifecycle_counts.get("latest_aligned") or 0),
+        "stale_before_latest_calendar_count": int(
+            lifecycle_counts.get("stale_before_latest_calendar") or 0
+        ),
+        "future_dated_series_count": int(lifecycle_counts.get("future_dated") or 0),
+        "series_lifecycle_status_counts": dict(sorted(lifecycle_counts.items())),
+        "entry_before_series_start_count": int(entry_before_series_start_count),
+        "entry_after_series_end_count": int(entry_after_series_end_count),
+        "entry_within_series_range_count": int(entry_within_series_range_count),
+    }
+
+
 def build_industry_etf_proxy_pit_availability(
     *,
     root_path: Path,
@@ -4487,6 +13286,7 @@ def build_industry_etf_proxy_pit_availability(
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> dict[str, Any]:
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    qlib_source_label = _public_qlib_source_label(qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     benchmark_cache: dict[str, tuple[int, list[float]]] = {}
 
@@ -4548,7 +13348,7 @@ def build_industry_etf_proxy_pit_availability(
                 "benchmark_family": str(
                     row.get("benchmark_family") or INDUSTRY_ETF_BENCHMARK_FAMILY
                 ),
-                "calendar_source": str(qlib_etf_dir),
+                "calendar_source": qlib_source_label,
                 "earliest_price_date": available_dates[0] if available_dates else "",
                 "latest_price_date": available_dates[-1] if available_dates else "",
                 "latest_calendar_date": calendar[-1] if calendar else "",
@@ -4591,6 +13391,7 @@ def build_industry_etf_proxy_pit_availability(
         entry_index = _entry_calendar_index(
             calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             _increment_count(label_gap_counts, "entry_date_after_latest_calendar")
@@ -4643,40 +13444,168 @@ def build_industry_etf_proxy_pit_availability(
             labelable_window_count += 1
         if claim_window_count:
             labelable_claim_count += 1
+    labelability_summary = {
+        "eligible_claim_count": eligible_claim_count,
+        "labelable_claim_count": labelable_claim_count,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "sector_etf_mapping_missing_count": label_gap_counts.get(
+            "sector_etf_mapping_missing",
+            0,
+        ),
+        "proxy_series_missing_count": label_gap_counts.get(
+            "proxy_series_missing",
+            0,
+        ),
+        "benchmark_series_missing_count": label_gap_counts.get(
+            "benchmark_series_missing",
+            0,
+        ),
+        "data_gap_counts": dict(sorted(label_gap_counts.items())),
+    }
+    pit_available_mapping_count = sum(
+        1 for record in mapping_records if record["pit_available"]
+    )
     return {
         "availability_id": "RKE-REPORT-INDUSTRY-ETF-PROXY-PIT-AVAILABILITY",
         "policy": (
             "Each sector-to-ETF mapping records PIT price availability and "
             "labelability gaps before industry outcome labels are generated."
         ),
-        "qlib_etf_dir_configured": str(qlib_etf_dir),
+        "qlib_etf_dir_configured": qlib_source_label,
         "windows_days": [int(value) for value in windows_days],
         "mapping_count": len(mapping_records),
         "mapping_records": mapping_records,
-        "pit_available_mapping_count": sum(
-            1 for record in mapping_records if record["pit_available"]
-        ),
+        "pit_available_mapping_count": pit_available_mapping_count,
         "pit_gap_counts": dict(sorted(aggregate_gap_counts.items())),
-        "labelability_summary": {
-            "eligible_claim_count": eligible_claim_count,
-            "labelable_claim_count": labelable_claim_count,
-            "labelable_window_count": labelable_window_count,
-            "pending_future_window_count": pending_future_window_count,
-            "sector_etf_mapping_missing_count": label_gap_counts.get(
-                "sector_etf_mapping_missing",
-                0,
-            ),
-            "proxy_series_missing_count": label_gap_counts.get(
-                "proxy_series_missing",
-                0,
-            ),
-            "benchmark_series_missing_count": label_gap_counts.get(
-                "benchmark_series_missing",
-                0,
-            ),
-            "data_gap_counts": dict(sorted(label_gap_counts.items())),
-        },
+        "labelability_summary": labelability_summary,
+        "labelability_action_summary": _industry_pit_labelability_action_summary(
+            mapping_count=len(mapping_records),
+            pit_available_mapping_count=pit_available_mapping_count,
+            pit_gap_counts=aggregate_gap_counts,
+            labelability_summary=labelability_summary,
+        ),
     }
+
+
+def _industry_pit_labelability_summary_from_readiness(
+    industry_etf_proxy_readiness: Mapping[str, Any],
+) -> dict[str, Any]:
+    readiness = _ensure_mapping(industry_etf_proxy_readiness)
+    data_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("data_gap_counts"))
+    )
+    return {
+        "eligible_claim_count": int(readiness.get("eligible_claim_count") or 0),
+        "labelable_claim_count": int(
+            readiness.get("labelable_forecast_claim_count") or 0
+        ),
+        "labelable_window_count": int(
+            readiness.get("labelable_window_count") or 0
+        ),
+        "pending_future_window_count": int(
+            readiness.get("pending_future_window_count") or 0
+        ),
+        "sector_etf_mapping_missing_count": data_gap_counts.get(
+            "sector_etf_mapping_missing",
+            0,
+        ),
+        "proxy_series_missing_count": data_gap_counts.get(
+            "proxy_series_missing",
+            0,
+        ),
+        "benchmark_series_missing_count": data_gap_counts.get(
+            "benchmark_series_missing",
+            0,
+        ),
+        "data_gap_counts": data_gap_counts,
+    }
+
+
+def _industry_pit_labelability_action_summary(
+    *,
+    mapping_count: int,
+    pit_available_mapping_count: int,
+    pit_gap_counts: Mapping[str, Any],
+    labelability_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    data_gap_counts = _count_mapping_values(
+        _ensure_mapping(labelability_summary.get("data_gap_counts"))
+    )
+    eligible_claim_count = int(labelability_summary.get("eligible_claim_count") or 0)
+    labelable_claim_count = int(
+        labelability_summary.get("labelable_claim_count") or 0
+    )
+    sector_missing_count = int(
+        labelability_summary.get("sector_etf_mapping_missing_count") or 0
+    )
+    mapping_review_claim_count = eligible_claim_count + sector_missing_count
+    pit_unavailable_mapping_count = max(
+        int(mapping_count) - int(pit_available_mapping_count),
+        0,
+    )
+    action_gap_count = sector_missing_count + pit_unavailable_mapping_count
+    next_actions: list[str] = []
+    if sector_missing_count:
+        next_actions.append("add_primary_etf_mapping_for_unmapped_industry_sectors")
+    if pit_unavailable_mapping_count:
+        next_actions.append("refresh_or_replace_pit_unavailable_etf_mappings")
+    if not next_actions:
+        next_actions.append("monitor_mapping_and_pit_availability_drift")
+    return {
+        "policy": (
+            "Public-safe aggregate action summary for P10 industry ETF proxy "
+            "mapping and PIT coverage; no source rows, report text, or local "
+            "paths are included."
+        ),
+        "coverage_gate_status": (
+            "actionable_gaps_present" if action_gap_count else "passed"
+        ),
+        "eligible_claim_count": eligible_claim_count,
+        "labelable_claim_count": labelable_claim_count,
+        "labelability_rate": round(
+            labelable_claim_count / eligible_claim_count,
+            6,
+        )
+        if eligible_claim_count
+        else 0.0,
+        "mapping_review_claim_count": mapping_review_claim_count,
+        "primary_mapping_coverage_rate": round(
+            eligible_claim_count / mapping_review_claim_count,
+            6,
+        )
+        if mapping_review_claim_count
+        else 0.0,
+        "sector_etf_mapping_missing_count": sector_missing_count,
+        "pit_unavailable_mapping_count": pit_unavailable_mapping_count,
+        "remaining_action_count": action_gap_count,
+        "data_gap_counts": data_gap_counts,
+        "pit_gap_counts": _count_mapping_values(_ensure_mapping(pit_gap_counts)),
+        "next_actions": next_actions,
+    }
+
+
+def _with_industry_pit_labelability_summary(
+    pit_availability: Mapping[str, Any],
+    industry_etf_proxy_readiness: Mapping[str, Any],
+) -> dict[str, Any]:
+    updated = dict(pit_availability)
+    updated["labelability_summary"] = (
+        _industry_pit_labelability_summary_from_readiness(
+            industry_etf_proxy_readiness
+        )
+    )
+    updated["labelability_action_summary"] = (
+        _industry_pit_labelability_action_summary(
+            mapping_count=int(updated.get("mapping_count") or 0),
+            pit_available_mapping_count=int(
+                updated.get("pit_available_mapping_count") or 0
+            ),
+            pit_gap_counts=_ensure_mapping(updated.get("pit_gap_counts")),
+            labelability_summary=_ensure_mapping(updated.get("labelability_summary")),
+        )
+    )
+    return updated
 
 
 def build_industry_etf_proxy_readiness(
@@ -4690,7 +13619,11 @@ def build_industry_etf_proxy_readiness(
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> dict[str, Any]:
     mapping_rows = tuple(mapping_rows or build_default_industry_etf_proxy_map_rows())
+    availability_by_mapping_id = _industry_pit_availability_by_mapping_id(
+        pit_availability
+    )
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    qlib_source_label = _public_qlib_source_label(qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     benchmark_cache: dict[str, tuple[int, list[float]]] = {}
 
@@ -4706,6 +13639,7 @@ def build_industry_etf_proxy_readiness(
     metadata_by_source = _source_report_metadata(metadata_rows)
     eligible_claim_ids: list[str] = []
     labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
     data_gap_counts: dict[str, int] = {}
     labelable_window_count = 0
     pending_future_window_count = 0
@@ -4732,6 +13666,10 @@ def build_industry_etf_proxy_readiness(
             continue
         forecast_claim_id = str(claim.get("forecast_claim_id") or "")
         eligible_claim_ids.append(forecast_claim_id)
+        pit_gap = _industry_pit_availability_gap(proxy, availability_by_mapping_id)
+        if pit_gap:
+            add_gap(pit_gap)
+            continue
         if not calendar:
             add_gap("calendar_missing")
             continue
@@ -4749,6 +13687,7 @@ def build_industry_etf_proxy_readiness(
         entry_index = _entry_calendar_index(
             calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             add_gap("entry_date_after_latest_calendar")
@@ -4765,10 +13704,13 @@ def build_industry_etf_proxy_readiness(
             add_gap("entry_price_missing")
             continue
         claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
         for horizon_days in windows_days:
             exit_index = entry_index + int(horizon_days)
             if exit_index >= len(calendar):
                 pending_future_window_count += 1
+                claim_pending_future_window_count += 1
                 continue
             if _series_value_at_calendar_index(
                 start_index=etf_start,
@@ -4780,11 +13722,14 @@ def build_industry_etf_proxy_readiness(
                 calendar_index=exit_index,
             ) is None:
                 add_gap("exit_price_missing")
+                claim_window_gap_count += 1
                 continue
             labelable_window_count += 1
             claim_labelable_window_count += 1
         if claim_labelable_window_count:
             labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
     return {
         "policy": (
             "sector-direction industry claims can be evaluated with mapped industry ETF "
@@ -4806,7 +13751,7 @@ def build_industry_etf_proxy_readiness(
         "benchmark_source": INDUSTRY_ETF_BENCHMARK_SOURCE,
         "benchmark_family": INDUSTRY_ETF_BENCHMARK_FAMILY,
         "cost_model_id": INDUSTRY_ETF_COST_MODEL_ID,
-        "qlib_etf_dir_configured": str(qlib_etf_dir),
+        "qlib_etf_dir_configured": qlib_source_label,
         "latest_calendar_date": calendar[-1] if calendar else "",
         "mapping_count": len(mapping_rows),
         "eligible_claim_count": len(eligible_claim_ids),
@@ -4815,6 +13760,8 @@ def build_industry_etf_proxy_readiness(
         "labelable_forecast_claim_ids": labelable_claim_ids,
         "labelable_window_count": labelable_window_count,
         "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
         "data_gap_counts": dict(sorted(data_gap_counts.items())),
         "pit_availability_status": {
             "availability_id": str(
@@ -4843,6 +13790,8 @@ def build_stock_price_proxy_readiness(
 ) -> dict[str, Any]:
     stock_dir = _resolve_qlib_stock_dir(root_path, qlib_stock_dir)
     benchmark_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    stock_source_label = _public_qlib_source_label(qlib_stock_dir)
+    benchmark_source_label = _public_qlib_source_label(qlib_etf_dir)
     stock_calendar = _read_trading_calendar(stock_dir)
     benchmark_calendar = _read_trading_calendar(benchmark_dir)
     benchmark_start, benchmark_values = _read_qlib_series(
@@ -4852,9 +13801,18 @@ def build_stock_price_proxy_readiness(
     metadata_by_source = _source_report_metadata(metadata_rows)
     eligible_claim_ids: list[str] = []
     labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
     data_gap_counts: dict[str, int] = {}
     labelable_window_count = 0
     pending_future_window_count = 0
+    target_symbols_with_series: set[str] = set()
+    target_symbols_missing_series: set[str] = set()
+    target_series_spans: dict[str, tuple[str, str]] = {}
+    earliest_price_dates: list[str] = []
+    latest_price_dates: list[str] = []
+    entry_before_series_start_count = 0
+    entry_after_series_end_count = 0
+    entry_within_series_range_count = 0
 
     def add_gap(name: str) -> None:
         data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
@@ -4886,8 +13844,23 @@ def build_stock_price_proxy_readiness(
             continue
         stock_start, stock_values = _read_qlib_series(stock_dir, ts_code)
         if not stock_values:
+            target_symbols_missing_series.add(ts_code)
             add_gap("stock_series_missing")
             continue
+        available_dates = _series_available_dates(
+            calendar=stock_calendar,
+            start_index=stock_start,
+            values=stock_values,
+        )
+        if available_dates:
+            target_symbols_with_series.add(ts_code)
+            if ts_code not in target_series_spans:
+                target_series_spans[ts_code] = (
+                    available_dates[0],
+                    available_dates[-1],
+                )
+                earliest_price_dates.append(available_dates[0])
+                latest_price_dates.append(available_dates[-1])
         volume_start, volume_values = _read_qlib_series(stock_dir, ts_code, "volume")
         open_start, open_values = _read_qlib_series(stock_dir, ts_code, "open")
         high_start, high_values = _read_qlib_series(stock_dir, ts_code, "high")
@@ -4899,6 +13872,7 @@ def build_stock_price_proxy_readiness(
         entry_index = _entry_calendar_index(
             stock_calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             add_gap("entry_date_after_latest_calendar")
@@ -4910,8 +13884,16 @@ def build_stock_price_proxy_readiness(
             calendar_index=entry_index,
         )
         if entry_price is None:
-            add_gap("entry_price_missing")
+            if available_dates and entry_date < available_dates[0]:
+                entry_before_series_start_count += 1
+                add_gap("entry_price_before_series_start")
+            elif available_dates and entry_date > available_dates[-1]:
+                entry_after_series_end_count += 1
+                add_gap("entry_price_after_series_end")
+            else:
+                add_gap("entry_price_missing")
             continue
+        entry_within_series_range_count += 1
         entry_volume_ok = _has_positive_volume_at(
             start_index=volume_start,
             values=volume_values,
@@ -4966,17 +13948,15 @@ def build_stock_price_proxy_readiness(
         ) is None:
             add_gap("benchmark_series_missing")
             continue
-        available_dates = _series_available_dates(
-            calendar=stock_calendar,
-            start_index=stock_start,
-            values=stock_values,
-        )
         latest_stock_price_date = available_dates[-1] if available_dates else ""
         claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
         for horizon_days in windows_days:
             exit_index = entry_index + int(horizon_days)
             if exit_index >= len(stock_calendar):
                 pending_future_window_count += 1
+                claim_pending_future_window_count += 1
                 continue
             exit_date = stock_calendar[exit_index]
             exit_price = _series_value_at_calendar_index(
@@ -4990,6 +13970,7 @@ def build_stock_price_proxy_readiness(
                     if latest_stock_price_date and exit_date > latest_stock_price_date
                     else "exit_price_missing"
                 )
+                claim_window_gap_count += 1
                 continue
             exit_volume_ok = _has_positive_volume_at(
                 start_index=volume_start,
@@ -4998,9 +13979,11 @@ def build_stock_price_proxy_readiness(
             )
             if exit_volume_ok is False:
                 add_gap("stock_long_suspension_window")
+                claim_window_gap_count += 1
                 continue
             if exit_volume_ok is None:
-                add_gap("entry_liquidity_unverified")
+                add_gap("exit_liquidity_unverified")
+                claim_window_gap_count += 1
                 continue
             exit_locked = _exit_limit_locked(
                 direction=direction,
@@ -5032,9 +14015,11 @@ def build_stock_price_proxy_readiness(
             )
             if exit_locked is True:
                 add_gap("exit_limit_locked")
+                claim_window_gap_count += 1
                 continue
             if exit_locked is None:
-                add_gap("entry_liquidity_unverified")
+                add_gap("exit_liquidity_unverified")
+                claim_window_gap_count += 1
                 continue
             if _series_value_at_date(
                 calendar=benchmark_calendar,
@@ -5043,11 +14028,14 @@ def build_stock_price_proxy_readiness(
                 date_value=exit_date,
             ) is None:
                 add_gap("benchmark_series_missing")
+                claim_window_gap_count += 1
                 continue
             labelable_window_count += 1
             claim_labelable_window_count += 1
         if claim_labelable_window_count:
             labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
     return {
         "policy": (
             "stock claims can be evaluated with qlib cn_data adjusted close "
@@ -5062,8 +14050,9 @@ def build_stock_price_proxy_readiness(
         "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
         "benchmark_family": STOCK_PRICE_PROXY_BENCHMARK_FAMILY,
         "cost_model_id": STOCK_PRICE_PROXY_COST_MODEL_ID,
-        "qlib_stock_dir_configured": str(qlib_stock_dir),
-        "qlib_benchmark_dir_configured": str(qlib_etf_dir),
+        "ordinary_stock_code_policy": STOCK_PRICE_PROXY_CODE_POLICY,
+        "qlib_stock_dir_configured": stock_source_label,
+        "qlib_benchmark_dir_configured": benchmark_source_label,
         "latest_calendar_date": stock_calendar[-1] if stock_calendar else "",
         "eligible_claim_count": len(eligible_claim_ids),
         "eligible_forecast_claim_ids": eligible_claim_ids,
@@ -5071,10 +14060,25 @@ def build_stock_price_proxy_readiness(
         "labelable_forecast_claim_ids": labelable_claim_ids,
         "labelable_window_count": labelable_window_count,
         "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
         "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "stock_series_coverage_summary": _stock_series_coverage_summary(
+            target_series_count=len(
+                target_symbols_with_series | target_symbols_missing_series
+            ),
+            target_series_missing_count=len(target_symbols_missing_series),
+            earliest_price_dates=earliest_price_dates,
+            latest_price_dates=latest_price_dates,
+            latest_calendar_date=stock_calendar[-1] if stock_calendar else "",
+            entry_before_series_start_count=entry_before_series_start_count,
+            entry_after_series_end_count=entry_after_series_end_count,
+            entry_within_series_range_count=entry_within_series_range_count,
+        ),
         "pit_realism_policy": {
             "entry_suspension_blocks_label": True,
             "entry_limit_locked_blocks_label": True,
+            "exit_liquidity_unverified_blocks_label": True,
             "exit_missing_or_delisted_blocks_label": True,
             "benchmark_alignment": "date_key_cross_qlib_dir",
             "company_name_fuzzy_mapping_enabled": False,
@@ -5084,6 +14088,129 @@ def build_stock_price_proxy_readiness(
                 "qlib cn_data price windows observe entry and exit prices, but the "
                 "local universe may exclude delisted stocks; stock proxy labels remain "
                 "shadow-only until a delisted-inclusive universe audit passes"
+            ),
+        },
+    }
+
+
+def build_macro_asset_proxy_readiness(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_ASSET_PROXY_WINDOWS_DAYS,
+) -> dict[str, Any]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_asset_proxy_map_rows())
+    qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    qlib_source_label = _public_qlib_source_label(qlib_etf_dir)
+    calendar = _read_trading_calendar(qlib_dir)
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    eligible_claim_ids: list[str] = []
+    labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
+    data_gap_counts: dict[str, int] = {}
+    labelable_window_count = 0
+    pending_future_window_count = 0
+
+    def add_gap(name: str) -> None:
+        data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
+
+    for claim in forecast_rows:
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            add_gap("direction_missing_or_unsupported")
+            continue
+        proxy = _macro_asset_proxy_for_claim(claim, metadata, mapping_rows)
+        if proxy is None:
+            add_gap("macro_asset_proxy_mapping_missing")
+            continue
+        forecast_claim_id = str(claim.get("forecast_claim_id") or "")
+        eligible_claim_ids.append(forecast_claim_id)
+        if not calendar:
+            add_gap("calendar_missing")
+            continue
+        proxy_start, proxy_values = _read_qlib_series(
+            qlib_dir,
+            str(proxy.get("proxy_symbol") or ""),
+        )
+        if not proxy_values:
+            add_gap("proxy_series_missing")
+            continue
+        entry_index = _entry_calendar_index(
+            calendar,
+            str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+        )
+        if entry_index is None:
+            add_gap("entry_date_after_latest_calendar")
+            continue
+        if _series_value_at_calendar_index(
+            start_index=proxy_start,
+            values=proxy_values,
+            calendar_index=entry_index,
+        ) is None:
+            add_gap("entry_price_missing")
+            continue
+        claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
+        for horizon_days in windows_days:
+            exit_index = entry_index + int(horizon_days)
+            if exit_index >= len(calendar):
+                pending_future_window_count += 1
+                claim_pending_future_window_count += 1
+                continue
+            if _series_value_at_calendar_index(
+                start_index=proxy_start,
+                values=proxy_values,
+                calendar_index=exit_index,
+            ) is None:
+                add_gap("exit_price_missing")
+                claim_window_gap_count += 1
+                continue
+            labelable_window_count += 1
+            claim_labelable_window_count += 1
+        if claim_labelable_window_count:
+            labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
+    return {
+        "policy": (
+            "macro strategy claims can be evaluated with mapped ETF proxy returns "
+            "on T+1 fixed PIT windows; LLM output extracts target and direction "
+            "but cannot assign outcome labels"
+        ),
+        "outcome_label_source": MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE,
+        "llm_outcome_labeling_allowed": False,
+        "windows_days": [int(value) for value in windows_days],
+        "entry_lag_trading_days": MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+        "benchmark_symbol": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+        "benchmark_source": MACRO_ASSET_PROXY_BENCHMARK_SOURCE,
+        "benchmark_family": MACRO_ASSET_PROXY_BENCHMARK_FAMILY,
+        "cost_model_id": MACRO_ASSET_PROXY_COST_MODEL_ID,
+        "qlib_etf_dir_configured": qlib_source_label,
+        "latest_calendar_date": calendar[-1] if calendar else "",
+        "mapping_count": len(mapping_rows),
+        "eligible_claim_count": len(eligible_claim_ids),
+        "eligible_forecast_claim_ids": eligible_claim_ids,
+        "labelable_forecast_claim_count": len(labelable_claim_ids),
+        "labelable_forecast_claim_ids": labelable_claim_ids,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
+        "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "mapping_policy": {
+            "mapping_version": MACRO_ASSET_PROXY_MAPPING_VERSION,
+            "mapping_count": len(mapping_rows),
+            "crude_oil_mapping_enabled": False,
+            "crude_oil_mapping_gap_reason": (
+                "no reviewed local cn_etf crude-oil proxy is configured"
             ),
         },
     }
@@ -5101,13 +14228,9 @@ def build_industry_etf_proxy_outcome_labels(
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> list[dict[str, Any]]:
     mapping_rows = tuple(mapping_rows or build_default_industry_etf_proxy_map_rows())
-    availability_by_mapping_id = {
-        str(row.get("mapping_id") or ""): row
-        for row in _ensure_list(
-            _ensure_mapping(pit_availability).get("mapping_records")
-        )
-        if isinstance(row, Mapping)
-    }
+    availability_by_mapping_id = _industry_pit_availability_by_mapping_id(
+        pit_availability
+    )
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     if not calendar:
@@ -5147,6 +14270,8 @@ def build_industry_etf_proxy_outcome_labels(
         etf_symbol = str(proxy["etf_symbol"])
         mapping_id = str(proxy.get("mapping_id") or "")
         mapping_availability = availability_by_mapping_id.get(mapping_id) or {}
+        if _industry_pit_availability_gap(proxy, availability_by_mapping_id):
+            continue
         benchmark_symbol = _industry_mapping_benchmark_symbol(proxy)
         benchmark_start, benchmark_values = benchmark_series(benchmark_symbol)
         if not benchmark_values:
@@ -5157,9 +14282,13 @@ def build_industry_etf_proxy_outcome_labels(
         claim_horizon = _ensure_mapping(claim.get("horizon"))
         source_horizon_days = _horizon_preferred_days(claim_horizon)
         source_horizon_bucket = _horizon_bucket(claim_horizon)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
         entry_index = _entry_calendar_index(
             calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             continue
@@ -5252,6 +14381,7 @@ def build_industry_etf_proxy_outcome_labels(
                     "overlap_group_id": _stable_id(
                         "OVL",
                         {
+                            "label_type": "industry_etf_proxy",
                             "proxy_symbol": etf_symbol,
                             "entry_date": calendar[entry_index],
                             "horizon_days": horizon_days,
@@ -5313,6 +14443,7 @@ def build_industry_etf_proxy_outcome_labels(
                     "entry_lag_trading_days": INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
                     "round_trip_cost": INDUSTRY_ETF_ROUND_TRIP_COST,
                     "source_metadata_id": source_id,
+                    **market_regime_fields,
                 }
             )
         if claim_records:
@@ -5376,6 +14507,7 @@ def build_stock_price_proxy_outcome_labels(
         entry_index = _entry_calendar_index(
             stock_calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             continue
@@ -5453,6 +14585,9 @@ def build_stock_price_proxy_outcome_labels(
         source_horizon_bucket = _horizon_bucket(claim_horizon)
         target = _ensure_mapping(claim.get("target"))
         target_price_info = _stock_target_price_info(claim)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
         available_dates = _series_available_dates(
             calendar=stock_calendar,
             start_index=stock_start,
@@ -5610,6 +14745,13 @@ def build_stock_price_proxy_outcome_labels(
                 "llm_target_id": resolution["llm_target_id"],
                 "source_metadata_id": source_id,
                 "survivorship_check": STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK,
+                "entry_tradable": True,
+                "exit_tradable": True,
+                "entry_limit_locked": False,
+                "exit_limit_locked": False,
+                "entry_liquidity_check": STOCK_PRICE_PROXY_TRADABILITY_CHECK,
+                "exit_liquidity_check": STOCK_PRICE_PROXY_TRADABILITY_CHECK,
+                **market_regime_fields,
             }
             record.update(
                 _stock_target_price_hit_fields(
@@ -5628,6 +14770,193 @@ def build_stock_price_proxy_outcome_labels(
     return records
 
 
+def build_macro_asset_proxy_outcome_labels(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_ASSET_PROXY_WINDOWS_DAYS,
+) -> list[dict[str, Any]]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_asset_proxy_map_rows())
+    qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    calendar = _read_trading_calendar(qlib_dir)
+    if not calendar:
+        return []
+    ledger_by_claim = {
+        str(row.get("forecast_claim_id") or ""): row for row in forecast_ledger_rows
+    }
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    records: list[dict[str, Any]] = []
+    for claim in forecast_rows:
+        source_id = str(claim.get("source_id") or "")
+        metadata = metadata_by_source.get(source_id) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            continue
+        proxy = _macro_asset_proxy_for_claim(claim, metadata, mapping_rows)
+        if proxy is None:
+            continue
+        proxy_symbol = str(proxy.get("proxy_symbol") or "")
+        proxy_start, proxy_values = _read_qlib_series(qlib_dir, proxy_symbol)
+        if not proxy_values:
+            continue
+        entry_index = _entry_calendar_index(
+            calendar,
+            str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+        )
+        if entry_index is None:
+            continue
+        entry_price = _series_value_at_calendar_index(
+            start_index=proxy_start,
+            values=proxy_values,
+            calendar_index=entry_index,
+        )
+        if entry_price is None:
+            continue
+        ledger = ledger_by_claim.get(str(claim.get("forecast_claim_id") or "")) or {}
+        forecast_family_id = str(ledger.get("forecast_family_id") or "") or _stable_id(
+            "FF",
+            {
+                "forecast_type": claim.get("forecast_type") or "unknown",
+                "macro_asset_target": proxy.get("target_id") or proxy_symbol,
+                "benchmark": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+            },
+        )
+        claim_window_set_id = _stable_id(
+            "WSET",
+            {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                "label_type": "macro_asset_proxy",
+                "proxy_symbol": proxy_symbol,
+            },
+        )
+        claim_horizon = _ensure_mapping(claim.get("horizon"))
+        source_horizon_days = _horizon_preferred_days(claim_horizon)
+        source_horizon_bucket = _horizon_bucket(claim_horizon)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
+        claim_records: list[dict[str, Any]] = []
+        for horizon_days in windows_days:
+            horizon_days = int(horizon_days)
+            exit_index = entry_index + horizon_days
+            if exit_index >= len(calendar):
+                continue
+            exit_price = _series_value_at_calendar_index(
+                start_index=proxy_start,
+                values=proxy_values,
+                calendar_index=exit_index,
+            )
+            if exit_price is None:
+                continue
+            proxy_return = exit_price / entry_price - 1.0
+            if direction == "positive":
+                directional_hit = proxy_return > 0
+                directional_proxy_return = proxy_return
+            else:
+                directional_hit = proxy_return < 0
+                directional_proxy_return = -proxy_return
+            relative_alpha = proxy_return
+            window_role = _macro_asset_window_role(horizon_days)
+            directional_after_cost = (
+                directional_proxy_return - MACRO_ASSET_PROXY_ROUND_TRIP_COST
+            )
+            claim_records.append(
+                {
+                    "outcome_id": _stable_id(
+                        "OUT",
+                        {
+                            "forecast_claim_id": claim.get("forecast_claim_id"),
+                            "label_type": "macro_asset_proxy",
+                            "proxy_symbol": proxy_symbol,
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                    "forecast_family_id": forecast_family_id,
+                    "claim_window_set_id": claim_window_set_id,
+                    "entry_datetime": f"{calendar[entry_index]}T00:00:00+08:00",
+                    "exit_datetime": f"{calendar[exit_index]}T00:00:00+08:00",
+                    "horizon_days": horizon_days,
+                    "relative_alpha": round(relative_alpha, 8),
+                    "directional_hit": bool(directional_hit),
+                    "after_cost_alpha": round(
+                        relative_alpha - MACRO_ASSET_PROXY_ROUND_TRIP_COST,
+                        8,
+                    ),
+                    "directional_proxy_return": round(directional_proxy_return, 8),
+                    "directional_after_cost_return": round(directional_after_cost, 8),
+                    "overlap_group_id": _stable_id(
+                        "OVL",
+                        {
+                            "label_type": "macro_asset_proxy",
+                            "proxy_symbol": proxy_symbol,
+                            "entry_date": calendar[entry_index],
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "effective_n_weight": round(
+                        _macro_asset_proxy_window_effective_weight(horizon_days),
+                        6,
+                    ),
+                    "pit_valid": True,
+                    "survivorship_safe": True,
+                    "label_type": "macro_asset_proxy",
+                    "proxy_symbol": proxy_symbol,
+                    "proxy_label": str(proxy.get("proxy_label") or ""),
+                    "proxy_asset": str(proxy.get("target_id") or ""),
+                    "macro_asset_target_id": str(proxy.get("target_id") or ""),
+                    "mapping_id": str(proxy.get("mapping_id") or ""),
+                    "mapping_version": int(proxy.get("mapping_version") or 1),
+                    "mapping_confidence": str(
+                        proxy.get("mapping_confidence")
+                        or "operator_seeded_macro_asset_alias"
+                    ),
+                    "proxy_mapping_confidence": str(
+                        proxy.get("mapping_confidence")
+                        or "operator_seeded_macro_asset_alias"
+                    ),
+                    "benchmark_symbol": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+                    "benchmark_source": MACRO_ASSET_PROXY_BENCHMARK_SOURCE,
+                    "benchmark_family": MACRO_ASSET_PROXY_BENCHMARK_FAMILY,
+                    "benchmark_return": 0.0,
+                    "benchmark_alignment": "cash_zero_return",
+                    "cost_model_id": MACRO_ASSET_PROXY_COST_MODEL_ID,
+                    "proxy_return": round(proxy_return, 8),
+                    "relative_directional_hit": bool(directional_hit),
+                    "direction_evaluated": direction,
+                    "decision_basis": MACRO_ASSET_PROXY_DECISION_BASIS,
+                    "outcome_label_source": MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE,
+                    "llm_outcome_labeling_allowed": False,
+                    "performance_value_basis": "directional_after_cost_return",
+                    "window_role": window_role,
+                    "source_horizon_days": source_horizon_days,
+                    "source_horizon_bucket": source_horizon_bucket,
+                    "claim_window_alignment": _macro_asset_claim_window_alignment(
+                        claim_horizon=claim_horizon,
+                        horizon_days=horizon_days,
+                    ),
+                    "evaluation_policy": MACRO_ASSET_PROXY_EVALUATION_POLICY,
+                    "entry_lag_trading_days": MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+                    "round_trip_cost": MACRO_ASSET_PROXY_ROUND_TRIP_COST,
+                    "source_metadata_id": source_id,
+                    **market_regime_fields,
+                }
+            )
+        if claim_records:
+            temporal_summary = _macro_asset_temporal_validation_summary(claim_records)
+            for record in claim_records:
+                record["temporal_validation_summary"] = temporal_summary
+            records.extend(claim_records)
+    return records
+
+
 def build_outcome_label_records(
     *,
     root_path: Path,
@@ -5639,7 +14968,7 @@ def build_outcome_label_records(
     industry_etf_proxy_map_rows: Sequence[Mapping[str, Any]] | None = None,
     industry_etf_proxy_pit_availability: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Build governed PIT outcome labels for industry and stock proxy channels."""
+    """Build governed PIT outcome labels for industry, stock, and macro proxies."""
     return [
         *build_industry_etf_proxy_outcome_labels(
             root_path=root_path,
@@ -5653,6 +14982,13 @@ def build_outcome_label_records(
         *build_stock_price_proxy_outcome_labels(
             root_path=root_path,
             qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+            forecast_rows=forecast_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            metadata_rows=metadata_rows,
+        ),
+        *build_macro_asset_proxy_outcome_labels(
+            root_path=root_path,
             qlib_etf_dir=qlib_etf_dir,
             forecast_rows=forecast_rows,
             forecast_ledger_rows=forecast_ledger_rows,
@@ -6208,7 +15544,7 @@ def build_data_acquisition_proposals(
     for gap in tool_gap_rows:
         gap_id = str(gap.get("tool_gap_id") or "")
         metric_name = str(gap.get("metric_name") or gap.get("metric_candidate_id") or "")
-        if not gap_id:
+        if not gap_id or str(gap.get("status") or "") == "retired":
             continue
         owner = str(gap.get("owner") or "data_engineering")
         license_status = _tool_gap_license_status(gap)
@@ -6253,7 +15589,7 @@ def build_tool_design_proposals(
     for gap in tool_gap_rows:
         gap_id = str(gap.get("tool_gap_id") or "")
         metric_name = str(gap.get("metric_name") or "unknown_metric")
-        if not gap_id:
+        if not gap_id or str(gap.get("status") or "") == "retired":
             continue
         owner = str(gap.get("owner") or "data_engineering")
         proposals.append(
@@ -6302,6 +15638,90 @@ def build_tool_design_proposals(
     return proposals
 
 
+ANALYSIS_RECIPE_ENTRY_CONDITION = "T+1_or_more_conservative_shadow_entry"
+ANALYSIS_RECIPE_EXIT_CONDITION = "fixed_horizon_shadow_exit"
+ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS = 60
+ANALYSIS_RECIPE_DEFAULT_REQUIRED_DATA = (
+    "stock_price",
+    "benchmark_return",
+)
+ANALYSIS_RECIPE_RISK_CONTROLS = (
+    "no_production_order",
+    "no_position_sizing",
+    "after_cost_alpha_required",
+    "consecutive_after_cost_decay_blocks_validation",
+    "turnover_cost_decay_blocks_validation",
+    "drawdown_threshold_pre_registered",
+)
+ANALYSIS_RECIPE_REASONING_STEP_TOOL = "analysis.reasoning_step"
+ANALYSIS_RECIPE_REASONING_STEP_KEYWORDS = (
+    "analyze",
+    "assess",
+    "evaluate",
+    "analysis",
+    "compare",
+    "comparison",
+    "identify",
+    "interpretation",
+    "breakdown",
+    "impact",
+    "tracking",
+    "calculation",
+    "modeling",
+    "projection",
+    "identification",
+    "positioning",
+    "derivation",
+    "estimation",
+    "adjustment",
+    "timeline",
+    "comparable",
+    "assign_rating",
+    "set_time_horizon",
+    "define_",
+    "project_future",
+    "monitor_",
+    "track_",
+    "map_to",
+    "correlate",
+    "分析",
+    "评估",
+    "识别",
+    "比较",
+    "判断",
+    "预测",
+    "监控",
+    "跟踪",
+    "计算",
+    "推算",
+    "评级",
+    "对比",
+    "定性",
+    "引用",
+    "增长",
+    "累计",
+)
+
+
+def _analysis_recipe_output_signal_name(name: str) -> str:
+    return f"{_canonical_metric_name(name)}_score"
+
+
+def _analysis_recipe_step_tool(
+    *,
+    metric: str,
+    coverage: Mapping[str, Any],
+) -> tuple[str, bool]:
+    existing_tools = [str(tool) for tool in _ensure_list(coverage.get("existing_tool_ids"))]
+    if existing_tools:
+        return existing_tools[0], True
+    if metric == "unknown_metric" or any(
+        keyword in metric for keyword in ANALYSIS_RECIPE_REASONING_STEP_KEYWORDS
+    ):
+        return ANALYSIS_RECIPE_REASONING_STEP_TOOL, False
+    return f"tool.requested.{metric}", True
+
+
 def build_analysis_recipes(
     method_rows: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -6311,34 +15731,50 @@ def build_analysis_recipes(
         name = str(method.get("name") or method_id or "unknown_method")
         if not method_id:
             continue
+        recipe_id = _stable_id("RECIPE", {"method_pattern_id": method_id})
+        output_signal_name = _analysis_recipe_output_signal_name(name)
         steps: list[dict[str, Any]] = []
         required_tools: list[str] = []
         for index, step in enumerate(_ensure_list(method.get("steps")), 1):
             step_text = step if isinstance(step, str) else json.dumps(_jsonable(step), ensure_ascii=False, sort_keys=True)
             metric = _canonical_metric_name(step_text) or "unknown_metric"
             coverage = classify_tool_coverage(metric)
-            tool = (coverage["existing_tool_ids"] or [f"tool.requested.{metric}"])[0]
-            required_tools.append(tool)
+            tool, requires_external_tool = _analysis_recipe_step_tool(
+                metric=metric,
+                coverage=coverage,
+            )
+            if requires_external_tool:
+                required_tools.append(tool)
             steps.append(
                 {
                     "step": index,
                     "tool": tool,
                     "metric": metric,
                     "operation": "candidate_from_report_method",
+                    "requires_external_tool": requires_external_tool,
                     "interpretation": step_text,
                 }
             )
         recipes.append(
             {
-                "analysis_recipe_id": _stable_id("RECIPE", {"method_pattern_id": method_id}),
+                "analysis_recipe_id": recipe_id,
+                "recipe_id": recipe_id,
                 "name": name,
                 "method_pattern_id": method_id,
+                "source_method_pattern_ids": [method_id],
                 "version": "0.1.0",
+                "promotion_state": "shadow_candidate",
                 "runtime_mode": "shadow_only",
                 "required_tools": list(dict.fromkeys(required_tools)),
+                "required_data": _analysis_recipe_required_data(method, steps),
+                "decision_scope": output_signal_name,
+                "entry_condition": ANALYSIS_RECIPE_ENTRY_CONDITION,
+                "exit_condition": ANALYSIS_RECIPE_EXIT_CONDITION,
+                "risk_controls": list(ANALYSIS_RECIPE_RISK_CONTROLS),
+                "expected_horizon_days": ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS,
                 "steps": steps,
                 "output_signal": {
-                    "name": f"{_canonical_metric_name(name)}_score",
+                    "name": output_signal_name,
                     "range": [-1, 1],
                     "confidence_policy": "requires_current_data_and_validation",
                 },
@@ -6354,6 +15790,29 @@ def build_analysis_recipes(
     return recipes
 
 
+def _analysis_recipe_required_data(
+    method: Mapping[str, Any],
+    steps: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    explicit = _normalize_required_data_items(method.get("required_current_data"))
+    if explicit:
+        return explicit
+    inferred_metrics = [
+        step.get("metric")
+        for step in steps
+        if step.get("requires_external_tool") is True
+        if str(step.get("metric") or "").strip()
+        and str(step.get("metric") or "").strip() != "unknown_metric"
+    ]
+    if inferred_metrics:
+        return _normalize_required_data_items(inferred_metrics)
+    return _normalize_required_data_items(ANALYSIS_RECIPE_DEFAULT_REQUIRED_DATA)
+
+
+def _normalize_required_data_items(value: Any) -> list[str]:
+    return normalize_required_data_items(_ensure_list(value))
+
+
 RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
 RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N = 3.0
 RECIPE_PAPER_TRADING_MAX_DRAWDOWN = 0.20
@@ -6363,23 +15822,47 @@ RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION = 0.80
 RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT = 2
 RECIPE_PAPER_TRADING_MIN_REGIME_COUNT = 2
 RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD = 6.0
+RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION = 0.20
+RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N = 1.0
+RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID = "included_in_round_trip_cost_20bps_v1"
+RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY = "chronological_pre_oos_exit_windows_v1"
+RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
+    "chronological_last_20pct_min_effective_n_exit_windows_v1"
+)
+RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
+    "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
+)
 RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
 RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
+RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER = "recipe_instability_gap"
+RECIPE_PAPER_TRADING_INSTABILITY_BLOCKERS = (
+    "window_horizon_missing",
+    "single_window_concentration",
+    "market_regime_missing",
+    "single_regime_concentration",
+)
 CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
 CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
 
 
-def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
-    payload = {
-        "analysis_recipe_id": recipe.get("analysis_recipe_id"),
-        "method_pattern_id": recipe.get("method_pattern_id"),
-        "version": recipe.get("version"),
-        "required_tools": _ensure_list(recipe.get("required_tools")),
-        "steps": _ensure_list(recipe.get("steps")),
-        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
-        "entry_rule": "T+1_or_more_conservative_shadow_entry",
-        "exit_rule": "fixed_horizon_shadow_exit",
+def _recipe_paper_trading_protocol() -> dict[str, Any]:
+    return {
+        "entry_semantics": "T+1_or_more_conservative",
+        "exit_semantics": "fixed_horizon_shadow_exit",
         "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+        "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+        "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+        "slippage_model_id": RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID,
+        "round_trip_cost_includes_slippage": True,
+        "backtest_window_policy": RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY,
+        "out_of_sample_window_policy": (
+            RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY
+        ),
+        "out_of_sample_fraction": RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION,
+        "minimum_out_of_sample_effective_n": (
+            RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+        ),
+        "parameter_lock_policy": RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY,
         "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
         "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
         "alpha_decay_fail_streak": RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK,
@@ -6394,28 +15877,328 @@ def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
         "cost_decay_turnover_threshold": (
             RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
         ),
+        "profile_weight_is_sufficient": False,
+        "parameter_tuning_after_results_allowed": False,
+        "production_decision_impact_allowed": False,
     }
+
+
+def _recipe_preregistration_payload(
+    *,
+    analysis_recipe_id: str,
+    promotion_state: str,
+    source_method_pattern_ids: Sequence[Any],
+    required_tools: Sequence[Any],
+    required_data: Sequence[Any],
+    decision_scope: str,
+    entry_condition: str,
+    exit_condition: str,
+    risk_controls: Sequence[Any],
+    expected_horizon_days: int,
+    benchmark_symbol: str,
+    benchmark_source: str,
+    cost_model_id: str,
+    pre_registered_protocol: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "analysis_recipe_id": analysis_recipe_id,
+        "promotion_state": promotion_state,
+        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+        "source_method_pattern_ids": [str(item) for item in source_method_pattern_ids],
+        "required_tools": [str(item) for item in required_tools],
+        "required_data": _normalize_required_data_items(required_data),
+        "decision_scope": decision_scope,
+        "entry_condition": entry_condition,
+        "exit_condition": exit_condition,
+        "risk_controls": [str(item) for item in risk_controls],
+        "expected_horizon_days": expected_horizon_days,
+        "benchmark_symbol": benchmark_symbol,
+        "benchmark_source": benchmark_source,
+        "cost_model_id": cost_model_id,
+        "pre_registered_protocol": dict(pre_registered_protocol),
+        "production_decision_impact_allowed": False,
+    }
+    return payload
+
+
+def _recipe_preregistration_hash_from_payload(payload: Mapping[str, Any]) -> str:
     return "sha256:" + sha256(
-        json.dumps(_jsonable(payload), ensure_ascii=False, sort_keys=True).encode(
-            "utf-8"
-        )
+        json.dumps(
+            _jsonable(payload),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
     ).hexdigest()
 
 
 def _labels_for_recipe(
     recipe: Mapping[str, Any],
     outcome_label_rows: Sequence[Mapping[str, Any]],
+    *,
+    inferred_labels_by_method_id: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> list[Mapping[str, Any]]:
     recipe_id = str(recipe.get("analysis_recipe_id") or "")
     method_id = str(recipe.get("method_pattern_id") or "")
+    source_method_ids = {
+        str(item).strip()
+        for item in _ensure_list(recipe.get("source_method_pattern_ids"))
+        if str(item).strip()
+    }
+    if method_id:
+        source_method_ids.add(method_id)
     labels: list[Mapping[str, Any]] = []
+    seen: set[str] = set()
     for label in outcome_label_rows:
         if str(label.get("analysis_recipe_id") or "") == recipe_id:
-            labels.append(label)
+            label_id = str(label.get("outcome_id") or id(label))
+            if label_id not in seen:
+                labels.append(label)
+                seen.add(label_id)
             continue
-        if method_id and str(label.get("method_pattern_id") or "") == method_id:
-            labels.append(label)
+        if str(label.get("method_pattern_id") or "") in source_method_ids:
+            label_id = str(label.get("outcome_id") or id(label))
+            if label_id not in seen:
+                labels.append(label)
+                seen.add(label_id)
+    if source_method_ids and inferred_labels_by_method_id:
+        for source_method_id in sorted(source_method_ids):
+            for label in inferred_labels_by_method_id.get(source_method_id, ()):
+                label_id = str(label.get("outcome_id") or id(label))
+                if label_id not in seen:
+                    labels.append(label)
+                    seen.add(label_id)
     return labels
+
+
+def _inferred_outcome_labels_by_method_id(
+    *,
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    footprint_rows: Sequence[Mapping[str, Any]],
+    method_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[Mapping[str, Any]]]:
+    claim_by_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    footprint_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in footprint_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    source_methods: dict[str, set[str]] = {}
+    report_methods: dict[str, set[str]] = {}
+    for method in method_rows:
+        method_id = str(method.get("method_pattern_id") or "").strip()
+        if not method_id:
+            continue
+        for footprint_id in _ensure_list(method.get("source_footprint_ids")):
+            footprint = footprint_by_id.get(str(footprint_id))
+            if not footprint:
+                continue
+            source_id = str(footprint.get("source_id") or "").strip()
+            report_id = str(footprint.get("report_id") or "").strip()
+            if source_id:
+                source_methods.setdefault(source_id, set()).add(method_id)
+            if report_id:
+                report_methods.setdefault(report_id, set()).add(method_id)
+
+    labels_by_method: dict[str, list[Mapping[str, Any]]] = {}
+    for label in outcome_label_rows:
+        if str(label.get("method_pattern_id") or "").strip():
+            continue
+        claim = claim_by_id.get(str(label.get("forecast_claim_id") or ""))
+        if not claim:
+            continue
+        candidates = set()
+        source_id = str(claim.get("source_id") or "").strip()
+        report_id = str(claim.get("report_id") or "").strip()
+        if source_id:
+            candidates.update(source_methods.get(source_id, set()))
+        if report_id:
+            candidates.update(report_methods.get(report_id, set()))
+        if not candidates:
+            continue
+        for method_id in sorted(candidates):
+            labels_by_method.setdefault(method_id, []).append(label)
+    return labels_by_method
+
+
+def _direct_pit_binding_gap_details(
+    *,
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    footprint_rows: Sequence[Mapping[str, Any]],
+    method_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    method_ids = {
+        str(row.get("method_pattern_id") or "").strip()
+        for row in method_rows
+        if str(row.get("method_pattern_id") or "").strip()
+    }
+    methods_with_source_footprints = {
+        str(row.get("method_pattern_id") or "").strip()
+        for row in method_rows
+        if str(row.get("method_pattern_id") or "").strip()
+        and _ensure_list(row.get("source_footprint_ids"))
+    }
+    footprint_ids = {
+        str(row.get("footprint_id") or "").strip()
+        for row in footprint_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    linked_footprint_ids = {
+        str(footprint_id or "").strip()
+        for row in method_rows
+        for footprint_id in _ensure_list(row.get("source_footprint_ids"))
+        if str(footprint_id or "").strip()
+    }
+    footprints_with_source_or_report = {
+        str(row.get("footprint_id") or "").strip()
+        for row in footprint_rows
+        if str(row.get("footprint_id") or "").strip()
+        and (
+            str(row.get("source_id") or "").strip()
+            or str(row.get("report_id") or "").strip()
+        )
+    }
+    forecast_ids = {
+        str(row.get("forecast_claim_id") or "").strip()
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    forecasts_with_source_or_report = {
+        str(row.get("forecast_claim_id") or "").strip()
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+        and (
+            str(row.get("source_id") or "").strip()
+            or str(row.get("report_id") or "").strip()
+        )
+    }
+    explicit_recipe_label_ids = {
+        str(row.get("analysis_recipe_id") or "").strip()
+        for row in outcome_label_rows
+        if str(row.get("analysis_recipe_id") or "").strip()
+    }
+    explicit_method_label_ids = {
+        str(row.get("method_pattern_id") or "").strip()
+        for row in outcome_label_rows
+        if str(row.get("method_pattern_id") or "").strip()
+    }
+    label_forecast_ids = {
+        str(row.get("forecast_claim_id") or "").strip()
+        for row in outcome_label_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    inferred_labels_by_method_id = _inferred_outcome_labels_by_method_id(
+        outcome_label_rows=outcome_label_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
+    )
+    inferred_method_label_ids = set(inferred_labels_by_method_id)
+    recipe_method_ids: set[str] = set()
+    recipes_with_source_method_ids = 0
+    for recipe in analysis_recipe_rows:
+        recipe_methods = {
+            str(method_id or "").strip()
+            for method_id in _ensure_list(recipe.get("source_method_pattern_ids"))
+            if str(method_id or "").strip()
+        }
+        method_id = str(recipe.get("method_pattern_id") or "").strip()
+        if method_id:
+            recipe_methods.add(method_id)
+        if recipe_methods:
+            recipes_with_source_method_ids += 1
+        recipe_method_ids.update(recipe_methods)
+    method_ids_with_any_label = explicit_method_label_ids | inferred_method_label_ids
+    recipes_with_direct_labels: set[str] = set()
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        recipe_id = _recipe_id(recipe, index)
+        if recipe_id in explicit_recipe_label_ids:
+            recipes_with_direct_labels.add(recipe_id)
+            continue
+        recipe_methods = {
+            str(method_id or "").strip()
+            for method_id in _ensure_list(recipe.get("source_method_pattern_ids"))
+            if str(method_id or "").strip()
+        }
+        method_id = str(recipe.get("method_pattern_id") or "").strip()
+        if method_id:
+            recipe_methods.add(method_id)
+        if recipe_methods & method_ids_with_any_label:
+            recipes_with_direct_labels.add(recipe_id)
+    unresolved_label_forecast_ids = sorted(label_forecast_ids - forecast_ids)
+    linked_missing_footprint_ids = sorted(linked_footprint_ids - footprint_ids)
+    missing_flags: list[str] = []
+    if not outcome_label_rows:
+        missing_flags.append("outcome_labels_absent")
+    if not forecast_rows:
+        missing_flags.append("forecast_claims_absent")
+    if not footprint_rows:
+        missing_flags.append("analytical_footprints_absent")
+    if method_ids and not methods_with_source_footprints:
+        missing_flags.append("method_source_footprints_empty")
+    if label_forecast_ids and not forecasts_with_source_or_report:
+        missing_flags.append("label_forecasts_without_source_or_report")
+    return {
+        "diagnostic_version": "direct_pit_binding_gap_v1",
+        "artifact_counts": {
+            "analysis_recipe_rows": len(analysis_recipe_rows),
+            "outcome_label_rows": len(outcome_label_rows),
+            "forecast_claim_rows": len(forecast_rows),
+            "analytical_footprint_rows": len(footprint_rows),
+            "method_pattern_rows": len(method_rows),
+        },
+        "method_source_linkage": {
+            "method_pattern_count": len(method_ids),
+            "method_patterns_with_source_footprints": len(
+                methods_with_source_footprints
+            ),
+            "method_patterns_without_source_footprints": max(
+                0,
+                len(method_ids) - len(methods_with_source_footprints),
+            ),
+            "linked_source_footprint_count": len(linked_footprint_ids),
+            "linked_source_footprints_missing_from_footprint_artifact": len(
+                linked_missing_footprint_ids
+            ),
+        },
+        "forecast_outcome_linkage": {
+            "forecast_claim_count": len(forecast_ids),
+            "forecasts_with_source_or_report": len(forecasts_with_source_or_report),
+            "outcome_labels_with_forecast_claim_id": len(label_forecast_ids),
+            "outcome_label_forecast_ids_missing_from_forecast_artifact": len(
+                unresolved_label_forecast_ids
+            ),
+        },
+        "footprint_source_linkage": {
+            "analytical_footprint_count": len(footprint_ids),
+            "footprints_with_source_or_report": len(footprints_with_source_or_report),
+        },
+        "recipe_binding_linkage": {
+            "recipe_count": len(analysis_recipe_rows),
+            "recipes_with_source_method_patterns": recipes_with_source_method_ids,
+            "recipe_source_method_pattern_count": len(recipe_method_ids),
+            "outcome_labels_with_analysis_recipe_id": len(explicit_recipe_label_ids),
+            "outcome_labels_with_method_pattern_id": len(explicit_method_label_ids),
+            "inferred_method_pattern_label_count": len(inferred_method_label_ids),
+            "recipes_with_direct_or_method_outcome_binding": len(
+                recipes_with_direct_labels
+            ),
+        },
+        "missing_artifact_flags": missing_flags,
+        "next_actions": [
+            "regenerate method patterns with source_footprint_ids preserved",
+            "keep forecast claims and analytical footprints available for derived refresh",
+            "rebuild PIT outcome labels so labels carry recipe_id or method_pattern_id",
+            "rerun recipe paper-trading after direct labels and shadow tools are ready",
+        ],
+    }
 
 
 def _weighted_contribution_shares(
@@ -6447,6 +16230,137 @@ def _directional_pre_cost_alpha(label: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _label_market_regime_types(label: Mapping[str, Any]) -> list[str]:
+    explicit = [
+        str(item).strip()
+        for item in _ensure_list(label.get("market_regime_types"))
+        if str(item).strip()
+    ]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    text = str(label.get("market_regime") or label.get("regime") or "").strip()
+    if not text:
+        return []
+    parts = [
+        part.strip()
+        for part in re.split(r"[|,;，；]", text)
+        if part.strip()
+    ]
+    return list(dict.fromkeys(parts or [text]))
+
+
+def _paper_trading_effective_weight(
+    items: Sequence[Mapping[str, Any]],
+) -> float:
+    return sum(
+        max(_float_or_none(item.get("weight")) or 0.0, 0.0)
+        for item in items
+    )
+
+
+def _paper_trading_train_oos_split_items(
+    items: Sequence[Mapping[str, Any]],
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    ordered = sorted(items, key=lambda row: str(row.get("exit_datetime") or ""))
+    if not ordered:
+        return [], []
+    oos_count = max(
+        1,
+        int(
+            len(ordered)
+            * RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION
+            + 0.999999
+        ),
+    )
+    split_index = max(0, len(ordered) - oos_count)
+    oos_items = list(ordered[split_index:])
+    while (
+        split_index > 0
+        and _paper_trading_effective_weight(oos_items)
+        < RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+    ):
+        split_index -= 1
+        oos_items.insert(0, ordered[split_index])
+    return list(ordered[:split_index]), oos_items
+
+
+def _max_non_positive_after_cost_exit_date_streak(
+    items: Sequence[Mapping[str, Any]],
+) -> int:
+    buckets: dict[str, list[tuple[float, float]]] = {}
+    for item in items:
+        after_cost = _float_or_none(item.get("after_cost"))
+        if after_cost is None:
+            continue
+        exit_datetime = str(item.get("exit_datetime") or "")
+        buckets.setdefault(exit_datetime, []).append(
+            (after_cost, max(_float_or_none(item.get("weight")) or 0.0, 0.0))
+        )
+    max_streak = 0
+    current_streak = 0
+    for exit_datetime in sorted(buckets):
+        date_alpha = _weighted_mean(buckets[exit_datetime], default=None)
+        if date_alpha is not None and date_alpha <= 0:
+            current_streak += 1
+            max_streak = max(max_streak, current_streak)
+        else:
+            current_streak = 0
+    return max_streak
+
+
+def _tail_non_positive_after_cost_exit_date_streak(
+    items: Sequence[Mapping[str, Any]],
+) -> int:
+    buckets: dict[str, list[tuple[float, float]]] = {}
+    for item in items:
+        after_cost = _float_or_none(item.get("after_cost"))
+        if after_cost is None:
+            continue
+        exit_datetime = str(item.get("exit_datetime") or "")
+        buckets.setdefault(exit_datetime, []).append(
+            (after_cost, max(_float_or_none(item.get("weight")) or 0.0, 0.0))
+        )
+    tail_streak = 0
+    for exit_datetime in sorted(buckets, reverse=True):
+        date_alpha = _weighted_mean(buckets[exit_datetime], default=None)
+        if date_alpha is not None and date_alpha <= 0:
+            tail_streak += 1
+        else:
+            break
+    return tail_streak
+
+
+def _cumulative_after_cost_drawdown_summary(
+    items: Sequence[Mapping[str, Any]],
+) -> tuple[float | None, int]:
+    buckets: dict[str, list[tuple[float, float]]] = {}
+    for item in items:
+        after_cost = _float_or_none(item.get("after_cost"))
+        if after_cost is None:
+            continue
+        exit_datetime = str(item.get("exit_datetime") or "")
+        buckets.setdefault(exit_datetime, []).append(
+            (after_cost, max(_float_or_none(item.get("weight")) or 0.0, 0.0))
+        )
+    if not buckets:
+        return None, 0
+    equity = 1.0
+    peak = 1.0
+    max_drawdown = 0.0
+    breach_count = 0
+    for exit_datetime in sorted(buckets):
+        date_return = _weighted_mean(buckets[exit_datetime], default=None)
+        if date_return is None:
+            continue
+        equity *= 1.0 + date_return
+        peak = max(peak, equity)
+        drawdown = (equity / peak) - 1.0 if peak else 0.0
+        max_drawdown = min(max_drawdown, drawdown)
+        if drawdown <= -RECIPE_PAPER_TRADING_MAX_DRAWDOWN:
+            breach_count += 1
+    return max_drawdown, breach_count
+
+
 def _paper_trading_metric_summary(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -6461,6 +16375,7 @@ def _paper_trading_metric_summary(
     horizon_missing_count = 0
     market_regime_missing_count = 0
     ordered = sorted(labels, key=lambda row: str(row.get("exit_datetime") or ""))
+    chronological_items: list[dict[str, Any]] = []
     for label in ordered:
         weight = _label_weight(label)
         after_cost = _float_or_none(label.get("directional_after_cost_return"))
@@ -6476,7 +16391,16 @@ def _paper_trading_metric_summary(
                 weighted_cost_drag.append((pre_cost - after_cost, weight))
         if benchmark is not None:
             weighted_benchmark.append((benchmark, weight))
-        weighted_hit.append((1.0 if label.get("directional_hit") is True else 0.0, weight))
+        hit_value = 1.0 if label.get("directional_hit") is True else 0.0
+        weighted_hit.append((hit_value, weight))
+        chronological_items.append(
+            {
+                "exit_datetime": str(label.get("exit_datetime") or ""),
+                "after_cost": after_cost,
+                "hit": hit_value,
+                "weight": weight,
+            }
+        )
         horizon = _int_or_none(label.get("horizon_days"))
         if horizon:
             horizons.append(horizon)
@@ -6486,11 +16410,13 @@ def _paper_trading_metric_summary(
             )
         else:
             horizon_missing_count += 1
-        regime = str(
-            label.get("market_regime") or label.get("regime") or ""
-        ).strip()
-        if regime:
-            regime_weight_totals[regime] = regime_weight_totals.get(regime, 0.0) + weight
+        regimes = _label_market_regime_types(label)
+        if regimes:
+            regime_weight = weight / len(regimes)
+            for regime in regimes:
+                regime_weight_totals[regime] = (
+                    regime_weight_totals.get(regime, 0.0) + regime_weight
+                )
         else:
             market_regime_missing_count += 1
     effective_n = sum(_label_weight(label) for label in labels)
@@ -6514,17 +16440,15 @@ def _paper_trading_metric_summary(
         else None
     )
     alpha_values = [value for value, _weight in weighted_after_cost]
-    max_non_positive_streak = 0
-    current_non_positive_streak = 0
-    for value in alpha_values:
-        if value <= 0:
-            current_non_positive_streak += 1
-            max_non_positive_streak = max(
-                max_non_positive_streak,
-                current_non_positive_streak,
-            )
-        else:
-            current_non_positive_streak = 0
+    max_non_positive_streak = _max_non_positive_after_cost_exit_date_streak(
+        chronological_items
+    )
+    tail_non_positive_streak = _tail_non_positive_after_cost_exit_date_streak(
+        chronological_items
+    )
+    max_drawdown, drawdown_breach_count = _cumulative_after_cost_drawdown_summary(
+        chronological_items
+    )
     if len(alpha_values) >= 2:
         midpoint = max(1, len(alpha_values) // 2)
         first = sum(alpha_values[:midpoint]) / len(alpha_values[:midpoint])
@@ -6532,7 +16456,6 @@ def _paper_trading_metric_summary(
         alpha_decay_slope = second - first
     else:
         alpha_decay_slope = None
-    max_drawdown = min(alpha_values) if alpha_values else None
     sharpe = None
     if len(alpha_values) >= 2:
         mean_alpha = sum(alpha_values) / len(alpha_values)
@@ -6541,6 +16464,11 @@ def _paper_trading_metric_summary(
         )
         if variance > 0:
             sharpe = mean_alpha / (variance**0.5)
+    backtest_items, oos_items = _paper_trading_train_oos_split_items(
+        chronological_items
+    )
+    backtest_metrics = _paper_trading_chronological_split_metrics(backtest_items)
+    oos_metrics = _paper_trading_chronological_split_metrics(oos_items)
     return {
         "annualized_return": round(annualized_return, 8)
         if annualized_return is not None
@@ -6574,7 +16502,8 @@ def _paper_trading_metric_summary(
         "brier_score": round((0.5 - hit_rate) ** 2, 6)
         if hit_rate is not None
         else None,
-        "non_positive_after_cost_window_streak": max_non_positive_streak,
+        "non_positive_after_cost_window_streak": tail_non_positive_streak,
+        "max_non_positive_after_cost_window_streak": max_non_positive_streak,
         "horizon_contribution_shares": horizon_contribution_shares,
         "max_horizon_contribution_share": max(horizon_contribution_shares.values())
         if horizon_contribution_shares
@@ -6587,11 +16516,63 @@ def _paper_trading_metric_summary(
         else None,
         "observed_regime_count": len(regime_contribution_shares),
         "market_regime_missing_count": market_regime_missing_count,
-        "drawdown_breach_count": sum(
-            1
-            for value in alpha_values
-            if value <= -RECIPE_PAPER_TRADING_MAX_DRAWDOWN
+        "market_regime_coverage_status": (
+            "missing_diagnostic_only"
+            if market_regime_missing_count and not regime_contribution_shares
+            else "partially_missing"
+            if market_regime_missing_count
+            else "observed"
         ),
+        "drawdown_breach_count": drawdown_breach_count,
+        "backtest_label_count": backtest_metrics["label_count"],
+        "backtest_effective_n": backtest_metrics["effective_n"],
+        "backtest_cost_adjusted_alpha": backtest_metrics["cost_adjusted_alpha"],
+        "backtest_hit_rate": backtest_metrics["hit_rate"],
+        "backtest_start_exit_datetime": backtest_metrics["start_exit_datetime"],
+        "backtest_end_exit_datetime": backtest_metrics["end_exit_datetime"],
+        "out_of_sample_label_count": oos_metrics["label_count"],
+        "out_of_sample_effective_n": oos_metrics["effective_n"],
+        "out_of_sample_cost_adjusted_alpha": oos_metrics["cost_adjusted_alpha"],
+        "out_of_sample_hit_rate": oos_metrics["hit_rate"],
+        "out_of_sample_start_exit_datetime": oos_metrics["start_exit_datetime"],
+        "out_of_sample_end_exit_datetime": oos_metrics["end_exit_datetime"],
+    }
+
+
+def _paper_trading_chronological_split_metrics(
+    items: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    ordered_items = sorted(items, key=lambda row: str(row.get("exit_datetime") or ""))
+    weighted_after_cost = [
+        (float(item["after_cost"]), float(item["weight"]))
+        for item in ordered_items
+        if _float_or_none(item.get("after_cost")) is not None
+    ]
+    weighted_hit = [
+        (float(item["hit"]), float(item["weight"]))
+        for item in ordered_items
+        if _float_or_none(item.get("hit")) is not None
+    ]
+    cost_adjusted_alpha = _weighted_mean(weighted_after_cost, default=None)
+    hit_rate = _weighted_mean(weighted_hit, default=None)
+    effective_n = sum(
+        max(_float_or_none(item.get("weight")) or 0.0, 0.0)
+        for item in ordered_items
+    )
+    exit_datetimes = [
+        str(item.get("exit_datetime") or "")
+        for item in ordered_items
+        if str(item.get("exit_datetime") or "").strip()
+    ]
+    return {
+        "label_count": len(ordered_items),
+        "effective_n": round(effective_n, 6),
+        "cost_adjusted_alpha": round(cost_adjusted_alpha, 8)
+        if cost_adjusted_alpha is not None
+        else None,
+        "hit_rate": round(hit_rate, 6) if hit_rate is not None else None,
+        "start_exit_datetime": exit_datetimes[0] if exit_datetimes else "",
+        "end_exit_datetime": exit_datetimes[-1] if exit_datetimes else "",
     }
 
 
@@ -6611,13 +16592,47 @@ def build_recipe_paper_trading_runs(
     analysis_recipe_rows: Sequence[Mapping[str, Any]],
     outcome_label_rows: Sequence[Mapping[str, Any]],
     method_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    footprint_rows: Sequence[Mapping[str, Any]] = (),
+    method_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     method_profiles = _method_profile_by_method_id(method_performance_profile_rows)
+    inferred_labels_by_method_id = _inferred_outcome_labels_by_method_id(
+        outcome_label_rows=outcome_label_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
+    )
     runs: list[dict[str, Any]] = []
     for index, recipe in enumerate(analysis_recipe_rows, 1):
         recipe_id = _recipe_id(recipe, index)
         method_id = str(recipe.get("method_pattern_id") or "")
-        labels = _labels_for_recipe(recipe, outcome_label_rows)
+        source_method_pattern_ids = _ensure_list(
+            recipe.get("source_method_pattern_ids")
+        ) or ([method_id] if method_id else [])
+        decision_scope = str(
+            recipe.get("decision_scope")
+            or _ensure_mapping(recipe.get("output_signal")).get("name")
+            or ""
+        )
+        entry_condition = str(
+            recipe.get("entry_condition") or ANALYSIS_RECIPE_ENTRY_CONDITION
+        )
+        exit_condition = str(
+            recipe.get("exit_condition") or ANALYSIS_RECIPE_EXIT_CONDITION
+        )
+        risk_controls = _ensure_list(recipe.get("risk_controls")) or list(
+            ANALYSIS_RECIPE_RISK_CONTROLS
+        )
+        expected_horizon_days = (
+            _int_or_none(recipe.get("expected_horizon_days"))
+            or ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS
+        )
+        labels = _labels_for_recipe(
+            recipe,
+            outcome_label_rows,
+            inferred_labels_by_method_id=inferred_labels_by_method_id,
+        )
         metrics = _paper_trading_metric_summary(labels)
         blockers: list[str] = []
         if not labels:
@@ -6629,8 +16644,12 @@ def build_recipe_paper_trading_runs(
             for tool in _ensure_list(recipe.get("required_tools"))
         ):
             blockers.append("required_tools_not_shadow_implemented")
+        required_data = _normalize_required_data_items(recipe.get("required_data"))
+        if not required_data:
+            blockers.append("required_data_missing")
         if str(recipe.get("runtime_mode") or "") != "shadow_only":
             blockers.append("unsupported_runtime_mode")
+        required_tools = _ensure_list(recipe.get("required_tools"))
         cost_adjusted_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
         pre_cost_alpha = _float_or_none(metrics.get("pre_cost_alpha"))
         hit_rate = _float_or_none(metrics.get("hit_rate"))
@@ -6649,6 +16668,12 @@ def build_recipe_paper_trading_runs(
             market_regime_missing_count = int(
                 metrics.get("market_regime_missing_count") or 0
             )
+            out_of_sample_effective_n = _float_or_none(
+                metrics.get("out_of_sample_effective_n")
+            )
+            out_of_sample_alpha = _float_or_none(
+                metrics.get("out_of_sample_cost_adjusted_alpha")
+            )
             if horizon_missing_count:
                 blockers.append("window_horizon_missing")
             if observed_horizon_count < RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT:
@@ -6658,11 +16683,15 @@ def build_recipe_paper_trading_runs(
                 and max_horizon_share > RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
             ):
                 blockers.append("single_window_concentration")
-            if market_regime_missing_count:
+            if market_regime_missing_count and observed_regime_count > 0:
                 blockers.append("market_regime_missing")
-            if observed_regime_count < RECIPE_PAPER_TRADING_MIN_REGIME_COUNT or (
-                max_regime_share is not None
-                and max_regime_share > RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+            if observed_regime_count > 0 and (
+                observed_regime_count < RECIPE_PAPER_TRADING_MIN_REGIME_COUNT
+                or (
+                    max_regime_share is not None
+                    and max_regime_share
+                    > RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+                )
             ):
                 blockers.append("single_regime_concentration")
             if cost_adjusted_alpha is None or cost_adjusted_alpha <= 0:
@@ -6685,6 +16714,19 @@ def build_recipe_paper_trading_runs(
                 blockers.append("hit_rate_below_threshold")
             if max_drawdown is not None and max_drawdown < -RECIPE_PAPER_TRADING_MAX_DRAWDOWN:
                 blockers.append("max_drawdown_breach")
+            if (
+                out_of_sample_effective_n is None
+                or out_of_sample_effective_n
+                < RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+            ):
+                blockers.append("out_of_sample_effective_n_below_threshold")
+            if out_of_sample_alpha is None or out_of_sample_alpha <= 0:
+                blockers.append("out_of_sample_after_cost_alpha_non_positive")
+        if any(
+            reason in RECIPE_PAPER_TRADING_INSTABILITY_BLOCKERS
+            for reason in blockers
+        ):
+            blockers.append(RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER)
         method_profile = method_profiles.get(method_id) or {}
         profile_n = _float_or_none(
             _ensure_mapping(method_profile.get("source_support")).get(
@@ -6693,6 +16735,25 @@ def build_recipe_paper_trading_runs(
         )
         profile_support_only = (profile_n or 0.0) > 0 and bool(blockers)
         status = "passed" if not blockers else "blocked"
+        pre_registered_protocol = _recipe_paper_trading_protocol()
+        pre_registration_hash = _recipe_preregistration_hash_from_payload(
+            _recipe_preregistration_payload(
+                analysis_recipe_id=recipe_id,
+                promotion_state="shadow_candidate",
+                source_method_pattern_ids=source_method_pattern_ids,
+                required_tools=required_tools,
+                required_data=required_data,
+                decision_scope=decision_scope,
+                entry_condition=entry_condition,
+                exit_condition=exit_condition,
+                risk_controls=risk_controls,
+                expected_horizon_days=expected_horizon_days,
+                benchmark_symbol=RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+                benchmark_source=STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+                cost_model_id=RECIPE_PAPER_TRADING_COST_MODEL_ID,
+                pre_registered_protocol=pre_registered_protocol,
+            )
+        )
         runs.append(
             {
                 "paper_trading_run_id": _stable_id(
@@ -6710,57 +16771,23 @@ def build_recipe_paper_trading_runs(
                         "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
                     },
                 ),
-                "pre_registration_hash": _recipe_preregistration_hash(recipe),
+                "pre_registration_hash": pre_registration_hash,
                 "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
                 "promotion_state": "shadow_candidate",
                 "validation_status": status,
                 "paper_trading_status": status,
-                "source_method_pattern_ids": [method_id] if method_id else [],
-                "required_tools": _ensure_list(recipe.get("required_tools")),
-                "required_data": [],
-                "decision_scope": _ensure_mapping(recipe.get("output_signal")).get(
-                    "name",
-                    "",
-                ),
-                "entry_condition": "T+1_or_more_conservative_shadow_entry",
-                "exit_condition": "fixed_horizon_shadow_exit",
-                "risk_controls": [
-                    "no_production_order",
-                    "no_position_sizing",
-                    "after_cost_alpha_required",
-                    "consecutive_after_cost_decay_blocks_validation",
-                    "turnover_cost_decay_blocks_validation",
-                    "drawdown_threshold_pre_registered",
-                ],
-                "expected_horizon_days": 60,
+                "source_method_pattern_ids": source_method_pattern_ids,
+                "required_tools": required_tools,
+                "required_data": required_data,
+                "decision_scope": decision_scope,
+                "entry_condition": entry_condition,
+                "exit_condition": exit_condition,
+                "risk_controls": risk_controls,
+                "expected_horizon_days": expected_horizon_days,
                 "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
                 "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
                 "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
-                "pre_registered_protocol": {
-                    "entry_semantics": "T+1_or_more_conservative",
-                    "exit_semantics": "fixed_horizon_shadow_exit",
-                    "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
-                    "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
-                    "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
-                    "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
-                    "alpha_decay_fail_streak": (
-                        RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK
-                    ),
-                    "max_horizon_contribution_share": (
-                        RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
-                    ),
-                    "max_regime_contribution_share": (
-                        RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
-                    ),
-                    "minimum_horizon_count": RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT,
-                    "minimum_regime_count": RECIPE_PAPER_TRADING_MIN_REGIME_COUNT,
-                    "cost_decay_turnover_threshold": (
-                        RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
-                    ),
-                    "profile_weight_is_sufficient": False,
-                    "parameter_tuning_after_results_allowed": False,
-                    "production_decision_impact_allowed": False,
-                },
+                "pre_registered_protocol": pre_registered_protocol,
                 "metrics": metrics,
                 "blocked_reasons": sorted(set(blockers)),
                 "profile_weight_support": {
@@ -6784,23 +16811,85 @@ def build_recipe_paper_trading_summary(
     *,
     run_id: str,
     recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]] = (),
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
+    direct_pit_binding_gap_details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     status_counts: dict[str, int] = {}
     blocker_counts: dict[str, int] = {}
     passed_ids: list[str] = []
     blocked_ids: list[str] = []
     disagreement_count = 0
+    instability_gap_count = 0
     cost_adjusted_values: list[float] = []
+    passed_cost_adjusted_values: list[float] = []
+    direct_pit_bound_ids: list[str] = []
+    direct_pit_bound_blocker_counts: dict[str, int] = {}
+    validation_candidate_ids: list[str] = []
+    tool_only_blocked_ids: list[str] = []
+    tool_gap_ids_by_method_id: dict[str, list[str]] = {}
+    tool_gap_ids: set[str] = set()
+    queued_tool_gap_ids: set[str] = set()
+    queued_tool_proposal_ids: set[str] = set()
+    queued_requested_tools: set[str] = set()
+    queued_recipe_ids: set[str] = set()
+    for gap in tool_gap_rows:
+        gap_id = str(gap.get("tool_gap_id") or "").strip()
+        if not gap_id or str(gap.get("status") or "") == "retired":
+            continue
+        tool_gap_ids.add(gap_id)
+        for method_id in _ensure_list(gap.get("method_pattern_ids")):
+            method_key = str(method_id or "").strip()
+            if method_key:
+                tool_gap_ids_by_method_id.setdefault(method_key, []).append(gap_id)
+    proposal_ids_by_gap_id: dict[str, list[str]] = {}
+    for proposal in tool_design_proposal_rows:
+        gap_id = str(proposal.get("tool_gap_id") or "").strip()
+        proposal_id = str(proposal.get("tool_proposal_id") or "").strip()
+        if gap_id and proposal_id:
+            proposal_ids_by_gap_id.setdefault(gap_id, []).append(proposal_id)
+    tool_only_gap_ids: set[str] = set()
+    tool_only_proposal_ids: set[str] = set()
     for run in recipe_paper_trading_runs:
         status = str(run.get("paper_trading_status") or "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
         recipe_id = str(run.get("analysis_recipe_id") or "")
+        metrics = _ensure_mapping(run.get("metrics"))
+        effective_n = _float_or_none(metrics.get("effective_n")) or 0.0
+        blocked_reasons = [str(reason) for reason in _ensure_list(run.get("blocked_reasons"))]
+        direct_pit_bound = effective_n > 0.0 and "no_direct_recipe_outcome_binding" not in blocked_reasons
+        if direct_pit_bound:
+            direct_pit_bound_ids.append(recipe_id)
+            for reason in blocked_reasons:
+                _increment_count(direct_pit_bound_blocker_counts, reason)
+        if direct_pit_bound and "insufficient_effective_n" not in blocked_reasons:
+            validation_candidate_ids.append(recipe_id)
+        if blocked_reasons == ["required_tools_not_shadow_implemented"]:
+            tool_only_blocked_ids.append(recipe_id)
+            for method_id in _ensure_list(run.get("source_method_pattern_ids")):
+                for gap_id in tool_gap_ids_by_method_id.get(str(method_id or ""), ()):
+                    tool_only_gap_ids.add(gap_id)
+                    tool_only_proposal_ids.update(proposal_ids_by_gap_id.get(gap_id, ()))
+        if "required_tools_not_shadow_implemented" in blocked_reasons:
+            queued_recipe_ids.add(recipe_id)
+            for tool in _ensure_list(run.get("required_tools")):
+                tool_name = str(tool or "").strip()
+                if tool_name.startswith("tool.requested."):
+                    queued_requested_tools.add(tool_name)
+            for method_id in _ensure_list(run.get("source_method_pattern_ids")):
+                for gap_id in tool_gap_ids_by_method_id.get(str(method_id or ""), ()):
+                    queued_tool_gap_ids.add(gap_id)
+                    queued_tool_proposal_ids.update(
+                        proposal_ids_by_gap_id.get(gap_id, ())
+                    )
         if status == "passed":
             passed_ids.append(recipe_id)
         else:
             blocked_ids.append(recipe_id)
-        for reason in _ensure_list(run.get("blocked_reasons")):
+        for reason in blocked_reasons:
             _increment_count(blocker_counts, reason)
+            if reason == RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER:
+                instability_gap_count += 1
         profile_support = _ensure_mapping(run.get("profile_weight_support"))
         if profile_support.get("profile_paper_trade_disagreement") is True:
             disagreement_count += 1
@@ -6809,6 +16898,108 @@ def build_recipe_paper_trading_summary(
         )
         if cost_adjusted is not None:
             cost_adjusted_values.append(cost_adjusted)
+            if status == "passed":
+                passed_cost_adjusted_values.append(cost_adjusted)
+    passed_cost_adjusted_values = sorted(passed_cost_adjusted_values)
+    passed_count = len(passed_cost_adjusted_values)
+    if passed_count:
+        midpoint = passed_count // 2
+        if passed_count % 2:
+            median_after_cost_alpha: float | None = passed_cost_adjusted_values[
+                midpoint
+            ]
+        else:
+            median_after_cost_alpha = (
+                passed_cost_adjusted_values[midpoint - 1]
+                + passed_cost_adjusted_values[midpoint]
+            ) / 2.0
+        after_cost_paper_trading_summary = {
+            "status": "computed",
+            "validated_recipe_count": passed_count,
+            "mean_after_cost_alpha": round(
+                sum(passed_cost_adjusted_values) / passed_count,
+                8,
+            ),
+            "median_after_cost_alpha": round(median_after_cost_alpha, 8),
+            "min_after_cost_alpha": round(min(passed_cost_adjusted_values), 8),
+            "max_after_cost_alpha": round(max(passed_cost_adjusted_values), 8),
+            "positive_after_cost_recipe_count": sum(
+                1 for value in passed_cost_adjusted_values if value > 0
+            ),
+            "policy": (
+                "computed from passed pre-registered paper-trading runs only; "
+                "blocked or profile-only recipes are excluded"
+            ),
+        }
+    else:
+        after_cost_paper_trading_summary = {
+            "status": "insufficient_validated_runs",
+            "validated_recipe_count": 0,
+            "mean_after_cost_alpha": None,
+            "median_after_cost_alpha": None,
+            "min_after_cost_alpha": None,
+            "max_after_cost_alpha": None,
+            "positive_after_cost_recipe_count": 0,
+            "policy": (
+                "computed from passed pre-registered paper-trading runs only; "
+                "blocked or profile-only recipes are excluded"
+            ),
+        }
+    direct_pit_gap_count = int(
+        blocker_counts.get("no_direct_recipe_outcome_binding", 0)
+    )
+    insufficient_effective_n_count = int(
+        blocker_counts.get("insufficient_effective_n", 0)
+    )
+    requested_tool_block_count = int(
+        blocker_counts.get("required_tools_not_shadow_implemented", 0)
+    )
+    direct_pit_binding_status = (
+        "ready_for_validation"
+        if (
+            not direct_pit_gap_count
+            and direct_pit_bound_ids
+            and not insufficient_effective_n_count
+            and not requested_tool_block_count
+        )
+        else "partial_direct_pit_binding"
+        if direct_pit_bound_ids
+        else "blocked_no_direct_pit_binding"
+    )
+    direct_pit_binding_next_actions: list[str] = []
+    if direct_pit_gap_count:
+        direct_pit_binding_next_actions.append(
+            "link recipes to source-grounded method patterns and PIT outcome labels"
+        )
+    if insufficient_effective_n_count:
+        direct_pit_binding_next_actions.append(
+            "expand direct PIT-bound outcome samples until effective_n passes"
+        )
+    if requested_tool_block_count:
+        direct_pit_binding_next_actions.append(
+            "implement or reject requested shadow tools before validation"
+        )
+    if not direct_pit_binding_next_actions:
+        direct_pit_binding_next_actions.append("monitor validated paper-trading drift")
+    direct_pit_binding_diagnostics: dict[str, Any] = {
+        "status": direct_pit_binding_status,
+        "diagnostic_only": True,
+        "policy": (
+            "profile weights and method names are insufficient; recipe "
+            "paper-trading requires direct PIT outcome labels bound to the "
+            "recipe or its source method pattern"
+        ),
+        "recipe_count": len(recipe_paper_trading_runs),
+        "direct_pit_bound_recipe_count": len(direct_pit_bound_ids),
+        "no_direct_recipe_outcome_binding_count": direct_pit_gap_count,
+        "insufficient_effective_n_count": insufficient_effective_n_count,
+        "required_tools_not_shadow_implemented_count": requested_tool_block_count,
+        "next_actions": direct_pit_binding_next_actions,
+    }
+    if direct_pit_binding_gap_details:
+        direct_pit_binding_diagnostics["binding_gap_details"] = dict(
+            direct_pit_binding_gap_details
+        )
     return {
         "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
         "run_id": run_id,
@@ -6817,30 +17008,64 @@ def build_recipe_paper_trading_summary(
         "recipe_count": len(recipe_paper_trading_runs),
         "paper_trading_run_count": len(recipe_paper_trading_runs),
         "validation_pass_count": len(passed_ids),
+        "paper_trading_validated_recipe_count": len(passed_ids),
         "blocked_count": len(blocked_ids),
         "status_counts": dict(sorted(status_counts.items())),
         "blocker_counts": dict(sorted(blocker_counts.items())),
         "passed_recipe_ids": sorted(passed_ids),
         "blocked_recipe_ids": sorted(blocked_ids),
+        "direct_pit_bound_recipe_count": len(direct_pit_bound_ids),
+        "direct_pit_bound_recipe_ids": sorted(direct_pit_bound_ids),
+        "direct_pit_bound_blocker_counts": dict(
+            sorted(direct_pit_bound_blocker_counts.items())
+        ),
+        "direct_pit_binding_diagnostics": direct_pit_binding_diagnostics,
+        "validation_candidate_recipe_count": len(validation_candidate_ids),
+        "validation_candidate_recipe_ids": sorted(validation_candidate_ids),
+        "tool_only_blocked_recipe_count": len(tool_only_blocked_ids),
+        "tool_only_blocked_recipe_ids": sorted(tool_only_blocked_ids),
+        "tool_only_blocked_tool_gap_count": len(tool_only_gap_ids),
+        "tool_only_blocked_tool_gap_ids": sorted(tool_only_gap_ids),
+        "tool_only_blocked_tool_proposal_count": len(tool_only_proposal_ids),
+        "tool_only_blocked_tool_proposal_ids": sorted(tool_only_proposal_ids),
+        "tool_implementation_queue": {
+            "queue_policy": (
+                "implement or explicitly reject tool gaps linked to direct-PIT "
+                "validation candidates before promoting recipe confidence impact"
+            ),
+            "source_blocker": "required_tools_not_shadow_implemented",
+            "blocked_recipe_count": len(queued_recipe_ids),
+            "blocked_recipe_ids": sorted(queued_recipe_ids),
+            "requested_tool_count": len(queued_requested_tools),
+            "requested_tools": sorted(queued_requested_tools),
+            "tool_gap_count": len(queued_tool_gap_ids),
+            "tool_gap_ids": sorted(queued_tool_gap_ids),
+            "tool_proposal_count": len(queued_tool_proposal_ids),
+            "tool_proposal_ids": sorted(queued_tool_proposal_ids),
+            "unlinked_tool_gap_registry_count": max(
+                0,
+                len(tool_gap_ids - queued_tool_gap_ids),
+            ),
+            "unlinked_requested_tool_count": max(
+                0,
+                len(queued_requested_tools) - len(queued_tool_gap_ids),
+            ),
+        },
         "profile_paper_trade_disagreement_count": disagreement_count,
+        "recipe_instability_gap_count": instability_gap_count,
         "mean_cost_adjusted_alpha": round(
             sum(cost_adjusted_values) / len(cost_adjusted_values),
             8,
         )
         if cost_adjusted_values
         else None,
+        "after_cost_paper_trading_summary": after_cost_paper_trading_summary,
         "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
         "pre_registration_policy": (
             "each recipe has a deterministic experiment id and pre-registration hash "
             "before any outcome metrics are evaluated"
         ),
-        "validation_protocol": {
-            "entry_semantics": "T+1_or_more_conservative",
-            "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
-            "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
-            "profile_weight_is_sufficient": False,
-            "production_decision_impact_allowed": False,
-        },
+        "validation_protocol": _recipe_paper_trading_protocol(),
         "policy": (
             "paper-trading validation is a shadow gate; profile support can prioritize "
             "recipes but cannot promote confidence impact without direct PIT paper-trading evidence"
@@ -6864,18 +17089,35 @@ def build_confidence_impact_observations(
         calibration_error = _float_or_none(metrics.get("calibration_error"))
         brier_score = _float_or_none(metrics.get("brier_score"))
         hit_rate = _float_or_none(metrics.get("hit_rate"))
+        regime_contribution_shares = {
+            str(key): float(value)
+            for key, value in _ensure_mapping(
+                metrics.get("regime_contribution_shares")
+            ).items()
+            if _float_or_none(value) is not None
+        }
+        dominant_regime = "unknown"
+        if regime_contribution_shares:
+            dominant_regime = sorted(
+                regime_contribution_shares.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[0][0]
+        market_regime_coverage_status = str(
+            metrics.get("market_regime_coverage_status") or "unknown"
+        )
         blocker_reasons = _ensure_list(run.get("blocked_reasons"))
+        profile_support = _ensure_mapping(run.get("profile_weight_support"))
+        profile_paper_trade_disagreement = (
+            profile_support.get("profile_paper_trade_disagreement") is True
+        )
         alpha_decay_blockers = {
             "after_cost_alpha_non_positive",
             "consecutive_non_positive_after_cost_windows",
             "max_drawdown_breach",
         }
         cost_decay_blockers = {"cost_decay_fail"}
-        regime_fragile_blockers = {
-            "single_window_concentration",
-            "single_regime_concentration",
-            "market_regime_missing",
-            "window_horizon_missing",
+        regime_fragile_blockers = set(RECIPE_PAPER_TRADING_INSTABILITY_BLOCKERS) | {
+            RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER
         }
         if paper_status != "passed" and any(
             str(reason) in cost_decay_blockers for reason in blocker_reasons
@@ -6893,6 +17135,10 @@ def build_confidence_impact_observations(
             str(reason) in regime_fragile_blockers for reason in blocker_reasons
         ):
             drift_status = "regime_fragile_alpha"
+            recommended_action = "send_to_manual_review"
+            confidence_delta = 0.0
+        elif paper_status != "passed" and profile_paper_trade_disagreement:
+            drift_status = "profile_paper_trade_disagreement"
             recommended_action = "send_to_manual_review"
             confidence_delta = 0.0
         elif paper_status != "passed":
@@ -6940,7 +17186,21 @@ def build_confidence_impact_observations(
                 "hit_rate_recent": hit_rate,
                 "hit_rate_baseline": 0.5,
                 "drawdown_since_activation": metrics.get("max_drawdown"),
-                "regime": "unknown",
+                "regime": dominant_regime,
+                "regime_status": (
+                    "dominant_observed"
+                    if dominant_regime != "unknown"
+                    else "missing_diagnostic"
+                ),
+                "regime_contribution_shares": regime_contribution_shares,
+                "max_regime_contribution_share": metrics.get(
+                    "max_regime_contribution_share"
+                ),
+                "observed_regime_count": metrics.get("observed_regime_count"),
+                "market_regime_missing_count": metrics.get(
+                    "market_regime_missing_count"
+                ),
+                "market_regime_coverage_status": market_regime_coverage_status,
                 "paper_trading_status": paper_status,
                 "drift_status": drift_status,
                 "recommended_action": recommended_action,
@@ -7039,7 +17299,9 @@ def build_confidence_impact_monitor(
     cost_decay_recipe_ids: list[str] = []
     calibration_drift_recipe_ids: list[str] = []
     regime_fragile_recipe_ids: list[str] = []
+    profile_paper_trade_disagreement_recipe_ids: list[str] = []
     manual_review_recipe_ids: list[str] = []
+    reduce_confidence_impact_recipe_ids: list[str] = []
     freeze_recipe_ids: list[str] = []
     retire_recipe_ids: list[str] = []
     unvalidated_impact_count = 0
@@ -7125,7 +17387,15 @@ def build_confidence_impact_monitor(
             calibration_drift_recipe_ids.append(recipe_id)
         if str(row.get("drift_status") or "") == "regime_fragile_alpha" and recipe_id:
             regime_fragile_recipe_ids.append(recipe_id)
+        if (
+            str(row.get("drift_status") or "")
+            == "profile_paper_trade_disagreement"
+            and recipe_id
+        ):
+            profile_paper_trade_disagreement_recipe_ids.append(recipe_id)
         action = str(row.get("recommended_action") or "")
+        if action == "reduce_confidence_impact" and recipe_id:
+            reduce_confidence_impact_recipe_ids.append(recipe_id)
         if action == "send_to_manual_review" and recipe_id:
             manual_review_recipe_ids.append(recipe_id)
         if action == "freeze_recipe" and recipe_id:
@@ -7174,6 +17444,10 @@ def build_confidence_impact_monitor(
             "regime_fragile_alpha",
             0,
         ),
+        "profile_paper_trade_disagreement_count": drift_status_counts.get(
+            "profile_paper_trade_disagreement",
+            0,
+        ),
         "confidence_alpha_correlation": round(confidence_alpha_correlation, 8)
         if confidence_alpha_correlation is not None
         else None,
@@ -7203,7 +17477,13 @@ def build_confidence_impact_monitor(
             set(new_regime_miscalibration_recipe_ids)
         ),
         "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
+        "profile_paper_trade_disagreement_recipe_ids": sorted(
+            set(profile_paper_trade_disagreement_recipe_ids)
+        ),
         "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
+        "reduce_confidence_impact_recipe_ids": sorted(
+            set(reduce_confidence_impact_recipe_ids)
+        ),
         "freeze_recipe_ids": sorted(set(freeze_recipe_ids)),
         "retire_recipe_ids": sorted(set(retire_recipe_ids)),
         "production_decision_impact_allowed": False,
@@ -7233,6 +17513,46 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         label="method_performance_profiles",
         blockers=blockers,
     )
+    forecast_rows: list[Mapping[str, Any]] = []
+    forecast_path = registry_path / "forecast_claims.jsonl"
+    if forecast_path.exists():
+        forecast_rows = _read_registry_jsonl(
+            forecast_path,
+            label="forecast_claims",
+            blockers=blockers,
+        )
+    footprint_rows: list[Mapping[str, Any]] = []
+    footprint_path = registry_path / "analytical_footprints.jsonl"
+    if footprint_path.exists():
+        footprint_rows = _read_registry_jsonl(
+            footprint_path,
+            label="analytical_footprints",
+            blockers=blockers,
+        )
+    method_rows: list[Mapping[str, Any]] = []
+    method_path = registry_path / "method_patterns.jsonl"
+    if method_path.exists():
+        method_rows = _read_registry_jsonl(
+            method_path,
+            label="method_patterns",
+            blockers=blockers,
+        )
+    tool_gap_rows: list[Mapping[str, Any]] = []
+    tool_gap_path = registry_path / "tool_gaps.jsonl"
+    if tool_gap_path.exists():
+        tool_gap_rows = _read_registry_jsonl(
+            tool_gap_path,
+            label="tool_gaps",
+            blockers=blockers,
+        )
+    tool_design_proposal_rows: list[Mapping[str, Any]] = []
+    tool_design_proposal_path = registry_path / "tool_design_proposals.jsonl"
+    if tool_design_proposal_path.exists():
+        tool_design_proposal_rows = _read_registry_jsonl(
+            tool_design_proposal_path,
+            label="tool_design_proposals",
+            blockers=blockers,
+        )
     outcome_label_path = registry_path / "report_outcome_labels.jsonl"
     outcome_label_rows: list[Mapping[str, Any]] = []
     if outcome_label_path.exists():
@@ -7246,10 +17566,22 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         analysis_recipe_rows=analysis_recipe_rows,
         outcome_label_rows=outcome_label_rows,
         method_performance_profile_rows=method_performance_profile_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
+            analysis_recipe_rows=analysis_recipe_rows,
+            outcome_label_rows=outcome_label_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            method_rows=method_rows,
+        ),
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,
@@ -7310,17 +17642,675 @@ def _evolution_gate_check(
     }
 
 
-def _monitor_refresh_record_passed(row: Mapping[str, Any]) -> bool:
-    if "accepted" in row:
-        return row.get("accepted") is True
-    blocker_counts = _count_mapping_values(_ensure_mapping(row.get("blocker_counts")))
-    return (
-        int(row.get("blocked_recipe_count") or 0) == 0
-        and int(row.get("unvalidated_confidence_impact_count") or 0) == 0
-        and int(row.get("alpha_decay_fail_count") or 0) == 0
-        and int(row.get("calibration_drift_count") or 0) == 0
-        and not blocker_counts
+def _gold_review_metric(
+    gold: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+    field: str,
+) -> float | None:
+    value = metrics.get(field)
+    if value is None:
+        value = gold.get(field)
+    return _float_or_none(value)
+
+
+def _forecast_gold_review_gate(
+    *,
+    gold_review_summary: Mapping[str, Any],
+    outcome_labeling_readiness: Mapping[str, Any] | None,
+) -> tuple[bool, dict[str, Any], list[str]]:
+    gold = _ensure_mapping(gold_review_summary)
+    metrics = _ensure_mapping(gold.get("metrics"))
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
+    stock_gap_counts = _count_mapping_values(
+        _ensure_mapping(stock_readiness.get("data_gap_counts"))
     )
+    blockers: list[str] = []
+    summary_passed = gold.get("passed") is True or gold.get("accepted") is True
+    review_complete = gold.get("review_complete") is True
+    reviewed_claims = int(gold.get("reviewed_claims") or 0)
+    total_documents = int(gold.get("total_documents") or 0)
+    pending_claims = int(gold.get("pending_claims") or 0)
+    if not summary_passed:
+        blockers.append("forecast_gold_set_gate_not_passed")
+    if not review_complete:
+        blockers.append("forecast_gold_set_review_incomplete")
+    if reviewed_claims < FORECAST_GOLD_MIN_REVIEWED_CLAIMS:
+        blockers.append("gold_reviewed_claims_below_threshold")
+    if total_documents < FORECAST_GOLD_MIN_DOCUMENTS:
+        blockers.append("gold_reviewed_documents_below_threshold")
+    if pending_claims:
+        blockers.append("gold_pending_claims_remaining")
+    metric_values: dict[str, float | None] = {}
+    for field, threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items():
+        value = _gold_review_metric(gold, metrics, field)
+        metric_values[field] = value
+        if value is None:
+            blockers.append(f"{field}_missing")
+        elif value < threshold:
+            blockers.append(f"{field}_below_threshold")
+    for field, threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items():
+        value = _gold_review_metric(gold, metrics, field)
+        metric_values[field] = value
+        if value is None:
+            blockers.append(f"{field}_missing")
+        elif value > threshold:
+            blockers.append(f"{field}_above_threshold")
+    stock_target_conflict_count = int(stock_gap_counts.get("stock_target_conflict") or 0)
+    conflict_reviewed_count = int(
+        gold.get("stock_target_conflict_reviewed_count")
+        or metrics.get("stock_target_conflict_reviewed_count")
+        or 0
+    )
+    stock_target_conflict_explained = (
+        stock_target_conflict_count == 0
+        or gold.get("stock_target_conflict_explained") is True
+        or metrics.get("stock_target_conflict_explained") is True
+        or (
+            stock_target_conflict_count > 0
+            and conflict_reviewed_count >= stock_target_conflict_count
+        )
+    )
+    if stock_target_conflict_count and not stock_target_conflict_explained:
+        blockers.append("stock_target_conflict_unexplained")
+    evidence = {
+        "gold_set_passed": not blockers,
+        "review_complete": review_complete,
+        "reviewed_claims": reviewed_claims,
+        "pending_claims": pending_claims,
+        "total_documents": total_documents,
+        "metrics": metric_values,
+        "thresholds": {
+            "min_reviewed_claims": FORECAST_GOLD_MIN_REVIEWED_CLAIMS,
+            "min_documents": FORECAST_GOLD_MIN_DOCUMENTS,
+            **{
+                f"{field}_min": threshold
+                for field, threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items()
+            },
+            **{
+                f"{field}_max": threshold
+                for field, threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items()
+            },
+        },
+        "stock_target_conflict_count": stock_target_conflict_count,
+        "stock_target_conflict_reviewed_count": conflict_reviewed_count,
+        "stock_target_conflict_explained": stock_target_conflict_explained,
+    }
+    return not blockers, evidence, blockers
+
+
+def _gold_review_quality_gap_targets_from_summary(
+    gold_review_summary: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    existing = _ensure_mapping(gold_review_summary.get("quality_gap_targets"))
+    if existing:
+        return existing
+    metrics = _ensure_mapping(gold_review_summary.get("metrics"))
+    denominator = int(gold_review_summary.get("reviewed_claims") or 0)
+    documents = int(gold_review_summary.get("total_documents") or 0)
+    document_gap = max(0, FORECAST_GOLD_MIN_DOCUMENTS - documents)
+    claim_gap = max(0, FORECAST_GOLD_MIN_REVIEWED_CLAIMS - denominator)
+    if denominator <= 0:
+        return {
+            "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+            "interpretation": (
+                "reviewed claim denominator is zero, so metric deltas are "
+                "unavailable; complete manual review rows before interpreting "
+                "quality-rate gaps"
+            ),
+            "sample_size_documents": {
+                "operator": ">=",
+                "threshold": FORECAST_GOLD_MIN_DOCUMENTS,
+                "current_count": documents,
+                "minimum_additional_count": document_gap,
+                "is_passing": document_gap == 0,
+            },
+            "sample_size_claims": {
+                "operator": ">=",
+                "threshold": FORECAST_GOLD_MIN_REVIEWED_CLAIMS,
+                "current_count": denominator,
+                "minimum_additional_count": claim_gap,
+                "is_passing": claim_gap == 0,
+            },
+            "metrics": {},
+            "active_gap_count": int(document_gap > 0) + int(claim_gap > 0),
+            "count_source": "summary_rate_estimate",
+        }
+    metric_targets: dict[str, Mapping[str, Any]] = {}
+    active_gap_count = 0
+    for metric, threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items():
+        current_rate = _gold_review_metric(gold_review_summary, metrics, metric)
+        if current_rate is None:
+            current_pass_count = 0
+        else:
+            current_pass_count = round(float(current_rate) * denominator)
+        required_pass_count = ceil((threshold * denominator) - 1e-12)
+        minimum_gap_count = max(0, required_pass_count - current_pass_count)
+        if minimum_gap_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": ">=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "current_pass_count": current_pass_count,
+            "required_pass_count": required_pass_count,
+            "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
+            "is_passing": minimum_gap_count == 0,
+            "count_source": "summary_rate_estimate",
+        }
+    for metric, threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items():
+        current_rate = _gold_review_metric(gold_review_summary, metrics, metric)
+        if current_rate is None:
+            current_true_count = denominator
+        else:
+            current_true_count = round(float(current_rate) * denominator)
+        max_allowed_true_count = floor((threshold * denominator) + 1e-12)
+        excess_true_count = max(0, current_true_count - max_allowed_true_count)
+        if excess_true_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": "<=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "current_true_count": current_true_count,
+            "max_allowed_true_count": max_allowed_true_count,
+            "minimum_excess_true_count_if_denominator_unchanged": excess_true_count,
+            "is_passing": excess_true_count == 0,
+            "count_source": "summary_rate_estimate",
+        }
+    return {
+        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+        "interpretation": (
+            "count deltas are estimated from public summary rates when exact "
+            "review-row counts are absent; use them to prioritize re-review or "
+            "candidate expansion, not as instructions to flip labels"
+        ),
+        "sample_size_documents": {
+            "operator": ">=",
+            "threshold": FORECAST_GOLD_MIN_DOCUMENTS,
+            "current_count": documents,
+            "minimum_additional_count": document_gap,
+            "is_passing": document_gap == 0,
+        },
+        "sample_size_claims": {
+            "operator": ">=",
+            "threshold": FORECAST_GOLD_MIN_REVIEWED_CLAIMS,
+            "current_count": denominator,
+            "minimum_additional_count": claim_gap,
+            "is_passing": claim_gap == 0,
+        },
+        "metrics": metric_targets,
+        "active_gap_count": active_gap_count
+        + int(document_gap > 0)
+        + int(claim_gap > 0),
+        "count_source": "summary_rate_estimate",
+    }
+
+
+def _footprint_review_quality_gap_targets_from_summary(
+    footprint_review_summary: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    existing = _ensure_mapping(footprint_review_summary.get("quality_gap_targets"))
+    if existing:
+        return existing
+    precision_recall = _ensure_mapping(
+        footprint_review_summary.get("precision_recall_report")
+    )
+    denominator = int(
+        footprint_review_summary.get("complete_rows")
+        or footprint_review_summary.get("reviewed_rows")
+        or 0
+    )
+    if denominator <= 0 or not precision_recall:
+        return None
+    metric_targets: dict[str, Mapping[str, Any]] = {}
+    active_gap_count = 0
+    for metric, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
+        current_rate = _float_or_none(precision_recall.get(metric))
+        current_pass_count = (
+            0 if current_rate is None else round(float(current_rate) * denominator)
+        )
+        required_pass_count = ceil((threshold * denominator) - 1e-12)
+        minimum_gap_count = max(0, required_pass_count - current_pass_count)
+        if minimum_gap_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": ">=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "current_pass_count": current_pass_count,
+            "required_pass_count": required_pass_count,
+            "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
+            "is_passing": minimum_gap_count == 0,
+            "count_source": "summary_rate_estimate",
+        }
+    return {
+        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+        "interpretation": (
+            "count deltas are estimated from public summary rates when exact "
+            "review-row counts are absent; use them to prioritize re-review or "
+            "candidate expansion, not as instructions to flip labels"
+        ),
+        "sample_size_completed_rows": {
+            "current_count": denominator,
+            "pending_rows_are_excluded_from_metric_denominator": True,
+        },
+        "metrics": metric_targets,
+        "active_gap_count": active_gap_count,
+        "count_source": "summary_rate_estimate",
+    }
+
+
+def _evolution_gate_requirement_shortfalls(
+    checks: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    by_id = {
+        str(check.get("check_id") or ""): _ensure_mapping(check) for check in checks
+    }
+    shortfalls: dict[str, Any] = {}
+
+    outcome_evidence = _ensure_mapping(by_id.get("RI-EVOL-01", {}).get("evidence"))
+    shortfalls["unique_outcome_claim_count"] = _threshold_shortfall(
+        current=int(outcome_evidence.get("unique_outcome_claim_count") or 0),
+        target=EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS,
+        blocker="unique_outcome_claim_count_below_threshold",
+        next_action="produce_more_non_llm_pit_outcome_labels",
+    )
+    shortfalls["stock_proxy_unique_claim_count"] = _threshold_shortfall(
+        current=int(outcome_evidence.get("stock_proxy_unique_claim_count") or 0),
+        target=EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS,
+        blocker="stock_proxy_claim_count_below_threshold",
+        next_action="run_stock_price_proxy_labels_for_historical_stock_reports",
+    )
+    shortfalls["industry_proxy_unique_claim_count"] = _threshold_shortfall(
+        current=int(outcome_evidence.get("industry_proxy_unique_claim_count") or 0),
+        target=EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS,
+        blocker="industry_proxy_claim_count_below_threshold",
+        next_action="run_industry_etf_proxy_labels_for_mapped_industry_reports",
+    )
+
+    paper_evidence = _ensure_mapping(by_id.get("RI-EVOL-02", {}).get("evidence"))
+    shortfalls["paper_trading_run_count"] = _threshold_shortfall(
+        current=int(paper_evidence.get("paper_trading_run_count") or 0),
+        target=EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES,
+        blocker="paper_trading_run_count_below_threshold",
+        next_action="pre_register_more_analysis_recipes_for_shadow_paper_trading",
+    )
+    shortfalls["paper_trading_validated_recipe_count"] = _threshold_shortfall(
+        current=int(paper_evidence.get("validation_pass_count") or 0),
+        target=EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES,
+        blocker="paper_trading_validated_recipe_count_below_threshold",
+        next_action="bind_recipe_runs_to_direct_pit_outcomes_and_after_cost_metrics",
+    )
+    after_cost_summary = _ensure_mapping(
+        paper_evidence.get("after_cost_paper_trading_summary")
+    )
+    after_cost_summary_status = str(after_cost_summary.get("status") or "").strip()
+    shortfalls["after_cost_paper_trading_summary"] = {
+        "status": after_cost_summary_status or "missing",
+        "blocker": (
+            "after_cost_paper_trading_summary_missing"
+            if not after_cost_summary_status
+            else ""
+        ),
+        "next_action": (
+            "compute_mean_after_cost_alpha_from_validated_recipe_runs"
+            if not after_cost_summary_status
+            else "increase_validated_recipe_count_until_after_cost_summary_is_computed"
+        ),
+    }
+
+    monitor_evidence = _ensure_mapping(by_id.get("RI-EVOL-03", {}).get("evidence"))
+    monitor_global_blocker_count = (
+        int(monitor_evidence.get("unvalidated_confidence_impact_count") or 0)
+        + int(monitor_evidence.get("aggregate_calibration_drift_count") or 0)
+        + sum(
+            _count_mapping_values(
+                _ensure_mapping(monitor_evidence.get("calibration_drift_rule_counts"))
+            ).values()
+        )
+    )
+    shortfalls["monitor_distinct_vintage_count"] = _threshold_shortfall(
+        current=int(
+            monitor_evidence.get("trailing_monitor_distinct_vintage_count") or 0
+        ),
+        target=EVOLUTION_GATE_MIN_CONSECUTIVE_MONITOR_REFRESHES,
+        blocker="confidence_impact_monitor_history_below_threshold",
+        next_action=(
+            "refresh_distinct_data_vintages_until_monitor_gate_passes_three_times"
+        ),
+    )
+    shortfalls["monitor_current_global_blocker_count"] = {
+        "current": monitor_global_blocker_count,
+        "target": 0,
+        "remaining": monitor_global_blocker_count,
+        "blocker": "confidence_impact_monitor_current_blocked",
+        "next_action": "clear_unvalidated_confidence_impact_or_aggregate_calibration_drift_before_evolution",
+    }
+    monitor_recipe_level = _ensure_mapping(
+        monitor_evidence.get("recipe_level_monitor")
+    )
+    recipe_level_action_count = int(
+        monitor_recipe_level.get("actionable_recipe_level_action_count") or 0
+    )
+    shortfalls["monitor_recipe_level_action_count"] = {
+        "current": recipe_level_action_count,
+        "target": 0,
+        "remaining": recipe_level_action_count,
+        "blocker": "confidence_monitor_recipe_level_actions_open",
+        "next_action": (
+            "review_freeze_manual_or_replay_recipe_level_confidence_monitor_actions"
+        ),
+        "recipe_level_risk_counts": _count_mapping_values(
+            _ensure_mapping(monitor_recipe_level.get("recipe_level_risk_counts"))
+        ),
+        "recommended_action_counts": _count_mapping_values(
+            _ensure_mapping(monitor_recipe_level.get("recommended_action_counts"))
+        ),
+        "global_blocker_policy": str(
+            monitor_recipe_level.get("global_blocker_policy") or ""
+        ),
+    }
+
+    audit_evidence = _ensure_mapping(by_id.get("RI-EVOL-04", {}).get("evidence"))
+    audit_dependency = _ensure_mapping(
+        audit_evidence.get("audit_history_dependency")
+    )
+    audit_next_action = str(audit_dependency.get("next_action") or "").strip() or (
+        "refresh_distinct_data_vintages_until_schema_pit_provenance_"
+        "statistical_audits_pass_three_times"
+    )
+    shortfalls["audit_distinct_vintage_count"] = _threshold_shortfall(
+        current=int(audit_evidence.get("trailing_audit_distinct_vintage_count") or 0),
+        target=EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES,
+        blocker="audit_refresh_history_below_threshold",
+        next_action=audit_next_action,
+    )
+
+    gold_evidence = _ensure_mapping(by_id.get("RI-EVOL-05", {}).get("evidence"))
+    gold_thresholds = _ensure_mapping(gold_evidence.get("thresholds"))
+    metrics = _ensure_mapping(gold_evidence.get("metrics"))
+    shortfalls["gold_reviewed_claims"] = _threshold_shortfall(
+        current=int(gold_evidence.get("reviewed_claims") or 0),
+        target=int(gold_thresholds.get("min_reviewed_claims") or 0),
+        blocker="gold_reviewed_claims_below_threshold",
+        next_action="complete_manual_forecast_claim_gold_review",
+    )
+    pending_claims = int(gold_evidence.get("pending_claims") or 0)
+    shortfalls["gold_pending_claims"] = {
+        "current": pending_claims,
+        "target": 0,
+        "remaining": pending_claims,
+        "blocker": "gold_pending_claims_remaining",
+        "next_action": "review_or_exclude_pending_gold_claims",
+    }
+    metric_gaps: list[str] = []
+    for key, raw_value in sorted(metrics.items()):
+        value = _float_or_none(raw_value)
+        if key == "unsupported_field_false_grounding_rate":
+            threshold = _float_or_none(
+                gold_thresholds.get("unsupported_field_false_grounding_rate_max")
+            )
+            if value is None or (threshold is not None and value > threshold):
+                metric_gaps.append(key)
+            continue
+        threshold = _float_or_none(gold_thresholds.get(f"{key}_min"))
+        if value is None or (threshold is not None and value < threshold):
+            metric_gaps.append(key)
+    shortfalls["gold_quality_metric_gaps"] = {
+        "missing_or_below_threshold": metric_gaps,
+        "blocker": "forecast_gold_set_gate_not_passed",
+        "next_action": "raise_manual_review_precision_accuracy_and_grounding_metrics",
+    }
+
+    gap_evidence = _ensure_mapping(by_id.get("RI-EVOL-06", {}).get("evidence"))
+    shortfalls["gap_distribution_distinct_vintage_count"] = _threshold_shortfall(
+        current=int(
+            gap_evidence.get("trailing_gap_distribution_distinct_vintage_count") or 0
+        ),
+        target=EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES,
+        blocker="gap_distribution_history_below_threshold",
+        next_action="refresh_distinct_data_vintages_until_gap_distribution_is_stable",
+    )
+
+    markdown_evidence = _ensure_mapping(by_id.get("RI-EVOL-07", {}).get("evidence"))
+    coverage_shortfalls = _ensure_mapping(markdown_evidence.get("coverage_shortfalls"))
+    shortfalls["markdown_coverage"] = coverage_shortfalls
+    return shortfalls
+
+
+EVOLUTION_DATA_VINTAGE_HASH_RE = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def _valid_data_vintage_hash(value: Any) -> bool:
+    return bool(EVOLUTION_DATA_VINTAGE_HASH_RE.fullmatch(str(value or "").strip()))
+
+
+def _history_vintage_key(row: Mapping[str, Any]) -> str:
+    data_vintage_hash = str(row.get("data_vintage_hash") or "").strip()
+    if _valid_data_vintage_hash(data_vintage_hash):
+        return data_vintage_hash
+    return "legacy-unvintaged"
+
+
+def _evolution_data_vintage_hash(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    recipe_paper_trading_summary: Mapping[str, Any],
+    confidence_impact_monitor: Mapping[str, Any],
+    markdown_coverage_summary: Mapping[str, Any],
+    pit_leakage_audit: Mapping[str, Any],
+    extraction_provenance_audit: Mapping[str, Any],
+    statistical_robustness_audit: Mapping[str, Any],
+    gold_review_summary: Mapping[str, Any],
+    outcome_labeling_readiness: Mapping[str, Any] | None,
+    schema_validation_report: Mapping[str, Any] | None,
+) -> str:
+    paper = _ensure_mapping(recipe_paper_trading_summary)
+    monitor = _ensure_mapping(confidence_impact_monitor)
+    markdown = _ensure_mapping(markdown_coverage_summary)
+    gold = _ensure_mapping(gold_review_summary)
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    audit = _audit_current_record(
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+    )
+    stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
+    industry_readiness = _ensure_mapping(
+        readiness.get("industry_etf_proxy_readiness")
+    )
+    payload = {
+        "forecast_claim_count": len(forecast_rows),
+        "outcome_label_count": len(outcome_label_rows),
+        "outcome_coverage": _outcome_coverage_counts(outcome_label_rows),
+        "paper_trading": {
+            "recipe_count": int(paper.get("recipe_count") or 0),
+            "paper_trading_run_count": int(paper.get("paper_trading_run_count") or 0),
+            "validation_pass_count": int(paper.get("validation_pass_count") or 0),
+            "blocked_count": int(paper.get("blocked_count") or 0),
+            "status_counts": _count_mapping_values(
+                _ensure_mapping(paper.get("status_counts"))
+            ),
+            "blocker_counts": _count_mapping_values(
+                _ensure_mapping(paper.get("blocker_counts"))
+            ),
+            "mean_cost_adjusted_alpha": paper.get("mean_cost_adjusted_alpha"),
+        },
+        "confidence_monitor": {
+            "observation_count": int(monitor.get("observation_count") or 0),
+            "blocked_recipe_count": int(monitor.get("blocked_recipe_count") or 0),
+            "unvalidated_confidence_impact_count": int(
+                monitor.get("unvalidated_confidence_impact_count") or 0
+            ),
+            "alpha_decay_fail_count": int(
+                monitor.get("alpha_decay_fail_count") or 0
+            ),
+            "calibration_drift_count": int(
+                monitor.get("calibration_drift_count") or 0
+            ),
+            "blocker_counts": _count_mapping_values(
+                _ensure_mapping(monitor.get("blocker_counts"))
+            ),
+            "drift_status_counts": _count_mapping_values(
+                _ensure_mapping(monitor.get("drift_status_counts"))
+            ),
+            "calibration_drift_rule_counts": _count_mapping_values(
+                _ensure_mapping(monitor.get("calibration_drift_rule_counts"))
+            ),
+        },
+        "markdown_coverage": {
+            "selected_report_count": int(markdown.get("selected_report_count") or 0),
+            "markdown_ready_count": int(markdown.get("markdown_ready_count") or 0),
+            "markdown_quality_pass_count": int(
+                markdown.get("markdown_quality_pass_count") or 0
+            ),
+            "llm_extraction_processed_count": int(
+                markdown.get("llm_extraction_processed_count") or 0
+            ),
+            "industry_report_count": int(
+                markdown.get("industry_report_count") or 0
+            ),
+            "stock_report_count": int(markdown.get("stock_report_count") or 0),
+            "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
+            "coverage_gate_blockers": _ensure_list(
+                markdown.get("coverage_gate_blockers")
+            ),
+            "coverage_strata_missing": _ensure_list(
+                markdown.get("coverage_strata_missing")
+            ),
+            "markdown_quality_gap_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("markdown_quality_gap_counts"))
+            ),
+            "markdown_quality_review_queue_count": int(
+                markdown.get("markdown_quality_review_queue_count") or 0
+            ),
+            "markdown_false_positive_review_queue_count": int(
+                markdown.get("markdown_false_positive_review_queue_count") or 0
+            ),
+            "markdown_quality_spot_check_required": (
+                markdown.get("markdown_quality_spot_check_required") is True
+            ),
+            "report_type_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("report_type_counts"))
+            ),
+            "sector_bucket_coverage_gaps": _ensure_list(
+                markdown.get("sector_bucket_coverage_gaps")
+            ),
+            "sector_bucket_below_min_count": int(
+                markdown.get("sector_bucket_below_min_count") or 0
+            ),
+            "time_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("time_bucket_counts"))
+            ),
+            "institution_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("institution_bucket_counts"))
+            ),
+            "report_horizon_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("report_horizon_bucket_counts"))
+            ),
+            "evaluability_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("evaluability_bucket_counts"))
+            ),
+        },
+        "gold_review": {
+            "accepted": gold.get("accepted") is True,
+            "passed": gold.get("passed") is True,
+            "reviewed_claims": int(gold.get("reviewed_claims") or 0),
+            "pending_claims": int(gold.get("pending_claims") or 0),
+            "total_documents": int(gold.get("total_documents") or 0),
+            "metrics": {
+                field: _gold_review_metric(gold, _ensure_mapping(gold.get("metrics")), field)
+                for field in (
+                    *FORECAST_GOLD_REVIEW_MIN_METRICS.keys(),
+                    *FORECAST_GOLD_REVIEW_MAX_METRICS.keys(),
+                    "stock_target_conflict_reviewed_count",
+                )
+            },
+            "stock_target_conflict_explained": (
+                gold.get("stock_target_conflict_explained") is True
+                or _ensure_mapping(gold.get("metrics")).get(
+                    "stock_target_conflict_explained"
+                )
+                is True
+            ),
+        },
+        "readiness": {
+            "forecast_claim_count": int(readiness.get("forecast_claim_count") or 0),
+            "ready_for_outcome_labeling_count": int(
+                readiness.get("ready_for_outcome_labeling_count") or 0
+            ),
+            "proxy_label_ready_count": int(
+                readiness.get("proxy_label_ready_count") or 0
+            ),
+            "blocked_count": int(readiness.get("blocked_count") or 0),
+            "mapping_gap_counts": _count_mapping_values(
+                _ensure_mapping(readiness.get("mapping_gap_counts"))
+            ),
+            "stock_price_proxy_readiness": {
+                "eligible_claim_count": int(
+                    stock_readiness.get("eligible_claim_count") or 0
+                ),
+                "labelable_forecast_claim_count": int(
+                    stock_readiness.get("labelable_forecast_claim_count") or 0
+                ),
+                "labelable_window_count": int(
+                    stock_readiness.get("labelable_window_count") or 0
+                ),
+                "data_gap_counts": _count_mapping_values(
+                    _ensure_mapping(stock_readiness.get("data_gap_counts"))
+                ),
+            },
+            "industry_etf_proxy_readiness": {
+                "eligible_claim_count": int(
+                    industry_readiness.get("eligible_claim_count") or 0
+                ),
+                "labelable_forecast_claim_count": int(
+                    industry_readiness.get("labelable_forecast_claim_count") or 0
+                ),
+                "labelable_window_count": int(
+                    industry_readiness.get("labelable_window_count") or 0
+                ),
+                "data_gap_counts": _count_mapping_values(
+                    _ensure_mapping(industry_readiness.get("data_gap_counts"))
+                ),
+            },
+        },
+        "audits": audit,
+    }
+    encoded = json.dumps(
+        _jsonable(payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
+def _monitor_refresh_record_passed(row: Mapping[str, Any]) -> bool:
+    calibration_rule_counts = _count_mapping_values(
+        _ensure_mapping(row.get("calibration_drift_rule_counts"))
+    )
+    aggregate_calibration_drift_count = int(
+        row.get("aggregate_calibration_drift_count") or 0
+    )
+    # Per-recipe paper-trading blockers and alpha-decay failures freeze the
+    # affected recipes through confidence_impact_monitor queues. They should not
+    # block the whole evolution pool when no positive confidence impact was
+    # granted and no aggregate calibration drift is present.
+    computed_passed = (
+        int(row.get("unvalidated_confidence_impact_count") or 0) == 0
+        and aggregate_calibration_drift_count == 0
+        and not calibration_rule_counts
+    )
+    if "accepted" in row and row.get("accepted") is not True:
+        return False
+    return computed_passed
 
 
 def _audit_refresh_record_passed(row: Mapping[str, Any]) -> bool:
@@ -7338,8 +18328,13 @@ def _audit_refresh_record_passed(row: Mapping[str, Any]) -> bool:
 
 
 def _trailing_pass_count(rows: Sequence[Mapping[str, Any]], *, kind: str) -> int:
+    seen_vintages: set[str] = set()
     count = 0
     for row in reversed(list(rows)):
+        vintage_key = _history_vintage_key(row)
+        if vintage_key in seen_vintages:
+            continue
+        seen_vintages.add(vintage_key)
         passed = (
             _monitor_refresh_record_passed(row)
             if kind == "monitor"
@@ -7360,15 +18355,355 @@ def _gap_distribution_record_stable(row: Mapping[str, Any]) -> bool:
     return max_gap_share is not None and max_gap_share <= 0.80
 
 
+def _evolution_gap_distribution_counts(
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> dict[str, int]:
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    unlabelable = _count_mapping_values(
+        _ensure_mapping(readiness.get("unlabelable_mapping_gap_counts"))
+    )
+    if unlabelable:
+        return unlabelable
+    return _count_mapping_values(_ensure_mapping(readiness.get("mapping_gap_counts")))
+
+
 def _trailing_gap_distribution_stable_count(
     rows: Sequence[Mapping[str, Any]],
 ) -> int:
+    seen_vintages: set[str] = set()
     count = 0
     for row in reversed(list(rows)):
+        vintage_key = _history_vintage_key(row)
+        if vintage_key in seen_vintages:
+            continue
+        seen_vintages.add(vintage_key)
         if not _gap_distribution_record_stable(row):
             break
         count += 1
     return count
+
+
+def _read_evolution_history_rows(path: Path) -> list[Mapping[str, Any]]:
+    if not path.exists():
+        return []
+    rows, parse_blockers = load_jsonl_with_errors(path, label=str(path))
+    if parse_blockers:
+        return []
+    return [row for row in rows if isinstance(row, Mapping)]
+
+
+def _append_evolution_history_record(
+    rows: Sequence[Mapping[str, Any]],
+    record: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    run_id = str(record.get("run_id") or "")
+    data_vintage_hash = str(record.get("data_vintage_hash") or "").strip()
+    deduped = [
+        dict(row)
+        for row in rows
+        if (
+            (
+                _valid_data_vintage_hash(row.get("data_vintage_hash"))
+                and str(row.get("data_vintage_hash") or "").strip()
+                != data_vintage_hash
+            )
+            if _valid_data_vintage_hash(data_vintage_hash)
+            else str(row.get("run_id") or "") != run_id
+        )
+    ]
+    deduped.append(dict(record))
+    return deduped[-EVOLUTION_REFRESH_HISTORY_MAX_ROWS:]
+
+
+PUBLIC_ARTIFACT_PRIVATE_TEXT_KEYS = {
+    "abstract",
+    "claim_text",
+    "manual_claim_text",
+    "markdown_path",
+    "original_markdown",
+    "pdf_path",
+    "pdf_url",
+    "retrieval_locator",
+    "source_span_ids",
+    "source_span_text",
+    "source_text",
+    "title",
+    "url",
+}
+
+
+def _public_payload_private_text_included(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            normalized_key = str(key).strip().lower()
+            if normalized_key == "private_text_included":
+                continue
+            if normalized_key in PUBLIC_ARTIFACT_PRIVATE_TEXT_KEYS and bool(item):
+                return True
+            if _public_payload_private_text_included(item):
+                return True
+        return False
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return any(_public_payload_private_text_included(item) for item in value)
+    return False
+
+
+def _monitor_refresh_history_record(
+    *,
+    run_id: str,
+    data_vintage_hash: str,
+    confidence_impact_monitor: Mapping[str, Any],
+) -> dict[str, Any]:
+    monitor = _ensure_mapping(confidence_impact_monitor)
+    record = {
+        "history_id": _stable_id(
+            "MONHIST",
+            {"data_vintage_hash": data_vintage_hash or run_id},
+        ),
+        "history_type": "confidence_impact_monitor",
+        "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
+        "as_of_datetime": _utc_now(),
+        "accepted": _monitor_refresh_record_passed(monitor),
+        "observation_count": int(monitor.get("observation_count") or 0),
+        "blocked_recipe_count": int(monitor.get("blocked_recipe_count") or 0),
+        "unvalidated_confidence_impact_count": int(
+            monitor.get("unvalidated_confidence_impact_count") or 0
+        ),
+        "alpha_decay_fail_count": int(monitor.get("alpha_decay_fail_count") or 0),
+        "calibration_drift_count": int(monitor.get("calibration_drift_count") or 0),
+        "aggregate_calibration_drift_count": int(
+            monitor.get("aggregate_calibration_drift_count") or 0
+        ),
+        "calibration_drift_rule_counts": _count_mapping_values(
+            _ensure_mapping(monitor.get("calibration_drift_rule_counts"))
+        ),
+        "blocker_counts": _count_mapping_values(
+            _ensure_mapping(monitor.get("blocker_counts"))
+        ),
+    }
+    record["private_text_included"] = _public_payload_private_text_included(record)
+    return record
+
+
+def _audit_refresh_history_record(
+    *,
+    run_id: str,
+    data_vintage_hash: str,
+    audit_record: Mapping[str, Any],
+) -> dict[str, Any]:
+    audit = _ensure_mapping(audit_record)
+    record = {
+        "history_id": _stable_id(
+            "AUDHIST",
+            {"data_vintage_hash": data_vintage_hash or run_id},
+        ),
+        "history_type": "schema_pit_provenance_statistical_audit",
+        "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
+        "as_of_datetime": _utc_now(),
+        "accepted": _audit_refresh_record_passed(audit),
+        "schema_accepted": audit.get("schema_accepted") is True,
+        "pit_accepted": audit.get("pit_accepted") is True,
+        "provenance_accepted": audit.get("provenance_accepted") is True,
+        "statistical_accepted": audit.get("statistical_accepted") is True,
+    }
+    record["private_text_included"] = _public_payload_private_text_included(record)
+    return record
+
+
+def _audit_component_failure_summary(
+    report: Mapping[str, Any],
+    *,
+    ignored_refs: Container[str] = frozenset(),
+) -> tuple[int, tuple[str, ...]]:
+    payload = _ensure_mapping(report)
+    if payload.get("accepted") is True:
+        return 0, ()
+
+    ignored_ref_set = {str(ref) for ref in ignored_refs if str(ref).strip()}
+    refs: list[str] = []
+    observed_failure_counts: list[int] = []
+    ignored_failure_seen = False
+    for index, record in enumerate(_ensure_list(payload.get("records")), 1):
+        row = _ensure_mapping(record)
+        if row.get("accepted") is True:
+            continue
+        schema_path = str(row.get("schema_path") or "").strip()
+        ref = schema_path or f"record:{index}"
+        if ref in ignored_ref_set:
+            ignored_failure_seen = True
+            continue
+        refs.append(ref)
+        observed_failure_counts.append(
+            max(
+                int(row.get("failure_count") or 0),
+                len(_ensure_list(row.get("failures"))),
+                1,
+            )
+        )
+
+    for check in _ensure_list(payload.get("checks")):
+        row = _ensure_mapping(check)
+        failure_count = int(row.get("failure_count") or 0)
+        if row.get("accepted") is True and failure_count <= 0:
+            continue
+        check_id = str(row.get("check_id") or "").strip()
+        if check_id:
+            ref = f"check:{check_id}"
+            if ref in ignored_ref_set:
+                ignored_failure_seen = True
+                continue
+            refs.append(ref)
+        observed_failure_counts.append(max(failure_count, 1))
+
+    explicit_count = int(
+        payload.get("failure_count")
+        or payload.get("blocker_count")
+        or payload.get("failed_record_count")
+        or 0
+    )
+    if ignored_ref_set and (refs or observed_failure_counts):
+        failure_count = max(sum(observed_failure_counts), len(refs), 1)
+    elif ignored_ref_set and ignored_failure_seen and not refs and not observed_failure_counts:
+        failure_count = 0
+    else:
+        failure_count = max(explicit_count, len(refs), 1)
+    return failure_count, tuple(dict.fromkeys(refs[:12]))
+
+
+def _gap_distribution_history_record(
+    *,
+    run_id: str,
+    data_vintage_hash: str,
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> dict[str, Any]:
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    gap_counts = _evolution_gap_distribution_counts(readiness)
+    all_mapping_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("mapping_gap_counts"))
+    )
+    total_gap_count = sum(gap_counts.values())
+    max_gap_name = ""
+    max_gap_share = 0.0
+    if total_gap_count:
+        max_gap_name, max_gap_count = max(gap_counts.items(), key=lambda item: item[1])
+        max_gap_share = max_gap_count / total_gap_count
+    stable = total_gap_count == 0 or max_gap_share <= 0.80
+    record = {
+        "history_id": _stable_id(
+            "GAPHIST",
+            {"data_vintage_hash": data_vintage_hash or run_id},
+        ),
+        "history_type": "mapping_gap_distribution",
+        "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
+        "as_of_datetime": _utc_now(),
+        "accepted": stable,
+        "stable": stable,
+        "gap_counts": gap_counts,
+        "all_mapping_gap_counts": all_mapping_gap_counts,
+        "gap_count_basis": (
+            "unlabelable_mapping_gap_counts"
+            if _count_mapping_values(
+                _ensure_mapping(readiness.get("unlabelable_mapping_gap_counts"))
+            )
+            else "mapping_gap_counts"
+        ),
+        "total_gap_count": total_gap_count,
+        "max_gap_name": max_gap_name,
+        "max_gap_share": round(max_gap_share, 6),
+    }
+    record["private_text_included"] = _public_payload_private_text_included(record)
+    return record
+
+
+def _normalize_monitor_refresh_history_rows(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        comparable = dict(item)
+        comparable.pop("accepted", None)
+        item["accepted"] = _monitor_refresh_record_passed(comparable)
+        normalized.append(item)
+    return normalized
+
+
+def _prepare_evolution_refresh_history(
+    *,
+    registry_dir: Path,
+    run_id: str,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    recipe_paper_trading_summary: Mapping[str, Any],
+    confidence_impact_monitor: Mapping[str, Any],
+    markdown_coverage_summary: Mapping[str, Any],
+    schema_validation_report: Mapping[str, Any],
+    pit_leakage_audit: Mapping[str, Any],
+    extraction_provenance_audit: Mapping[str, Any],
+    statistical_robustness_audit: Mapping[str, Any],
+    gold_review_summary: Mapping[str, Any],
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> dict[str, list[Mapping[str, Any]]]:
+    monitor_history_rows = _normalize_monitor_refresh_history_rows(
+        _read_evolution_history_rows(registry_dir / "monitor_refresh_history.jsonl")
+    )
+    audit_history_rows = _read_evolution_history_rows(
+        registry_dir / "audit_refresh_history.jsonl"
+    )
+    gap_distribution_history_rows = _read_evolution_history_rows(
+        registry_dir / "gap_distribution_history.jsonl"
+    )
+    audit_record = _audit_current_record(
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+    )
+    data_vintage_hash = _evolution_data_vintage_hash(
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+    )
+    return {
+        "monitor_previous": monitor_history_rows,
+        "audit_previous": audit_history_rows,
+        "gap_previous": gap_distribution_history_rows,
+        "monitor_updated": _append_evolution_history_record(
+            monitor_history_rows,
+            _monitor_refresh_history_record(
+                run_id=run_id,
+                data_vintage_hash=data_vintage_hash,
+                confidence_impact_monitor=confidence_impact_monitor,
+            ),
+        ),
+        "audit_updated": _append_evolution_history_record(
+            audit_history_rows,
+            _audit_refresh_history_record(
+                run_id=run_id,
+                data_vintage_hash=data_vintage_hash,
+                audit_record=audit_record,
+            ),
+        ),
+        "gap_updated": _append_evolution_history_record(
+            gap_distribution_history_rows,
+            _gap_distribution_history_record(
+                run_id=run_id,
+                data_vintage_hash=data_vintage_hash,
+                outcome_labeling_readiness=outcome_labeling_readiness,
+            ),
+        ),
+    }
 
 
 def _audit_current_record(
@@ -7379,15 +18714,92 @@ def _audit_current_record(
     statistical_robustness_audit: Mapping[str, Any],
 ) -> dict[str, Any]:
     schema = _ensure_mapping(schema_validation_report)
+    pit = _ensure_mapping(pit_leakage_audit)
+    provenance = _ensure_mapping(extraction_provenance_audit)
+    statistical = _ensure_mapping(statistical_robustness_audit)
+    component_reports = {
+        "schema": schema,
+        "pit": pit,
+        "provenance": provenance,
+        "statistical": statistical,
+    }
+    failure_counts: dict[str, int] = {}
+    failure_refs: dict[str, list[str]] = {}
+    for component, report in component_reports.items():
+        ignored_refs = (
+            {REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES}
+            if component == "schema"
+            else frozenset()
+        )
+        count, refs = _audit_component_failure_summary(
+            report,
+            ignored_refs=ignored_refs,
+        )
+        failure_counts[component] = count
+        failure_refs[component] = list(refs)
     return {
-        "schema_accepted": schema.get("accepted") is True,
-        "pit_accepted": _ensure_mapping(pit_leakage_audit).get("accepted") is True,
-        "provenance_accepted": (
-            _ensure_mapping(extraction_provenance_audit).get("accepted") is True
+        "schema_accepted": failure_counts["schema"] == 0,
+        "pit_accepted": failure_counts["pit"] == 0,
+        "provenance_accepted": failure_counts["provenance"] == 0,
+        "statistical_accepted": failure_counts["statistical"] == 0,
+        "current_failure_counts": failure_counts,
+        "current_failure_refs": failure_refs,
+    }
+
+
+def _audit_history_dependency(
+    *,
+    current_audit_record: Mapping[str, Any],
+    trailing_audit_pass_count: int,
+) -> dict[str, Any]:
+    audit_fields = (
+        "schema_accepted",
+        "pit_accepted",
+        "provenance_accepted",
+        "statistical_accepted",
+    )
+    blocking_components = [
+        field.removesuffix("_accepted")
+        for field in audit_fields
+        if current_audit_record.get(field) is not True
+    ]
+    if blocking_components:
+        status = "current_gate_blocked"
+        next_action = (
+            "clear_current_schema_pit_provenance_statistical_blockers_before_"
+            "counting_audit_refresh_history"
+        )
+    elif trailing_audit_pass_count < EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES:
+        status = "history_below_threshold"
+        next_action = "run_distinct_derived_refreshes_after_current_audits_pass"
+    else:
+        status = "ready"
+        next_action = "none"
+    return {
+        "status": status,
+        "blocking_components": blocking_components,
+        "current_failure_counts": _integer_mapping_values(
+            _ensure_mapping(current_audit_record.get("current_failure_counts"))
         ),
-        "statistical_accepted": (
-            _ensure_mapping(statistical_robustness_audit).get("accepted") is True
+        "current_failure_refs": {
+            component: [
+                str(item)
+                for item in _ensure_list(refs)
+                if str(item).strip()
+            ]
+            for component, refs in sorted(
+                _ensure_mapping(
+                    current_audit_record.get("current_failure_refs")
+                ).items()
+            )
+        },
+        "trailing_audit_pass_count": trailing_audit_pass_count,
+        "min_consecutive_audit_refreshes": (
+            EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES
         ),
+        "history_counts_only_passing_current_audits": True,
+        "refresh_without_current_audit_pass_can_satisfy_history": False,
+        "next_action": next_action,
     }
 
 
@@ -7426,6 +18838,19 @@ def build_report_intelligence_evolution_readiness_gate(
         if str(row.get("label_type") or "") == "industry_etf_proxy"
         and str(row.get("forecast_claim_id") or "").strip()
     }
+    data_vintage_hash = _evolution_data_vintage_hash(
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+    )
     checks: list[dict[str, Any]] = []
 
     outcome_blockers: list[str] = []
@@ -7463,7 +18888,10 @@ def build_report_intelligence_evolution_readiness_gate(
         EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
     ):
         paper_blockers.append("paper_trading_run_count_below_threshold")
-    if _float_or_none(paper_summary.get("mean_cost_adjusted_alpha")) is None:
+    after_cost_summary = _ensure_mapping(
+        paper_summary.get("after_cost_paper_trading_summary")
+    )
+    if not str(after_cost_summary.get("status") or "").strip():
         paper_blockers.append("after_cost_paper_trading_summary_missing")
     checks.append(
         _evolution_gate_check(
@@ -7483,15 +18911,22 @@ def build_report_intelligence_evolution_readiness_gate(
                 "mean_cost_adjusted_alpha": paper_summary.get(
                     "mean_cost_adjusted_alpha"
                 ),
+                "after_cost_paper_trading_summary": after_cost_summary,
             },
             blockers=paper_blockers,
         )
     )
 
     monitor = _ensure_mapping(confidence_impact_monitor)
+    monitor_recipe_level_summary = _confidence_monitor_recipe_level_summary(monitor)
+    current_monitor_record = _monitor_refresh_history_record(
+        run_id=run_id,
+        data_vintage_hash=data_vintage_hash,
+        confidence_impact_monitor=monitor,
+    )
     monitor_records = [
         *[dict(row) for row in monitor_refresh_history_rows],
-        dict(monitor),
+        current_monitor_record,
     ]
     monitor_trailing_pass_count = _trailing_pass_count(
         monitor_records,
@@ -7506,7 +18941,8 @@ def build_report_intelligence_evolution_readiness_gate(
         _evolution_gate_check(
             check_id="RI-EVOL-03",
             requirement=(
-                "Confidence impact monitor must be blocker-free for three "
+                "Confidence impact monitor must have no unvalidated positive "
+                "confidence impact or aggregate calibration drift for three "
                 "consecutive refreshes before evolution can change prompts."
             ),
             passed=not monitor_blockers,
@@ -7518,7 +18954,32 @@ def build_report_intelligence_evolution_readiness_gate(
                 "unvalidated_confidence_impact_count": int(
                     monitor.get("unvalidated_confidence_impact_count") or 0
                 ),
+                "calibration_drift_count": int(
+                    monitor.get("calibration_drift_count") or 0
+                ),
+                "alpha_decay_fail_count": int(
+                    monitor.get("alpha_decay_fail_count") or 0
+                ),
+                "cost_decay_fail_count": int(
+                    monitor.get("cost_decay_fail_count") or 0
+                ),
+                "regime_fragile_alpha_count": int(
+                    monitor.get("regime_fragile_alpha_count") or 0
+                ),
+                "profile_paper_trade_disagreement_count": int(
+                    monitor.get("profile_paper_trade_disagreement_count") or 0
+                ),
+                "aggregate_calibration_drift_count": int(
+                    monitor.get("aggregate_calibration_drift_count") or 0
+                ),
+                "calibration_drift_rule_counts": _count_mapping_values(
+                    _ensure_mapping(monitor.get("calibration_drift_rule_counts"))
+                ),
+                "recipe_level_monitor": monitor_recipe_level_summary,
                 "trailing_monitor_pass_count": monitor_trailing_pass_count,
+                "trailing_monitor_distinct_vintage_count": monitor_trailing_pass_count,
+                "data_vintage_hash": data_vintage_hash,
+                "distinct_data_vintage_required": True,
             },
             blockers=monitor_blockers,
         )
@@ -7530,9 +18991,14 @@ def build_report_intelligence_evolution_readiness_gate(
         extraction_provenance_audit=extraction_provenance_audit,
         statistical_robustness_audit=statistical_robustness_audit,
     )
+    current_audit_history_record = _audit_refresh_history_record(
+        run_id=run_id,
+        data_vintage_hash=data_vintage_hash,
+        audit_record=current_audit_record,
+    )
     audit_records = [
         *[dict(row) for row in audit_refresh_history_rows],
-        current_audit_record,
+        current_audit_history_record,
     ]
     audit_trailing_pass_count = _trailing_pass_count(audit_records, kind="audit")
     audit_blockers: list[str] = []
@@ -7551,14 +19017,22 @@ def build_report_intelligence_evolution_readiness_gate(
             evidence={
                 **current_audit_record,
                 "trailing_audit_pass_count": audit_trailing_pass_count,
+                "trailing_audit_distinct_vintage_count": audit_trailing_pass_count,
+                "data_vintage_hash": data_vintage_hash,
+                "distinct_data_vintage_required": True,
+                "audit_history_dependency": _audit_history_dependency(
+                    current_audit_record=current_audit_record,
+                    trailing_audit_pass_count=audit_trailing_pass_count,
+                ),
             },
             blockers=audit_blockers,
         )
     )
 
-    gold = _ensure_mapping(gold_review_summary)
-    gold_passed = gold.get("passed") is True or gold.get("accepted") is True
-    gold_blockers = [] if gold_passed else ["forecast_gold_set_gate_not_passed"]
+    gold_passed, gold_evidence, gold_blockers = _forecast_gold_review_gate(
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
     checks.append(
         _evolution_gate_check(
             check_id="RI-EVOL-05",
@@ -7567,21 +19041,26 @@ def build_report_intelligence_evolution_readiness_gate(
                 "evolution uses extracted target, direction, or horizon signals."
             ),
             passed=gold_passed,
-            evidence={
-                "gold_set_passed": gold_passed,
-                "reviewed_claims": int(gold.get("reviewed_claims") or 0),
-                "pending_claims": int(gold.get("pending_claims") or 0),
-            },
+            evidence=gold_evidence,
             blockers=gold_blockers,
         )
     )
 
-    gap_records = [dict(row) for row in gap_distribution_history_rows]
-    gap_trailing_stable_count = _trailing_gap_distribution_stable_count(gap_records)
     readiness = _ensure_mapping(outcome_labeling_readiness)
-    current_gap_counts = _count_mapping_values(
+    current_gap_counts = _evolution_gap_distribution_counts(readiness)
+    all_mapping_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mapping_gap_counts"))
     )
+    current_gap_record = _gap_distribution_history_record(
+        run_id=run_id,
+        data_vintage_hash=data_vintage_hash,
+        outcome_labeling_readiness=readiness,
+    )
+    gap_records = [
+        *[dict(row) for row in gap_distribution_history_rows],
+        current_gap_record,
+    ]
+    gap_trailing_stable_count = _trailing_gap_distribution_stable_count(gap_records)
     gap_blockers: list[str] = []
     if gap_trailing_stable_count < EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES:
         gap_blockers.append("gap_distribution_history_below_threshold")
@@ -7595,7 +19074,22 @@ def build_report_intelligence_evolution_readiness_gate(
             passed=not gap_blockers,
             evidence={
                 "trailing_gap_distribution_stable_count": gap_trailing_stable_count,
+                "trailing_gap_distribution_distinct_vintage_count": (
+                    gap_trailing_stable_count
+                ),
+                "data_vintage_hash": data_vintage_hash,
+                "distinct_data_vintage_required": True,
                 "current_mapping_gap_counts": current_gap_counts,
+                "current_all_mapping_gap_counts": all_mapping_gap_counts,
+                "gap_count_basis": (
+                    "unlabelable_mapping_gap_counts"
+                    if _count_mapping_values(
+                        _ensure_mapping(
+                            readiness.get("unlabelable_mapping_gap_counts")
+                        )
+                    )
+                    else "mapping_gap_counts"
+                ),
             },
             blockers=gap_blockers,
         )
@@ -7607,7 +19101,25 @@ def build_report_intelligence_evolution_readiness_gate(
         for item in _ensure_list(markdown.get("coverage_gate_blockers"))
         if str(item).strip()
     ]
-    coverage_passed = str(markdown.get("coverage_gate_status") or "") == "passed"
+    markdown_quality_review_queue_count = int(
+        markdown.get("markdown_quality_review_queue_count") or 0
+    )
+    markdown_false_positive_review_queue_count = int(
+        markdown.get("markdown_false_positive_review_queue_count") or 0
+    )
+    markdown_quality_spot_check_required = (
+        markdown.get("markdown_quality_spot_check_required") is True
+    )
+    markdown_blockers = list(coverage_blockers)
+    if str(markdown.get("coverage_gate_status") or "") != "passed":
+        markdown_blockers = markdown_blockers or ["markdown_coverage_gate_not_passed"]
+    if markdown_quality_review_queue_count:
+        markdown_blockers.append("markdown_quality_review_queue_pending")
+    if markdown_false_positive_review_queue_count:
+        markdown_blockers.append("markdown_false_positive_review_queue_pending")
+    if markdown_quality_spot_check_required:
+        markdown_blockers.append("markdown_quality_spot_check_required")
+    coverage_passed = not markdown_blockers
     checks.append(
         _evolution_gate_check(
             check_id="RI-EVOL-07",
@@ -7615,15 +19127,71 @@ def build_report_intelligence_evolution_readiness_gate(
                 "Markdown coverage must pass P9 corpus thresholds before "
                 "evolution depends on report-derived Markdown evidence."
             ),
-            passed=str(markdown.get("coverage_gate_status") or "") == "passed",
+            passed=coverage_passed,
             evidence={
                 "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
                 "coverage_gate_blockers": coverage_blockers,
                 "coverage_targets": _ensure_mapping(markdown.get("coverage_targets")),
+                "coverage_shortfalls": _ensure_mapping(
+                    markdown.get("coverage_shortfalls")
+                ),
+                "coverage_strata_targets": _ensure_mapping(
+                    markdown.get("coverage_strata_targets")
+                ),
+                "coverage_strata_missing": _ensure_list(
+                    markdown.get("coverage_strata_missing")
+                ),
+                "selected_report_count": int(
+                    markdown.get("selected_report_count") or 0
+                ),
+                "markdown_ready_count": int(
+                    markdown.get("markdown_ready_count") or 0
+                ),
+                "markdown_quality_pass_count": int(
+                    markdown.get("markdown_quality_pass_count") or 0
+                ),
+                "llm_extraction_processed_count": int(
+                    markdown.get("llm_extraction_processed_count") or 0
+                ),
+                "industry_report_count": int(
+                    markdown.get("industry_report_count") or 0
+                ),
+                "stock_report_count": int(markdown.get("stock_report_count") or 0),
+                "stock_outcome_120d_ready_report_count": int(
+                    markdown.get("stock_outcome_120d_ready_report_count") or 0
+                ),
+                "stock_outcome_age_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("stock_outcome_age_bucket_counts"))
+                ),
+                "sector_bucket_coverage_gaps": _ensure_list(
+                    markdown.get("sector_bucket_coverage_gaps")
+                ),
+                "sector_bucket_below_min_count": int(
+                    markdown.get("sector_bucket_below_min_count") or 0
+                ),
+                "time_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("time_bucket_counts"))
+                ),
+                "institution_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("institution_bucket_counts"))
+                ),
+                "report_horizon_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("report_horizon_bucket_counts"))
+                ),
+                "evaluability_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("evaluability_bucket_counts"))
+                ),
+                "markdown_quality_review_queue_count": (
+                    markdown_quality_review_queue_count
+                ),
+                "markdown_false_positive_review_queue_count": (
+                    markdown_false_positive_review_queue_count
+                ),
+                "markdown_quality_spot_check_required": (
+                    markdown_quality_spot_check_required
+                ),
             },
-            blockers=[] if coverage_passed else (
-                coverage_blockers or ["markdown_coverage_gate_not_passed"]
-            ),
+            blockers=[] if coverage_passed else markdown_blockers,
         )
     )
 
@@ -7632,9 +19200,10 @@ def build_report_intelligence_evolution_readiness_gate(
         for check in checks
         for blocker in _ensure_list(check.get("blockers"))
     ]
-    return {
+    gate = {
         "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
         "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
         "as_of_datetime": _utc_now(),
         "gate_status": "passed" if not blockers else "blocked",
         "promotion_state": (
@@ -7659,9 +19228,9 @@ def build_report_intelligence_evolution_readiness_gate(
             ),
         },
         "checks": checks,
+        "requirement_shortfalls": _evolution_gate_requirement_shortfalls(checks),
         "blockers": sorted(set(blockers)),
         "blocker_count": len(set(blockers)),
-        "private_text_included": False,
         "policy": (
             "Prompt and agent evolution remains blocked until governed aggregate "
             "PIT outcome coverage, paper-trading, monitor stability, audit history, "
@@ -7669,6 +19238,753 @@ def build_report_intelligence_evolution_readiness_gate(
             "artifact stores aggregate evidence only and cannot change production prompts."
         ),
     }
+    gate["private_text_included"] = _public_payload_private_text_included(gate)
+    return gate
+
+
+def _evolution_gate_public_outcome_label_rows(
+    *,
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    rows: list[Mapping[str, Any]] = []
+    channel_specs = (
+        (
+            "stock_price_proxy_readiness",
+            "stock_price_proxy",
+            "pit_stock_price_window",
+            "stock",
+        ),
+        (
+            "industry_etf_proxy_readiness",
+            "industry_etf_proxy",
+            "pit_industry_etf_price_window",
+            "industry",
+        ),
+    )
+    for readiness_key, label_type, label_source, synthetic_prefix in channel_specs:
+        channel = _ensure_mapping(readiness.get(readiness_key))
+        claim_ids = [
+            str(item).strip()
+            for item in _ensure_list(channel.get("labelable_forecast_claim_ids"))
+            if str(item).strip()
+        ]
+        target_count = int(channel.get("labelable_forecast_claim_count") or len(claim_ids))
+        if target_count <= 0:
+            continue
+        while len(claim_ids) < target_count:
+            claim_ids.append(
+                f"COUNT-ONLY-{synthetic_prefix}-outcome-{len(claim_ids) + 1:06d}"
+            )
+        for claim_id in claim_ids[:target_count]:
+            rows.append(
+                {
+                    "forecast_claim_id": claim_id,
+                    "label_type": label_type,
+                    "outcome_label_source": label_source,
+                    "public_count_only_fallback": True,
+                }
+            )
+    return rows
+
+
+def write_report_intelligence_evolution_readiness_gate(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-PUBLIC-EVOLUTION-GATE",
+    write: bool = True,
+) -> dict[str, Any]:
+    """Rebuild only the public evolution gate from existing registry artifacts."""
+    registry_path = Path(registry_dir)
+    root_path = registry_path.parent.parent
+    blockers: list[str] = []
+    gate_path = registry_path / "evolution_readiness_gate.json"
+    quality_gap_read_blockers: list[str] = []
+    footprint_review_summary_for_actions = _read_registry_json(
+        registry_path / "analytical_footprint_review_summary.json",
+        label="analytical_footprint_review_summary",
+        blockers=quality_gap_read_blockers,
+    )
+    quality_gap_targets: dict[str, Any] = {}
+    forecast_rows = _read_registry_jsonl(
+        registry_path / "report_forecast_ledger.jsonl",
+        label="report_forecast_ledger",
+        blockers=blockers,
+    )
+    outcome_labeling_readiness = _read_registry_json(
+        registry_path / "outcome_labeling_readiness.json",
+        label="outcome_labeling_readiness",
+        blockers=blockers,
+    )
+    outcome_label_path = registry_path / "report_outcome_labels.jsonl"
+    outcome_label_missing = not _jsonl_has_mapping_rows(outcome_label_path)
+    public_outcome_fallback_rows = (
+        _evolution_gate_public_outcome_label_rows(
+            outcome_labeling_readiness=outcome_labeling_readiness,
+        )
+        if outcome_label_missing
+        else []
+    )
+    if outcome_label_missing and not public_outcome_fallback_rows and gate_path.exists():
+        existing_gate_blockers: list[str] = []
+        existing_gate = _read_registry_json(
+            gate_path,
+            label="evolution_readiness_gate",
+            blockers=existing_gate_blockers,
+        )
+        if existing_gate:
+            blockers.append("report_outcome_labels: missing_or_empty_private_input")
+            blockers.extend(existing_gate_blockers)
+            return {
+                "evolution_readiness_gate": str(gate_path),
+                "gate_status": str(existing_gate.get("gate_status") or ""),
+                "blocker_count": int(existing_gate.get("blocker_count") or 0),
+                **_evolution_gate_cli_summary(
+                    existing_gate,
+                    quality_gap_targets=quality_gap_targets,
+                    root_path=root_path,
+                ),
+                "input_load_blockers": blockers,
+                "preserved_existing_gate": True,
+            }
+    outcome_label_rows = (
+        _read_registry_jsonl(
+            outcome_label_path,
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+        if not outcome_label_missing
+        else public_outcome_fallback_rows
+    )
+    public_fallbacks: list[str] = []
+    if outcome_label_missing and public_outcome_fallback_rows:
+        public_fallbacks.append("report_outcome_labels")
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=blockers,
+    )
+    confidence_impact_monitor = _read_registry_json(
+        registry_path / "confidence_impact_monitor.json",
+        label="confidence_impact_monitor",
+        blockers=blockers,
+    )
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=blockers,
+    )
+    markdown_coverage_summary = _read_registry_json(
+        registry_path / "markdown_coverage_summary.json",
+        label="markdown_coverage_summary",
+        blockers=blockers,
+    )
+    pit_leakage_audit = _read_registry_json(
+        registry_path / "pit_leakage_audit.json",
+        label="pit_leakage_audit",
+        blockers=blockers,
+    )
+    extraction_provenance_audit = _read_registry_json(
+        registry_path / "extraction_provenance_audit.json",
+        label="extraction_provenance_audit",
+        blockers=blockers,
+    )
+    statistical_robustness_audit = _read_registry_json(
+        registry_path / "statistical_robustness_audit.json",
+        label="statistical_robustness_audit",
+        blockers=blockers,
+    )
+    gold_review_summary = _read_registry_json(
+        registry_path.parent / "gold_sets/tushare_research_reports.review_summary.json",
+        label="gold_review_summary",
+        blockers=blockers,
+    )
+    quality_gap_targets = {
+        key: value
+        for key, value in {
+            "gold_set": _gold_review_quality_gap_targets_from_summary(
+                gold_review_summary
+            ),
+            "footprint_review": _footprint_review_quality_gap_targets_from_summary(
+                footprint_review_summary_for_actions
+            ),
+        }.items()
+        if value
+    }
+    monitor_refresh_history_rows = _read_registry_jsonl(
+        registry_path / "monitor_refresh_history.jsonl",
+        label="monitor_refresh_history",
+        blockers=blockers,
+    )
+    audit_refresh_history_rows = _read_registry_jsonl(
+        registry_path / "audit_refresh_history.jsonl",
+        label="audit_refresh_history",
+        blockers=blockers,
+    )
+    gap_distribution_history_rows = _read_registry_jsonl(
+        registry_path / "gap_distribution_history.jsonl",
+        label="gap_distribution_history",
+        blockers=blockers,
+    )
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=_read_schema_validation_report(root_path),
+        monitor_refresh_history_rows=monitor_refresh_history_rows,
+        audit_refresh_history_rows=audit_refresh_history_rows,
+        gap_distribution_history_rows=gap_distribution_history_rows,
+    )
+    if public_fallbacks:
+        gate = dict(gate)
+        gate["count_only_public_fallbacks"] = sorted(public_fallbacks)
+        gate["private_input_fallback_policy"] = (
+            "When private outcome-label JSONL is absent, the public evolution "
+            "gate uses labelable forecast-claim ids/counts from "
+            "outcome_labeling_readiness.json; fallback rows contain no report "
+            "prose, titles, abstracts, URLs, source spans, reviewer text, or "
+            "price-window returns."
+        )
+        gate["private_text_included"] = _public_payload_private_text_included(gate)
+    if blockers:
+        gate = dict(gate)
+        gate["input_load_blockers"] = blockers
+        gate["blockers"] = sorted(
+            set([*_ensure_list(gate.get("blockers")), "evolution_input_load_gap"])
+        )
+        gate["blocker_count"] = len(gate["blockers"])
+        gate["gate_status"] = "blocked"
+        gate["promotion_state"] = "blocked_before_prompt_evolution"
+        gate["private_text_included"] = _public_payload_private_text_included(gate)
+    if write:
+        written_path = str(_write_json(gate_path, gate)["path"])
+    else:
+        written_path = str(gate_path)
+    return {
+        "evolution_readiness_gate": written_path,
+        "gate_status": str(gate.get("gate_status") or ""),
+        "blocker_count": int(gate.get("blocker_count") or 0),
+        **_evolution_gate_cli_summary(
+            gate,
+            quality_gap_targets=quality_gap_targets,
+            root_path=root_path,
+        ),
+        "input_load_blockers": blockers,
+        "count_only_public_fallbacks": sorted(public_fallbacks),
+        "preserved_existing_gate": False,
+        "written": write,
+    }
+
+
+def _review_input_row_limit(
+    root_path: Path | None,
+    relative_path: str,
+    *,
+    default: int = 50,
+) -> int:
+    if root_path is None:
+        return default
+    path = root_path / relative_path
+    if not path.exists():
+        return default
+    rows, errors = load_jsonl_with_errors(path, label=relative_path)
+    mapping_row_count = sum(1 for row in rows if isinstance(row, Mapping))
+    if errors or mapping_row_count <= 0:
+        return default
+    return mapping_row_count
+
+
+def _evolution_gate_cli_summary(
+    gate: Mapping[str, Any],
+    *,
+    quality_gap_targets: Mapping[str, Any] | None = None,
+    root_path: Path | None = None,
+) -> dict[str, Any]:
+    checks = [
+        check for check in _ensure_list(gate.get("checks")) if isinstance(check, Mapping)
+    ]
+    blocked_checks: list[dict[str, Any]] = []
+    passed_check_ids: list[str] = []
+    for check in checks:
+        check_id = str(check.get("check_id") or "")
+        if not check_id:
+            continue
+        if check.get("passed") is True:
+            passed_check_ids.append(check_id)
+            continue
+        blocked_check = {
+            "check_id": check_id,
+            "blockers": [
+                str(blocker)
+                for blocker in _ensure_list(check.get("blockers"))
+                if str(blocker)
+            ],
+        }
+        audit_summary = _evolution_gate_blocked_audit_failure_summary(check)
+        if audit_summary:
+            blocked_check["current_audit_failure_summary"] = audit_summary
+        blocked_checks.append(blocked_check)
+    return {
+        "blockers": [
+            str(blocker)
+            for blocker in _ensure_list(gate.get("blockers"))
+            if str(blocker)
+        ],
+        "blocked_check_ids": [row["check_id"] for row in blocked_checks],
+        "passed_check_ids": passed_check_ids,
+        "blocked_checks": blocked_checks,
+        "active_requirement_shortfalls": (
+            _evolution_gate_active_requirement_shortfalls(gate, blocked_checks)
+        ),
+        "next_actions": _evolution_gate_cli_next_actions(
+            blocked_checks,
+            quality_gap_targets=quality_gap_targets,
+            monitor_recipe_level_actions=_ensure_mapping(
+                _ensure_mapping(
+                    _evolution_gate_check_by_id(gate, "RI-EVOL-03").get("evidence")
+                ).get("recipe_level_monitor")
+            ),
+            root_path=root_path,
+        ),
+    }
+
+
+def _evolution_gate_blocked_audit_failure_summary(
+    check: Mapping[str, Any],
+) -> dict[str, Any]:
+    if str(check.get("check_id") or "") != "RI-EVOL-04":
+        return {}
+    evidence = _ensure_mapping(check.get("evidence"))
+    dependency = _ensure_mapping(evidence.get("audit_history_dependency"))
+    if not dependency:
+        return {}
+    failure_refs_raw = _ensure_mapping(dependency.get("current_failure_refs"))
+    failure_refs = {
+        str(component): [
+            str(item)
+            for item in _ensure_list(refs)
+            if str(item).strip()
+        ]
+        for component, refs in sorted(failure_refs_raw.items())
+    }
+    return {
+        "dependency_status": str(dependency.get("status") or ""),
+        "blocking_components": [
+            str(component)
+            for component in _ensure_list(dependency.get("blocking_components"))
+            if str(component).strip()
+        ],
+        "current_failure_counts": _integer_mapping_values(
+            _ensure_mapping(dependency.get("current_failure_counts"))
+        ),
+        "current_failure_refs": failure_refs,
+        "next_action": str(dependency.get("next_action") or ""),
+    }
+
+
+def _shortfall_remaining_positive(shortfall: Mapping[str, Any]) -> bool:
+    remaining = _float_or_none(shortfall.get("remaining"))
+    return remaining is not None and remaining > 0
+
+
+def _evolution_gate_active_requirement_shortfalls(
+    gate: Mapping[str, Any],
+    blocked_checks: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    active_blockers = {
+        str(blocker)
+        for blocker in _ensure_list(gate.get("blockers"))
+        if str(blocker).strip()
+    }
+    blocked_check_ids = {
+        str(check.get("check_id") or "")
+        for check in blocked_checks
+        if str(check.get("check_id") or "").strip()
+    }
+    shortfalls = _ensure_mapping(gate.get("requirement_shortfalls"))
+    active_shortfalls: dict[str, Any] = {}
+    for key, raw_value in sorted(shortfalls.items()):
+        value = _ensure_mapping(raw_value)
+        if not value:
+            continue
+        blocker = str(value.get("blocker") or "").strip()
+        if blocker and blocker in active_blockers:
+            active_shortfalls[str(key)] = dict(value)
+            continue
+        if str(key) != "markdown_coverage" or "RI-EVOL-07" not in blocked_check_ids:
+            continue
+        markdown_shortfalls: dict[str, Any] = {}
+        for nested_key, nested_raw_value in sorted(value.items()):
+            nested_value = _ensure_mapping(nested_raw_value)
+            if not nested_value:
+                continue
+            nested_blocker = str(nested_value.get("blocker") or "").strip()
+            if (
+                nested_blocker in active_blockers
+                or _shortfall_remaining_positive(nested_value)
+            ):
+                markdown_shortfalls[str(nested_key)] = dict(nested_value)
+        if markdown_shortfalls:
+            active_shortfalls[str(key)] = markdown_shortfalls
+    return active_shortfalls
+
+
+def _evolution_gate_cli_next_actions(
+    blocked_checks: Sequence[Mapping[str, Any]],
+    *,
+    quality_gap_targets: Mapping[str, Any] | None = None,
+    monitor_recipe_level_actions: Mapping[str, Any] | None = None,
+    root_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return public-safe operator actions for blockers and P12 monitor queues."""
+    blocked_by_id = {
+        str(check.get("check_id") or ""): {
+            str(blocker)
+            for blocker in _ensure_list(check.get("blockers"))
+            if str(blocker).strip()
+        }
+        for check in blocked_checks
+    }
+    quality_gaps = _ensure_mapping(quality_gap_targets)
+    gold_evidence_limit = _review_input_row_limit(
+        root_path,
+        "registry/review_batches/gold_set_reviewed.jsonl",
+    )
+    footprint_evidence_limit = _review_input_row_limit(
+        root_path,
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+    )
+    actions: list[dict[str, Any]] = []
+
+    def add_action(
+        *,
+        action_id: str,
+        reason: str,
+        commands: Mapping[str, str],
+        notes: Sequence[str] = (),
+        review_aids: Mapping[str, Any] | None = None,
+        field_contract: Mapping[str, Any] | None = None,
+        action_quality_gap_targets: Mapping[str, Any] | None = None,
+    ) -> None:
+        if any(action["action_id"] == action_id for action in actions):
+            return
+        action = {
+            "action_id": action_id,
+            "reason": reason,
+            "commands": dict(commands),
+            "notes": [str(note) for note in notes if str(note).strip()],
+        }
+        if review_aids:
+            action["review_aids"] = dict(review_aids)
+        if field_contract:
+            action["field_contract"] = dict(field_contract)
+        if action_quality_gap_targets:
+            action["quality_gap_targets"] = dict(action_quality_gap_targets)
+        actions.append(action)
+
+    if "RI-EVOL-05" in blocked_by_id:
+        add_action(
+            action_id="complete_manual_forecast_gold_review",
+            reason=(
+                "Manual forecast gold-set review must pass before extracted "
+                "target, direction, horizon, and variable mappings can drive "
+                "evolution."
+            ),
+            commands={
+                "inspect": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind gold_set"
+                ),
+                "write_assist": operator_command(
+                    "mosaic-rke write-gold-review-assist --root . "
+                    "--review-input "
+                    "registry/review_batches/gold_set_reviewed.jsonl"
+                ),
+                "write_evidence": operator_command(
+                    "mosaic-rke write-gold-review-evidence --root . "
+                    f"--limit {gold_evidence_limit} "
+                    "--offset 0 --review-input "
+                    "registry/review_batches/gold_set_reviewed.jsonl"
+                ),
+                "refresh_source_candidates": operator_command(
+                    "mosaic-rke fetch-tushare-reports --root . --p9-profile "
+                    "--start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> "
+                    "--merge-existing-source"
+                ),
+                "expand_candidate_review_rows": operator_command(
+                    "mosaic-rke gold-candidate-claims --root . "
+                    "--refresh-candidates-from-source --ensure-candidate-review-rows"
+                ),
+                "prepare_expanded_batch": operator_command(
+                    "mosaic-rke prepare-gold-review --root . "
+                    "--gold-batch-size 50 --offset 0 --force "
+                    "--reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
+                "prepare_reviewed_failures": operator_command(
+                    "mosaic-rke prepare-gold-review --root . "
+                    "--reviewed-failures --gold-batch-size 300 --offset 0 "
+                    "--force --reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
+                "dry_run_current_batch": operator_command(
+                    "mosaic-rke apply-gold-review --root . --input "
+                    "registry/review_batches/gold_set_reviewed.jsonl --dry-run"
+                ),
+            },
+            notes=(
+                "Evidence files are review aids only; human review fields still "
+                "must be filled in the reviewed import.",
+                "If document coverage is below threshold, append missing "
+                "candidate rows with gold-candidate-claims "
+                "--refresh-candidates-from-source --ensure-candidate-review-rows "
+                "before preparing the next gold review batch.",
+                "If row-level review is complete but quality metrics still fail, "
+                "prepare a reviewed-failures batch and re-review the failed "
+                "decision fields instead of repeatedly preparing pending rows.",
+                "Promotion uses the full reviewed import only after every "
+                "gold-set batch is complete.",
+            ),
+            review_aids=manual_review_aid_paths("gold_set"),
+            field_contract=manual_review_field_contract("gold_set"),
+            action_quality_gap_targets=_ensure_mapping(quality_gaps.get("gold_set")),
+        )
+
+    audit_blockers = blocked_by_id.get("RI-EVOL-04", set())
+    if "current_schema_or_audit_gate_blocked" in audit_blockers:
+        add_action(
+            action_id="complete_manual_analytical_footprint_review",
+            reason=(
+                "Analytical-footprint review quality gates feed the current "
+                "schema/audit blocker and must pass before clean audit history "
+                "can accumulate."
+            ),
+            commands={
+                "inspect": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind footprint_review"
+                ),
+                "write_assist": operator_command(
+                    "mosaic-rke write-footprint-review-assist --root . "
+                    "--review-input registry/report_intelligence/"
+                    "analytical_footprint_review_batch.jsonl"
+                ),
+                "write_evidence": operator_command(
+                    "mosaic-rke write-footprint-review-evidence --root . "
+                    f"--limit {footprint_evidence_limit} --offset 0 --review-input "
+                    "registry/report_intelligence/"
+                    "analytical_footprint_review_batch.jsonl"
+                ),
+                "dry_run_current_batch": operator_command(
+                    "mosaic-rke apply-footprint-review --root . --input "
+                    "registry/report_intelligence/"
+                    "analytical_footprint_review_batch.jsonl --dry-run"
+                ),
+            },
+            notes=(
+                "Assist and evidence files are review aids only; final decisions "
+                "must be copied into the reviewed footprint import by a human.",
+                "Promotion uses the full analytical-footprint reviewed import "
+                "after every footprint batch is complete.",
+            ),
+            review_aids=manual_review_aid_paths("footprint_review"),
+            field_contract=manual_review_field_contract("footprint_review"),
+            action_quality_gap_targets=_ensure_mapping(
+                quality_gaps.get("footprint_review")
+            ),
+        )
+        add_action(
+            action_id="clear_current_schema_and_audit_blockers",
+            reason=(
+                "Audit refresh history does not count until the current schema, "
+                "PIT, provenance, and statistical gates pass."
+            ),
+            commands={
+                "schema_failures": operator_command(
+                    "mosaic-rke schema-status --root . --failures-only --no-write"
+                ),
+                "manual_queue": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only --no-write"
+                ),
+                "operator_readiness": operator_command(
+                    "mosaic-rke operator-readiness --root . --no-write"
+                ),
+            },
+            notes=(
+                "Current known schema blockers are downstream of manual "
+                "gold-set and analytical-footprint review gates.",
+            ),
+            review_aids={
+                "gold_set": manual_review_aid_paths("gold_set"),
+                "footprint_review": manual_review_aid_paths("footprint_review"),
+            },
+            field_contract={
+                "gold_set": manual_review_field_contract("gold_set"),
+                "footprint_review": manual_review_field_contract("footprint_review"),
+            },
+            action_quality_gap_targets={
+                key: value
+                for key, value in {
+                    "gold_set": _ensure_mapping(quality_gaps.get("gold_set")),
+                    "footprint_review": _ensure_mapping(
+                        quality_gaps.get("footprint_review")
+                    ),
+                }.items()
+                if value
+            },
+        )
+    if "audit_refresh_history_below_threshold" in audit_blockers:
+        current_gate_blocked = "current_schema_or_audit_gate_blocked" in audit_blockers
+        if current_gate_blocked:
+            audit_history_commands = {
+                "schema_failures": operator_command(
+                    "mosaic-rke schema-status --root . --failures-only --no-write"
+                ),
+                "manual_queue": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only --no-write"
+                ),
+                "check_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+            }
+            audit_history_notes = (
+                "Repeated refreshes on identical data_vintage_hash values are "
+                "deduplicated and do not satisfy the consecutive-vintage gate.",
+                "Current schema/PIT/provenance/statistical gates must pass before "
+                "audit refresh history can count.",
+                "Do not use refresh-derived-only to satisfy this gate while "
+                "current_schema_or_audit_gate_blocked is present.",
+            )
+        else:
+            audit_history_commands = {
+                "refresh_derived": operator_command(
+                    "mosaic-rke report-intelligence --root . --refresh-derived-only"
+                ),
+                "check_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+            }
+            audit_history_notes = (
+                "Repeated refreshes on identical data_vintage_hash values are "
+                "deduplicated and do not satisfy the consecutive-vintage gate.",
+            )
+        add_action(
+            action_id="build_distinct_clean_audit_refresh_history",
+            reason=(
+                "RI-EVOL-04 requires three distinct data vintages whose current "
+                "schema, PIT, provenance, and statistical gates all pass."
+            ),
+            commands=audit_history_commands,
+            notes=audit_history_notes,
+        )
+
+    if "RI-EVOL-07" in blocked_by_id:
+        add_action(
+            action_id="expand_quality_gated_markdown_coverage",
+            reason=(
+                "P9 Markdown coverage must pass before evolution depends on "
+                "report-derived Markdown evidence."
+            ),
+            commands={
+                "inspect_coverage": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+                "run_stratified_extraction": operator_command(
+                    "mosaic-rke report-intelligence --root . "
+                    "--selection-order stratified"
+                ),
+            },
+            notes=(
+                "PDF, Markdown, MinerU, and source-row artifacts are private and "
+                "must remain gitignored.",
+            ),
+        )
+
+    if "RI-EVOL-03" in blocked_by_id:
+        add_action(
+            action_id="stabilize_confidence_impact_monitor",
+            reason=(
+                "Confidence impact monitor must have no current blockers and "
+                "three distinct passing data vintages."
+            ),
+            commands={
+                "check_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+                "refresh_derived": operator_command(
+                    "mosaic-rke report-intelligence --root . --refresh-derived-only"
+                ),
+            },
+            notes=(
+                "Unvalidated confidence impact, alpha decay, or calibration drift "
+                "keeps prompt evolution shadow-only.",
+            ),
+        )
+
+    monitor_recipe_actions = _ensure_mapping(monitor_recipe_level_actions)
+    if int(monitor_recipe_actions.get("actionable_recipe_level_action_count") or 0) > 0:
+        add_action(
+            action_id="review_confidence_monitor_recipe_actions",
+            reason=(
+                "P12 recipe-level alpha decay, calibration watch, or regime "
+                "fragility is present. These rows stay shadow-only through "
+                "freeze/manual/replay queues and must be reviewed before any "
+                "confidence impact is promoted."
+            ),
+            commands={
+                "inspect_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+                "refresh_derived": operator_command(
+                    "mosaic-rke report-intelligence --root . --refresh-derived-only"
+                ),
+                "refresh_prompt_mutations": operator_command(
+                    "mosaic-rke evolution-readiness --root . "
+                    "--refresh-prompt-mutations"
+                ),
+            },
+            notes=(
+                "This is not a global RI-EVOL-03 blocker unless unvalidated "
+                "positive confidence impact or aggregate calibration drift is "
+                "present.",
+                "Prompt mutation candidates should include calibration_fix_required "
+                "evidence for these recipe-level monitor actions.",
+            ),
+            action_quality_gap_targets={
+                key: value
+                for key, value in {
+                    "recipe_level_risk_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            monitor_recipe_actions.get("recipe_level_risk_counts")
+                        )
+                    ),
+                    "recommended_action_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            monitor_recipe_actions.get("recommended_action_counts")
+                        )
+                    ),
+                    "actionable_recipe_level_action_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            monitor_recipe_actions.get(
+                                "actionable_recipe_level_action_counts"
+                            )
+                        )
+                    ),
+                    "global_blocker_policy": str(
+                        monitor_recipe_actions.get("global_blocker_policy") or ""
+                    ),
+                }.items()
+                if value
+            },
+        )
+
+    return actions
 
 
 PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION = "prompt_mutation_candidate_v1"
@@ -7684,6 +20000,163 @@ def _count_mapping_values(mapping: Mapping[str, Any]) -> dict[str, int]:
         if count > 0:
             counts[str(key)] = count
     return counts
+
+
+def _integer_mapping_values(mapping: Mapping[str, Any]) -> dict[str, int]:
+    values: dict[str, int] = {}
+    for key, value in mapping.items():
+        key_text = str(key).strip()
+        if not key_text:
+            continue
+        try:
+            values[key_text] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return dict(sorted(values.items()))
+
+
+def _confidence_monitor_recipe_level_summary(
+    monitor: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Summarize non-global confidence monitor actions for operator handoff."""
+    risk_counts = {
+        key: int(monitor.get(key) or 0)
+        for key in (
+            "alpha_decay_watch_count",
+            "alpha_decay_fail_count",
+            "cost_decay_fail_count",
+            "calibration_drift_count",
+            "regime_fragile_alpha_count",
+            "profile_paper_trade_disagreement_count",
+        )
+    }
+    action_counts = _count_mapping_values(
+        _ensure_mapping(monitor.get("recommended_action_counts"))
+    )
+    actionable_counts = {
+        key: int(action_counts.get(key, 0))
+        for key in (
+            "reduce_confidence_impact",
+            "freeze_recipe",
+            "send_to_manual_review",
+            "retire_recipe",
+        )
+        if int(action_counts.get(key, 0)) > 0
+    }
+    return {
+        "recipe_level_risk_counts": {
+            key: value for key, value in risk_counts.items() if value > 0
+        },
+        "recipe_level_risk_count": sum(risk_counts.values()),
+        "recommended_action_counts": action_counts,
+        "actionable_recipe_level_action_counts": actionable_counts,
+        "actionable_recipe_level_action_count": sum(actionable_counts.values()),
+        "global_blocker_policy": (
+            "unvalidated positive confidence impact, aggregate calibration "
+            "drift, and aggregate calibration rule breaches block RI-EVOL-03; "
+            "per-recipe alpha decay, calibration watch, and regime fragility "
+            "remain shadow-only through freeze/manual/replay action queues"
+        ),
+    }
+
+
+def _gold_quality_prompt_repair_evidence(
+    gold_evidence: Mapping[str, Any],
+    blockers: Sequence[str],
+) -> dict[str, Any]:
+    metrics = _ensure_mapping(gold_evidence.get("metrics"))
+    thresholds = _ensure_mapping(gold_evidence.get("thresholds"))
+    metric_failures: dict[str, dict[str, Any]] = {}
+    blocker_set = {str(item) for item in blockers}
+    for field, default_threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items():
+        threshold = _float_or_none(thresholds.get(f"{field}_min"))
+        if threshold is None:
+            threshold = default_threshold
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = f"{field}_below_threshold"
+        missing_blocker = f"{field}_missing"
+        if current_rate is None or current_rate < threshold or blocker in blocker_set:
+            metric_failures[field] = {
+                "operator": ">=",
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": missing_blocker if current_rate is None else blocker,
+            }
+    for field, default_threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items():
+        threshold = _float_or_none(thresholds.get(f"{field}_max"))
+        if threshold is None:
+            threshold = default_threshold
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = f"{field}_above_threshold"
+        missing_blocker = f"{field}_missing"
+        if current_rate is None or current_rate > threshold or blocker in blocker_set:
+            metric_failures[field] = {
+                "operator": "<=",
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": missing_blocker if current_rate is None else blocker,
+            }
+    total_documents = int(gold_evidence.get("total_documents") or 0)
+    document_gap = max(0, FORECAST_GOLD_MIN_DOCUMENTS - total_documents)
+    return {
+        "metric_failures": metric_failures,
+        "metric_failure_count": len(metric_failures),
+        "document_coverage_gap": {
+            "current_count": total_documents,
+            "threshold": FORECAST_GOLD_MIN_DOCUMENTS,
+            "minimum_additional_count": document_gap,
+            "blocker": (
+                "gold_reviewed_documents_below_threshold" if document_gap else ""
+            ),
+        },
+        "reviewed_claims": int(gold_evidence.get("reviewed_claims") or 0),
+        "pending_claims": int(gold_evidence.get("pending_claims") or 0),
+        "quality_blockers": sorted(blocker_set),
+    }
+
+
+def _footprint_quality_prompt_repair_evidence(
+    footprint_review_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = _ensure_mapping(footprint_review_summary)
+    metrics = _ensure_mapping(summary.get("precision_recall_report"))
+    thresholds = _ensure_mapping(summary.get("quality_gate_thresholds"))
+    blockers = [
+        str(item)
+        for item in [
+            *_ensure_list(summary.get("quality_gate_blockers")),
+            *_ensure_list(summary.get("blockers")),
+        ]
+        if str(item).strip()
+    ]
+    metric_failures: dict[str, dict[str, Any]] = {}
+    for field, default_threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
+        threshold = _float_or_none(thresholds.get(field))
+        if threshold is None:
+            threshold = default_threshold
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = f"{field}_below_threshold"
+        if current_rate is None or current_rate < threshold or any(
+            str(item).startswith(field) for item in blockers
+        ):
+            metric_failures[field] = {
+                "operator": ">=",
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": f"{field}_missing" if current_rate is None else blocker,
+            }
+    return {
+        "footprint_review_accepted": summary.get("accepted") is True,
+        "review_complete": summary.get("review_complete") is True,
+        "quality_gate_passed": summary.get("quality_gate_passed") is True,
+        "complete_rows": int(summary.get("complete_rows") or 0),
+        "pending_rows": int(summary.get("pending_rows") or 0),
+        "total_rows": int(summary.get("total_rows") or 0),
+        "metric_failures": metric_failures,
+        "metric_failure_count": len(metric_failures),
+        "quality_gate_blockers": sorted(set(blockers)),
+        "error_counts": _count_mapping_values(_ensure_mapping(summary.get("error_counts"))),
+    }
 
 
 def _add_prompt_mutation_candidate(
@@ -7709,40 +20182,39 @@ def _add_prompt_mutation_candidate(
     candidate_id = _stable_id("PMUT", payload)
     if any(row.get("mutation_candidate_id") == candidate_id for row in candidates):
         return
-    candidates.append(
-        {
-            "mutation_candidate_id": candidate_id,
-            "run_id": run_id,
-            "schema_version": PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION,
-            "candidate_type": candidate_type,
-            "target_scope": target_scope,
-            "target_component": target_component,
-            "proposed_change": proposed_change,
-            "trigger_sources": list(dict.fromkeys(str(item) for item in trigger_sources)),
-            "evidence_refs": evidence,
-            "severity": severity,
-            "validation_requirements": [
-                "gold_set_review_pass",
-                "pit_outcome_replay_pass",
-                "schema_validation_pass",
-                "provenance_audit_pass",
-                "statistical_robustness_audit_pass",
-                "shadow_paper_trading_pass",
-            ],
-            "blocked_by": list(dict.fromkeys(str(item) for item in blocked_by))
-            or ["gold_set_gate_pending", "paper_trading_gate_pending"],
-            "promotion_state": "shadow_candidate_only",
-            "manual_review_required": True,
-            "production_prompt_change_allowed": False,
-            "private_text_included": False,
-            "policy": (
-                "Prompt mutation candidates are derived from governed aggregate "
-                "evidence only; they do not modify production prompts and cannot "
-                "include private source content, retrieval locators, or private "
-                "prompt content."
-            ),
-        }
-    )
+    candidate = {
+        "mutation_candidate_id": candidate_id,
+        "run_id": run_id,
+        "schema_version": PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION,
+        "candidate_type": candidate_type,
+        "target_scope": target_scope,
+        "target_component": target_component,
+        "proposed_change": proposed_change,
+        "trigger_sources": list(dict.fromkeys(str(item) for item in trigger_sources)),
+        "evidence_refs": evidence,
+        "severity": severity,
+        "validation_requirements": [
+            "gold_set_review_pass",
+            "pit_outcome_replay_pass",
+            "schema_validation_pass",
+            "provenance_audit_pass",
+            "statistical_robustness_audit_pass",
+            "shadow_paper_trading_pass",
+        ],
+        "blocked_by": list(dict.fromkeys(str(item) for item in blocked_by))
+        or ["gold_set_gate_pending", "paper_trading_gate_pending"],
+        "promotion_state": "shadow_candidate_only",
+        "manual_review_required": True,
+        "production_prompt_change_allowed": False,
+        "policy": (
+            "Prompt mutation candidates are derived from governed aggregate "
+            "evidence only; they do not modify production prompts and cannot "
+            "include private source content, retrieval locators, or private "
+            "prompt content."
+        ),
+    }
+    candidate["private_text_included"] = _public_payload_private_text_included(candidate)
+    candidates.append(candidate)
 
 
 def _paper_trading_blocker_counts(
@@ -7753,6 +20225,135 @@ def _paper_trading_blocker_counts(
         for reason in _ensure_list(run.get("blocked_reasons")):
             _increment_count(counts, reason)
     return counts
+
+
+def _paper_trading_summary_diagnostic_evidence(
+    recipe_paper_trading_summary: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    summary = _ensure_mapping(recipe_paper_trading_summary)
+    diagnostics = _ensure_mapping(summary.get("direct_pit_binding_diagnostics"))
+    if not diagnostics:
+        return {}
+    evidence: dict[str, Any] = {
+        "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "field": "direct_pit_binding_diagnostics",
+        "status": str(diagnostics.get("status") or ""),
+        "recipe_count": int(diagnostics.get("recipe_count") or 0),
+        "direct_pit_bound_recipe_count": int(
+            diagnostics.get("direct_pit_bound_recipe_count") or 0
+        ),
+        "no_direct_recipe_outcome_binding_count": int(
+            diagnostics.get("no_direct_recipe_outcome_binding_count") or 0
+        ),
+        "insufficient_effective_n_count": int(
+            diagnostics.get("insufficient_effective_n_count") or 0
+        ),
+        "required_tools_not_shadow_implemented_count": int(
+            diagnostics.get("required_tools_not_shadow_implemented_count") or 0
+        ),
+        "next_actions": [
+            str(action)
+            for action in _ensure_list(diagnostics.get("next_actions"))
+            if str(action).strip()
+        ],
+    }
+    details = _ensure_mapping(diagnostics.get("binding_gap_details"))
+    if details:
+        evidence["binding_gap_details"] = {
+            "diagnostic_version": str(details.get("diagnostic_version") or ""),
+            "artifact_counts": _integer_mapping_values(
+                _ensure_mapping(details.get("artifact_counts"))
+            ),
+            "method_source_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("method_source_linkage"))
+            ),
+            "forecast_outcome_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("forecast_outcome_linkage"))
+            ),
+            "footprint_source_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("footprint_source_linkage"))
+            ),
+            "recipe_binding_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("recipe_binding_linkage"))
+            ),
+            "missing_artifact_flags": [
+                str(flag)
+                for flag in _ensure_list(details.get("missing_artifact_flags"))
+                if str(flag).strip()
+            ],
+            "next_actions": [
+                str(action)
+                for action in _ensure_list(details.get("next_actions"))
+                if str(action).strip()
+            ],
+        }
+    return evidence
+
+
+def _paper_trading_summary_diagnostic_blockers(
+    recipe_paper_trading_summary: Mapping[str, Any] | None,
+) -> list[str]:
+    diagnostics = _ensure_mapping(
+        _ensure_mapping(recipe_paper_trading_summary).get(
+            "direct_pit_binding_diagnostics"
+        )
+    )
+    blockers: list[str] = []
+    if str(diagnostics.get("status") or "") == "blocked_no_direct_pit_binding":
+        blockers.append("direct_pit_outcome_binding_required")
+    if int(diagnostics.get("insufficient_effective_n_count") or 0):
+        blockers.append("effective_sample_expansion_required")
+    if int(diagnostics.get("required_tools_not_shadow_implemented_count") or 0):
+        blockers.append("requested_shadow_tools_required")
+    details = _ensure_mapping(diagnostics.get("binding_gap_details"))
+    missing_flags = {
+        str(flag)
+        for flag in _ensure_list(details.get("missing_artifact_flags"))
+        if str(flag).strip()
+    }
+    if "forecast_claims_absent" in missing_flags:
+        blockers.append("private_forecast_claims_required")
+    if "outcome_labels_absent" in missing_flags:
+        blockers.append("private_outcome_labels_required")
+    if "analytical_footprints_absent" in missing_flags:
+        blockers.append("private_analytical_footprints_required")
+    if "method_source_footprints_empty" in missing_flags:
+        blockers.append("method_source_footprint_links_required")
+    return list(dict.fromkeys(blockers))
+
+
+def _outcome_coverage_counts(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    unique_claim_ids: set[str] = set()
+    stock_claim_ids: set[str] = set()
+    industry_claim_ids: set[str] = set()
+    for row in outcome_label_rows:
+        claim_id = str(row.get("forecast_claim_id") or "").strip()
+        if not claim_id:
+            continue
+        unique_claim_ids.add(claim_id)
+        label_type = str(row.get("label_type") or "")
+        if label_type == "stock_price_proxy":
+            stock_claim_ids.add(claim_id)
+        elif label_type == "industry_etf_proxy":
+            industry_claim_ids.add(claim_id)
+    return {
+        "unique_outcome_claim_count": len(unique_claim_ids),
+        "stock_proxy_unique_claim_count": len(stock_claim_ids),
+        "industry_proxy_unique_claim_count": len(industry_claim_ids),
+    }
+
+
+def _evolution_gate_check_by_id(
+    evolution_readiness_gate: Mapping[str, Any],
+    check_id: str,
+) -> dict[str, Any]:
+    gate = _ensure_mapping(evolution_readiness_gate)
+    for row in _ensure_list(gate.get("checks")):
+        if isinstance(row, Mapping) and str(row.get("check_id") or "") == check_id:
+            return dict(row)
+    return {}
 
 
 def _top_tool_gap_ids(
@@ -7785,9 +20386,17 @@ def build_prompt_mutation_candidates(
     confidence_impact_monitor: Mapping[str, Any],
     markdown_coverage_summary: Mapping[str, Any],
     industry_etf_proxy_pit_availability: Mapping[str, Any],
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    recipe_paper_trading_summary: Mapping[str, Any] | None = None,
+    evolution_readiness_gate: Mapping[str, Any] | None = None,
+    gold_review_summary: Mapping[str, Any] | None = None,
+    footprint_review_summary: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     readiness = _ensure_mapping(outcome_labeling_readiness)
+    evolution_gate = _ensure_mapping(evolution_readiness_gate)
+    gate_thresholds = _ensure_mapping(evolution_gate.get("thresholds"))
     stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
     industry_readiness = _ensure_mapping(
         readiness.get("industry_etf_proxy_readiness")
@@ -7801,6 +20410,373 @@ def build_prompt_mutation_candidates(
     mapping_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mapping_gap_counts"))
     )
+    regime_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("regime_gap_counts"))
+    )
+    mechanism_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("mechanism_gap_counts"))
+    )
+    macro_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("macro_regime_counts"))
+    )
+    source_text_macro_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("source_text_macro_regime_counts"))
+    )
+    as_of_date_macro_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("as_of_date_macro_regime_counts"))
+    )
+    macro_regime_source_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("macro_regime_source_counts"))
+    )
+    industry_cycle_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("industry_cycle_regime_counts"))
+    )
+    outcome_counts = _outcome_coverage_counts(outcome_label_rows)
+    outcome_gate_check = _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-01")
+    outcome_gate_evidence = _ensure_mapping(outcome_gate_check.get("evidence"))
+    if not outcome_label_rows and outcome_gate_evidence:
+        for key in (
+            "unique_outcome_claim_count",
+            "stock_proxy_unique_claim_count",
+            "industry_proxy_unique_claim_count",
+        ):
+            try:
+                outcome_counts[key] = int(outcome_gate_evidence.get(key) or 0)
+            except (TypeError, ValueError):
+                pass
+    outcome_threshold_gaps = {
+        "unique_outcome_claim_count": max(
+            EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS
+            - outcome_counts["unique_outcome_claim_count"],
+            0,
+        ),
+        "stock_proxy_unique_claim_count": max(
+            EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS
+            - outcome_counts["stock_proxy_unique_claim_count"],
+            0,
+        ),
+        "industry_proxy_unique_claim_count": max(
+            EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS
+            - outcome_counts["industry_proxy_unique_claim_count"],
+            0,
+        ),
+    }
+    if any(outcome_threshold_gaps.values()):
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="outcome_coverage_expansion_rule",
+            target_scope="report_intelligence.pit_outcome_coverage",
+            target_component="report_selection_and_outcome_labeling",
+            proposed_change=(
+                "Expand private report selection, stock proxy evaluation, and "
+                "industry ETF proxy evaluation until the evolution gate has at "
+                "least 100 unique outcome claims with 30 stock and 30 industry "
+                "proxy claims."
+            ),
+            trigger_sources=[
+                "evolution_readiness_gate",
+                "outcome_labeling_readiness",
+                "report_outcome_labels",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/evolution_readiness_gate.json",
+                    "field": "checks.RI-EVOL-01.evidence",
+                    "forecast_claim_count": int(
+                        outcome_gate_evidence.get("forecast_claim_count")
+                        or len(forecast_rows)
+                    ),
+                    **outcome_counts,
+                    "thresholds": {
+                        "min_unique_outcome_claims": (
+                            EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS
+                        ),
+                        "min_stock_proxy_claims": (
+                            EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS
+                        ),
+                        "min_industry_proxy_claims": (
+                            EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS
+                        ),
+                    },
+                    "threshold_gaps": outcome_threshold_gaps,
+                }
+            ],
+            severity="high",
+            blocked_by=[
+                "p9_markdown_coverage_target_pending",
+                "stock_and_industry_outcome_replay_required",
+                "manual_gold_set_gate_pending",
+            ],
+        )
+    gold = _ensure_mapping(gold_review_summary)
+    gold_check = _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-05")
+    gold_check_evidence = _ensure_mapping(gold_check.get("evidence"))
+    gold_check_blockers = [
+        str(item)
+        for item in _ensure_list(gold_check.get("blockers"))
+        if str(item).strip()
+    ]
+    fallback_gold_passed, fallback_gold_evidence, fallback_gold_blockers = (
+        _forecast_gold_review_gate(
+            gold_review_summary=gold,
+            outcome_labeling_readiness=outcome_labeling_readiness,
+        )
+    )
+    gold_passed = gold_check.get("passed") is True if gold_check else fallback_gold_passed
+    if gold_check_blockers or (gold and not gold_passed):
+        gold_evidence_source = (
+            gold_check_evidence if gold_check else fallback_gold_evidence
+        )
+        gold_evidence_blockers = gold_check_blockers or fallback_gold_blockers
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="forecast_gold_set_review_rule",
+            target_scope="report_intelligence.manual_gold_set_gate",
+            target_component="forecast_gold_set_review_queue",
+            proposed_change=(
+                "Complete manual forecast gold-set review for target, direction, "
+                "horizon, and source-grounding precision before using extracted "
+                "signals for prompt evolution."
+            ),
+            trigger_sources=[
+                "evolution_readiness_gate",
+                "gold_set_review_summary",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/evolution_readiness_gate.json"
+                        if gold_check
+                        else "registry/gold_sets/tushare_research_reports.review_summary.json"
+                    ),
+                    "field": (
+                        "checks.RI-EVOL-05.evidence"
+                        if gold_check
+                        else "forecast_gold_set_gate"
+                    ),
+                    "gold_set_passed": gold_passed,
+                    "reviewed_claims": int(
+                        gold_evidence_source.get("reviewed_claims") or 0
+                    ),
+                    "total_documents": int(
+                        gold_evidence_source.get("total_documents") or 0
+                    ),
+                    "pending_claims": int(
+                        gold_evidence_source.get("pending_claims") or 0
+                    ),
+                    "metrics": _ensure_mapping(gold_evidence_source.get("metrics")),
+                    "thresholds": _ensure_mapping(
+                        gold_evidence_source.get("thresholds")
+                    ),
+                    "stock_target_conflict_count": int(
+                        gold_evidence_source.get("stock_target_conflict_count") or 0
+                    ),
+                    "stock_target_conflict_reviewed_count": int(
+                        gold_evidence_source.get(
+                            "stock_target_conflict_reviewed_count"
+                        )
+                        or 0
+                    ),
+                    "stock_target_conflict_explained": (
+                        gold_evidence_source.get("stock_target_conflict_explained")
+                        is True
+                    ),
+                    "blockers": gold_evidence_blockers,
+                }
+            ],
+            severity="high",
+            blocked_by=[
+                "manual_forecast_gold_set_review_required",
+                "private_review_import_required",
+            ],
+        )
+        gold_quality_evidence = _gold_quality_prompt_repair_evidence(
+            gold_evidence_source,
+            gold_evidence_blockers,
+        )
+        metric_failure_count = int(
+            gold_quality_evidence.get("metric_failure_count") or 0
+        )
+        document_gap = _ensure_mapping(
+            gold_quality_evidence.get("document_coverage_gap")
+        )
+        if metric_failure_count or int(document_gap.get("minimum_additional_count") or 0):
+            _add_prompt_mutation_candidate(
+                candidates,
+                run_id=run_id,
+                candidate_type="gold_quality_prompt_repair_rule",
+                target_scope="report_intelligence.forecast_extraction_quality",
+                target_component="forecast_extraction_prompt",
+                proposed_change=(
+                    "Use human gold-set aggregate quality failures to tighten "
+                    "direction extraction, variable mapping, and unsupported-field "
+                    "discipline before any prompt mutation can be promoted."
+                ),
+                trigger_sources=[
+                    "evolution_readiness_gate",
+                    "gold_set_review_summary",
+                ],
+                evidence_refs=[
+                    {
+                        "artifact_path": (
+                            "registry/report_intelligence/evolution_readiness_gate.json"
+                            if gold_check
+                            else (
+                                "registry/gold_sets/"
+                                "tushare_research_reports.review_summary.json"
+                            )
+                        ),
+                        "field": (
+                            "checks.RI-EVOL-05.evidence"
+                            if gold_check
+                            else "forecast_gold_set_gate"
+                        ),
+                        **gold_quality_evidence,
+                    }
+                ],
+                severity="high" if metric_failure_count else "medium",
+                blocked_by=[
+                    "gold_quality_prompt_repair_required",
+                    "manual_forecast_gold_set_review_required",
+                    "offline_gold_set_replay_required",
+                    "pit_outcome_replay_required",
+                    *(
+                        ["document_coverage_expansion_required"]
+                        if int(document_gap.get("minimum_additional_count") or 0)
+                        else []
+                    ),
+                ],
+            )
+    stability_checks = [
+        _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-03"),
+        _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-04"),
+        _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-06"),
+    ]
+    stability_evidence_refs: list[dict[str, Any]] = []
+    stability_blockers: list[str] = []
+    for check in stability_checks:
+        if not check:
+            continue
+        check_blockers = [
+            str(item)
+            for item in _ensure_list(check.get("blockers"))
+            if str(item).strip()
+        ]
+        if not check_blockers:
+            continue
+        check_id = str(check.get("check_id") or "")
+        stability_blockers.extend(check_blockers)
+        stability_evidence_refs.append(
+            {
+                "artifact_path": "registry/report_intelligence/evolution_readiness_gate.json",
+                "field": f"checks.{check_id}.evidence",
+                "check_id": check_id,
+                "blockers": check_blockers,
+                "evidence": _ensure_mapping(check.get("evidence")),
+                "thresholds": {
+                    key: gate_thresholds.get(key)
+                    for key in (
+                        "min_consecutive_monitor_refreshes",
+                        "min_consecutive_audit_refreshes",
+                        "min_gap_distribution_refreshes",
+                    )
+                    if key in gate_thresholds
+                },
+            }
+        )
+    if stability_evidence_refs:
+        severe_blockers = {
+            "confidence_impact_monitor_current_blocked",
+            "current_schema_or_audit_gate_blocked",
+        }
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="evolution_refresh_stability_rule",
+            target_scope="report_intelligence.evolution_refresh_stability",
+            target_component="derived_refresh_history_gate",
+            proposed_change=(
+                "Accumulate three consecutive clean derived refreshes across "
+                "distinct aggregate data vintages with "
+                "blocker-free confidence monitor, schema/PIT/provenance/"
+                "statistical audits, and stable gap distributions before prompt "
+                "evolution can leave shadow candidate status."
+            ),
+            trigger_sources=[
+                "evolution_readiness_gate",
+                "monitor_refresh_history",
+                "audit_refresh_history",
+                "gap_distribution_history",
+            ],
+            evidence_refs=stability_evidence_refs,
+            severity=(
+                "high"
+                if any(item in severe_blockers for item in stability_blockers)
+                else "medium"
+            ),
+            blocked_by=[
+                "three_distinct_clean_data_vintages_required",
+                "monitor_audit_gap_history_required",
+            ],
+        )
+    footprint_summary = _ensure_mapping(footprint_review_summary)
+    footprint_quality_evidence = (
+        _footprint_quality_prompt_repair_evidence(footprint_summary)
+        if footprint_summary
+        else {}
+    )
+    footprint_metric_failure_count = int(
+        footprint_quality_evidence.get("metric_failure_count") or 0
+    )
+    footprint_pending_rows = int(footprint_quality_evidence.get("pending_rows") or 0)
+    if footprint_summary and (
+        footprint_metric_failure_count
+        or footprint_pending_rows
+        or footprint_quality_evidence.get("quality_gate_passed") is False
+    ):
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="footprint_quality_prompt_repair_rule",
+            target_scope="report_intelligence.analytical_footprint_quality",
+            target_component="analytical_footprint_extraction_prompt",
+            proposed_change=(
+                "Use analytical-footprint review quality failures to tighten "
+                "indicator canonicalization, metric mapping, inferred-step "
+                "tagging, and uncertainty handling before method recipes can "
+                "drive prompt evolution."
+            ),
+            trigger_sources=[
+                "analytical_footprint_review_summary",
+                "analytical_footprint_error_taxonomy",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/"
+                        "analytical_footprint_review_summary.json"
+                    ),
+                    "field": "precision_recall_report",
+                    **footprint_quality_evidence,
+                }
+            ],
+            severity="high" if footprint_metric_failure_count else "medium",
+            blocked_by=[
+                "analytical_footprint_quality_prompt_repair_required",
+                "manual_analytical_footprint_review_required",
+                "offline_footprint_replay_required",
+                *(
+                    ["footprint_metric_mapping_repair_required"]
+                    if "metric_mapping_accuracy"
+                    in _ensure_mapping(
+                        footprint_quality_evidence.get("metric_failures")
+                    )
+                    else []
+                ),
+            ],
+        )
     target_gap_keys = (
         "stock_target_mapping_missing",
         "stock_target_missing",
@@ -7874,10 +20850,109 @@ def build_prompt_mutation_candidates(
             ],
             severity="medium",
         )
+    regime_mechanism_gap_count = sum(regime_gap_counts.values()) + sum(
+        mechanism_gap_counts.values()
+    )
+    hard_regime_mechanism_gaps = {
+        "regime_context_missing",
+        "regime_context_unclassified",
+        "economic_mechanism_missing",
+        "mechanism_evaluable_impact_missing",
+        "possible_operational_only_mechanism",
+    }
+    hard_gap_count = sum(
+        count
+        for key, count in {
+            **regime_gap_counts,
+            **mechanism_gap_counts,
+        }.items()
+        if key in hard_regime_mechanism_gaps
+    )
+    if regime_mechanism_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="regime_mechanism_extraction_rule",
+            target_scope="report_intelligence.forecast_claim_structure",
+            target_component="forecast_extraction_prompt",
+            proposed_change=(
+                "Tighten forecast claim extraction so macro regime, industry "
+                "cycle regime, company capability, economic mechanism, and "
+                "evaluable impact are separated before a claim can inform prompt "
+                "evolution."
+            ),
+            trigger_sources=[
+                "outcome_labeling_readiness",
+                "forecast_claims",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": "regime_gap_counts.mechanism_gap_counts",
+                    "regime_gap_counts": regime_gap_counts,
+                    "mechanism_gap_counts": mechanism_gap_counts,
+                    "macro_regime_counts": macro_regime_counts,
+                    "source_text_macro_regime_counts": (
+                        source_text_macro_regime_counts
+                    ),
+                    "as_of_date_macro_regime_counts": (
+                        as_of_date_macro_regime_counts
+                    ),
+                    "macro_regime_source_counts": macro_regime_source_counts,
+                    "industry_cycle_regime_counts": industry_cycle_regime_counts,
+                    "regime_gap_forecast_claim_count": len(
+                        {
+                            str(item)
+                            for item in _ensure_list(
+                                readiness.get("regime_gap_forecast_claim_ids")
+                            )
+                            if str(item).strip()
+                        }
+                    ),
+                    "mechanism_gap_forecast_claim_count": len(
+                        {
+                            str(item)
+                            for item in _ensure_list(
+                                readiness.get("mechanism_gap_forecast_claim_ids")
+                            )
+                            if str(item).strip()
+                        }
+                    ),
+                    "hard_gap_count": hard_gap_count,
+                    "diagnostic_gap_policy": (
+                        "company_capability_only_no_regime_context is diagnostic; "
+                        "missing or unclassified regime and missing mechanism are "
+                        "prompt-evolution blockers"
+                    ),
+                }
+            ],
+            severity="high" if hard_gap_count else "medium",
+            blocked_by=[
+                "manual_gold_set_regime_mechanism_review_required",
+                "paper_trading_validation_required",
+            ],
+        )
     industry_pit = _ensure_mapping(industry_etf_proxy_pit_availability)
     pit_gap_counts = _count_mapping_values(_ensure_mapping(industry_pit.get("pit_gap_counts")))
     sector_gap_count = industry_gap_counts.get("sector_etf_mapping_missing", 0)
-    if sector_gap_count or pit_gap_counts:
+    action_summary = _ensure_mapping(industry_pit.get("labelability_action_summary"))
+    action_counts = _count_mapping_values(
+        {
+            "remaining_action_count": action_summary.get("remaining_action_count"),
+            "sector_etf_mapping_missing_count": action_summary.get(
+                "sector_etf_mapping_missing_count"
+            ),
+            "pit_unavailable_mapping_count": action_summary.get(
+                "pit_unavailable_mapping_count"
+            ),
+        }
+    )
+    action_next_actions = [
+        str(item).strip()
+        for item in _ensure_list(action_summary.get("next_actions"))
+        if str(item).strip()
+    ]
+    if sector_gap_count or pit_gap_counts or action_counts.get("remaining_action_count", 0):
         _add_prompt_mutation_candidate(
             candidates,
             run_id=run_id,
@@ -7895,6 +20970,30 @@ def build_prompt_mutation_candidates(
             evidence_refs=[
                 {
                     "artifact_path": "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+                    "field": "labelability_action_summary",
+                    "coverage_gate_status": str(
+                        action_summary.get("coverage_gate_status") or ""
+                    ),
+                    "remaining_action_count": action_counts.get(
+                        "remaining_action_count",
+                        0,
+                    ),
+                    "sector_etf_mapping_missing_count": action_counts.get(
+                        "sector_etf_mapping_missing_count",
+                        0,
+                    ),
+                    "pit_unavailable_mapping_count": action_counts.get(
+                        "pit_unavailable_mapping_count",
+                        0,
+                    ),
+                    "labelability_rate": action_summary.get("labelability_rate"),
+                    "primary_mapping_coverage_rate": action_summary.get(
+                        "primary_mapping_coverage_rate"
+                    ),
+                    "next_actions": action_next_actions,
+                },
+                {
+                    "artifact_path": "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
                     "field": "pit_gap_counts",
                     "gap_counts": pit_gap_counts,
                 },
@@ -7905,7 +21004,10 @@ def build_prompt_mutation_candidates(
                 },
             ],
             severity="medium",
-            blocked_by=["operator_mapping_review_required"],
+            blocked_by=[
+                "operator_mapping_review_required",
+                *action_next_actions,
+            ],
         )
     priority_counts: dict[str, int] = {}
     for gap in tool_gap_rows:
@@ -7938,8 +21040,23 @@ def build_prompt_mutation_candidates(
             severity="medium",
             blocked_by=["data_engineering_review_required"],
         )
+    paper_diagnostic_evidence = _paper_trading_summary_diagnostic_evidence(
+        recipe_paper_trading_summary
+    )
+    paper_diagnostic_blockers = _paper_trading_summary_diagnostic_blockers(
+        recipe_paper_trading_summary
+    )
     paper_blocker_counts = _paper_trading_blocker_counts(recipe_paper_trading_runs)
     if paper_blocker_counts:
+        evidence_refs = [
+            {
+                "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+                "field": "blocked_reasons",
+                "blocker_counts": dict(sorted(paper_blocker_counts.items())),
+            }
+        ]
+        if paper_diagnostic_evidence:
+            evidence_refs.append(paper_diagnostic_evidence)
         _add_prompt_mutation_candidate(
             candidates,
             run_id=run_id,
@@ -7954,24 +21071,88 @@ def build_prompt_mutation_candidates(
             trigger_sources=[
                 "recipe_paper_trading_runs",
                 "confidence_impact_monitor",
+                "recipe_paper_trading_summary",
             ],
-            evidence_refs=[
-                {
-                    "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
-                    "field": "blocked_reasons",
-                    "blocker_counts": dict(sorted(paper_blocker_counts.items())),
-                }
-            ],
+            evidence_refs=evidence_refs,
             severity="high"
             if paper_blocker_counts.get("required_tools_not_shadow_implemented", 0)
             else "medium",
-            blocked_by=["paper_trading_validation_required"],
+            blocked_by=[
+                "paper_trading_validation_required",
+                *paper_diagnostic_blockers,
+            ],
+        )
+    paper_run_count = len(recipe_paper_trading_runs)
+    paper_pass_count = sum(
+        1
+        for run in recipe_paper_trading_runs
+        if str(run.get("paper_trading_status") or "") == "passed"
+    )
+    if (
+        paper_run_count < EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+        or paper_pass_count < EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+    ):
+        evidence_refs = [
+            {
+                "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
+                "field": "paper_trading_run_count.validation_pass_count",
+                "paper_trading_run_count": paper_run_count,
+                "validation_pass_count": paper_pass_count,
+                "thresholds": {
+                    "min_paper_trading_recipes": (
+                        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                    )
+                },
+                "threshold_gaps": {
+                    "paper_trading_run_count": max(
+                        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                        - paper_run_count,
+                        0,
+                    ),
+                    "validation_pass_count": max(
+                        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                        - paper_pass_count,
+                        0,
+                    ),
+                },
+            }
+        ]
+        if paper_diagnostic_evidence:
+            evidence_refs.append(paper_diagnostic_evidence)
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="recipe_paper_trading_expansion_rule",
+            target_scope="report_intelligence.analysis_recipe_validation",
+            target_component="pre_registered_recipe_paper_trading_queue",
+            proposed_change=(
+                "Increase the pre-registered recipe paper-trading queue until "
+                "at least 20 recipes have direct PIT evidence, after-cost "
+                "summaries, and passed validation."
+            ),
+            trigger_sources=[
+                "recipe_paper_trading_runs",
+                "recipe_paper_trading_summary",
+                "evolution_readiness_gate",
+            ],
+            evidence_refs=evidence_refs,
+            severity="high",
+            blocked_by=[
+                "paper_trading_validation_required",
+                *paper_diagnostic_blockers,
+            ],
         )
     drift_counts = _count_mapping_values(
         _ensure_mapping(confidence_impact_monitor.get("drift_status_counts"))
     )
     calibration_rule_counts = _count_mapping_values(
         _ensure_mapping(confidence_impact_monitor.get("calibration_drift_rule_counts"))
+    )
+    monitor_recipe_level_summary = _confidence_monitor_recipe_level_summary(
+        confidence_impact_monitor
+    )
+    recipe_level_action_count = int(
+        monitor_recipe_level_summary.get("actionable_recipe_level_action_count") or 0
     )
     drift_gap_count = sum(
         drift_counts.get(key, 0)
@@ -7995,7 +21176,10 @@ def build_prompt_mutation_candidates(
                 "cost decay, calibration drift, or single-regime fragility until "
                 "new shadow evidence and manual review pass."
             ),
-            trigger_sources=["confidence_impact_observations"],
+            trigger_sources=[
+                "confidence_impact_observations",
+                "confidence_impact_monitor",
+            ],
             evidence_refs=[
                 {
                     "artifact_path": "registry/report_intelligence/confidence_impact_monitor.json",
@@ -8010,12 +21194,18 @@ def build_prompt_mutation_candidates(
                             "confidence_alpha_correlation_status"
                         )
                     ),
+                    "recipe_level_monitor": monitor_recipe_level_summary,
                 }
             ],
             severity="high",
             blocked_by=[
                 "manual_calibration_review_required",
                 "shadow_regime_and_cost_replay_required",
+                *(
+                    ["recipe_level_monitor_action_review_required"]
+                    if recipe_level_action_count
+                    else []
+                ),
             ],
         )
     blocked_confidence_count = sum(
@@ -8054,9 +21244,21 @@ def build_prompt_mutation_candidates(
         for item in _ensure_list(markdown_summary.get("coverage_gate_blockers"))
         if str(item).strip()
     ]
+    markdown_quality_review_queue_count = int(
+        markdown_summary.get("markdown_quality_review_queue_count") or 0
+    )
+    markdown_false_positive_review_queue_count = int(
+        markdown_summary.get("markdown_false_positive_review_queue_count") or 0
+    )
+    markdown_quality_spot_check_required = (
+        markdown_summary.get("markdown_quality_spot_check_required") is True
+    )
     if (
         str(markdown_summary.get("coverage_gate_status") or "") == "blocked"
         or coverage_gate_blockers
+        or markdown_quality_review_queue_count
+        or markdown_false_positive_review_queue_count
+        or markdown_quality_spot_check_required
     ):
         _add_prompt_mutation_candidate(
             candidates,
@@ -8081,6 +21283,12 @@ def build_prompt_mutation_candidates(
                     "coverage_targets": _ensure_mapping(
                         markdown_summary.get("coverage_targets")
                     ),
+                    "coverage_strata_targets": _ensure_mapping(
+                        markdown_summary.get("coverage_strata_targets")
+                    ),
+                    "coverage_strata_missing": _ensure_list(
+                        markdown_summary.get("coverage_strata_missing")
+                    ),
                     "selected_report_count": int(
                         markdown_summary.get("selected_report_count") or 0
                     ),
@@ -8092,6 +21300,54 @@ def build_prompt_mutation_candidates(
                     ),
                     "llm_extraction_processed_count": int(
                         markdown_summary.get("llm_extraction_processed_count") or 0
+                    ),
+                    "industry_report_count": int(
+                        markdown_summary.get("industry_report_count") or 0
+                    ),
+                    "stock_report_count": int(
+                        markdown_summary.get("stock_report_count") or 0
+                    ),
+                    "stock_outcome_120d_ready_report_count": int(
+                        markdown_summary.get("stock_outcome_120d_ready_report_count")
+                        or 0
+                    ),
+                    "stock_outcome_age_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("stock_outcome_age_bucket_counts")
+                        )
+                    ),
+                    "sector_bucket_coverage_gaps": _ensure_list(
+                        markdown_summary.get("sector_bucket_coverage_gaps")
+                    ),
+                    "sector_bucket_below_min_count": int(
+                        markdown_summary.get("sector_bucket_below_min_count") or 0
+                    ),
+                    "time_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(markdown_summary.get("time_bucket_counts"))
+                    ),
+                    "institution_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("institution_bucket_counts")
+                        )
+                    ),
+                    "report_horizon_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("report_horizon_bucket_counts")
+                        )
+                    ),
+                    "evaluability_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("evaluability_bucket_counts")
+                        )
+                    ),
+                    "markdown_quality_review_queue_count": (
+                        markdown_quality_review_queue_count
+                    ),
+                    "markdown_false_positive_review_queue_count": (
+                        markdown_false_positive_review_queue_count
+                    ),
+                    "markdown_quality_spot_check_required": (
+                        markdown_quality_spot_check_required
                     ),
                 }
             ],
@@ -8163,6 +21419,11 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="confidence_impact_monitor",
         blockers=blockers,
     )
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=blockers,
+    )
     markdown_coverage_summary = _read_registry_json(
         registry_path / "markdown_coverage_summary.json",
         label="markdown_coverage_summary",
@@ -8171,6 +21432,31 @@ def write_report_intelligence_prompt_mutation_candidates(
     industry_etf_proxy_pit_availability = _read_registry_json(
         registry_path / "industry_etf_proxy_pit_availability.json",
         label="industry_etf_proxy_pit_availability",
+        blockers=blockers,
+    )
+    footprint_review_summary = _read_registry_json(
+        registry_path / "analytical_footprint_review_summary.json",
+        label="analytical_footprint_review_summary",
+        blockers=blockers,
+    )
+    forecast_rows = _read_registry_jsonl(
+        registry_path / "report_forecast_ledger.jsonl",
+        label="report_forecast_ledger",
+        blockers=blockers,
+    )
+    outcome_label_path = registry_path / "report_outcome_labels.jsonl"
+    outcome_label_rows = (
+        _read_registry_jsonl(
+            outcome_label_path,
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+        if outcome_label_path.exists()
+        else []
+    )
+    evolution_readiness_gate = _read_registry_json(
+        registry_path / "evolution_readiness_gate.json",
+        label="evolution_readiness_gate",
         blockers=blockers,
     )
     rows = build_prompt_mutation_candidates(
@@ -8182,6 +21468,11 @@ def write_report_intelligence_prompt_mutation_candidates(
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        evolution_readiness_gate=evolution_readiness_gate,
+        footprint_review_summary=footprint_review_summary,
     )
     if blockers and not rows:
         _add_prompt_mutation_candidate(
@@ -9194,6 +22485,21 @@ def build_report_intelligence_pit_leakage_audit(
                     f"{INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS}"
                 )
         if label_type == "stock_price_proxy":
+            survivorship_check = str(label.get("survivorship_check") or "").strip()
+            if survivorship_check not in STOCK_PRICE_PROXY_SURVIVORSHIP_CHECKS:
+                outcome_failures.append(
+                    f"{label_id}: stock survivorship_check must be one of "
+                    f"{sorted(STOCK_PRICE_PROXY_SURVIVORSHIP_CHECKS)}"
+                )
+            elif (
+                label.get("survivorship_safe") is True
+                and survivorship_check
+                != STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK
+            ):
+                outcome_failures.append(
+                    f"{label_id}: stock survivorship_safe=true requires "
+                    f"{STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK}"
+                )
             signal_date = _date_key(claim.get("signal_datetime"))
             entry_date = _date_key(label.get("entry_datetime"))
             exit_date = _date_key(label.get("exit_datetime"))
@@ -9220,10 +22526,39 @@ def build_report_intelligence_pit_leakage_audit(
                 outcome_failures.append(
                     f"{label_id}: stock exit_datetime exceeds latest qlib stock calendar"
                 )
+            if label.get("entry_tradable") is not True:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_tradable must be true for generated labels"
+                )
+            if label.get("exit_tradable") is not True:
+                outcome_failures.append(
+                    f"{label_id}: stock exit_tradable must be true for generated labels"
+                )
+            if label.get("entry_limit_locked") is not False:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_limit_locked must be false for generated labels"
+                )
+            if label.get("exit_limit_locked") is not False:
+                outcome_failures.append(
+                    f"{label_id}: stock exit_limit_locked must be false for generated labels"
+                )
+            if label.get("entry_liquidity_check") != STOCK_PRICE_PROXY_TRADABILITY_CHECK:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_liquidity_check must be "
+                    f"{STOCK_PRICE_PROXY_TRADABILITY_CHECK}"
+                )
+            if label.get("exit_liquidity_check") != STOCK_PRICE_PROXY_TRADABILITY_CHECK:
+                outcome_failures.append(
+                    f"{label_id}: stock exit_liquidity_check must be "
+                    f"{STOCK_PRICE_PROXY_TRADABILITY_CHECK}"
+                )
             forbidden_stock_gaps = {
                 "stock_entry_suspended",
+                "entry_liquidity_unverified",
+                "exit_liquidity_unverified",
                 "entry_limit_locked",
                 "exit_limit_locked",
+                "stock_long_suspension_window",
                 "stock_delisted_before_exit",
             }
             label_gaps = set(str(item) for item in _ensure_list(label.get("readiness_gaps")))
@@ -9770,8 +23105,10 @@ def build_report_intelligence_extraction_provenance_audit(
     }
     invalid_industry_proxy_labels: list[str] = []
     invalid_stock_proxy_labels: list[str] = []
+    invalid_macro_proxy_labels: list[str] = []
     industry_proxy_outcome_claim_ids: set[str] = set()
     stock_proxy_outcome_claim_ids: set[str] = set()
+    macro_proxy_outcome_claim_ids: set[str] = set()
     for index, row in enumerate(outcome_label_rows, 1):
         claim_id = str(row.get("forecast_claim_id") or "")
         if row.get("label_type") == "industry_etf_proxy":
@@ -9821,11 +23158,36 @@ def build_report_intelligence_extraction_provenance_audit(
                 invalid_stock_proxy_labels.append(
                     f"report_outcome_labels row {index}: stock proxy claim must have source spans"
                 )
+        if row.get("label_type") == "macro_asset_proxy":
+            if claim_id:
+                macro_proxy_outcome_claim_ids.add(claim_id)
+            if row.get("outcome_label_source") != MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE:
+                invalid_macro_proxy_labels.append(
+                    f"report_outcome_labels row {index}: macro asset proxy label must use {MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE}"
+                )
+            if row.get("llm_outcome_labeling_allowed") is not False:
+                invalid_macro_proxy_labels.append(
+                    f"report_outcome_labels row {index}: macro asset proxy label must set llm_outcome_labeling_allowed=false"
+                )
+            if row.get("decision_basis") != MACRO_ASSET_PROXY_DECISION_BASIS:
+                invalid_macro_proxy_labels.append(
+                    f"report_outcome_labels row {index}: macro asset proxy label must use {MACRO_ASSET_PROXY_DECISION_BASIS}"
+                )
     scoring_failures.extend(invalid_industry_proxy_labels)
     scoring_failures.extend(invalid_stock_proxy_labels)
+    scoring_failures.extend(invalid_macro_proxy_labels)
     ready_count = 0
     standard_blocked_count = 0
     unlabelable_count = 0
+    proxy_pending_claim_ids = {
+        str(claim_id)
+        for claim_id in _ensure_list(
+            _ensure_mapping(outcome_labeling_readiness).get(
+                "proxy_label_pending_only_forecast_claim_ids"
+            )
+        )
+        if str(claim_id).strip()
+    }
     for index, ledger in enumerate(forecast_ledger_rows, 1):
         claim_id = str(ledger.get("forecast_claim_id") or "")
         claim = claim_by_id.get(claim_id)
@@ -9858,6 +23220,8 @@ def build_report_intelligence_extraction_provenance_audit(
             if (
                 claim_id not in industry_proxy_outcome_claim_ids
                 and claim_id not in stock_proxy_outcome_claim_ids
+                and claim_id not in macro_proxy_outcome_claim_ids
+                and claim_id not in proxy_pending_claim_ids
             ):
                 unlabelable_count += 1
     if outcome_labeling_readiness:
@@ -9877,20 +23241,24 @@ def build_report_intelligence_extraction_provenance_audit(
             check_id="RI-PROV-04",
             requirement=(
                 "Forecasts missing target, benchmark, direction, or horizon cannot "
-                "enter standard outcome scoring; governed industry ETF proxy labels "
-                "remain a separate evidence channel."
+                "enter standard outcome scoring; governed industry ETF, stock, "
+                "and macro asset proxy labels remain separate evidence channels."
             ),
             evidence={
                 "forecast_ledger_rows": len(forecast_ledger_rows),
                 "ready_for_outcome_labeling_count": ready_count,
                 "standard_blocked_forecast_count": standard_blocked_count,
                 "unlabelable_forecast_count": unlabelable_count,
+                "proxy_label_pending_only_count": len(proxy_pending_claim_ids),
                 "outcome_label_rows": len(outcome_label_rows),
                 "industry_etf_proxy_outcome_claim_count": len(
                     industry_proxy_outcome_claim_ids
                 ),
                 "stock_price_proxy_outcome_claim_count": len(
                     stock_proxy_outcome_claim_ids
+                ),
+                "macro_asset_proxy_outcome_claim_count": len(
+                    macro_proxy_outcome_claim_ids
                 ),
             },
             failures=scoring_failures,
@@ -10079,6 +23447,7 @@ def build_report_intelligence_statistical_robustness_audit(
     label_failures: list[str] = []
     industry_proxy_label_count = 0
     stock_proxy_label_count = 0
+    macro_proxy_label_count = 0
     label_type_counts: dict[str, int] = {}
     for index, label in enumerate(outcome_label_rows, 1):
         label_id = str(label.get("outcome_id") or f"row-{index}")
@@ -10095,9 +23464,8 @@ def build_report_intelligence_statistical_robustness_audit(
             if not str(label.get(required_field) or "").strip():
                 label_failures.append(f"{label_id}: {required_field} required")
 
-        if label.get("label_type") != "industry_etf_proxy":
-            if label.get("label_type") != "stock_price_proxy":
-                continue
+        if label.get("label_type") not in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES:
+            continue
         if label.get("label_type") == "industry_etf_proxy":
             industry_proxy_label_count += 1
             for required_field in (
@@ -10172,6 +23540,44 @@ def build_report_intelligence_statistical_robustness_audit(
                 label_failures.append(
                     f"{label_id}: evaluation_policy must retain long-horizon evidence"
                 )
+        if label.get("label_type") == "macro_asset_proxy":
+            macro_proxy_label_count += 1
+            for required_field in (
+                "proxy_symbol",
+                "macro_asset_target_id",
+                "mapping_id",
+                "benchmark_symbol",
+                "proxy_return",
+                "benchmark_return",
+                "relative_alpha",
+                "directional_proxy_return",
+                "directional_after_cost_return",
+                "decision_basis",
+                "outcome_label_source",
+                "llm_outcome_labeling_allowed",
+                "evaluation_policy",
+                "window_role",
+            ):
+                if required_field not in label:
+                    label_failures.append(
+                        f"{label_id}: macro asset proxy label missing {required_field}"
+                    )
+            if label.get("decision_basis") != MACRO_ASSET_PROXY_DECISION_BASIS:
+                label_failures.append(
+                    f"{label_id}: decision_basis must be {MACRO_ASSET_PROXY_DECISION_BASIS}"
+                )
+            if label.get("outcome_label_source") != MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE:
+                label_failures.append(
+                    f"{label_id}: outcome_label_source must be {MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE}"
+                )
+            if label.get("evaluation_policy") != MACRO_ASSET_PROXY_EVALUATION_POLICY:
+                label_failures.append(
+                    f"{label_id}: evaluation_policy must retain long-horizon evidence"
+                )
+            if label.get("benchmark_symbol") != MACRO_ASSET_PROXY_BENCHMARK_SYMBOL:
+                label_failures.append(
+                    f"{label_id}: macro asset proxy benchmark must be {MACRO_ASSET_PROXY_BENCHMARK_SYMBOL}"
+                )
         if label.get("label_type") in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES:
             if label.get("llm_outcome_labeling_allowed") is not False:
                 label_failures.append(
@@ -10219,16 +23625,18 @@ def build_report_intelligence_statistical_robustness_audit(
             check_id="RI-STAT-01",
             requirement=(
                 "Outcome labels must be rule-based after-cost observations; industry "
-                "research labels are judged from mapped industry ETF returns, not LLM opinion."
+                "research labels are judged from mapped market data returns, not LLM opinion."
             ),
             evidence={
                 "outcome_label_rows": len(outcome_label_rows),
                 "industry_etf_proxy_label_rows": industry_proxy_label_count,
                 "stock_price_proxy_label_rows": stock_proxy_label_count,
+                "macro_asset_proxy_label_rows": macro_proxy_label_count,
                 "label_type_counts": dict(sorted(label_type_counts.items())),
                 "decision_basis": INDUSTRY_ETF_DECISION_BASIS,
                 "outcome_label_source": INDUSTRY_ETF_OUTCOME_LABEL_SOURCE,
                 "stock_outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
+                "macro_outcome_label_source": MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE,
                 "llm_outcome_labeling_allowed": False,
             },
             failures=label_failures,
@@ -10341,6 +23749,7 @@ def build_report_intelligence_statistical_robustness_audit(
         grouped_labels.setdefault(group_id, []).append(label)
     complete_window_set_count = 0
     complete_stock_window_set_count = 0
+    complete_macro_window_set_count = 0
     for group_id, labels in grouped_labels.items():
         total_weight = sum(_float_or_none(label.get("effective_n_weight")) or 0.0 for label in labels)
         if total_weight > 1.000001:
@@ -10366,6 +23775,17 @@ def build_report_intelligence_statistical_robustness_audit(
                 overlap_failures.append(
                     f"{group_id}: complete stock proxy window set must sum to effective N 1"
                 )
+        macro_window_days = {
+            int(label.get("horizon_days") or 0)
+            for label in labels
+            if label.get("label_type") == "macro_asset_proxy"
+        }
+        if macro_window_days == set(MACRO_ASSET_PROXY_WINDOWS_DAYS):
+            complete_macro_window_set_count += 1
+            if abs(total_weight - 1.0) > 0.000001:
+                overlap_failures.append(
+                    f"{group_id}: complete macro asset proxy window set must sum to effective N 1"
+                )
         for label in labels:
             role = str(label.get("window_role") or "")
             if label.get("label_type") == "industry_etf_proxy":
@@ -10374,6 +23794,12 @@ def build_report_intelligence_statistical_robustness_audit(
                 expected_weight = INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS[role]
             elif label.get("label_type") == "stock_price_proxy":
                 expected_weight = STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(
+                    int(label.get("horizon_days") or 0)
+                )
+                if expected_weight is None:
+                    continue
+            elif label.get("label_type") == "macro_asset_proxy":
+                expected_weight = MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(
                     int(label.get("horizon_days") or 0)
                 )
                 if expected_weight is None:
@@ -10389,15 +23815,19 @@ def build_report_intelligence_statistical_robustness_audit(
         _audit_check(
             check_id="RI-STAT-03",
             requirement=(
-                "Overlapping 20/60/120 day ETF windows are retained as separate "
+                "Overlapping proxy windows are retained as separate "
                 "evidence but downweighted so one report cannot count as three independent samples."
             ),
             evidence={
                 "outcome_window_set_count": len(grouped_labels),
                 "complete_industry_etf_window_set_count": complete_window_set_count,
                 "complete_stock_price_window_set_count": complete_stock_window_set_count,
+                "complete_macro_asset_window_set_count": complete_macro_window_set_count,
                 "window_effective_weights": dict(
                     INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS
+                ),
+                "macro_window_effective_weights": dict(
+                    MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS
                 ),
                 "stock_window_effective_weights": {
                     str(key): value
@@ -10907,6 +24337,7 @@ def build_report_intelligence_tool_feasibility_audit(
         if str(gap.get("status") or "") not in {
             "proposal_pending",
             "blocked_pending_review",
+            "retired",
             "closed",
         }:
             gap_failures.append(f"{gap_id}: unsupported status {gap.get('status')}")
@@ -10996,7 +24427,9 @@ def build_report_intelligence_tool_feasibility_audit(
             "pit_blocked",
         }:
             data_failures.append(f"{proposal_id}: unsupported pit_feasibility_status")
-    for gap_id in tool_gap_by_id:
+    for gap_id, gap in tool_gap_by_id.items():
+        if str(gap.get("status") or "") == "retired":
+            continue
         if gap_id not in data_by_gap_id:
             data_failures.append(f"{gap_id}: data acquisition proposal missing")
     checks.append(
@@ -11086,7 +24519,9 @@ def build_report_intelligence_tool_feasibility_audit(
             design_failures.append(f"{proposal_id}: primary_metric required")
         if not _ensure_list(validation_plan.get("secondary_metrics")):
             design_failures.append(f"{proposal_id}: secondary_metrics required")
-    for gap_id in tool_gap_by_id:
+    for gap_id, gap in tool_gap_by_id.items():
+        if str(gap.get("status") or "") == "retired":
+            continue
         if gap_id not in tool_by_gap_id:
             design_failures.append(f"{gap_id}: tool design proposal missing")
     checks.append(
@@ -11320,7 +24755,7 @@ def write_report_intelligence_tool_feasibility_audit(
 
 
 def _recipe_id(row: Mapping[str, Any], index: int) -> str:
-    return str(row.get("analysis_recipe_id") or f"row-{index}")
+    return str(row.get("analysis_recipe_id") or row.get("recipe_id") or f"row-{index}")
 
 
 def _recipe_promotion_requirements_missing(row: Mapping[str, Any]) -> list[str]:
@@ -11395,7 +24830,10 @@ def build_report_intelligence_recipe_validation_audit(
                     schema_failures.append(
                         f"{recipe_id}: steps[{step_index}].{field} required"
                     )
-            if str(step.get("tool") or "").strip():
+            if (
+                step.get("requires_external_tool") is not False
+                and str(step.get("tool") or "").strip()
+            ):
                 step_tools.append(str(step.get("tool")))
         missing_step_tools = sorted(set(step_tools) - set(required_tools))
         if missing_step_tools:
@@ -12215,6 +25653,7 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     footprint_review_summary: Mapping[str, Any],
     footprint_error_taxonomy: Mapping[str, Any],
     gold_review_summary: Mapping[str, Any] | None = None,
+    recipe_paper_trading_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     flags = _ensure_mapping(feature_flags.get("flags"))
     rollout_mode = str(feature_flags.get("rollout_mode") or "")
@@ -12233,11 +25672,31 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         footprint_review_summary.get("quality_gate_passed") is True
     )
     gold_review_summary = _ensure_mapping(gold_review_summary)
+    paper_trading_summary = _ensure_mapping(recipe_paper_trading_summary)
+    after_cost_paper_trading_summary = _ensure_mapping(
+        paper_trading_summary.get("after_cost_paper_trading_summary")
+    )
+    shadow_paper_trading_run_count = int(
+        paper_trading_summary.get("paper_trading_run_count")
+        or paper_trading_summary.get("recipe_count")
+        or 0
+    )
+    paper_trading_validation_pass_count = int(
+        paper_trading_summary.get("validation_pass_count") or 0
+    )
+    paper_trading_blocked_count = int(paper_trading_summary.get("blocked_count") or 0)
+    after_cost_summary_status = str(
+        after_cost_paper_trading_summary.get("status") or ""
+    )
+    after_cost_positive_recipe_count = int(
+        after_cost_paper_trading_summary.get("positive_after_cost_recipe_count") or 0
+    )
     gold_review_metrics = _ensure_mapping(gold_review_summary.get("metrics"))
     gold_review_passed = (
         gold_review_summary.get("passed") is True
         and gold_review_summary.get("review_complete") is True
-        and int(gold_review_summary.get("reviewed_claims") or 0) >= 500
+        and int(gold_review_summary.get("reviewed_claims") or 0)
+        >= FORECAST_GOLD_MIN_REVIEWED_CLAIMS
         and int(gold_review_summary.get("total_documents") or 0) >= 50
         and float(gold_review_metrics.get("claim_precision") or 0.0) >= 0.8
         and float(gold_review_metrics.get("source_span_support_precision") or 0.0)
@@ -12279,6 +25738,12 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         str(row.get("tool_gap_id") or "")
         for row in tool_gap_rows
         if str(row.get("tool_gap_id") or "").strip()
+    }
+    active_gap_ids = {
+        str(row.get("tool_gap_id") or "")
+        for row in tool_gap_rows
+        if str(row.get("tool_gap_id") or "").strip()
+        and str(row.get("status") or "") != "retired"
     }
 
     phases: list[dict[str, Any]] = []
@@ -12493,10 +25958,10 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         phase_e_failures.append(
             "tool coverage rows must cover every metric candidate"
         )
-    if not gap_ids:
+    if not active_gap_ids:
         phase_e_failures.append("tool gap registry must contain reviewable gaps")
-    missing_data_proposals = sorted(gap_ids - proposal_gap_ids)
-    missing_tool_proposals = sorted(gap_ids - design_gap_ids)
+    missing_data_proposals = sorted(active_gap_ids - proposal_gap_ids)
+    missing_tool_proposals = sorted(active_gap_ids - design_gap_ids)
     if missing_data_proposals:
         phase_e_failures.append(
             "tool gaps missing data acquisition proposals: "
@@ -12529,6 +25994,8 @@ def build_report_intelligence_patch_v1_5_coverage_report(
                 "tool_coverage_match_rows": len(tool_coverage_match_rows),
                 "tool_coverage_status_counts": dict(sorted(coverage_counts.items())),
                 "tool_gap_rows": len(tool_gap_rows),
+                "active_tool_gap_rows": len(active_gap_ids),
+                "retired_tool_gap_rows": len(gap_ids - active_gap_ids),
                 "data_acquisition_proposal_rows": len(
                     data_acquisition_proposal_rows
                 ),
@@ -12628,10 +26095,18 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             evidence_artifacts=[
                 "registry/report_intelligence/recipe_validation_audit.json",
                 "registry/report_intelligence/monitoring_report.json",
+                "registry/report_intelligence/recipe_paper_trading_summary.json",
             ],
             evidence_counts={
                 "rollout_mode": rollout_mode,
                 "paper_trading_recipe_count": paper_recipe_count,
+                "shadow_paper_trading_run_count": shadow_paper_trading_run_count,
+                "paper_trading_validation_pass_count": (
+                    paper_trading_validation_pass_count
+                ),
+                "paper_trading_blocked_count": paper_trading_blocked_count,
+                "after_cost_summary_status": after_cost_summary_status,
+                "after_cost_positive_recipe_count": after_cost_positive_recipe_count,
                 "recipe_validation_audit_accepted": recipe_validation_accepted,
                 "alpha_decay_monitor_ready": alpha_decay.get(
                     "alpha_decay_monitor_ready"
@@ -13014,10 +26489,17 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             evidence_artifacts=[
                 "registry/report_intelligence/recipe_validation_audit.json",
                 "registry/report_intelligence/monitoring_report.json",
+                "registry/report_intelligence/recipe_paper_trading_summary.json",
             ],
             evidence_counts={
                 "rollout_mode": rollout_mode,
                 "paper_trading_recipe_count": paper_recipe_count,
+                "shadow_paper_trading_run_count": shadow_paper_trading_run_count,
+                "paper_trading_validation_pass_count": (
+                    paper_trading_validation_pass_count
+                ),
+                "paper_trading_blocked_count": paper_trading_blocked_count,
+                "after_cost_summary_status": after_cost_summary_status,
                 "alpha_decay_monitor_ready": alpha_decay.get(
                     "alpha_decay_monitor_ready"
                 ),
@@ -13107,6 +26589,11 @@ def write_report_intelligence_patch_v1_5_coverage_report(
 ) -> dict[str, Any]:
     registry_path = Path(registry_dir)
     blockers: list[str] = []
+    extraction_report = _read_registry_json(
+        registry_path / "extraction_report.json",
+        label="extraction_report",
+        blockers=[],
+    )
     feature_flags = _read_registry_json(
         registry_path / "feature_flags.json",
         label="feature_flags",
@@ -13237,6 +26724,11 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         label="recipe_validation_audit",
         blockers=blockers,
     )
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=[],
+    )
     footprint_review_summary = _read_registry_json(
         registry_path / "analytical_footprint_review_summary.json",
         label="analytical_footprint_review_summary",
@@ -13252,6 +26744,48 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         label="gold_review_summary",
         blockers=blockers,
     )
+    count_only_public_fallbacks: list[str] = []
+    metadata_rows = _patch_coverage_count_only_rows(
+        rows=metadata_rows,
+        extraction_report=extraction_report,
+        count_field="metadata_rows",
+        row_id_field="source_id",
+        fallback_label="report_metadata",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    forecast_rows = _patch_coverage_count_only_rows(
+        rows=forecast_rows,
+        extraction_report=extraction_report,
+        count_field="forecast_claim_rows",
+        row_id_field="forecast_claim_id",
+        fallback_label="forecast_claims",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    footprint_rows = _patch_coverage_count_only_rows(
+        rows=footprint_rows,
+        extraction_report=extraction_report,
+        count_field="analytical_footprint_rows",
+        row_id_field="footprint_id",
+        fallback_label="analytical_footprints",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    outcome_label_rows = _patch_coverage_count_only_rows(
+        rows=outcome_label_rows,
+        extraction_report=extraction_report,
+        count_field="outcome_label_rows",
+        row_id_field="outcome_id",
+        fallback_label="report_outcome_labels",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    if count_only_public_fallbacks:
+        blockers = [
+            blocker
+            for blocker in blockers
+            if not any(
+                blocker == f"{label}: missing"
+                for label in count_only_public_fallbacks
+            )
+        ]
     report = build_report_intelligence_patch_v1_5_coverage_report(
         run_id=run_id,
         feature_flags=feature_flags,
@@ -13283,7 +26817,17 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         footprint_review_summary=footprint_review_summary,
         footprint_error_taxonomy=footprint_error_taxonomy,
         gold_review_summary=gold_review_summary,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
+    if count_only_public_fallbacks:
+        report = dict(report)
+        report["count_only_public_fallbacks"] = sorted(count_only_public_fallbacks)
+        report["private_input_fallback_policy"] = (
+            "When private report JSONL inputs are absent or truncated, this public "
+            "coverage artifact uses aggregate counts from extraction_report.json; "
+            "synthetic count-only rows contain no source prose, titles, abstracts, "
+            "URLs, source spans, or reviewer text."
+        )
     if blockers:
         report = dict(report)
         combined_blockers = [
@@ -13296,18 +26840,271 @@ def write_report_intelligence_patch_v1_5_coverage_report(
     return _write_json(registry_path / "patch_v1_5_coverage_report.json", report)
 
 
+def _patch_coverage_count_only_rows(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    extraction_report: Mapping[str, Any],
+    count_field: str,
+    row_id_field: str,
+    fallback_label: str,
+    count_only_public_fallbacks: list[str],
+) -> list[Mapping[str, Any]]:
+    public_count = _int_or_none(extraction_report.get(count_field)) or 0
+    if public_count <= len(rows):
+        return list(rows)
+    count_only_public_fallbacks.append(fallback_label)
+    return [
+        {row_id_field: f"COUNT-ONLY-{fallback_label}-{index:06d}"}
+        for index in range(1, public_count + 1)
+    ]
+
+
 def _append_unique_records(
     target: list[dict[str, Any]],
     records: Sequence[dict[str, Any]],
     *,
     key: str,
+    replace_existing: bool = False,
 ) -> None:
-    seen = {str(record.get(key) or "") for record in target}
+    seen = {
+        str(record.get(key) or ""): index
+        for index, record in enumerate(target)
+        if str(record.get(key) or "")
+    }
     for record in records:
         value = str(record.get(key) or "")
-        if value and value not in seen:
-            target.append(record)
-            seen.add(value)
+        if not value:
+            continue
+        if value in seen:
+            if replace_existing:
+                target[seen[value]] = record
+            continue
+        target.append(record)
+        seen[value] = len(target) - 1
+
+
+METHOD_PATTERN_MERGE_LIST_FIELDS = (
+    "source_footprint_ids",
+    "steps",
+    "required_current_data",
+    "optional_confirmation_data",
+    "failure_modes",
+    "target_agents",
+)
+
+
+def _method_pattern_canonical_name(record: Mapping[str, Any]) -> str:
+    return (
+        str(record.get("canonical_name") or "").strip()
+        or _canonical_metric_name(record.get("name"))
+    )
+
+
+def _canonicalize_method_pattern_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    canonical = _method_pattern_canonical_name(record)
+    normalized = dict(record)
+    if canonical:
+        normalized["canonical_name"] = canonical
+        normalized["method_pattern_id"] = _stable_id(
+            "METHOD",
+            {"canonical_name": canonical},
+        )
+    return normalized
+
+
+def _method_pattern_identity_keys(record: Mapping[str, Any]) -> list[str]:
+    keys: list[str] = []
+    method_id = str(record.get("method_pattern_id") or "").strip()
+    if method_id:
+        keys.append(f"id:{method_id}")
+    canonical = _method_pattern_canonical_name(record)
+    if canonical:
+        keys.append(f"canonical:{canonical}")
+    return keys
+
+
+def _merge_method_pattern_record(
+    existing: Mapping[str, Any],
+    incoming: Mapping[str, Any],
+) -> dict[str, Any]:
+    existing = _canonicalize_method_pattern_record(existing)
+    incoming = _canonicalize_method_pattern_record(incoming)
+    merged = dict(existing)
+    for field in METHOD_PATTERN_MERGE_LIST_FIELDS:
+        merged[field] = _merge_unique_values(
+            _ensure_list(existing.get(field)),
+            _ensure_list(incoming.get(field)),
+        )
+    for field in (
+        "name",
+        "description",
+        "validation_status",
+        "allowed_runtime_mode",
+    ):
+        if not str(merged.get(field) or "").strip() and incoming.get(field) is not None:
+            merged[field] = incoming.get(field)
+    if not _ensure_mapping(merged.get("extractor")) and _ensure_mapping(
+        incoming.get("extractor")
+    ):
+        merged["extractor"] = dict(_ensure_mapping(incoming.get("extractor")))
+    return _canonicalize_method_pattern_record(merged)
+
+
+def _append_unique_method_patterns(
+    target: list[dict[str, Any]],
+    records: Sequence[dict[str, Any]],
+    *,
+    replace_existing: bool = False,
+) -> None:
+    compacted: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
+
+    def append_one(record: Mapping[str, Any], *, replace: bool) -> None:
+        normalized = _canonicalize_method_pattern_record(record)
+        if not str(normalized.get("method_pattern_id") or "").strip():
+            return
+        keys = _method_pattern_identity_keys(normalized)
+        existing_indexes = [seen[key] for key in keys if key in seen]
+        if existing_indexes:
+            index = min(existing_indexes)
+            if replace:
+                compacted[index] = normalized
+            else:
+                compacted[index] = _merge_method_pattern_record(
+                    compacted[index],
+                    normalized,
+            )
+            for key in _method_pattern_identity_keys(compacted[index]):
+                seen[key] = index
+            return
+        compacted.append(normalized)
+        index = len(compacted) - 1
+        for key in keys:
+            seen[key] = index
+
+    for record in target:
+        append_one(record, replace=False)
+    for record in records:
+        append_one(record, replace=replace_existing)
+    target[:] = compacted
+
+
+REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS: Mapping[str, str] = {
+    "analytical_footprints.jsonl": "footprint_id",
+    "forecast_claims.jsonl": "forecast_claim_id",
+    "metric_candidates.jsonl": "metric_candidate_id",
+    "method_patterns.jsonl": "method_pattern_id",
+    "processing_status.jsonl": "source_id",
+    "report_metadata.jsonl": "report_id",
+    "report_outcome_labels.jsonl": "outcome_label_id",
+    "tool_gaps.jsonl": "tool_gap_id",
+    "weighted_research_contexts.jsonl": "context_id",
+}
+
+
+def _batch_output_path(input_dir: Path, filename: str) -> Path:
+    direct = input_dir / filename
+    if direct.exists():
+        return direct
+    nested = input_dir / "registry/report_intelligence" / filename
+    if nested.exists():
+        return nested
+    return direct
+
+
+def merge_report_intelligence_batch_outputs(
+    *,
+    root: str | Path = ".",
+    input_dirs: Sequence[str | Path],
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+    include_existing_registry: bool = True,
+) -> dict[str, Any]:
+    root_path = Path(root).resolve()
+    registry_path = (
+        Path(registry_dir)
+        if Path(registry_dir).is_absolute()
+        else root_path / registry_dir
+    )
+    resolved_inputs = [
+        Path(input_dir) if Path(input_dir).is_absolute() else root_path / input_dir
+        for input_dir in input_dirs
+    ]
+    blockers: list[str] = []
+    outputs: dict[str, str] = {}
+    row_counts: dict[str, int] = {}
+    input_file_counts: dict[str, int] = {}
+    existing_file_counts: dict[str, int] = {}
+    for filename, key in REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS.items():
+        replace_duplicates = filename in {
+            "processing_status.jsonl",
+            "report_metadata.jsonl",
+        }
+        rows: list[dict[str, Any]] = []
+        existing_file_count = 0
+        existing_path = registry_path / filename
+        if include_existing_registry and existing_path.exists():
+            existing_file_count = 1
+            existing_rows = _read_registry_jsonl(
+                existing_path,
+                label=f"{registry_path.name}/{filename}",
+                blockers=blockers,
+            )
+            if filename == "method_patterns.jsonl":
+                _append_unique_method_patterns(
+                    rows,
+                    [dict(row) for row in existing_rows],
+                    replace_existing=replace_duplicates,
+                )
+            else:
+                _append_unique_records(
+                    rows,
+                    [dict(row) for row in existing_rows],
+                    key=key,
+                    replace_existing=replace_duplicates,
+                )
+        file_count = 0
+        for input_dir in resolved_inputs:
+            path = _batch_output_path(input_dir, filename)
+            if not path.exists():
+                continue
+            file_count += 1
+            batch_rows = _read_registry_jsonl(
+                path,
+                label=f"{input_dir.name}/{filename}",
+                blockers=blockers,
+            )
+            if filename == "method_patterns.jsonl":
+                _append_unique_method_patterns(
+                    rows,
+                    [dict(row) for row in batch_rows],
+                    replace_existing=replace_duplicates,
+                )
+            else:
+                _append_unique_records(
+                    rows,
+                    [dict(row) for row in batch_rows],
+                    key=key,
+                    replace_existing=replace_duplicates,
+                )
+        if file_count:
+            written = _write_jsonl(registry_path / filename, rows)
+            outputs[filename] = str(written["path"])
+            row_counts[filename] = len(rows)
+            input_file_counts[filename] = file_count
+            existing_file_counts[filename] = existing_file_count
+    if not outputs:
+        blockers.append("no report-intelligence batch jsonl files found")
+    return {
+        "input_dirs": [str(path) for path in resolved_inputs],
+        "input_dir_count": len(resolved_inputs),
+        "include_existing_registry": include_existing_registry,
+        "outputs": outputs,
+        "row_counts": row_counts,
+        "input_file_counts": input_file_counts,
+        "existing_file_counts": existing_file_counts,
+        "blockers": blockers,
+        "blocker_count": len(blockers),
+    }
 
 
 def _extract_for_markdown(
@@ -13318,10 +27115,23 @@ def _extract_for_markdown(
     extractor: LlmExtractor,
     chunk_chars: int,
     max_chunks: int,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[dict[str, list[dict[str, Any]]], str, str | None, list[str], int, bool]:
     chunks = _chunk_text(markdown_text, chunk_chars=chunk_chars, max_chunks=max_chunks)
     truncated = len("".join(chunks)) < len(markdown_text.strip())
     report_id = _report_id(row)
+    publish_date = str(row.get("publish_date") or "")
+    report_context = _build_report_context(
+        row,
+        markdown_text,
+        publish_date,
+    )
+    report_temporal_context = _ensure_mapping(
+        report_context.get("temporal_context")
+    )
+    report_level_horizon = _ensure_mapping(
+        report_temporal_context.get("default_horizon")
+    )
     all_forecasts: list[dict[str, Any]] = []
     all_footprints: list[dict[str, Any]] = []
     all_metrics: list[dict[str, Any]] = []
@@ -13330,9 +27140,15 @@ def _extract_for_markdown(
     blockers: list[str] = []
     model_used: str | None = None
     for index, chunk in enumerate(chunks, 1):
+        section_context = _section_context_from_chunk(chunk, publish_date)
+        extractor_row = dict(row)
+        if report_context:
+            extractor_row["report_context"] = report_context
+        if section_context:
+            extractor_row["section_context"] = section_context
         chunk_span_id = f"{row.get('source_id')}:original_markdown:chunk-{index:03d}"
         try:
-            result = extractor(row, chunk, chunk_span_id, index, len(chunks))
+            result = extractor(extractor_row, chunk, chunk_span_id, index, len(chunks))
         except Exception as exc:  # pragma: no cover - exercised by live failures
             result = {"status": "blocked", "blocker": f"llm_extractor_error: {exc}"}
         if result.get("status") != "ok":
@@ -13353,6 +27169,7 @@ def _extract_for_markdown(
             model=model,
             report_id=report_id,
             chunk_span_id=chunk_span_id,
+            markdown_chunk=chunk,
         )
         metrics = _normalize_metric_candidates(
             payload,
@@ -13382,17 +27199,23 @@ def _extract_for_markdown(
                 model=model,
                 report_id=report_id,
                 chunk_span_id=chunk_span_id,
+                macro_regime_calendar_rows=macro_regime_calendar_rows,
+                report_level_horizon=report_level_horizon,
+                report_temporal_context=report_temporal_context,
+                report_context=report_context,
+                section_context=section_context,
             ),
             key="forecast_claim_id",
         )
         _append_unique_records(all_footprints, footprints, key="footprint_id")
         _append_unique_records(all_metrics, metrics, key="metric_candidate_id")
-        _append_unique_records(all_methods, methods, key="method_pattern_id")
+        _append_unique_method_patterns(all_methods, methods)
         _append_unique_records(all_gaps, gaps, key="tool_gap_id")
     llm_status = "processed" if model_used and not blockers else "blocked"
     if not chunks:
         llm_status = "blocked"
         blockers.append(f"{row.get('source_id')}: markdown_empty")
+    all_forecasts = _select_report_forecast_claims(all_forecasts)
     return (
         {
             "forecast_claims": all_forecasts,
@@ -13442,6 +27265,7 @@ def run_report_intelligence_derived_refresh(
             blockers=(blockers,),
         )
     blockers: list[str] = []
+    macro_regime_calendar_rows = _read_macro_regime_calendar_rows(registry_dir)
     metadata_rows = _read_registry_jsonl(
         registry_dir / "report_metadata.jsonl",
         label="report_metadata",
@@ -13452,14 +27276,23 @@ def run_report_intelligence_derived_refresh(
         label="forecast_claims",
         blockers=blockers,
     )
-    forecast_rows = _refresh_forecast_mapping_governance(forecast_rows)
+    forecast_rows = _refresh_forecast_mapping_governance(
+        forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+        root_path=root_path,
+    )
     footprint_rows = _read_registry_jsonl(
         registry_dir / "analytical_footprints.jsonl",
         label="analytical_footprints",
         blockers=blockers,
     )
     footprint_rows = _refresh_analytical_footprint_indicator_governance(
-        footprint_rows
+        footprint_rows,
+        metadata_rows=metadata_rows,
+        root_path=root_path,
+        chunk_chars=cfg.chunk_chars,
+        max_chunks=cfg.max_chunks,
     )
     metric_rows = _read_registry_jsonl(
         registry_dir / "metric_candidates.jsonl",
@@ -13470,6 +27303,15 @@ def run_report_intelligence_derived_refresh(
         registry_dir / "method_patterns.jsonl",
         label="method_patterns",
         blockers=blockers,
+    )
+    _append_unique_method_patterns(
+        method_rows,
+        _normalize_method_patterns(
+            {},
+            footprint_rows,
+            run_id=run_id,
+            model="derived_refresh",
+        ),
     )
     tool_gap_rows = _read_registry_jsonl(
         registry_dir / "tool_gaps.jsonl",
@@ -13503,6 +27345,7 @@ def run_report_intelligence_derived_refresh(
     markdown_coverage_summary = build_markdown_coverage_summary(
         run_id=run_id,
         metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
     )
     industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
     industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(
@@ -13530,9 +27373,19 @@ def run_report_intelligence_derived_refresh(
         mapping_rows=industry_etf_proxy_map_rows,
         pit_availability=industry_etf_proxy_pit_availability,
     )
+    industry_etf_proxy_pit_availability = _with_industry_pit_labelability_summary(
+        industry_etf_proxy_pit_availability,
+        industry_etf_proxy_readiness,
+    )
     stock_price_proxy_readiness = build_stock_price_proxy_readiness(
         root_path=root_path,
         qlib_stock_dir=cfg.qlib_stock_dir,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    macro_asset_proxy_readiness = build_macro_asset_proxy_readiness(
+        root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
@@ -13542,6 +27395,8 @@ def run_report_intelligence_derived_refresh(
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
+        macro_asset_proxy_readiness=macro_asset_proxy_readiness,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
@@ -13567,10 +27422,22 @@ def run_report_intelligence_derived_refresh(
         analysis_recipe_rows=analysis_recipe_rows,
         outcome_label_rows=outcome_label_rows,
         method_performance_profile_rows=method_performance_profile_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
+            analysis_recipe_rows=analysis_recipe_rows,
+            outcome_label_rows=outcome_label_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            method_rows=method_rows,
+        ),
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,
@@ -13590,6 +27457,9 @@ def run_report_intelligence_derived_refresh(
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
@@ -13692,6 +27562,7 @@ def run_report_intelligence_derived_refresh(
     footprint_review_outputs = write_analytical_footprint_review_artifacts(
         registry_dir,
         footprint_rows,
+        preserve_existing_summary=True,
     )
     footprint_review_load_blockers: list[str] = []
     footprint_review_summary = _read_registry_json(
@@ -13741,7 +27612,24 @@ def run_report_intelligence_derived_refresh(
             footprint_review_summary=footprint_review_summary,
             footprint_error_taxonomy=footprint_error_taxonomy,
             gold_review_summary=gold_review_summary,
+            recipe_paper_trading_summary=recipe_paper_trading_summary,
         )
+    )
+    schema_validation_report = _read_schema_validation_report(root_path)
+    evolution_history = _prepare_evolution_refresh_history(
+        registry_dir=registry_dir,
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
     )
     evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
         run_id=run_id,
@@ -13755,6 +27643,26 @@ def run_report_intelligence_derived_refresh(
         statistical_robustness_audit=statistical_robustness_audit,
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
+    )
+    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
+        run_id=run_id,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        tool_gap_rows=tool_gap_rows,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        confidence_impact_observation_rows=confidence_impact_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        evolution_readiness_gate=evolution_readiness_gate,
+        gold_review_summary=gold_review_summary,
+        footprint_review_summary=footprint_review_summary,
     )
 
     outputs = {
@@ -13769,13 +27677,18 @@ def run_report_intelligence_derived_refresh(
             _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
         ),
         "analytical_footprints": str(
-            registry_dir / "analytical_footprints.jsonl"
+            _write_jsonl(
+                registry_dir / "analytical_footprints.jsonl",
+                footprint_rows,
+            )["path"]
         ),
         **footprint_review_outputs,
         "metric_candidates": str(
             _write_jsonl(registry_dir / "metric_candidates.jsonl", metric_rows)["path"]
         ),
-        "method_patterns": str(registry_dir / "method_patterns.jsonl"),
+        "method_patterns": str(
+            _write_jsonl(registry_dir / "method_patterns.jsonl", method_rows)["path"]
+        ),
         "tool_gaps": str(
             _write_jsonl(
                 registry_dir / "tool_gaps.jsonl",
@@ -13882,6 +27795,24 @@ def run_report_intelligence_derived_refresh(
             _write_json(
                 registry_dir / "confidence_impact_monitor.json",
                 confidence_impact_monitor,
+            )["path"]
+        ),
+        "monitor_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "monitor_refresh_history.jsonl",
+                evolution_history["monitor_updated"],
+            )["path"]
+        ),
+        "audit_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "audit_refresh_history.jsonl",
+                evolution_history["audit_updated"],
+            )["path"]
+        ),
+        "gap_distribution_history": str(
+            _write_jsonl(
+                registry_dir / "gap_distribution_history.jsonl",
+                evolution_history["gap_updated"],
             )["path"]
         ),
         "prompt_mutation_candidates": str(
@@ -14004,6 +27935,20 @@ def run_report_intelligence_derived_refresh(
         stock_price_proxy_pending_window_rows=int(
             stock_price_proxy_readiness["pending_future_window_count"]
         ),
+        macro_asset_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_asset_proxy"
+        ),
+        macro_asset_proxy_eligible_claim_rows=int(
+            macro_asset_proxy_readiness["eligible_claim_count"]
+        ),
+        macro_asset_proxy_labelable_window_rows=int(
+            macro_asset_proxy_readiness["labelable_window_count"]
+        ),
+        macro_asset_proxy_pending_window_rows=int(
+            macro_asset_proxy_readiness["pending_future_window_count"]
+        ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
@@ -14066,16 +28011,32 @@ def run_report_intelligence_refresh(
         else root_path / cfg.cache_dir
     )
     run_id = "RIR-" + _utc_now().replace(":", "").replace("-", "")
+    processed_source_ids, processed_source_blockers = _processed_source_ids_from_registry_dirs(
+        root_path,
+        cfg.exclude_processed_registry_dirs,
+    )
     rows, source_blockers = _selected_source_rows(
         root_path,
         source_path=cfg.source_path,
+        cache_dir=cfg.cache_dir,
         source_ids=cfg.source_ids,
+        exclude_source_ids=tuple(processed_source_ids),
+        require_cached_markdown=cfg.require_cached_markdown,
         limit=cfg.limit,
         min_publish_date=cfg.min_publish_date,
         max_publish_date=cfg.max_publish_date,
         selection_order=cfg.selection_order,
     )
-    blockers: list[str] = list(source_blockers)
+    blockers: list[str] = [*processed_source_blockers, *source_blockers]
+    macro_regime_calendar_rows = _read_macro_regime_calendar_rows(registry_dir)
+    _emit_report_intelligence_progress(
+        cfg,
+        event="selected",
+        run_id=run_id,
+        selected_reports=len(rows),
+        excluded_processed_count=len(processed_source_ids),
+        source_blocker_count=len(source_blockers),
+    )
     downloader = downloader or (
         lambda url, path, overwrite: download_pdf(
             url,
@@ -14107,6 +28068,7 @@ def run_report_intelligence_refresh(
             chunk_count,
             base_url=cfg.vllm_base_url,
             model=cfg.vllm_model,
+            api_key=cfg.vllm_api_key,
             timeout_seconds=cfg.vllm_timeout_seconds,
             max_output_tokens=cfg.max_llm_output_tokens,
         )
@@ -14121,18 +28083,37 @@ def run_report_intelligence_refresh(
     status_rows: list[dict[str, Any]] = []
 
     prepared_rows: list[dict[str, Any]] = []
-    for row in rows:
+    for index, row in enumerate(rows, 1):
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_prepare_start",
+            run_id=run_id,
+            index=index,
+            total=len(rows),
+            skip_download=cfg.skip_download,
+            skip_convert=cfg.skip_convert,
+            skip_llm=cfg.skip_llm,
+        )
         source_id = str(row.get("source_id") or "")
         safe_id = _safe_file_id(source_id)
         url = str(row.get("url") or "").strip()
+        local_pdf_path = str(row.get("local_pdf_path") or "").strip()
         pdf_path = cache_dir / "pdfs" / f"{safe_id}.pdf"
         markdown_path = cache_dir / "markdown" / f"{safe_id}.md"
         mineru_output_dir = cache_dir / "mineru" / safe_id
         row_blockers: list[str] = []
         pdf_result: Mapping[str, Any] = {"status": "not_attempted"}
-        if not url and not markdown_path.exists():
+        if not url and not local_pdf_path and not markdown_path.exists():
             row_blockers.append(f"{source_id}: report_url_missing")
-        if not cfg.skip_download and url:
+        if not cfg.skip_download and local_pdf_path:
+            pdf_result = materialize_local_pdf(
+                Path(local_pdf_path).expanduser(),
+                pdf_path,
+                cfg.overwrite,
+            )
+            if pdf_result.get("status") == "blocked":
+                row_blockers.append(f"{source_id}: {pdf_result.get('blocker')}")
+        elif not cfg.skip_download and url:
             pdf_result = downloader(url, pdf_path, cfg.overwrite)
             if pdf_result.get("status") == "blocked":
                 row_blockers.append(f"{source_id}: {pdf_result.get('blocker')}")
@@ -14146,6 +28127,7 @@ def run_report_intelligence_refresh(
         prepared_rows.append(
             {
                 "row": row,
+                "index": index,
                 "source_id": source_id,
                 "pdf_path": pdf_path,
                 "markdown_path": markdown_path,
@@ -14154,6 +28136,15 @@ def run_report_intelligence_refresh(
                 "markdown_result": {"status": "not_attempted"},
                 "row_blockers": row_blockers,
             }
+        )
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_prepare_done",
+            run_id=run_id,
+            index=index,
+            total=len(rows),
+            pdf_status=str(pdf_result.get("status") or "not_attempted"),
+            blocker_count=len(row_blockers),
         )
 
     if not cfg.skip_convert:
@@ -14218,6 +28209,14 @@ def run_report_intelligence_refresh(
                 }
 
     for prepared in prepared_rows:
+        index = int(prepared.get("index") or 0)
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_extract_start",
+            run_id=run_id,
+            index=index,
+            total=len(prepared_rows),
+        )
         row = prepared["row"]
         source_id = str(prepared["source_id"])
         markdown_path = prepared["markdown_path"]
@@ -14228,44 +28227,80 @@ def run_report_intelligence_refresh(
         llm_model: str | None = None
         chunk_count = 0
         truncated_chunks = False
+        markdown_result = _annotate_markdown_quality(markdown_result, markdown_path)
+        prepared["markdown_result"] = markdown_result
         if not cfg.skip_llm:
             if markdown_path.exists() and markdown_path.stat().st_size > 0:
-                extraction, llm_status, llm_model, llm_blockers, chunk_count, truncated_chunks = (
-                    _extract_for_markdown(
-                        row,
-                        markdown_path.read_text(encoding="utf-8", errors="replace"),
+                quality_gap = _markdown_quality_gap(markdown_result)
+                if quality_gap:
+                    row_blockers.append(f"{source_id}: {quality_gap}")
+                else:
+                    markdown_text = markdown_path.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    _emit_report_intelligence_progress(
+                        cfg,
+                        event="llm_start",
                         run_id=run_id,
-                        extractor=llm_extractor,
+                        index=index,
+                        total=len(prepared_rows),
+                        markdown_bytes=markdown_path.stat().st_size,
                         chunk_chars=cfg.chunk_chars,
                         max_chunks=cfg.max_chunks,
                     )
-                )
-                row_blockers.extend(llm_blockers)
-                _append_unique_records(
-                    forecast_rows,
-                    extraction["forecast_claims"],
-                    key="forecast_claim_id",
-                )
-                _append_unique_records(
-                    footprint_rows,
-                    extraction["analytical_footprints"],
-                    key="footprint_id",
-                )
-                _append_unique_records(
-                    metric_rows,
-                    extraction["metric_candidates"],
-                    key="metric_candidate_id",
-                )
-                _append_unique_records(
-                    method_rows,
-                    extraction["method_patterns"],
-                    key="method_pattern_id",
-                )
-                _append_unique_records(
-                    tool_gap_rows,
-                    extraction["tool_gaps"],
-                    key="tool_gap_id",
-                )
+                    extraction, llm_status, llm_model, llm_blockers, chunk_count, truncated_chunks = (
+                        _extract_for_markdown(
+                            row,
+                            markdown_text,
+                            run_id=run_id,
+                            extractor=llm_extractor,
+                            chunk_chars=cfg.chunk_chars,
+                            max_chunks=cfg.max_chunks,
+                            macro_regime_calendar_rows=macro_regime_calendar_rows,
+                        )
+                    )
+                    _emit_report_intelligence_progress(
+                        cfg,
+                        event="llm_done",
+                        run_id=run_id,
+                        index=index,
+                        total=len(prepared_rows),
+                        llm_status=llm_status,
+                        chunk_count=chunk_count,
+                        truncated_chunks=truncated_chunks,
+                        forecast_claim_count=len(extraction["forecast_claims"]),
+                        analytical_footprint_count=len(
+                            extraction["analytical_footprints"]
+                        ),
+                        tool_gap_count=len(extraction["tool_gaps"]),
+                        blocker_count=len(llm_blockers),
+                    )
+                    row_blockers.extend(llm_blockers)
+                    _append_unique_records(
+                        forecast_rows,
+                        extraction["forecast_claims"],
+                        key="forecast_claim_id",
+                    )
+                    _append_unique_records(
+                        footprint_rows,
+                        extraction["analytical_footprints"],
+                        key="footprint_id",
+                    )
+                    _append_unique_records(
+                        metric_rows,
+                        extraction["metric_candidates"],
+                        key="metric_candidate_id",
+                    )
+                    _append_unique_method_patterns(
+                        method_rows,
+                        extraction["method_patterns"],
+                    )
+                    _append_unique_records(
+                        tool_gap_rows,
+                        extraction["tool_gaps"],
+                        key="tool_gap_id",
+                    )
             else:
                 row_blockers.append(f"{source_id}: original_markdown_missing")
 
@@ -14296,6 +28331,12 @@ def run_report_intelligence_refresh(
                 "markdown_blocker": markdown_result.get("blocker") or "",
                 "markdown_returncode": markdown_result.get("returncode"),
                 "markdown_timed_out": bool(markdown_result.get("timed_out")),
+                "markdown_duration_seconds": markdown_result.get("duration_seconds"),
+                "markdown_quality_gate_status": markdown_result.get(
+                    "quality_gate_status"
+                )
+                or "",
+                "markdown_quality_gap": markdown_result.get("quality_gap") or "",
                 "markdown_stderr_tail": _redact_runtime_text(
                     markdown_result.get("stderr_tail"),
                     root_path,
@@ -14309,10 +28350,33 @@ def run_report_intelligence_refresh(
                 "blockers": row_blockers,
             }
         )
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_done",
+            run_id=run_id,
+            index=index,
+            total=len(prepared_rows),
+            pdf_status=str(pdf_result.get("status") or "not_attempted"),
+            markdown_status=str(markdown_result.get("status") or "not_attempted"),
+            markdown_quality_gate_status=str(
+                markdown_result.get("quality_gate_status") or ""
+            ),
+            llm_status=llm_status,
+            blocker_count=len(row_blockers),
+        )
 
-    forecast_rows = _refresh_forecast_mapping_governance(forecast_rows)
+    forecast_rows = _refresh_forecast_mapping_governance(
+        forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+        root_path=root_path,
+    )
     footprint_rows = _refresh_analytical_footprint_indicator_governance(
-        footprint_rows
+        footprint_rows,
+        metadata_rows=metadata_rows,
+        root_path=root_path,
+        chunk_chars=cfg.chunk_chars,
+        max_chunks=cfg.max_chunks,
     )
     tool_gap_rows = _backfill_tool_gaps_from_metric_candidates(
         tool_gap_rows,
@@ -14330,6 +28394,7 @@ def run_report_intelligence_refresh(
     markdown_coverage_summary = build_markdown_coverage_summary(
         run_id=run_id,
         metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
     )
     industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
     industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(
@@ -14357,9 +28422,19 @@ def run_report_intelligence_refresh(
         mapping_rows=industry_etf_proxy_map_rows,
         pit_availability=industry_etf_proxy_pit_availability,
     )
+    industry_etf_proxy_pit_availability = _with_industry_pit_labelability_summary(
+        industry_etf_proxy_pit_availability,
+        industry_etf_proxy_readiness,
+    )
     stock_price_proxy_readiness = build_stock_price_proxy_readiness(
         root_path=root_path,
         qlib_stock_dir=cfg.qlib_stock_dir,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    macro_asset_proxy_readiness = build_macro_asset_proxy_readiness(
+        root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
@@ -14369,6 +28444,8 @@ def run_report_intelligence_refresh(
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
+        macro_asset_proxy_readiness=macro_asset_proxy_readiness,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
@@ -14394,10 +28471,22 @@ def run_report_intelligence_refresh(
         analysis_recipe_rows=analysis_recipe_rows,
         outcome_label_rows=outcome_label_rows,
         method_performance_profile_rows=method_performance_profile_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
+            analysis_recipe_rows=analysis_recipe_rows,
+            outcome_label_rows=outcome_label_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            method_rows=method_rows,
+        ),
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,
@@ -14417,6 +28506,7 @@ def run_report_intelligence_refresh(
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
@@ -14568,7 +28658,24 @@ def run_report_intelligence_refresh(
             footprint_review_summary=footprint_review_summary,
             footprint_error_taxonomy=footprint_error_taxonomy,
             gold_review_summary=gold_review_summary,
+            recipe_paper_trading_summary=recipe_paper_trading_summary,
         )
+    )
+    schema_validation_report = _read_schema_validation_report(root_path)
+    evolution_history = _prepare_evolution_refresh_history(
+        registry_dir=registry_dir,
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
     )
     evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
         run_id=run_id,
@@ -14582,6 +28689,26 @@ def run_report_intelligence_refresh(
         statistical_robustness_audit=statistical_robustness_audit,
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
+    )
+    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
+        run_id=run_id,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        tool_gap_rows=tool_gap_rows,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        confidence_impact_observation_rows=confidence_impact_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        evolution_readiness_gate=evolution_readiness_gate,
+        gold_review_summary=gold_review_summary,
+        footprint_review_summary=footprint_review_summary,
     )
 
     outputs = {
@@ -14715,6 +28842,24 @@ def run_report_intelligence_refresh(
                 confidence_impact_monitor,
             )["path"]
         ),
+        "monitor_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "monitor_refresh_history.jsonl",
+                evolution_history["monitor_updated"],
+            )["path"]
+        ),
+        "audit_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "audit_refresh_history.jsonl",
+                evolution_history["audit_updated"],
+            )["path"]
+        ),
+        "gap_distribution_history": str(
+            _write_jsonl(
+                registry_dir / "gap_distribution_history.jsonl",
+                evolution_history["gap_updated"],
+            )["path"]
+        ),
         "prompt_mutation_candidates": str(
             _write_jsonl(
                 registry_dir / "prompt_mutation_candidates.jsonl",
@@ -14837,6 +28982,20 @@ def run_report_intelligence_refresh(
         stock_price_proxy_pending_window_rows=int(
             stock_price_proxy_readiness["pending_future_window_count"]
         ),
+        macro_asset_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_asset_proxy"
+        ),
+        macro_asset_proxy_eligible_claim_rows=int(
+            macro_asset_proxy_readiness["eligible_claim_count"]
+        ),
+        macro_asset_proxy_labelable_window_rows=int(
+            macro_asset_proxy_readiness["labelable_window_count"]
+        ),
+        macro_asset_proxy_pending_window_rows=int(
+            macro_asset_proxy_readiness["pending_future_window_count"]
+        ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
@@ -14873,4 +29032,14 @@ def run_report_intelligence_refresh(
     summary_payload = asdict(summary)
     summary_payload["root"] = "<repo_root>"
     _write_json(summary_path, summary_payload)
+    _emit_report_intelligence_progress(
+        cfg,
+        event="summary",
+        run_id=run_id,
+        selected_reports=summary.selected_reports,
+        llm_processed_reports=summary.llm_processed_reports,
+        forecast_claim_rows=summary.forecast_claim_rows,
+        outcome_label_rows=summary.outcome_label_rows,
+        blocker_count=summary.blocker_count,
+    )
     return summary

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -10,16 +11,22 @@ from typing import Any, Mapping, Sequence
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
+    GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_ASSIST_JSONL_PATH,
     GOLD_REVIEW_ASSIST_MD_PATH,
+    GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+    GOLD_REVIEW_EVIDENCE_MD_PATH,
+    GOLD_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
+    write_manual_review_batches,
     write_gold_review_assist,
 )
 from .manual_review_bundle_manifest import (
     MANUAL_REVIEW_BUNDLE_ARTIFACTS,
     MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
+    build_manual_review_bundle_manifest,
     write_manual_review_bundle_manifest,
 )
 from .manual_review_import import (
@@ -44,11 +51,15 @@ from .lockbox_review_import import (
     apply_lockbox_review_import,
 )
 from .operator_handoff import (
+    LOCKBOX_UPSTREAM_REVIEW_KINDS,
+    LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
     LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+    LOCKBOX_REVIEWED_IMPORT_PATH,
     OPERATOR_HANDOFF_JSON_PATH,
     OPERATOR_HANDOFF_MD_PATH,
     build_lockbox_review_import_template,
     build_operator_handoff,
+    lockbox_upstream_review_blockers,
     write_operator_handoff,
 )
 from .promotion_dry_run import (
@@ -56,15 +67,43 @@ from .promotion_dry_run import (
 )
 from .promotion_gate import build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
+from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
+)
 from .review_progress import (
     MANUAL_REVIEW_PROGRESS_REPORT_PATH,
     MANUAL_REVIEW_RUNBOOK_MD_PATH,
+    build_manual_review_progress,
     write_manual_review_progress_report,
     write_manual_review_runbook,
 )
+from .temp_paths import rke_temporary_directory
 
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
+OPERATOR_READINESS_TEMP_COPY_IGNORED_PATHS = frozenset(
+    {
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/processing_status.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/weighted_research_contexts.jsonl",
+        "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+        "registry/sources/tushare_research_reports.jsonl",
+        "registry/sources/tushare_research_reports.manifest.json",
+    }
+)
+OPERATOR_READINESS_TEMP_COPY_IGNORED_PREFIXES = (
+    "registry/report_intelligence/markdown/",
+    "registry/report_intelligence/mineru/",
+    "registry/report_intelligence/pdfs/",
+)
 
 
 @dataclass(frozen=True)
@@ -113,6 +152,47 @@ def _read_mapping_json(root_path: Path, relative_path: str) -> tuple[Mapping[str
     return payload, ()
 
 
+def _operator_readiness_dry_run_root(
+    root_path: Path,
+    *,
+    write_supporting_artifacts: bool,
+) -> tuple[Path, Any | None]:
+    if write_supporting_artifacts:
+        return root_path, None
+    temp_dir = rke_temporary_directory(prefix="mosaic-rke-operator-readiness-")
+    temp_root = Path(temp_dir.name)
+    shutil.copytree(
+        root_path / "registry",
+        temp_root / "registry",
+        ignore=_operator_readiness_copy_ignore(root_path),
+    )
+    for directory_name in ("schemas", "docs"):
+        source_path = root_path / directory_name
+        if source_path.exists():
+            shutil.copytree(source_path, temp_root / directory_name)
+    return temp_root, temp_dir
+
+
+def _operator_readiness_copy_ignore(root_path: Path):
+    def ignore(directory: str, names: Sequence[str]) -> set[str]:
+        ignored: set[str] = set()
+        directory_path = Path(directory)
+        for name in names:
+            candidate = directory_path / name
+            try:
+                relative = candidate.relative_to(root_path).as_posix()
+            except ValueError:
+                continue
+            if relative in OPERATOR_READINESS_TEMP_COPY_IGNORED_PATHS or any(
+                relative == prefix.rstrip("/") or relative.startswith(prefix)
+                for prefix in OPERATOR_READINESS_TEMP_COPY_IGNORED_PREFIXES
+            ):
+                ignored.add(name)
+        return ignored
+
+    return ignore
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -129,6 +209,54 @@ def _check(check_id: str, passed: bool, evidence: str, blocker: str = "") -> Ope
         evidence=evidence,
         blocker="" if passed else blocker,
     )
+
+
+def _promotion_gate_state_consistency(
+    promotion: Any,
+) -> tuple[bool, str, str]:
+    criteria = tuple(getattr(promotion, "criteria", ()) or ())
+    passed_by_id = {
+        str(getattr(criterion, "criterion_id", "") or ""): getattr(criterion, "passed", None) is True
+        for criterion in criteria
+    }
+    missing = sorted({f"PG{index:02d}" for index in range(1, 11)} - set(passed_by_id))
+    staged_expected = all(passed_by_id.get(f"PG{index:02d}") is True for index in range(1, 9))
+    production_expected = staged_expected and all(
+        passed_by_id.get(f"PG{index:02d}") is True for index in range(9, 11)
+    )
+    direct_forbidden_expected = not production_expected
+    if production_expected:
+        next_state_expected = "production"
+    elif staged_expected:
+        next_state_expected = "staged_production"
+    elif getattr(promotion, "paper_trading_allowed", None) is True:
+        next_state_expected = "paper_trading"
+    else:
+        next_state_expected = "candidate"
+
+    blockers = tuple(getattr(promotion, "blockers", ()) or ())
+    consistent = (
+        not missing
+        and getattr(promotion, "staged_production_allowed", None) is staged_expected
+        and getattr(promotion, "production_allowed", None) is production_expected
+        and getattr(promotion, "direct_production_forbidden", None) is direct_forbidden_expected
+        and getattr(promotion, "next_state", None) == next_state_expected
+        and (not production_expected or not blockers)
+    )
+    evidence = (
+        f"next_state={getattr(promotion, 'next_state', None)}, "
+        f"expected_next_state={next_state_expected}, "
+        f"staged={getattr(promotion, 'staged_production_allowed', None)}/{staged_expected}, "
+        f"production={getattr(promotion, 'production_allowed', None)}/{production_expected}, "
+        f"direct_forbidden={getattr(promotion, 'direct_production_forbidden', None)}/{direct_forbidden_expected}, "
+        f"blockers={len(blockers)}, missing={len(missing)}"
+    )
+    blocker = (
+        "promotion gate state is inconsistent with PG01-PG10 criteria"
+        if not missing
+        else f"promotion gate missing criteria: {', '.join(missing)}"
+    )
+    return consistent, evidence, blocker
 
 
 def _load_jsonl_template_rows(root_path: Path, relative_path: str) -> tuple[list[tuple[int, Any]], tuple[str, ...]]:
@@ -302,9 +430,16 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     expected_steps = (
         "review-progress-preflight",
         "prepare-gold-review",
+        "write-gold-review-evidence",
         "fill-gold-review",
         "dry-run-gold-review",
         "apply-gold-review",
+        "prepare-footprint-review",
+        "write-footprint-review-assist",
+        "write-footprint-review-evidence",
+        "fill-footprint-review",
+        "dry-run-footprint-review",
+        "apply-footprint-review",
         *source_license_steps,
         "promotion-status-before-lockbox",
         "prepare-lockbox-review",
@@ -324,8 +459,26 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     if run_order != step_ids:
         failures.append("run_order must mirror command_sequence step_id order")
 
+    preflight = by_id.get("review-progress-preflight")
+    preflight_command = str(getattr(preflight, "command", "") or "")
+    if (
+        "review-progress --root . --actions-only --no-write"
+        not in preflight_command
+    ):
+        failures.append("review-progress preflight must use the action queue")
+    for step_id in ("promotion-status-before-lockbox", "promotion-status-final"):
+        promotion_status_step = by_id.get(step_id)
+        promotion_status_command = str(
+            getattr(promotion_status_step, "command", "") or ""
+        )
+        if "promotion-status --root . --no-write" not in promotion_status_command:
+            failures.append(f"{step_id} must use promotion-status --no-write")
+
     fill_expectations = {
         "fill-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "fill-footprint-review": (
+            "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+        ),
         "fill-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
     }
     if not source_license_already_passed:
@@ -359,6 +512,7 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     if (
         "promotion-dry-run" not in promotion_dry_run_command
         or "gold_set_full_reviewed.jsonl" not in promotion_dry_run_command
+        or "analytical_footprint_reviewed.jsonl" not in promotion_dry_run_command
         or "lockbox_reviewed.json" not in promotion_dry_run_command
     ):
         failures.append("promotion dry-run must use all required reviewed inputs")
@@ -377,11 +531,13 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
 
     expected_before_promotion = (
         "dry-run-gold-review",
+        "dry-run-footprint-review",
         "dry-run-lockbox-review",
     )
     if not source_license_already_passed:
         expected_before_promotion = (
             "dry-run-gold-review",
+            "dry-run-footprint-review",
             "dry-run-source-license-review",
             "dry-run-lockbox-review",
         )
@@ -398,15 +554,190 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     return not failures, evidence, "; ".join(failures)
 
 
-def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
+def _markdown_heading_section(text: str, heading: str) -> str:
+    marker = f"## {heading}"
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    next_heading = text.find("\n## ", start + len(marker))
+    return text[start:] if next_heading < 0 else text[start:next_heading]
+
+
+def _manual_review_runbook_promotion_policy_consistent(
+    root_path: Path,
+    *,
+    source_license_already_passed: bool,
+) -> tuple[bool, str, str]:
+    path = root_path / MANUAL_REVIEW_RUNBOOK_MD_PATH
+    if not path.exists():
+        return False, f"{MANUAL_REVIEW_RUNBOOK_MD_PATH} missing", "manual review runbook is missing"
+    section = _markdown_heading_section(path.read_text(encoding="utf-8"), "Promotion Dry Run")
+    if not section:
+        return (
+            False,
+            "promotion_section=missing",
+            "manual review runbook is missing Promotion Dry Run section",
+        )
+
+    required_fragments = (
+        "mosaic-rke promotion-dry-run --root .",
+        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH}",
+        f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}",
+        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}",
+    )
+    missing_fragments = [fragment for fragment in required_fragments if fragment not in section]
+    has_license_input = "--license-input" in section
+    has_license_import = DEFAULT_LICENSE_POLICY_IMPORT_PATH in section
+    has_license_builder = "build-license-review-import" in section
+    failures = list(missing_fragments)
+    if source_license_already_passed:
+        if has_license_input or has_license_import or has_license_builder:
+            failures.append("source-license input must be omitted after the gate already passed")
+    elif not has_license_input or not has_license_import or not has_license_builder:
+        failures.append("source-license input must be built and passed before the gate has passed")
+
+    evidence = (
+        f"source_license_already_passed={source_license_already_passed}, "
+        f"license_input={has_license_input}, license_import={has_license_import}, "
+        f"license_builder={has_license_builder}, missing_fragments={len(missing_fragments)}"
+    )
+    return (
+        not failures,
+        evidence,
+        "; ".join(failures) or "manual review runbook promotion dry-run source-license policy drifted",
+    )
+
+
+def _manual_batch_promotion_inputs_separated(
+    root_path: Path,
+) -> tuple[bool, str, str]:
+    progress, progress_errors = _read_mapping_json(
+        root_path,
+        MANUAL_REVIEW_PROGRESS_REPORT_PATH,
+    )
+    if progress_errors:
+        return False, "; ".join(progress_errors), "; ".join(progress_errors)
+
+    expected_paths = {
+        "gold_set": {
+            "batch": GOLD_REVIEWED_IMPORT_PATH,
+            "promotion": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        },
+        "footprint_review": {
+            "batch": ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+            "promotion": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+        },
+    }
+    failures: list[str] = []
+    checked_batches = 0
+    checked_gates = 0
+    gates = progress.get("gates")
+    if not isinstance(gates, Sequence) or isinstance(gates, str):
+        return False, "gates=invalid", "manual review progress gates must be an array"
+    for gate in gates:
+        if not isinstance(gate, Mapping):
+            failures.append("manual review progress gate must be object")
+            continue
+        review_kind = str(gate.get("review_kind") or "")
+        paths = expected_paths.get(review_kind)
+        if paths is None:
+            continue
+        checked_gates += 1
+        promotion_input = paths["promotion"]
+        for command_field in ("dry_run_command", "apply_command"):
+            command = str(gate.get(command_field) or "")
+            if f"--input {promotion_input}" not in command:
+                failures.append(f"{review_kind}.{command_field} must use {promotion_input}")
+        batch_plan = gate.get("batch_plan")
+        if not isinstance(batch_plan, Sequence) or isinstance(batch_plan, str):
+            failures.append(f"{review_kind}.batch_plan must be array")
+            continue
+        for batch in batch_plan:
+            if not isinstance(batch, Mapping):
+                failures.append(f"{review_kind}.batch_plan row must be object")
+                continue
+            checked_batches += 1
+            batch_input = paths["batch"]
+            if batch.get("batch_input_path") != batch_input:
+                failures.append(f"{review_kind}.batch_input_path must be {batch_input}")
+            if batch.get("promotion_input_path") != promotion_input:
+                failures.append(
+                    f"{review_kind}.promotion_input_path must be {promotion_input}"
+                )
+            commands = batch.get("commands")
+            if not isinstance(commands, Mapping):
+                failures.append(f"{review_kind}.batch.commands must be object")
+                continue
+            for command_name in ("dry_run", "apply"):
+                command = str(commands.get(command_name) or "")
+                if f"--input {batch_input}" not in command:
+                    failures.append(
+                        f"{review_kind}.batch.commands.{command_name} must use {batch_input}"
+                    )
+                if f"--input {promotion_input}" in command:
+                    failures.append(
+                        f"{review_kind}.batch.commands.{command_name} must not use {promotion_input}"
+                    )
+    evidence = f"gates={checked_gates}, batches={checked_batches}, failures={len(failures)}"
+    return not failures and checked_gates == 2, evidence, "; ".join(failures)
+
+
+def _lockbox_upstream_guard_consistent(root_path: Path) -> tuple[bool, str, str]:
+    report = build_manual_review_progress(root_path)
+    gate_by_kind = {gate.review_kind: gate for gate in report.gates}
+    expected_blockers = tuple(
+        f"{review_kind} gate must be ready before opening lockbox review"
+        for review_kind in LOCKBOX_UPSTREAM_REVIEW_KINDS
+        if not gate_by_kind.get(review_kind, None)
+        or not gate_by_kind[review_kind].ready_for_promotion
+    )
+    actual_blockers = lockbox_upstream_review_blockers(root_path)
+    ready_kinds = tuple(
+        review_kind
+        for review_kind in LOCKBOX_UPSTREAM_REVIEW_KINDS
+        if gate_by_kind.get(review_kind, None)
+        and gate_by_kind[review_kind].ready_for_promotion
+    )
+    pending_kinds = tuple(
+        review_kind
+        for review_kind in LOCKBOX_UPSTREAM_REVIEW_KINDS
+        if review_kind not in ready_kinds
+    )
+    evidence = (
+        "pending="
+        + (",".join(pending_kinds) if pending_kinds else "none")
+        + "; ready="
+        + (",".join(ready_kinds) if ready_kinds else "none")
+        + f"; blockers={len(actual_blockers)}"
+    )
+    return (
+        actual_blockers == expected_blockers,
+        evidence,
+        "lockbox upstream CLI guard does not match manual gate readiness",
+    )
+
+
+def build_operator_readiness_report(
+    root: str | Path = ".",
+    *,
+    write_supporting_artifacts: bool = True,
+) -> OperatorReadinessReport:
     root_path = Path(root)
-    if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
-        root_path / GOLD_REVIEW_ASSIST_MD_PATH
-    ).exists():
-        write_gold_review_assist(root_path)
-    write_source_license_review_workbook(root_path)
-    write_manual_review_progress_report(root_path)
-    write_manual_review_runbook(root_path)
+    if write_supporting_artifacts:
+        if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
+            root_path / GOLD_REVIEW_ASSIST_MD_PATH
+        ).exists():
+            write_gold_review_assist(root_path)
+        write_source_license_review_workbook(root_path)
+        write_manual_review_progress_report(root_path)
+        write_manual_review_runbook(root_path)
+    dry_run_root, dry_run_temp = _operator_readiness_dry_run_root(
+        root_path,
+        write_supporting_artifacts=write_supporting_artifacts,
+    )
+    check_root = dry_run_root
+    if not write_supporting_artifacts:
+        write_manual_review_batches(check_root)
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
@@ -431,13 +762,21 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
 
     handoff = build_operator_handoff(root_path)
     gate_kinds = {gate.review_kind for gate in handoff.gates}
+    all_handoff_gates_passed = all(bool(gate.passed) for gate in handoff.gates)
+    handoff_state_safe = (
+        handoff.direct_production_forbidden and not handoff.production_allowed
+    ) or (
+        handoff.production_allowed
+        and handoff.next_state == "production"
+        and all_handoff_gates_passed
+    )
     checks.append(
         _check(
             "handoff_ready_for_operator",
             handoff.ready_for_operator_review
-            and gate_kinds == {"gold_set", "source_license", "lockbox"}
-            and handoff.direct_production_forbidden
-            and not handoff.production_allowed,
+            and gate_kinds
+            == {"gold_set", "footprint_review", "source_license", "lockbox"}
+            and handoff_state_safe,
             f"gates={sorted(gate_kinds)}, next_state={handoff.next_state}",
             "operator handoff does not expose all manual gates safely",
         )
@@ -451,11 +790,46 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             sequence_blocker or "operator handoff command sequence is incomplete or unsafe",
         )
     )
+    manual_progress = build_manual_review_progress(root_path)
+    source_license_progress = next(
+        (
+            gate
+            for gate in tuple(getattr(manual_progress, "gates", ()) or ())
+            if gate.review_kind == "source_license"
+        ),
+        None,
+    )
+    source_license_already_passed = bool(
+        source_license_progress and source_license_progress.ready_for_promotion
+    )
+    runbook_ok, runbook_evidence, runbook_blocker = (
+        _manual_review_runbook_promotion_policy_consistent(
+            root_path,
+            source_license_already_passed=source_license_already_passed,
+        )
+    )
+    checks.append(
+        _check(
+            "manual_review_runbook_promotion_policy_consistent",
+            runbook_ok,
+            runbook_evidence,
+            runbook_blocker,
+        )
+    )
 
-    batch_status, _, _ = build_manual_review_batch_status(root_path)
-    gold_rows, gold_row_errors = _template_row_count(root_path, GOLD_BATCH_IMPORT_TEMPLATE_PATH)
-    gold_full_rows, gold_full_row_errors = _template_row_count(root_path, GOLD_FULL_IMPORT_TEMPLATE_PATH)
-    license_rows, license_row_errors = _template_row_count(root_path, LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
+    batch_status, _, _ = build_manual_review_batch_status(check_root)
+    gold_rows, gold_row_errors = _template_row_count(
+        check_root,
+        GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+    )
+    gold_full_rows, gold_full_row_errors = _template_row_count(
+        check_root,
+        GOLD_FULL_IMPORT_TEMPLATE_PATH,
+    )
+    license_rows, license_row_errors = _template_row_count(
+        check_root,
+        LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+    )
     batch_shape_blockers = (
         *(blocker for blocker in batch_status.blockers if "still pending" not in blocker),
         *gold_row_errors,
@@ -487,8 +861,22 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             batch_blocker or "manual batch templates do not match batch status",
         )
     )
+    (
+        batch_input_ok,
+        batch_input_evidence,
+        batch_input_blocker,
+    ) = _manual_batch_promotion_inputs_separated(root_path)
+    checks.append(
+        _check(
+            "manual_batch_promotion_inputs_separated",
+            batch_input_ok,
+            batch_input_evidence,
+            batch_input_blocker
+            or "manual review batch inputs and promotion inputs are not separated",
+        )
+    )
 
-    sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(root_path)
+    sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(check_root)
     checks.append(_check("manual_import_templates_are_sparse", sparse_ok, sparse_evidence, sparse_blocker))
 
     empty_provenance_allowed = set()
@@ -503,7 +891,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         empty_provenance_allowed.add(LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
     provenance_ok, provenance_evidence, provenance_blocker = (
         _manual_review_templates_have_provenance(
-            root_path,
+            check_root,
             allow_empty_jsonl=frozenset(empty_provenance_allowed),
         )
     )
@@ -517,7 +905,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     blank_gold_full = apply_gold_set_review_import(
-        root_path,
+        dry_run_root,
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
         dry_run=True,
     )
@@ -546,13 +934,13 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     lockbox_template, lockbox_template_errors = _read_mapping_json(
-        root_path,
+        check_root,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
     expected_lockbox: Mapping[str, Any] = {}
     expected_lockbox_error = ""
     try:
-        expected_lockbox = build_lockbox_review_import_template(root_path)
+        expected_lockbox = build_lockbox_review_import_template(check_root)
     except ValueError as exc:
         expected_lockbox_error = str(exc)
     checks.append(
@@ -580,7 +968,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     blank_lockbox = apply_lockbox_review_import(
-        root_path,
+        dry_run_root,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         dry_run=True,
     )
@@ -610,12 +998,25 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             "blank lockbox import unexpectedly passes",
         )
     )
+    (
+        lockbox_guard_ok,
+        lockbox_guard_evidence,
+        lockbox_guard_blocker,
+    ) = _lockbox_upstream_guard_consistent(root_path)
+    checks.append(
+        _check(
+            "lockbox_upstream_cli_guard_enforced",
+            lockbox_guard_ok,
+            lockbox_guard_evidence,
+            lockbox_guard_blocker,
+        )
+    )
 
     policy_template, policy_template_errors = _read_mapping_json(
-        root_path,
+        check_root,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     )
-    expected_policy = build_source_license_policy_template(root_path)
+    expected_policy = build_source_license_policy_template(check_root)
     checks.append(
         _check(
             "source_license_policy_template_requires_human_decision",
@@ -641,7 +1042,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     policy_dry_run = build_source_license_policy_import(
-        root_path,
+        dry_run_root,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         output_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
         dry_run=True,
@@ -670,27 +1071,42 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     blank_dry_run = build_promotion_dry_run_report(
-        root_path,
+        dry_run_root,
         gold_input=GOLD_FULL_IMPORT_TEMPLATE_PATH,
         license_input=LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         lockbox_input=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
+    blank_bundle_does_not_promote = (
+        blank_dry_run.mutated_original_registry is False
+        and blank_dry_run.accepted is False
+        and (
+            blank_dry_run.production_allowed_after_simulation is False
+            or blank_dry_run.before_next_state == "production"
+        )
+    )
     checks.append(
         _check(
             "blank_bundle_dry_run_does_not_promote",
-            blank_dry_run.mutated_original_registry is False
-            and blank_dry_run.accepted is False
-            and blank_dry_run.production_allowed_after_simulation is False,
+            blank_bundle_does_not_promote,
             (
                 f"accepted={blank_dry_run.accepted}, "
+                f"before_next_state={blank_dry_run.before_next_state}, "
                 f"after_next_state={blank_dry_run.after_next_state}"
             ),
             "blank manual templates unexpectedly pass promotion dry-run",
         )
     )
 
-    bundle_result = write_manual_review_bundle_manifest(root_path)
-    bundle_manifest = _read_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH)
+    if write_supporting_artifacts:
+        bundle_result = write_manual_review_bundle_manifest(root_path)
+        bundle_manifest = _read_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH)
+    else:
+        built_bundle_manifest = build_manual_review_bundle_manifest(check_root)
+        bundle_result = {
+            "accepted": built_bundle_manifest.accepted,
+            "artifact_count": built_bundle_manifest.artifact_count,
+        }
+        bundle_manifest = _jsonable(asdict(built_bundle_manifest))
     bundle_paths = {
         str(artifact.get("path") or "")
         for artifact in bundle_manifest.get("artifacts", ())
@@ -702,14 +1118,25 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         if isinstance(bundle_manifest.get("promotion_dry_run"), Mapping)
         else {}
     )
+    review_kinds = {"gold_set", "footprint_review", "source_license", "lockbox"}
+    bundle_dry_run_safe = (
+        bundle_dry_run.get("accepted") is False
+        and bundle_dry_run.get("production_allowed_after_simulation") is False
+    ) or (
+        bundle_dry_run.get("accepted") is True
+        and bundle_dry_run.get("production_allowed_after_simulation") is True
+        and bundle_dry_run.get("after_next_state") == "production"
+        and review_kinds <= set(bundle_dry_run.get("already_applied_steps") or ())
+        and not bundle_dry_run.get("missing_steps")
+        and not bundle_dry_run.get("rejected_steps")
+    )
     checks.append(
         _check(
             "manual_review_bundle_manifest_current",
             bundle_result["accepted"] is True
             and int(bundle_manifest.get("artifact_count") or 0) == len(MANUAL_REVIEW_BUNDLE_ARTIFACTS)
             and expected_bundle_paths <= bundle_paths
-            and bundle_dry_run.get("accepted") is False
-            and bundle_dry_run.get("production_allowed_after_simulation") is False
+            and bundle_dry_run_safe
             and all(str(artifact.get("sha256") or "").startswith("sha256:") for artifact in bundle_manifest["artifacts"]),
             (
                 f"artifact_count={bundle_manifest.get('artifact_count')}, "
@@ -721,14 +1148,15 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     promotion = build_production_promotion_gate_report(root_path)
+    promotion_ok, promotion_evidence, promotion_blocker = _promotion_gate_state_consistency(
+        promotion
+    )
     checks.append(
         _check(
-            "promotion_gate_still_blocks_production",
-            promotion.paper_trading_allowed
-            and not promotion.production_allowed
-            and promotion.direct_production_forbidden,
-            f"next_state={promotion.next_state}, blockers={len(promotion.blockers)}",
-            "promotion gate no longer blocks direct production",
+            "promotion_gate_state_consistent",
+            promotion_ok,
+            promotion_evidence,
+            promotion_blocker,
         )
     )
 
@@ -760,6 +1188,12 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_REVIEW_WORKBOOK_MD_PATH,
         GOLD_REVIEW_ASSIST_JSONL_PATH,
         GOLD_REVIEW_ASSIST_MD_PATH,
+        GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+        GOLD_REVIEW_EVIDENCE_MD_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         GOLD_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
@@ -767,10 +1201,13 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         LICENSE_POLICY_IMPORT_REPORT_PATH,
         MANUAL_REVIEW_PROGRESS_REPORT_PATH,
         MANUAL_REVIEW_RUNBOOK_MD_PATH,
+        LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
     )
+    if dry_run_temp is not None:
+        dry_run_temp.cleanup()
     return OperatorReadinessReport(
         report_id="RKE-OPERATOR-READINESS-REPORT-20260606",
         accepted=passed_count == len(checks),

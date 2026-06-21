@@ -11,7 +11,8 @@
     "mapping_records",
     "pit_available_mapping_count",
     "pit_gap_counts",
-    "labelability_summary"
+    "labelability_summary",
+    "labelability_action_summary"
   ],
   "properties": {
     "availability_id": {"type": "string", "minLength": 1},
@@ -19,10 +20,140 @@
     "qlib_etf_dir_configured": {"type": "string", "minLength": 1},
     "windows_days": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
     "mapping_count": {"type": "integer", "minimum": 0},
-    "mapping_records": {"type": "array", "items": {"type": "object"}},
+    "mapping_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "mapping_id",
+          "mapping_version",
+          "sector_name",
+          "status",
+          "etf_symbol",
+          "benchmark_symbol",
+          "benchmark_source",
+          "benchmark_family",
+          "calendar_source",
+          "earliest_price_date",
+          "latest_price_date",
+          "latest_calendar_date",
+          "has_20d_window",
+          "has_60d_window",
+          "has_120d_window",
+          "available_window_days",
+          "missing_price_count",
+          "stale_price_gap_count",
+          "benchmark_available",
+          "pit_available",
+          "pit_gap_reasons"
+        ],
+        "properties": {
+          "mapping_id": {"type": "string", "minLength": 1},
+          "mapping_version": {"type": "integer", "minimum": 1},
+          "sector_name": {"type": "string", "minLength": 1},
+          "status": {"enum": ["primary", "candidate", "retired", "blocked"]},
+          "effective_from": {"type": "string"},
+          "effective_to": {"type": "string"},
+          "etf_symbol": {"type": "string", "minLength": 1},
+          "benchmark_symbol": {"type": "string", "minLength": 1},
+          "benchmark_source": {"type": "string", "minLength": 1},
+          "benchmark_family": {"type": "string", "minLength": 1},
+          "calendar_source": {"type": "string", "minLength": 1},
+          "earliest_price_date": {"type": "string"},
+          "latest_price_date": {"type": "string"},
+          "latest_calendar_date": {"type": "string"},
+          "has_20d_window": {"type": "boolean"},
+          "has_60d_window": {"type": "boolean"},
+          "has_120d_window": {"type": "boolean"},
+          "available_window_days": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "uniqueItems": true
+          },
+          "missing_price_count": {"type": "integer", "minimum": 0},
+          "stale_price_gap_count": {"type": "integer", "minimum": 0},
+          "benchmark_available": {"type": "boolean"},
+          "pit_available": {"type": "boolean"},
+          "pit_gap_reasons": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
     "pit_available_mapping_count": {"type": "integer", "minimum": 0},
-    "pit_gap_counts": {"type": "object"},
-    "labelability_summary": {"type": "object"}
+    "pit_gap_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "labelability_summary": {
+      "type": "object",
+      "required": [
+        "eligible_claim_count",
+        "labelable_claim_count",
+        "labelable_window_count",
+        "pending_future_window_count",
+        "sector_etf_mapping_missing_count",
+        "proxy_series_missing_count",
+        "benchmark_series_missing_count"
+      ],
+      "properties": {
+        "eligible_claim_count": {"type": "integer", "minimum": 0},
+        "labelable_claim_count": {"type": "integer", "minimum": 0},
+        "labelable_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_window_count": {"type": "integer", "minimum": 0},
+        "sector_etf_mapping_missing_count": {"type": "integer", "minimum": 0},
+        "proxy_series_missing_count": {"type": "integer", "minimum": 0},
+        "benchmark_series_missing_count": {"type": "integer", "minimum": 0},
+        "data_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      },
+      "additionalProperties": true
+    },
+    "labelability_action_summary": {
+      "type": "object",
+      "required": [
+        "policy",
+        "coverage_gate_status",
+        "eligible_claim_count",
+        "labelable_claim_count",
+        "labelability_rate",
+        "mapping_review_claim_count",
+        "primary_mapping_coverage_rate",
+        "sector_etf_mapping_missing_count",
+        "pit_unavailable_mapping_count",
+        "remaining_action_count",
+        "data_gap_counts",
+        "pit_gap_counts",
+        "next_actions"
+      ],
+      "properties": {
+        "policy": {"type": "string", "minLength": 1},
+        "coverage_gate_status": {"enum": ["passed", "actionable_gaps_present"]},
+        "eligible_claim_count": {"type": "integer", "minimum": 0},
+        "labelable_claim_count": {"type": "integer", "minimum": 0},
+        "labelability_rate": {"type": "number", "minimum": 0},
+        "mapping_review_claim_count": {"type": "integer", "minimum": 0},
+        "primary_mapping_coverage_rate": {"type": "number", "minimum": 0},
+        "sector_etf_mapping_missing_count": {"type": "integer", "minimum": 0},
+        "pit_unavailable_mapping_count": {"type": "integer", "minimum": 0},
+        "remaining_action_count": {"type": "integer", "minimum": 0},
+        "data_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "pit_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "next_actions": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

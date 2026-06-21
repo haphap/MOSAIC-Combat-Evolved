@@ -10,12 +10,21 @@ explicitly via ``monkeypatch.setenv`` (which runs after this autouse fixture).
 from __future__ import annotations
 
 import json
+import os
+import fcntl
 import shutil
 import subprocess
 from collections import Counter
 from pathlib import Path
 
 import pytest
+
+_RKE_DEFAULT_TMPDIR = Path(
+    os.environ.get("MOSAIC_RKE_TMPDIR") or "~/tmp/mosaic-rke"
+).expanduser()
+_RKE_DEFAULT_TMPDIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MOSAIC_RKE_TMPDIR", str(_RKE_DEFAULT_TMPDIR))
+os.environ.setdefault("TMPDIR", str(_RKE_DEFAULT_TMPDIR))
 
 _LEAK_VARS = (
     "MOSAIC_PROMPTS_REPO",
@@ -34,6 +43,14 @@ _RKE_MANUAL_REVIEW_SCRATCH = frozenset(
     {
         "gold_set_reviewed.jsonl",
         "gold_set_full_reviewed.jsonl",
+        "gold_set_review_assist.jsonl",
+        "gold_set_review_assist.md",
+        "gold_set_review_evidence.jsonl",
+        "gold_set_review_evidence.md",
+        "analytical_footprint_review_assist.jsonl",
+        "analytical_footprint_review_evidence.jsonl",
+        "analytical_footprint_review_evidence.md",
+        "analytical_footprint_review_workbook.md",
         "source_license_policy_reviewed.json",
         "source_license_policy_import.jsonl",
         "lockbox_reviewed.json",
@@ -50,6 +67,39 @@ _RKE_TUSHARE_GOLD_CANDIDATES_PATH = Path(
 )
 _RKE_TUSHARE_GOLD_REVIEW_PATH = Path(
     "gold_sets/tushare_research_reports.review_template.jsonl"
+)
+_RKE_SYNTHETIC_FIXTURE_PATHS = (
+    Path("registry") / _RKE_TUSHARE_SOURCE_PATH,
+    Path("registry") / _RKE_TUSHARE_MANIFEST_PATH,
+    Path("registry") / _RKE_TUSHARE_LICENSE_REVIEW_PATH,
+    Path("registry") / _RKE_TUSHARE_GOLD_CANDIDATES_PATH,
+    Path("registry") / _RKE_TUSHARE_GOLD_REVIEW_PATH,
+    Path("registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"),
+    Path("registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"),
+    Path("registry/gold_sets/tushare_research_reports.review_summary.json"),
+    Path("registry/gold_sets/tushare_research_reports.review_import_report.json"),
+    Path("registry/gold_sets/tushare_research_reports.review_packet.json"),
+    Path("registry/gold_sets/tushare_research_reports.review_packet.md"),
+    Path("registry/compliance/tushare_license_review_summary.json"),
+    Path("registry/compliance/tushare_license_review_import_report.json"),
+    Path("registry/compliance/tushare_license_review_packet.json"),
+    Path("registry/compliance/tushare_license_review_packet.md"),
+    Path("registry/source_checks/source_registry_validation_report.json"),
+    Path("registry/report_intelligence/report_metadata.jsonl"),
+    Path("registry/report_intelligence/processing_status.jsonl"),
+    Path("registry/report_intelligence/forecast_claims.jsonl"),
+    Path("registry/report_intelligence/analytical_footprints.jsonl"),
+    Path("registry/report_intelligence/report_outcome_labels.jsonl"),
+    Path("registry/report_intelligence/weighted_research_contexts.jsonl"),
+)
+_RKE_TRACKED_TEST_MUTABLE_PATHS = (
+    Path("registry/dashboards/rke_dashboard.json"),
+    Path("registry/dashboards/rke_dashboard.md"),
+    Path("registry/review_batches/manual_review_bundle_manifest.json"),
+    Path("registry/review_batches/manual_review_progress_report.json"),
+    Path("registry/review_batches/manual_review_runbook.md"),
+    Path("registry/review_batches/source_license_policy_import_report.json"),
+    Path("registry/schemas/rke_schema_validation_report.json"),
 )
 _RKE_SYNTHETIC_TUSHARE_SOURCE_COUNT = 50
 _RKE_SYNTHETIC_TUSHARE_CLAIMS_PER_SOURCE = 10
@@ -94,6 +144,25 @@ def _git_status_porcelain(root_path: Path) -> set[str]:
     if result.returncode != 0:
         return set()
     return {line for line in result.stdout.splitlines() if line.strip()}
+
+
+def _restore_paths_from_backups(
+    root_path: Path,
+    backups: list[tuple[Path, Path | None]],
+) -> None:
+    for relative_path, backup_path in backups:
+        path = root_path / relative_path
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+        if backup_path is None:
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if backup_path.is_dir():
+            shutil.copytree(backup_path, path)
+        else:
+            shutil.copy2(backup_path, path)
 
 
 def _synthetic_source_id(index: int) -> str:
@@ -217,13 +286,33 @@ def _synthetic_claim_row(source: dict, document_index: int, claim_index: int) ->
     }
 
 
-def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
+def _ensure_synthetic_private_tushare_registry(
+    root_path: Path, *, force: bool = False
+) -> None:
     source_path = root_path / "registry" / _RKE_TUSHARE_SOURCE_PATH
-    if source_path.exists():
+    ri_fixture_paths = (
+        root_path / "registry/report_intelligence/report_metadata.jsonl",
+        root_path / "registry/report_intelligence/processing_status.jsonl",
+        root_path / "registry/report_intelligence/forecast_claims.jsonl",
+        root_path / "registry/report_intelligence/analytical_footprints.jsonl",
+        root_path / "registry/report_intelligence/report_outcome_labels.jsonl",
+        root_path / "registry/report_intelligence/weighted_research_contexts.jsonl",
+    )
+    required_fixture_paths = [
+        root_path / "registry" / _RKE_TUSHARE_SOURCE_PATH,
+        root_path / "registry" / _RKE_TUSHARE_GOLD_CANDIDATES_PATH,
+        root_path / "registry" / _RKE_TUSHARE_GOLD_REVIEW_PATH,
+        root_path / "registry" / _RKE_TUSHARE_LICENSE_REVIEW_PATH,
+        *ri_fixture_paths,
+    ]
+    if (
+        not force
+        and source_path.exists()
+        and all(path.exists() for path in required_fixture_paths)
+    ):
         return
 
     sources = _build_synthetic_tushare_rows()
-    source_ids = {str(row["source_id"]) for row in sources}
     gold_candidates = _build_synthetic_gold_candidates(sources)
     candidate_claims = [
         _synthetic_claim_row(source, document_index, claim_index)
@@ -240,6 +329,8 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
                 "claim_correct": True,
                 "source_span_supports_claim": True,
                 "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
                 "variable_mapping_correct": True,
                 "unsupported_field_false_grounded": False,
                 "proposed_claim_text": claim["claim_text"],
@@ -268,6 +359,20 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
                 "span_preview": "synthetic fixture preview",
             }
         )
+    source_ids = {str(row["source_id"]) for row in sources}
+    public_demo_source_path = root_path / "registry/sources/semiconductor_demo_sources.jsonl"
+    if public_demo_source_path.exists():
+        for line in public_demo_source_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            source = json.loads(line)
+            source_id = str(source.get("source_id") or "")
+            if not source_id or source_id in source_ids:
+                continue
+            if source.get("source_type") != "tushare_research_report":
+                continue
+            sources.append(source)
+            source_ids.add(source_id)
     license_rows = [
         {
             "approved_for_derived_claim_storage": True,
@@ -335,6 +440,15 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
             "pending_claims": 0,
             "review_complete": True,
             "passed": True,
+            "metrics": {
+                "claim_precision": 1.0,
+                "direction_accuracy": 1.0,
+                "horizon_accuracy": 1.0,
+                "source_span_support_precision": 1.0,
+                "target_accuracy": 1.0,
+                "unsupported_field_false_grounding_rate": 0.0,
+                "variable_mapping_accuracy": 1.0,
+            },
             "blockers": [],
         },
     )
@@ -431,6 +545,15 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
     report_ids = sorted(
         {str(row.get("report_id") or "RPT-SYNTH-RKE-0001") for row in ledger_rows}
     )
+    readiness_path = root_path / "registry/report_intelligence/outcome_labeling_readiness.json"
+    proxy_label_ready_ids: set[str] = set()
+    if readiness_path.exists():
+        readiness_payload = json.loads(readiness_path.read_text(encoding="utf-8"))
+        proxy_label_ready_ids = {
+            str(claim_id)
+            for claim_id in readiness_payload.get("proxy_label_ready_forecast_claim_ids", [])
+            if str(claim_id).strip()
+        }
     source_id = sources[0]["source_id"]
     source_span_id = sources[0]["source_span_id"]
     _write_jsonl(
@@ -477,42 +600,62 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
             for report_id in report_ids
         ],
     )
-    _write_jsonl(
-        root_path / "registry/report_intelligence/forecast_claims.jsonl",
-        [
-            {
-                "forecast_claim_id": str(row.get("forecast_claim_id") or ""),
-                "forecast_family_id": str(
-                    row.get("forecast_family_id") or "FF-SYNTH-RKE-0001"
-                ),
-                "claim_id": f"CLAIM-{row.get('forecast_claim_id') or 'SYNTH'}",
-                "report_id": str(row.get("report_id") or report_ids[0]),
-                "source_id": source_id,
-                "source_span_ids": [source_span_id],
-                "claim_text": "合成研报认为半导体景气度需要结合点时数据验证。",
-                "claim_provenance": "source_grounded",
-                "forecast_testability": "insufficient_mapping",
-                "forecast_type": "industry_view",
-                "target": {},
-                "benchmark": {},
-                "direction": "unknown",
-                "horizon": {},
-                "signal_datetime": "2026-06-05T00:00:00+00:00",
-                "metric_proxy_mapping": ["industry_etf_forward_return"],
-                "failure_modes": [
-                    {
-                        "text": "synthetic clean-checkout row keeps mapping gaps explicit",
-                        "provenance": "source_grounded",
-                    }
-                ],
+    def synthetic_forecast_claim_for_ledger_row(row: dict) -> dict:
+        claim_id = str(row.get("forecast_claim_id") or "")
+        ready = str(row.get("test_status") or "") == "ready_for_outcome_labeling"
+        base = {
+            "forecast_claim_id": claim_id,
+            "forecast_family_id": str(
+                row.get("forecast_family_id") or "FF-SYNTH-RKE-0001"
+            ),
+            "claim_id": f"CLAIM-{claim_id or 'SYNTH'}",
+            "report_id": str(row.get("report_id") or report_ids[0]),
+            "source_id": source_id,
+            "source_span_ids": [source_span_id],
+            "claim_text": "合成研报认为半导体景气度需要结合点时数据验证。",
+            "claim_provenance": "source_grounded",
+            "forecast_type": "industry_view",
+            "signal_datetime": "2026-06-05T00:00:00+00:00",
+            "metric_proxy_mapping": ["industry_etf_forward_return"],
+            "extractor": {"backend": "synthetic_fixture"},
+        }
+        if ready:
+            return {
+                **base,
+                "forecast_testability": "testable",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "benchmark": {"benchmark_symbol": "SH510300"},
+                "direction": "positive",
+                "horizon": {"window_days": 20},
+                "failure_modes": [],
                 "extraction_quality": {
                     "confidence": "medium",
-                    "mapping_gaps": ["target", "benchmark", "horizon"],
+                    "mapping_gaps": [],
                 },
-                "extractor": {"backend": "synthetic_fixture"},
             }
-            for row in ledger_rows
-        ],
+        return {
+            **base,
+            "forecast_testability": "insufficient_mapping",
+            "target": {},
+            "benchmark": {},
+            "direction": "unknown",
+            "horizon": {},
+            "failure_modes": [
+                {
+                    "text": "synthetic clean-checkout row keeps mapping gaps explicit",
+                    "provenance": "source_grounded",
+                }
+            ],
+            "extraction_quality": {
+                "confidence": "medium",
+                "mapping_gaps": ["target", "benchmark", "horizon"],
+                "proxy_label_ready": claim_id in proxy_label_ready_ids,
+            },
+        }
+
+    _write_jsonl(
+        root_path / "registry/report_intelligence/forecast_claims.jsonl",
+        [synthetic_forecast_claim_for_ledger_row(row) for row in ledger_rows],
     )
     _write_jsonl(
         root_path / "registry/report_intelligence/analytical_footprints.jsonl",
@@ -579,17 +722,84 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
     write_license_review_packet(root_path)
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _ensure_private_tushare_test_fixture():
+@pytest.fixture(scope="session")
+def _ensure_private_tushare_test_fixture(tmp_path_factory):
     root_path = Path.cwd()
-    before_status = _git_status_porcelain(root_path)
-    _ensure_synthetic_private_tushare_registry(root_path)
-    after_status = _git_status_porcelain(root_path)
-    fixture_status_delta = sorted(after_status - before_status)
-    assert not fixture_status_delta, (
-        "synthetic private Tushare fixture must only write gitignored paths; "
-        f"unexpected git status delta: {fixture_status_delta}"
-    )
+    backup_root = tmp_path_factory.mktemp("rke-private-tushare-backup")
+    moved_paths: list[tuple[Path, Path]] = []
+    tmp_root = Path(
+        os.environ.get("MOSAIC_RKE_TMPDIR") or "~/tmp/mosaic-rke"
+    ).expanduser()
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    lock_path = tmp_root / "mosaic-rke-private-tushare-fixture.lock"
+    lock_handle = lock_path.open("w", encoding="utf-8")
+    fcntl.flock(lock_handle, fcntl.LOCK_EX)
+
+    def restore_private_paths() -> None:
+        for relative_path in _RKE_SYNTHETIC_FIXTURE_PATHS:
+            path = root_path / relative_path
+            if path.is_dir():
+                shutil.rmtree(path)
+            elif path.exists():
+                path.unlink()
+        for relative_path, backup_path in moved_paths:
+            restore_path = root_path / relative_path
+            if not backup_path.exists():
+                continue
+            restore_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(backup_path), str(restore_path))
+
+    try:
+        for relative_path in _RKE_SYNTHETIC_FIXTURE_PATHS:
+            path = root_path / relative_path
+            if not path.exists():
+                continue
+            backup_path = backup_root / relative_path
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(path), str(backup_path))
+            moved_paths.append((relative_path, backup_path))
+
+        before_status = _git_status_porcelain(root_path)
+        _ensure_synthetic_private_tushare_registry(root_path)
+        after_status = _git_status_porcelain(root_path)
+        fixture_status_delta = sorted(after_status - before_status)
+        assert not fixture_status_delta, (
+            "synthetic private Tushare fixture must only write gitignored paths; "
+            f"unexpected git status delta: {fixture_status_delta}"
+        )
+        yield
+    finally:
+        restore_private_paths()
+        fcntl.flock(lock_handle, fcntl.LOCK_UN)
+        lock_handle.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _restore_tracked_rke_public_artifacts_after_tests(
+    tmp_path_factory,
+):
+    """Let tests rewrite public reports without leaving generated diffs behind."""
+
+    root_path = Path.cwd()
+    backup_root = tmp_path_factory.mktemp("rke-public-artifact-backup")
+    backups: list[tuple[Path, Path | None]] = []
+    for relative_path in _RKE_TRACKED_TEST_MUTABLE_PATHS:
+        path = root_path / relative_path
+        if not path.exists():
+            backups.append((relative_path, None))
+            continue
+        backup_path = backup_root / relative_path
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_dir():
+            shutil.copytree(path, backup_path)
+        else:
+            shutil.copy2(path, backup_path)
+        backups.append((relative_path, backup_path))
+
+    try:
+        yield
+    finally:
+        _restore_paths_from_backups(root_path, backups)
 
 
 @pytest.fixture(autouse=True)
@@ -606,19 +816,26 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
     original_copytree = shutil.copytree
     project_registry_path = (Path.cwd() / "registry").resolve()
 
-    def load_jsonl_objects(path: Path) -> list[dict]:
+    def load_jsonl_objects(path: Path, *, strict: bool = True) -> list[dict]:
         rows: list[dict] = []
         if not path.exists():
             return rows
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if isinstance(row, dict):
-                rows.append(row)
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    if strict:
+                        raise
+                    continue
+                if isinstance(row, dict):
+                    rows.append(row)
         return rows
 
     def write_jsonl(path: Path, rows: list[dict]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             "".join(
                 json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
@@ -630,24 +847,20 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
     def collect_source_ids(path: Path) -> set[str]:
         return {
             source_id
-            for row in load_jsonl_objects(path)
+            for row in load_jsonl_objects(path, strict=False)
             if (source_id := str(row.get("source_id") or row.get("document_id") or ""))
         }
 
-    def sample_copied_tushare_registry(dst_registry_path: Path) -> None:
+    def sample_copied_tushare_registry(
+        src_registry_path: Path,
+        dst_registry_path: Path,
+    ) -> None:
         source_path = dst_registry_path / _RKE_TUSHARE_SOURCE_PATH
-        if not source_path.exists():
+        source_source_path = src_registry_path / _RKE_TUSHARE_SOURCE_PATH
+        if not source_source_path.exists():
             return
 
-        source_rows = load_jsonl_objects(source_path)
-        if len(source_rows) <= _RKE_TUSHARE_REGISTRY_COPY_SAMPLE_ROWS:
-            return
-
-        keep_source_ids = {
-            str(row.get("source_id") or "")
-            for row in source_rows[:_RKE_TUSHARE_REGISTRY_COPY_SAMPLE_ROWS]
-            if row.get("source_id")
-        }
+        keep_source_ids: set[str] = set()
         keep_source_ids.update(
             collect_source_ids(dst_registry_path / _RKE_TUSHARE_GOLD_CANDIDATES_PATH)
         )
@@ -660,23 +873,49 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
                 if path == source_path:
                     continue
                 keep_source_ids.update(collect_source_ids(path))
-        sampled_sources = [
-            row
-            for row in source_rows
-            if str(row.get("source_id") or "") in keep_source_ids
-        ]
+
+        first_rows: list[dict] = []
+        referenced_rows: list[dict] = []
+        seen_source_ids: set[str] = set()
+        source_row_count = 0
+        with source_source_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                source_row_count += 1
+                source_id = str(row.get("source_id") or "")
+                if source_row_count <= _RKE_TUSHARE_REGISTRY_COPY_SAMPLE_ROWS:
+                    first_rows.append(row)
+                    if source_id:
+                        keep_source_ids.add(source_id)
+                        seen_source_ids.add(source_id)
+                elif source_id and source_id in keep_source_ids and source_id not in seen_source_ids:
+                    referenced_rows.append(row)
+                    seen_source_ids.add(source_id)
+
+        if source_row_count <= _RKE_TUSHARE_REGISTRY_COPY_SAMPLE_ROWS and source_path.exists():
+            return
+
+        sampled_sources = first_rows + referenced_rows
         write_jsonl(source_path, sampled_sources)
 
         license_path = dst_registry_path / _RKE_TUSHARE_LICENSE_REVIEW_PATH
         if license_path.exists():
             sampled_licenses = [
                 row
-                for row in load_jsonl_objects(license_path)
+                for row in load_jsonl_objects(license_path, strict=False)
                 if str(row.get("source_id") or "") in keep_source_ids
             ]
             write_jsonl(license_path, sampled_licenses)
 
         manifest_path = dst_registry_path / _RKE_TUSHARE_MANIFEST_PATH
+        manifest = {}
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             report_type_counts = Counter(
@@ -705,11 +944,16 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
             if publish_dates:
                 manifest["publish_date_min"] = publish_dates[0]
                 manifest["publish_date_max"] = publish_dates[-1]
-            manifest_path.write_text(
-                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True)
-                + "\n",
-                encoding="utf-8",
-            )
+        manifest["row_count"] = len(sampled_sources)
+        manifest["rows_with_abstract"] = sum(
+            1 for row in sampled_sources if row.get("abstract")
+        )
+        manifest["sampled_for_pytest_registry_copy"] = True
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
 
     def copytree_without_review_scratch(
         src,
@@ -724,6 +968,30 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
         src_path = Path(src).resolve()
         dst_parts = Path(dst).parts
         should_trim_registry_copy = src_path == project_registry_path
+        ignore_excludes_private_report_inputs = False
+        if should_trim_registry_copy and ignore is not None:
+            ignored_report_intelligence = set(
+                ignore(
+                    str(project_registry_path / "report_intelligence"),
+                    [
+                        "report_metadata.jsonl",
+                        "forecast_claims.jsonl",
+                        "analytical_footprints.jsonl",
+                        "report_outcome_labels.jsonl",
+                        "weighted_research_contexts.jsonl",
+                    ],
+                )
+            )
+            ignored_sources = set(
+                ignore(
+                    str(project_registry_path / "sources"),
+                    ["tushare_research_reports.jsonl"],
+                )
+            )
+            ignore_excludes_private_report_inputs = bool(
+                ignored_report_intelligence
+                or "tushare_research_reports.jsonl" in ignored_sources
+            )
         should_ignore_review_scratch = should_trim_registry_copy and any(
             part == "pytest" or part.startswith("pytest-") for part in dst_parts
         )
@@ -733,6 +1001,9 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
             def ignore_review_scratch(dirname, names):
                 ignored = set(original_ignore(dirname, names)) if original_ignore else set()
                 ignored.update(name for name in names if name in _RKE_MANUAL_REVIEW_SCRATCH)
+                dirname_path = Path(dirname).resolve()
+                if dirname_path == project_registry_path / "sources":
+                    ignored.add(_RKE_TUSHARE_SOURCE_PATH.name)
                 return ignored
 
             effective_ignore = ignore_review_scratch
@@ -746,8 +1017,12 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
             ignore_dangling_symlinks=ignore_dangling_symlinks,
             dirs_exist_ok=dirs_exist_ok,
         )
-        if should_ignore_review_scratch:
-            sample_copied_tushare_registry(Path(copied_path))
+        if should_ignore_review_scratch and not ignore_excludes_private_report_inputs:
+            sample_copied_tushare_registry(src_path, Path(copied_path))
+            _ensure_synthetic_private_tushare_registry(
+                Path(copied_path).parent,
+                force=True,
+            )
         return copied_path
 
     monkeypatch.setattr("shutil.copytree", copytree_without_review_scratch)

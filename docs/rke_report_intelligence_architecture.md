@@ -129,6 +129,27 @@ flowchart LR
 | recipe and retrieval | recipe builders | 生成 shadow analysis recipe 和 weighted research context | `analysis_recipes.jsonl`, `weighted_research_contexts.jsonl` |
 | governance audits | audit builders | 验证 runtime no-op、PIT、provenance、统计稳健性、tool feasibility、recipe gate | `*_audit.json`, `patch_v1_5_coverage_report.json` |
 
+### 3.1 本地运行约定
+
+当前 RKE 本地环境已经配置过 MinerU、vLLM 和 report-intelligence 依赖。后续批量
+转换研报时，应先复用既有环境，不要直接重装：
+
+- MinerU CLI 优先使用 `.venv/bin/mineru`；如果 shell `PATH` 中已有 `mineru`，
+  两者应指向同一套虚拟环境。
+- PDF 到 Markdown 按当前运行约定使用 MinerU 的 `vlm-auto-engine`，也就是
+  VLM/vLLM 路径。`hybrid-auto-engine` 只保留为历史 smoke 或用户明确要求的
+  fallback；除非明确要连 MinerU HTTP 服务，否则不要临时改成 `pipeline`。
+- 本地 vLLM/Docker 服务优先检查并启动
+  `rke-vllm-qwen36-27b-160k-20260610`，该容器的 vLLM OpenAI 兼容端口为
+  `8020`。
+- RKE 抽取 LLM 通过 `.env` 配置，使用 `MOSAIC_RKE_VLLM_BASE_URL`、
+  `MOSAIC_RKE_VLLM_MODEL` 和 API-key env vars；文档、提交和日志不得写入密钥
+  明文。
+- 如果只需要验证 pipeline，可先运行 `--skip-convert` 或 `--skip-llm`；真正扩大
+  覆盖率时再打开 MinerU/vLLM。
+- 宏观策略本地 PDF source 以 `/home/hap/Downloads/yanbaoke/宏观策略` 目录内
+  的 PDF 为准，递归扫描 `*.pdf`，不要依赖不完整的文件清单。
+
 ## 4. Artifact 架构
 
 Report Intelligence 的主要 artifact 都集中在 `registry/report_intelligence/`：
@@ -232,28 +253,31 @@ Report Intelligence 的输出默认是 shadow tooling，不直接进入交易决
 ```mermaid
 stateDiagram-v2
   [*] --> ShadowOnly
-  ShadowOnly --> SchemaAccepted: schema-status accepted
-  SchemaAccepted --> MasterPlanReady: master-plan-status ready
-  MasterPlanReady --> OperatorReady: operator-readiness accepted
-  OperatorReady --> StagedProduction: promotion-status staged_production_allowed
+  ShadowOnly --> ReviewBlocked: manual review gates incomplete
+  ReviewBlocked --> SchemaBlocked: schema-status semantic gates fail
+  SchemaBlocked --> EvolutionBlocked: schema/audit pass; evolution gate still blocked
+  EvolutionBlocked --> StagedProduction: all non-lockbox gates pass
   StagedProduction --> ProductionBlocked: lockbox not opened
   ProductionBlocked --> ProductionEligible: lockbox passed
 
   ShadowOnly: report priors and recipes only
+  ReviewBlocked: gold-set, footprint, or lockbox review pending
+  SchemaBlocked: schema/audit readiness not accepted
+  EvolutionBlocked: prompt evolution remains shadow-only
   StagedProduction: all non-lockbox gates pass
   ProductionBlocked: direct production forbidden
 ```
 
-当前 rollout 的关键状态：
+当前 rollout 的关键状态（2026-06-13）：
 
 | Gate | 当前结果 |
 |---|---|
-| `report-intelligence --refresh-derived-only` | accepted, `blocker_count=0` |
-| `schema-status` | accepted, `failure_count=0` |
-| `master-plan-status` | `coverage_complete=true`, `ready_for_broad_rollout=true` |
-| `operator-readiness` | accepted, 15 checks passed |
-| `promotion-status` | `next_state=staged_production`, `production_allowed=false` |
-| lockbox | 未打开，是唯一生产 blocker |
+| `report-intelligence --refresh-derived-only` | public-safe mode refuses to overwrite committed derived artifacts when required private inputs are absent; with local private snapshots it can recompute derived artifacts, but those private inputs must not be committed |
+| `schema-status` | exits 2 by design until analytical footprint review and patch v1.5 coverage semantic gates pass |
+| `review-progress` | source-license review ready; gold-set remains 0/100 complete, analytical-footprint review remains 0/1001 complete, and lockbox remains 0/1; active 50-row gold and footprint batches have aligned private evidence drafts but still require human decisions |
+| `evolution_readiness_gate` | blocked by manual forecast gold-set metrics, analytical-footprint quality gates, schema/coverage blockers downstream of manual review, and audit trailing-vintage dependency while schema is not accepted; outcome and paper-trading thresholds are currently cleared |
+| `recipe_paper_trading_summary` | committed public-safe summary has 1858 pre-registered shadow runs and 20 validated recipes; remaining recipe rows stay shadow-blocked when direct PIT binding, effective N, or shadow-tool readiness is insufficient |
+| production impact | forbidden; report-derived signals remain shadow-only until schema/audit, manual review, paper-trading, confidence-impact, and lockbox gates all pass |
 
 ## 8. CLI 运行方式
 
@@ -267,10 +291,10 @@ uv run mosaic-rke report-intelligence --root . --refresh-derived-only
 核心验证：
 
 ```bash
-uv run mosaic-rke schema-status --root .
-uv run mosaic-rke master-plan-status --root .
-uv run mosaic-rke operator-readiness --root .
-uv run mosaic-rke promotion-status --root .
+uv run mosaic-rke schema-status --root . --no-write
+uv run mosaic-rke master-plan-status --root . --no-write
+uv run mosaic-rke operator-readiness --root . --no-write
+uv run mosaic-rke promotion-status --root . --no-write
 uv run mosaic-rke manifest --root .
 uv run mosaic-rke validate-required --root .
 ```
@@ -278,11 +302,11 @@ uv run mosaic-rke validate-required --root .
 测试建议：
 
 ```bash
-uv run pytest --basetemp=/tmp/pytest-rke-full -q
+MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke uv run pytest --basetemp=~/tmp/mosaic-rke/pytest-rke-full -q
 uvx ruff@0.15.15 check $(git diff --name-only -- '*.py')
 ```
 
-`--basetemp` 放在 repo 外并固定到 `/tmp` 是为了避免大型 registry copy 留在仓库或用户 home 目录，也避免临时目录被外层 git repo 误识别。
+`--basetemp` 固定到 home-local 的 `~/tmp/mosaic-rke`，避免大型 registry copy 落到系统 `/tmp` tmpfs 或仓库工作区。
 
 ## 9. 与 RKE master plan 的关系
 
@@ -298,7 +322,7 @@ Report Intelligence 对 master plan 的贡献主要落在以下部分：
 
 ## 10. 后续演化方向
 
-当前 v1.5 已完成 shadow rollout。后续如果要进入更强 runtime 使用，需要按以下顺序推进：
+当前 v1.5 仍处于 shadow-only evolution candidate 状态。后续如果要进入更强 runtime 使用，需要按以下顺序推进：
 
 1. 扩大 PDF 原文到 Markdown 的覆盖率，增加更多真实研报样本。
 2. 增加人工 footprint negative examples，补足 recall 评估。

@@ -8,6 +8,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
+from .promotion_dry_run import write_promotion_dry_run_report
+
 MANUAL_REVIEW_BUNDLE_MANIFEST_PATH = "registry/review_batches/manual_review_bundle_manifest.json"
 
 BundleArtifactFormat = Literal["json", "jsonl", "markdown"]
@@ -18,20 +20,9 @@ MANUAL_REVIEW_BUNDLE_ARTIFACTS: tuple[tuple[str, str, BundleArtifactFormat], ...
     ("manual_review_batch_status", "registry/review_batches/manual_review_batch_status.json", "json"),
     ("manual_review_progress_report", "registry/review_batches/manual_review_progress_report.json", "json"),
     ("manual_review_runbook_markdown", "registry/review_batches/manual_review_runbook.md", "markdown"),
-    ("gold_review_packet_json", "registry/gold_sets/tushare_research_reports.review_packet.json", "json"),
-    ("gold_review_packet_markdown", "registry/gold_sets/tushare_research_reports.review_packet.md", "markdown"),
-    ("gold_review_workbook_markdown", "registry/review_batches/gold_set_review_workbook.md", "markdown"),
-    ("gold_review_assist_jsonl", "registry/review_batches/gold_set_review_assist.jsonl", "jsonl"),
-    ("gold_review_assist_markdown", "registry/review_batches/gold_set_review_assist.md", "markdown"),
-    ("gold_next_import_template", "registry/review_batches/gold_set_next_import_template.jsonl", "jsonl"),
-    ("gold_full_import_template", "registry/review_batches/gold_set_full_import_template.jsonl", "jsonl"),
-    ("gold_blank_import_report", "registry/gold_sets/tushare_research_reports.review_import_report.json", "json"),
-    ("license_review_packet_json", "registry/compliance/tushare_license_review_packet.json", "json"),
-    ("license_review_packet_markdown", "registry/compliance/tushare_license_review_packet.md", "markdown"),
-    ("license_review_workbook_markdown", "registry/review_batches/source_license_review_workbook.md", "markdown"),
-    ("license_next_import_template", "registry/review_batches/source_license_next_import_template.jsonl", "jsonl"),
     ("license_policy_template", "registry/review_batches/source_license_policy_template.json", "json"),
     ("license_policy_blank_import_report", "registry/review_batches/source_license_policy_import_report.json", "json"),
+    ("lockbox_review_checklist", "registry/review_batches/lockbox_review_checklist.md", "markdown"),
     ("lockbox_import_template", "registry/review_batches/lockbox_review_next_import_template.json", "json"),
     ("lockbox_blank_import_report", "registry/lockbox/central_bank_lockbox_review_import_report.json", "json"),
     ("promotion_dry_run_report", "registry/promotion/rke_promotion_dry_run_report.json", "json"),
@@ -240,6 +231,7 @@ def build_manual_review_bundle_manifest(root: str | Path = ".") -> ManualReviewB
 
 def write_manual_review_bundle_manifest(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
+    write_promotion_dry_run_report(root_path)
     manifest = build_manual_review_bundle_manifest(root_path)
     result = _write_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH, asdict(manifest))
     return {

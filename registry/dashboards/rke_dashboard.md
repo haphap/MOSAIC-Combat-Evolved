@@ -1,17 +1,17 @@
 # RKE Dashboard
 
-- Broad rollout ready: true
+- Broad rollout ready: false
 - Dashboard artifact errors: 0
-- Completion: 12 / 12
+- Completion: 11 / 12
 - Master-plan coverage missing: 0
-- Master-plan coverage blocked: 0
-- Master-plan blocked sections: none
-- MVP deliverables blocked: 0
-- MVP deliverable blocked sections: none
-- MVP exit criteria blocked: 0
-- MVP exit blocked sections: none
-- Final acceptance blocked: 0
-- Final acceptance blocked sections: none
+- Master-plan coverage blocked: 1
+- Master-plan blocked sections: Phase-1B
+- MVP deliverables blocked: 1
+- MVP deliverable blocked sections: MVP-D2
+- MVP exit criteria blocked: 1
+- MVP exit blocked sections: MVP-E01
+- Final acceptance blocked: 1
+- Final acceptance blocked sections: FinalAcceptance-C02
 - Paper trading ready: true
 - Mean live vs baseline delta: 0.035
 - Production monitor state: production
@@ -21,7 +21,7 @@
 - Rollback readiness accepted: True
 - Rollback readiness failures: 0
 - Lockbox result: not_opened
-- Promotion next state: staged_production
+- Promotion next state: paper_trading
 - Promotion production allowed: False
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
@@ -34,25 +34,25 @@
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only
 - Gold-set review pending claims: 0
-- Gold review packet spans: 216
-- Gold candidate claims: 500
+- Gold review packet spans: 228
+- Gold candidate claims: 152
 - License review pending sources: 0
 - License review packet pending sources: 0
-- Next gold review batch rows: 0
+- Next gold review batch rows: 26
 - Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Gold review workbook: registry/review_batches/gold_set_review_workbook.md
 - Gold review assist: registry/review_batches/gold_set_review_assist.md
 - Next license review batch rows: 0
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
 - Manual review promotion dry-run ready: False
-- Manual review progress blockers: 8
+- Manual review progress blockers: 26
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 1
+- Operator handoff blockers: 4
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
-- Schema validation failures: 0
+- Schema validation failures: 23
 - Claim variable validation failures: 0
 - Claim grounding validation failures: 0
 - Rule pack validation failures: 0
@@ -64,7 +64,7 @@
 
 ## Blockers
 
-- none
+- manual gold-set review still required
 
 ## Runtime
 

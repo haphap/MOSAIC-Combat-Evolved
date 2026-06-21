@@ -26,235 +26,269 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "as_of_datetime": "2026-06-15T04:01:55+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
-    "alpha_decay_fail_count": 0,
+    "alpha_decay_fail_count": 23,
     "alpha_decay_watch_count": 0,
-    "calibration_drift_count": 0,
-    "confidence_alpha_correlation": null,
-    "confidence_alpha_correlation_status": "insufficient_data",
+    "calibration_drift_count": 14,
+    "confidence_alpha_correlation": 0.3049183,
+    "confidence_alpha_correlation_status": "non_negative",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
-    "observation_count": 5,
-    "paper_trading_validated_recipe_count": 0,
+    "observation_count": 2031,
+    "paper_trading_validated_recipe_count": 33,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "keep_shadow": 5
+      "freeze_recipe": 23,
+      "keep_shadow": 1989,
+      "send_to_manual_review": 19
     },
-    "regime_fragile_alpha_count": 0,
+    "regime_fragile_alpha_count": 5,
     "unvalidated_confidence_impact_count": 0
   },
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {
-    "forecast_claim_rows": 12,
-    "metadata_rows": 3,
-    "outcome_label_rows": 15
+    "forecast_claim_rows": 341,
+    "metadata_rows": 378,
+    "outcome_label_rows": 336
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
     "effective_n_by_method": {
       "max_effective_n": 0.0,
       "nonzero_effective_n_count": 0,
-      "profile_count": 5,
+      "profile_count": 2031,
       "top_profiles": [
         {
           "bucket": "",
-          "id": "MPP-97a328e964f973d4",
+          "id": "MPP-47fee23b7b285c9f",
           "insufficient_data": true,
           "n_effective": 0.0
         },
         {
           "bucket": "",
-          "id": "MPP-b8ee217dbe374ffb",
+          "id": "MPP-bda3d5de90722ab2",
           "insufficient_data": true,
           "n_effective": 0.0
         },
         {
           "bucket": "",
-          "id": "MPP-06f48d5a725b5b4e",
+          "id": "MPP-525569cfa8297fca",
           "insufficient_data": true,
           "n_effective": 0.0
         },
         {
           "bucket": "",
-          "id": "MPP-21c2b0c93edbc457",
+          "id": "MPP-42243c9e4e23dde1",
           "insufficient_data": true,
           "n_effective": 0.0
         },
         {
           "bucket": "",
-          "id": "MPP-f7c95b83c13d5589",
+          "id": "MPP-9a8b0e3069170a97",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-1086a971de53377e",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-26107a34a99d82d0",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-42dca5516f7c1bda",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-4a4d14e182d3f4a4",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-0426771a6fc75a9c",
           "insufficient_data": true,
           "n_effective": 0.0
         }
       ]
     },
     "effective_n_by_source": {
-      "max_effective_n": 5.0,
-      "nonzero_effective_n_count": 2,
-      "profile_count": 16,
+      "max_effective_n": 5.8,
+      "nonzero_effective_n_count": 202,
+      "profile_count": 912,
       "top_profiles": [
         {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-b31ca7f98107a49d",
+          "bucket": "negative_low_effective_n",
+          "id": "SPP-40cc730b380b236e",
           "insufficient_data": false,
-          "n_effective": 5.0
+          "n_effective": 5.8
+        },
+        {
+          "bucket": "negative_low_effective_n",
+          "id": "SPP-04a0aed803e3aaf9",
+          "insufficient_data": false,
+          "n_effective": 5.8
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-050f44bb5a731ca9",
+          "insufficient_data": false,
+          "n_effective": 4.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-ece85e03460ce4b1",
+          "insufficient_data": false,
+          "n_effective": 4.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-932d9dff6e3a77e6",
+          "insufficient_data": false,
+          "n_effective": 4.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-d534b9ae13944343",
+          "insufficient_data": false,
+          "n_effective": 4.0
         },
         {
           "bucket": "neutral_low_effective_n",
-          "id": "SPP-ad7ea0121646f95e",
+          "id": "SPP-6dfee360299b763b",
           "insufficient_data": false,
-          "n_effective": 5.0
+          "n_effective": 3.0
         },
         {
-          "bucket": "insufficient_data",
-          "id": "SPP-7b013474d3914d28",
-          "insufficient_data": true,
-          "n_effective": 0.0
+          "bucket": "neutral_low_effective_n",
+          "id": "SPP-c9906d6c2fe83da0",
+          "insufficient_data": false,
+          "n_effective": 3.0
         },
         {
-          "bucket": "insufficient_data",
-          "id": "SPP-9e8330c4b191c862",
-          "insufficient_data": true,
-          "n_effective": 0.0
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-fc95f35af8435937",
+          "insufficient_data": false,
+          "n_effective": 3.0
         },
         {
-          "bucket": "insufficient_data",
-          "id": "SPP-4aebeb3c0ba01257",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "SPP-9cc12b45a5d1b354",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "SPP-411771dc48d27e3e",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "SPP-47810f8f461e2fdb",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "SPP-3bb790fe1ea4fcff",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "SPP-d93584013cc76702",
-          "insufficient_data": true,
-          "n_effective": 0.0
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-af0ca1ab855a7cc2",
+          "insufficient_data": false,
+          "n_effective": 3.0
         }
       ]
     },
     "effective_n_by_viewpoint": {
-      "max_effective_n": 1.0,
-      "nonzero_effective_n_count": 5,
-      "profile_count": 10,
+      "max_effective_n": 5.2,
+      "nonzero_effective_n_count": 134,
+      "profile_count": 303,
       "top_profiles": [
         {
+          "bucket": "negative_low_effective_n",
+          "id": "VPP-5f29a5dd1aa5c7d5",
+          "insufficient_data": false,
+          "n_effective": 5.2
+        },
+        {
           "bucket": "insufficient_data",
-          "id": "VPP-1944c2dbbbbefcba",
+          "id": "VPP-cf4df552205a6e4c",
+          "insufficient_data": true,
+          "n_effective": 2.8
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-bcb2e4010c728649",
+          "insufficient_data": true,
+          "n_effective": 2.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-140c63d4a9ebd40b",
+          "insufficient_data": true,
+          "n_effective": 2.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-57dc277236f2765a",
+          "insufficient_data": true,
+          "n_effective": 1.7
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-e4e835868684daa2",
+          "insufficient_data": true,
+          "n_effective": 1.4
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-25f154faea198d63",
+          "insufficient_data": true,
+          "n_effective": 1.35
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-16afd21cf9301d83",
+          "insufficient_data": true,
+          "n_effective": 1.15
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-75b289896979d1dd",
           "insufficient_data": true,
           "n_effective": 1.0
         },
         {
           "bucket": "insufficient_data",
-          "id": "VPP-c0ed639ba16bd623",
+          "id": "VPP-4cd327f089ceed8e",
           "insufficient_data": true,
           "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-3eeea5e32ce8e019",
-          "insufficient_data": true,
-          "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-6cecd4a312a6cc89",
-          "insufficient_data": true,
-          "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-e9344a77a2636169",
-          "insufficient_data": true,
-          "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-17192163ff504a53",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-b16e6ceb854a4b6e",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-58b1e1c72138ce63",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-d94b4bb874974ee1",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-e6feee22114ec041",
-          "insufficient_data": true,
-          "n_effective": 0.0
         }
       ]
     },
     "high_weight_source_decay_count": 0,
     "low_weight_source_false_negative_rate": null,
     "source_weight_drift": {
-      "max_effective_n": 5.0,
-      "non_neutral_profile_count": 0
+      "max_effective_n": 5.8,
+      "non_neutral_profile_count": 9
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.0
+    "weighted_vs_unweighted_retrieval_difference": 0.035191
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260607T171815+0000",
+  "run_id": "RIR-DERIVED-20260615T040153+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 46,
+    "data_proposal_open_count": 1227,
     "evidence_coverage": {
-      "exact_or_partial_coverage_rate": 0.0,
-      "metric_candidate_count": 32,
+      "exact_or_partial_coverage_rate": 0.188991,
+      "metric_candidate_count": 545,
       "tool_coverage_status_counts": {
-        "missing": 32
+        "exact_match": 103,
+        "missing": 442
       }
     },
     "high_priority_gap_aging_count": 0,
     "missing_data_reduction": null,
     "recipe_validation_pass_rate": 0.0,
-    "runtime_fallback_observation_count": 46,
-    "shadow_recipe_count": 5,
+    "runtime_fallback_observation_count": 1468,
+    "shadow_recipe_count": 2031,
     "shadow_tool_correctness_failure_rate": null,
-    "tool_gap_open_count": 46,
+    "tool_gap_open_count": 1468,
     "tool_gap_priority_counts": {
-      "low": 3,
-      "medium": 43
+      "low": 87,
+      "medium": 1140,
+      "resolved": 241
     },
     "tool_proposal_acceptance_rate": 0.0
   }

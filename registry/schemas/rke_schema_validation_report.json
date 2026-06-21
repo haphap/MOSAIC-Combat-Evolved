@@ -1,6 +1,6 @@
 {
-  "accepted": true,
-  "failure_count": 0,
+  "accepted": false,
+  "failure_count": 23,
   "records": [
     {
       "accepted": true,
@@ -90,28 +90,28 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_metadata.jsonl",
       "failures": [],
-      "item_count": 2,
+      "item_count": 378,
       "schema_path": "schemas/report_intelligence_report_metadata.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/forecast_claims.jsonl",
       "failures": [],
-      "item_count": 12,
+      "item_count": 341,
       "schema_path": "schemas/report_intelligence_forecast_claim.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/analytical_footprints.jsonl",
       "failures": [],
-      "item_count": 1,
+      "item_count": 1051,
       "schema_path": "schemas/report_intelligence_analytical_footprint.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_forecast_ledger.jsonl",
       "failures": [],
-      "item_count": 12,
+      "item_count": 341,
       "schema_path": "schemas/report_intelligence_report_forecast_ledger.schema.json"
     },
     {
@@ -125,7 +125,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/industry_etf_proxy_map.jsonl",
       "failures": [],
-      "item_count": 17,
+      "item_count": 64,
       "schema_path": "schemas/report_intelligence_industry_etf_proxy_map.schema.json"
     },
     {
@@ -137,9 +137,16 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/macro_regime_calendar.jsonl",
+      "failures": [],
+      "item_count": 4,
+      "schema_path": "schemas/report_intelligence_macro_regime_calendar.schema.json"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 0,
+      "item_count": 336,
       "schema_path": "schemas/report_intelligence_report_outcome_label.schema.json"
     },
     {
@@ -153,77 +160,77 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/source_performance_profiles.jsonl",
       "failures": [],
-      "item_count": 16,
+      "item_count": 912,
       "schema_path": "schemas/report_intelligence_source_performance_profile.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
       "failures": [],
-      "item_count": 10,
+      "item_count": 303,
       "schema_path": "schemas/report_intelligence_viewpoint_performance_profile.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/method_performance_profiles.jsonl",
       "failures": [],
-      "item_count": 5,
+      "item_count": 2031,
       "schema_path": "schemas/report_intelligence_method_performance_profile.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/metric_candidates.jsonl",
       "failures": [],
-      "item_count": 32,
+      "item_count": 545,
       "schema_path": "schemas/report_intelligence_metric_candidate.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/method_patterns.jsonl",
       "failures": [],
-      "item_count": 5,
+      "item_count": 2031,
       "schema_path": "schemas/report_intelligence_method_pattern.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/tool_coverage_matches.jsonl",
       "failures": [],
-      "item_count": 32,
+      "item_count": 545,
       "schema_path": "schemas/report_intelligence_tool_coverage_match.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/tool_gaps.jsonl",
       "failures": [],
-      "item_count": 46,
+      "item_count": 1468,
       "schema_path": "schemas/report_intelligence_tool_gap.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/data_acquisition_proposals.jsonl",
       "failures": [],
-      "item_count": 46,
+      "item_count": 1227,
       "schema_path": "schemas/report_intelligence_data_acquisition_proposal.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/tool_design_proposals.jsonl",
       "failures": [],
-      "item_count": 46,
+      "item_count": 1227,
       "schema_path": "schemas/report_intelligence_tool_design_proposal.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/analysis_recipes.jsonl",
       "failures": [],
-      "item_count": 5,
+      "item_count": 2031,
       "schema_path": "schemas/report_intelligence_analysis_recipe.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
       "failures": [],
-      "item_count": 5,
+      "item_count": 2031,
       "schema_path": "schemas/report_intelligence_recipe_paper_trading_run.schema.json"
     },
     {
@@ -237,7 +244,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/confidence_impact_observations.jsonl",
       "failures": [],
-      "item_count": 5,
+      "item_count": 2031,
       "schema_path": "schemas/report_intelligence_confidence_impact_observation.schema.json"
     },
     {
@@ -246,6 +253,27 @@
       "failures": [],
       "item_count": 1,
       "schema_path": "schemas/report_intelligence_confidence_impact_monitor.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/monitor_refresh_history.jsonl",
+      "failures": [],
+      "item_count": 41,
+      "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/audit_refresh_history.jsonl",
+      "failures": [],
+      "item_count": 26,
+      "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/gap_distribution_history.jsonl",
+      "failures": [],
+      "item_count": 26,
+      "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
@@ -258,7 +286,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
       "failures": [],
-      "item_count": 6,
+      "item_count": 13,
       "schema_path": "schemas/report_intelligence_prompt_mutation_candidate.schema.json"
     },
     {
@@ -272,7 +300,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
       "failures": [],
-      "item_count": 46,
+      "item_count": 1468,
       "schema_path": "schemas/report_intelligence_runtime_tool_gap_observation.schema.json"
     },
     {
@@ -363,13 +391,68 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 13,
+      "item_count": 1392,
       "schema_path": "schemas/report_intelligence_provenance_rules"
     },
     {
       "accepted": true,
-      "artifact_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
+      "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
+      "item_count": 336,
+      "schema_path": "schemas/report_intelligence_proxy_outcome_label_contract_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence",
+      "failures": [],
+      "item_count": 216,
+      "schema_path": "schemas/report_intelligence_industry_etf_mapping_contract_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+      "failures": [],
+      "item_count": 419,
+      "schema_path": "schemas/report_intelligence_stock_price_proxy_readiness_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+      "failures": [],
+      "item_count": 5,
+      "schema_path": "schemas/report_intelligence_macro_asset_proxy_readiness_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/extraction_report.json",
+      "failures": [],
+      "item_count": 14143,
+      "schema_path": "schemas/report_intelligence_extraction_report_contract_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/*_performance_profiles.jsonl",
+      "failures": [],
+      "item_count": 3246,
+      "schema_path": "schemas/report_intelligence_profile_outcome_layer_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/markdown_coverage_summary.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/report_intelligence_markdown_coverage_privacy_rules"
+    },
+    {
+      "accepted": false,
+      "artifact_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
+      "failures": [
+        "analytical_footprint_review_summary accepted must be true",
+        "analytical_footprint_review_summary review_complete must be true",
+        "analytical_footprint_review_summary quality_gate_passed must be true",
+        "analytical_footprint_review_summary pending_rows must be zero",
+        "analytical_footprint_review_summary quality blockers: metric_mapping_accuracy 0.558824 below threshold 0.80"
+      ],
       "item_count": 1,
       "schema_path": "schemas/report_intelligence_analytical_footprint_review_rules"
     },
@@ -403,23 +486,111 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence",
+      "failures": [],
+      "item_count": 4064,
+      "schema_path": "schemas/report_intelligence_recipe_paper_trading_contract_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/*_refresh_history.jsonl",
+      "failures": [],
+      "item_count": 93,
+      "schema_path": "schemas/report_intelligence_evolution_refresh_history_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/evolution_readiness_gate.json",
+      "failures": [],
+      "item_count": 7,
+      "schema_path": "schemas/report_intelligence_evolution_readiness_gate_rules"
+    },
+    {
+      "accepted": false,
+      "artifact_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
+      "failures": [
+        "gold_review_summary.metrics.direction_accuracy: expected >= 0.85",
+        "gold_review_summary.metrics.variable_mapping_accuracy: expected >= 0.8",
+        "gold_review_summary.metrics.unsupported_field_false_grounding_rate: expected <= 0.05"
+      ],
+      "item_count": 1,
+      "schema_path": "schemas/report_intelligence_gold_review_gate_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+      "failures": [],
+      "item_count": 13,
+      "schema_path": "schemas/report_intelligence_prompt_mutation_candidate_contract_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/review_batches/manual_review_progress_report.json",
+      "failures": [],
+      "item_count": 4,
+      "schema_path": "schemas/report_intelligence_manual_review_progress_privacy_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/review_batches/manual_review_progress_report.json",
+      "failures": [],
+      "item_count": 4,
+      "schema_path": "schemas/report_intelligence_manual_review_progress_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/handoffs/rke_operator_handoff.json",
+      "failures": [],
+      "item_count": 19,
+      "schema_path": "schemas/report_intelligence_operator_handoff_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/handoffs/rke_operator_readiness_report.json",
+      "failures": [],
+      "item_count": 18,
+      "schema_path": "schemas/report_intelligence_operator_readiness_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/review_batches/manual_review_bundle_manifest.json",
+      "failures": [],
+      "item_count": 11,
+      "schema_path": "schemas/report_intelligence_manual_review_bundle_manifest_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/promotion/rke_promotion_dry_run_report.json",
+      "failures": [],
+      "item_count": 4,
+      "schema_path": "schemas/report_intelligence_promotion_dry_run_rules"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/promotion/rke_production_promotion_gate.json",
+      "failures": [],
+      "item_count": 10,
+      "schema_path": "schemas/report_intelligence_production_promotion_gate_rules"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/report_forecast_ledger.jsonl",
       "failures": [],
-      "item_count": 12,
+      "item_count": 341,
       "schema_path": "schemas/report_intelligence_forecast_readiness_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 57,
+      "item_count": 5531,
       "schema_path": "schemas/report_intelligence_runtime_guard_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/monitoring_report.json",
       "failures": [],
-      "item_count": 5,
+      "item_count": 2031,
       "schema_path": "schemas/report_intelligence_alpha_decay_monitoring_rules"
     },
     {
@@ -440,13 +611,29 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 138,
+      "item_count": 3922,
       "schema_path": "schemas/report_intelligence_tooling_readiness_rules"
     },
     {
-      "accepted": true,
+      "accepted": false,
       "artifact_path": "registry/report_intelligence/patch_v1_5_coverage_report.json",
-      "failures": [],
+      "failures": [
+        "patch_v1_5_coverage_report accepted must be true",
+        "patch_v1_5_coverage_report blocker_count must be zero",
+        "patch_v1_5_coverage_report blocked_phase_ids must be empty",
+        "patch_v1_5_coverage_report Phase B: accepted must be true",
+        "patch_v1_5_coverage_report Phase B: status cannot be blocked",
+        "patch_v1_5_coverage_report Phase B: failure_count must be zero",
+        "patch_v1_5_coverage_report Phase D: accepted must be true",
+        "patch_v1_5_coverage_report Phase D: status cannot be blocked",
+        "patch_v1_5_coverage_report Phase D: failure_count must be zero",
+        "patch_v1_5_coverage_report RI15-B-D1: accepted must be true",
+        "patch_v1_5_coverage_report RI15-B-D1: status cannot be blocked",
+        "patch_v1_5_coverage_report RI15-B-D2: accepted must be true",
+        "patch_v1_5_coverage_report RI15-B-D2: status cannot be blocked",
+        "patch_v1_5_coverage_report RI15-D-D1: accepted must be true",
+        "patch_v1_5_coverage_report RI15-D-D1: status cannot be blocked"
+      ],
       "item_count": 18,
       "schema_path": "schemas/report_intelligence_patch_v1_5_coverage_rules"
     }

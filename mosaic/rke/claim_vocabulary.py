@@ -101,7 +101,7 @@ DEFAULT_VARIABLES = (
     ),
     ClaimVariableDefinition(
         variable_id="trade_friction_intensity",
-        domain="macro.geopolitics",
+        domain="macro.geopolitical",
         variable_type="cause",
         description="External trade or technology-friction intensity that can cap policy-substitution themes.",
         status="sandbox",
@@ -163,6 +163,20 @@ DEFAULT_VARIABLES = (
         status="sandbox",
     ),
     ClaimVariableDefinition(
+        variable_id="bank_credit_growth_expectation",
+        domain="sector.bank",
+        variable_type="target",
+        description="Expected credit, loan, or social-financing growth impulse for bank and financing-sector views.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="wealth_management_nav_pressure",
+        domain="sector.wealth_management",
+        variable_type="target",
+        description="NAV drawdown, break-even pressure, and risk-adjusted return state for wealth-management products.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
         variable_id="industry_policy_catalyst",
         domain="sector.cross_industry",
         variable_type="cause",
@@ -192,9 +206,16 @@ DEFAULT_VARIABLES = (
     ),
     ClaimVariableDefinition(
         variable_id="global_dollar_liquidity_pressure",
-        domain="macro.global_liquidity",
+        domain="macro.dollar",
         variable_type="cause",
         description="Dollar, Fed-rate, FX, and global liquidity pressure affecting non-CNY assets.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="market_volatility_regime",
+        domain="macro.volatility",
+        variable_type="cause",
+        description="Realized volatility, VIX/iVX, drawdown, or risk-off market regime.",
         status="sandbox",
     ),
     ClaimVariableDefinition(

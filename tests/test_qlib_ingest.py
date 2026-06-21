@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import struct
 import subprocess
+import sys
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from mosaic.dataflows import qlib_ingest
@@ -244,6 +246,188 @@ class TestPublicAPI:
         assert "pipeline_batch" in captured[0]
         assert "--detect_new_etfs=False" in captured[0]
         assert "--parallel_dates=True" in captured[0]
+
+    def test_incremental_cli_exposes_kind_and_default_etf_dir(self, monkeypatch):
+        captured = {}
+
+        def fake_ingest_incremental(**kwargs):
+            captured.update(kwargs)
+            return qlib_ingest.IngestOutcome(
+                verb="update_data_to_bin_batch",
+                returncode=0,
+                stdout_tail="",
+                stderr_tail="",
+                qlib_dir=qlib_ingest.DEFAULT_QLIB_ETF_DATA_DIR,
+            )
+
+        monkeypatch.setattr(qlib_ingest, "ingest_incremental", fake_ingest_incremental)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "mosaic.dataflows.qlib_ingest",
+                "incremental",
+                "--kind",
+                "etf",
+                "--end",
+                "2026-06-10",
+            ],
+        )
+
+        assert qlib_ingest._cli() == 0
+        assert captured["kind"] == "etf"
+        assert captured["qlib_dir"] is None
+        assert captured["end"] == "2026-06-10"
+
+    def test_stock_symbols_from_jsonl_extracts_explicit_stock_targets(self, tmp_path: Path):
+        source = tmp_path / "claims.jsonl"
+        source.write_text(
+            "\n".join(
+                [
+                    '{"ts_code":"000001.SZ"}',
+                    '{"target":{"target_type":"stock","target_id":"600000.SH"}}',
+                    '{"target":{"target_type":"stock","target_id":"830000.BJ"}}',
+                    '{"ts_code":"501001.SH"}',
+                    '{"ts_code":"160621.SZ"}',
+                    '{"target":{"target_type":"industry","target_id":"银行"}}',
+                    '{"proxy_symbol":"920181.BJ"}',
+                    '{"target":{"target_type":"stock","target_id":"921181.BJ"}}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        assert qlib_ingest.stock_symbols_from_jsonl(source) == [
+            "000001.SZ",
+            "600000.SH",
+            "920181.BJ",
+            "921181.BJ",
+        ]
+
+    def test_backfill_stock_symbols_fetches_batches_and_rebuilds_only_targets(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from mosaic.dataflows.collectors.data_collector.tushare import collector
+
+        qlib_dir = tmp_path / "qlib"
+        (qlib_dir / "calendars").mkdir(parents=True)
+        (qlib_dir / "calendars" / "day.txt").write_text(
+            "2024-01-02\n2024-01-03\n",
+            encoding="utf-8",
+        )
+        raw_dir = tmp_path / "raw"
+        norm_dir = tmp_path / "norm"
+        requests: list[str] = []
+
+        class FakePro:
+            def daily(self, *, ts_code, start_date, end_date):
+                requests.append(ts_code)
+                rows = []
+                for code in ts_code.split(","):
+                    rows.append(
+                        {
+                            "ts_code": code,
+                            "trade_date": "20240102",
+                            "open": 10.0,
+                            "high": 10.5,
+                            "low": 9.8,
+                            "close": 10.2,
+                            "vol": 1000.0,
+                            "amount": 10000.0,
+                        }
+                    )
+                return pd.DataFrame(rows)
+
+            def adj_factor(self, *, ts_code, start_date, end_date):
+                return pd.DataFrame(
+                    [
+                        {
+                            "ts_code": code,
+                            "trade_date": "20240102",
+                            "adj_factor": 1.0,
+                        }
+                        for code in ts_code.split(",")
+                    ]
+                )
+
+        class FakeTs:
+            @staticmethod
+            def pro_api(token, timeout):
+                assert token == "token"
+                assert timeout == 7
+                return FakePro()
+
+        repair_seen: dict[str, object] = {}
+
+        def fake_repair(**kwargs):
+            repair_seen.update(kwargs)
+            return {"rebuilt_count": len(kwargs["csv_files"])}
+
+        monkeypatch.setattr(collector, "ts", FakeTs)
+        monkeypatch.setattr(collector, "_get_token", lambda: "token")
+        monkeypatch.setattr(collector, "repair_feature_bins_from_normalize", fake_repair)
+
+        outcome = qlib_ingest.backfill_stock_symbols(
+            symbols=["000001.SZ,600000.SH"],
+            start="2024-01-01",
+            end="2024-01-03",
+            qlib_dir=qlib_dir,
+            raw_dir=raw_dir,
+            normalize_dir=norm_dir,
+            timeout=7,
+            request_symbol_batch_size=2,
+        )
+
+        assert outcome.returncode == 0
+        assert requests == ["000001.SZ,600000.SH"]
+        assert "requested_symbols=2" in outcome.stdout_tail
+        csv_names = sorted(path.name for path in repair_seen["csv_files"])
+        assert csv_names == ["sh600000.csv", "sz000001.csv"]
+        assert (norm_dir / "sz000001.csv").exists()
+        assert (raw_dir / "stock_backfill_0001_20240101_20240103.csv").exists()
+
+    def test_backfill_symbols_cli_accepts_jsonl_and_symbols(self, tmp_path: Path, monkeypatch):
+        source = tmp_path / "targets.jsonl"
+        source.write_text('{"ts_code":"000001.SZ"}\n', encoding="utf-8")
+        captured = {}
+
+        def fake_backfill_stock_symbols(**kwargs):
+            captured.update(kwargs)
+            return qlib_ingest.IngestOutcome(
+                verb="backfill_symbols",
+                returncode=0,
+                stdout_tail="ok",
+                stderr_tail="",
+                qlib_dir=tmp_path / "qlib",
+            )
+
+        monkeypatch.setattr(
+            qlib_ingest, "backfill_stock_symbols", fake_backfill_stock_symbols
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "mosaic.dataflows.qlib_ingest",
+                "backfill-symbols",
+                "--start",
+                "2024-01-01",
+                "--end",
+                "2024-01-31",
+                "--symbols",
+                "600000.SH",
+                "--symbols-jsonl",
+                str(source),
+                "--request-symbol-batch-size",
+                "2",
+            ],
+        )
+
+        assert qlib_ingest._cli() == 0
+        assert captured["symbols"] == ["600000.SH", "000001.SZ"]
+        assert captured["start"] == "2024-01-01"
+        assert captured["request_symbol_batch_size"] == 2
 
     def test_incremental_default_dirs_are_out_of_repo(self, tmp_path, fake_repo, monkeypatch):
         """With no raw_dir/normalize_dir, collector working dirs default to

@@ -7,6 +7,7 @@ gold-set sampling so the team can decide whether schema freeze is justified.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -121,6 +122,10 @@ GOLD_SET_DOMAIN_KEYWORDS: Mapping[str, tuple[str, ...]] = {
 }
 REQUIRED_GOLD_SET_DOMAINS = tuple(GOLD_SET_DOMAIN_KEYWORD_SPECS)
 GOLD_SET_DOMAIN_KEYWORD_WEIGHTS = {"strong": 3, "weak": 1}
+# Oversample above the 50-document review gate because downstream candidate-claim
+# filters reject non-testable or weakly grounded rows before the manual queue.
+DEFAULT_GOLD_SET_DOCUMENTS = 75
+DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT = 3
 
 
 @dataclass(frozen=True)
@@ -154,6 +159,8 @@ class GoldSetReviewRecord:
     claim_correct: bool
     source_span_supports_claim: bool
     direction_correct: bool
+    target_correct: bool
+    horizon_correct: bool
     variable_mapping_correct: bool
     unsupported_field_false_grounded: bool
 
@@ -243,7 +250,7 @@ def audit_research_report_corpus(rows: Sequence[Any]) -> CorpusAudit:
 def select_gold_set_candidates(
     rows: Sequence[Any],
     *,
-    max_documents: int = 50,
+    max_documents: int = DEFAULT_GOLD_SET_DOCUMENTS,
 ) -> list[dict[str, Any]]:
     """Select a deterministic, domain-stratified manual-review sample.
 
@@ -297,7 +304,11 @@ def select_gold_set_candidates(
     for domain in REQUIRED_GOLD_SET_DOMAINS:
         domain_selected = 0
         while domain_selected < per_domain_quota and len(selected) < max_documents:
-            row = _pop_next_domain_row(domain_buckets[domain], seen)
+            row = _pop_next_domain_row(
+                domain_buckets[domain],
+                seen,
+                preferred_domain=domain,
+            )
             if row is None:
                 break
             if add_row(row, domain):
@@ -353,7 +364,7 @@ def _gold_set_domain_evidence(row: Mapping[str, Any]) -> dict[str, dict[str, Any
         for strength, candidates in spec.items():
             weight = GOLD_SET_DOMAIN_KEYWORD_WEIGHTS[strength]
             for keyword in candidates:
-                if keyword.lower() in lowered:
+                if _gold_set_keyword_matches(domain, keyword, text, lowered):
                     score += weight
                     has_strong = has_strong or strength == "strong"
                     keywords.append(keyword)
@@ -363,6 +374,48 @@ def _gold_set_domain_evidence(row: Mapping[str, Any]) -> dict[str, dict[str, Any
                 "keywords": tuple(dict.fromkeys(keywords)),
             }
     return evidence
+
+
+def _gold_set_keyword_matches(
+    domain: str,
+    keyword: str,
+    text: str,
+    lowered: str,
+) -> bool:
+    keyword_lower = keyword.lower()
+    if domain == "dollar" and keyword == "美元":
+        return _dollar_keyword_matches_macro_context(text)
+    return keyword_lower in lowered
+
+
+def _dollar_keyword_matches_macro_context(text: str) -> bool:
+    """Avoid classifying foreign revenue amounts like 351亿美元 as dollar macro."""
+    if "美元" not in text:
+        return False
+    macro_terms = (
+        "美元指数",
+        "美元流动性",
+        "美元兑",
+        "美元汇率",
+        "美元走强",
+        "美元走弱",
+        "美联储",
+        "中美利差",
+        "美债",
+        "USDCNY",
+        "USDCNH",
+        "DXY",
+        "Fed",
+        "FED",
+    )
+    if any(term in text for term in macro_terms):
+        return True
+    for match in re.finditer("美元", text):
+        previous = text[max(0, match.start() - 1) : match.start()]
+        if previous and (previous.isdigit() or previous in {"亿", "万", "千", "百"}):
+            continue
+        return True
+    return False
 
 
 def _ordered_gold_set_source_rows(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -382,7 +435,18 @@ def _ordered_gold_set_source_rows(rows: Sequence[Mapping[str, Any]]) -> list[Map
 def _pop_next_domain_row(
     candidates: list[Mapping[str, Any]],
     seen: set[str],
+    *,
+    preferred_domain: str | None = None,
 ) -> Mapping[str, Any] | None:
+    if preferred_domain:
+        for index, row in enumerate(candidates):
+            source_id = str(row.get("source_id") or "")
+            if (
+                source_id
+                and source_id not in seen
+                and _gold_set_domains(row)[0] == preferred_domain
+            ):
+                return candidates.pop(index)
     for index, row in enumerate(candidates):
         source_id = str(row.get("source_id") or "")
         if source_id and source_id not in seen:
@@ -406,7 +470,7 @@ def write_gold_set_candidates(
 def build_gold_set_review_template(
     candidates: Sequence[Any],
     *,
-    claims_per_document: int = 10,
+    claims_per_document: int = DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT,
     span_preview_chars: int = 600,
 ) -> list[dict[str, Any]]:
     """Create blank manual-review rows from sampled source documents."""
@@ -433,6 +497,8 @@ def build_gold_set_review_template(
                     "claim_correct": None,
                     "source_span_supports_claim": None,
                     "direction_correct": None,
+                    "target_correct": None,
+                    "horizon_correct": None,
                     "variable_mapping_correct": None,
                     "unsupported_field_false_grounded": None,
                     "reviewer": "",
@@ -446,7 +512,7 @@ def write_gold_set_review_template(
     candidates: Sequence[Any],
     output_path: str | Path,
     *,
-    claims_per_document: int = 10,
+    claims_per_document: int = DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT,
 ) -> dict[str, Any]:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -477,6 +543,8 @@ def _normalize_gold_review_records(records: Sequence[Any]) -> list[dict[str, Any
                 "claim_correct": False,
                 "source_span_supports_claim": False,
                 "direction_correct": False,
+                "target_correct": False,
+                "horizon_correct": False,
                 "variable_mapping_correct": False,
                 "unsupported_field_false_grounded": True,
             }
@@ -499,6 +567,8 @@ def evaluate_gold_set_reviews(
             claim_precision=0.0,
             source_span_support_precision=0.0,
             direction_accuracy=0.0,
+            target_accuracy=0.0,
+            horizon_accuracy=0.0,
             variable_mapping_accuracy=0.0,
             unsupported_field_false_grounding_rate=1.0,
         )
@@ -514,6 +584,8 @@ def evaluate_gold_set_reviews(
         claim_precision=rate("claim_correct"),
         source_span_support_precision=rate("source_span_supports_claim"),
         direction_accuracy=rate("direction_correct"),
+        target_accuracy=rate("target_correct"),
+        horizon_accuracy=rate("horizon_correct"),
         variable_mapping_accuracy=rate("variable_mapping_correct"),
         unsupported_field_false_grounding_rate=round(
             sum(record.get("unsupported_field_false_grounded") is True for record in normalized) / n,

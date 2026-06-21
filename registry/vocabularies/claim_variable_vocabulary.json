@@ -44,7 +44,7 @@
     },
     {
       "description": "External trade or technology-friction intensity that can cap policy-substitution themes.",
-      "domain": "macro.geopolitics",
+      "domain": "macro.geopolitical",
       "status": "sandbox",
       "variable_id": "trade_friction_intensity",
       "variable_type": "cause"
@@ -106,6 +106,20 @@
       "variable_type": "target"
     },
     {
+      "description": "Expected credit, loan, or social-financing growth impulse for bank and financing-sector views.",
+      "domain": "sector.bank",
+      "status": "sandbox",
+      "variable_id": "bank_credit_growth_expectation",
+      "variable_type": "target"
+    },
+    {
+      "description": "NAV drawdown, break-even pressure, and risk-adjusted return state for wealth-management products.",
+      "domain": "sector.wealth_management",
+      "status": "sandbox",
+      "variable_id": "wealth_management_nav_pressure",
+      "variable_type": "target"
+    },
+    {
       "description": "Policy, regulatory, infrastructure, or fiscal catalyst affecting an industry view.",
       "domain": "sector.cross_industry",
       "status": "sandbox",
@@ -135,9 +149,16 @@
     },
     {
       "description": "Dollar, Fed-rate, FX, and global liquidity pressure affecting non-CNY assets.",
-      "domain": "macro.global_liquidity",
+      "domain": "macro.dollar",
       "status": "sandbox",
       "variable_id": "global_dollar_liquidity_pressure",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Realized volatility, VIX/iVX, drawdown, or risk-off market regime.",
+      "domain": "macro.volatility",
+      "status": "sandbox",
+      "variable_id": "market_volatility_regime",
       "variable_type": "cause"
     },
     {

@@ -52,9 +52,19 @@ logs/
 # RKE manual-review scratch inputs. Reviewed decisions are applied through
 # controlled import commands; these transient files should not be committed.
 registry/review_batches/gold_set_reviewed.jsonl
+registry/review_batches/gold_set_reviewed_*.jsonl
 registry/review_batches/gold_set_full_reviewed.jsonl
+registry/review_batches/gold_set_next_import_template.jsonl
+registry/review_batches/gold_set_full_import_template.jsonl
+registry/review_batches/gold_set_review_workbook.md
+registry/review_batches/gold_set_review_assist.jsonl
+registry/review_batches/gold_set_review_assist.md
+registry/review_batches/gold_set_review_evidence.jsonl
+registry/review_batches/gold_set_review_evidence.md
 registry/review_batches/source_license_policy_reviewed.json
 registry/review_batches/source_license_policy_import.jsonl
+registry/review_batches/source_license_next_import_template.jsonl
+registry/review_batches/source_license_review_workbook.md
 registry/review_batches/lockbox_reviewed.json
 
 # RKE report intelligence keeps original PDFs / MinerU Markdown in local cache.
@@ -62,12 +72,16 @@ registry/review_batches/lockbox_reviewed.json
 registry/report_intelligence/pdfs/
 registry/report_intelligence/markdown/
 registry/report_intelligence/mineru/
+registry/report_intelligence/analytical_footprint_review_evidence.jsonl
+registry/report_intelligence/analytical_footprint_review_evidence.md
 
 # RKE Tushare research-report corpus and source-derived review artifacts are
 # private/local data. Keep them in the local registry or cache, not in Git.
 registry/sources/tushare_research_reports.jsonl
 registry/sources/tushare_research_reports.gold_candidates.jsonl
 registry/sources/tushare_research_reports.manifest.json
+registry/sources/local_macro_strategy_reports.jsonl
+registry/sources/local_macro_strategy_reports.manifest.json
 registry/compliance/tushare_license_review_template.jsonl
 registry/compliance/tushare_license_review_packet.json
 registry/compliance/tushare_license_review_packet.md
@@ -81,7 +95,10 @@ registry/gold_sets/tushare_research_reports.review_packet.md
 registry/gold_sets/tushare_research_reports.review_summary.json
 registry/gold_sets/tushare_research_reports.review_template.jsonl
 registry/source_checks/source_registry_validation_report.json
+registry/report_intelligence/analytical_footprint_review_assist.jsonl
 registry/report_intelligence/analytical_footprint_review_template.jsonl
+registry/report_intelligence/analytical_footprint_review_workbook.md
+registry/report_intelligence/analytical_footprint_review_batch.jsonl
 registry/report_intelligence/analytical_footprint_reviewed.jsonl
 registry/report_intelligence/analytical_footprints.jsonl
 registry/report_intelligence/forecast_claims.jsonl

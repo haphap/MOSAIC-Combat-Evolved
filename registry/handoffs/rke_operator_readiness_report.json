@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "check_count": 15,
+  "check_count": 18,
   "checks": [
     {
       "blocker": "",
@@ -11,19 +11,31 @@
     {
       "blocker": "",
       "check_id": "handoff_ready_for_operator",
-      "evidence": "gates=['gold_set', 'lockbox', 'source_license'], next_state=staged_production",
+      "evidence": "gates=['footprint_review', 'gold_set', 'lockbox', 'source_license'], next_state=paper_trading",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "handoff_command_sequence_complete",
-      "evidence": "steps=12, first=review-progress-preflight, last=promotion-status-final",
+      "evidence": "steps=19, first=review-progress-preflight, last=promotion-status-final",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "manual_review_runbook_promotion_policy_consistent",
+      "evidence": "source_license_already_passed=True, license_input=False, license_import=False, license_builder=False, missing_fragments=0",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_batch_templates_match_status",
-      "evidence": "gold_exported=0/0, gold_full=0/0, license_exported=0/0, batch_blockers=0",
+      "evidence": "gold_exported=26/26, gold_full=26/26, license_exported=0/0, batch_blockers=0",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "manual_batch_promotion_inputs_separated",
+      "evidence": "gates=2, batches=22, failures=0",
       "passed": true
     },
     {
@@ -41,7 +53,7 @@
     {
       "blocker": "",
       "check_id": "blank_full_gold_set_import_is_rejected",
-      "evidence": "accepted=False, input_rows=0, applied_rows=0, rejected_rows=0",
+      "evidence": "accepted=False, input_rows=26, applied_rows=0, rejected_rows=26",
       "passed": true
     },
     {
@@ -54,6 +66,12 @@
       "blocker": "",
       "check_id": "blank_lockbox_import_is_rejected",
       "evidence": "accepted=False, applied=False, next_state=paper_trading, rejections=6",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "lockbox_upstream_cli_guard_enforced",
+      "evidence": "pending=gold_set,footprint_review; ready=source_license; blockers=2",
       "passed": true
     },
     {
@@ -71,19 +89,19 @@
     {
       "blocker": "",
       "check_id": "blank_bundle_dry_run_does_not_promote",
-      "evidence": "accepted=False, after_next_state=staged_production",
+      "evidence": "accepted=False, after_next_state=paper_trading",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_review_bundle_manifest_current",
-      "evidence": "artifact_count=22, blockers=0, dry_run_accepted=False",
+      "evidence": "artifact_count=11, blockers=0, dry_run_accepted=False",
       "passed": true
     },
     {
       "blocker": "",
-      "check_id": "promotion_gate_still_blocks_production",
-      "evidence": "next_state=staged_production, blockers=1",
+      "check_id": "promotion_gate_state_consistent",
+      "evidence": "next_state=paper_trading, expected_next_state=paper_trading, staged=False/False, production=False/False, direct_forbidden=True/True, blockers=3, missing=0",
       "passed": true
     },
     {
@@ -103,6 +121,12 @@
     "registry/review_batches/gold_set_review_workbook.md",
     "registry/review_batches/gold_set_review_assist.jsonl",
     "registry/review_batches/gold_set_review_assist.md",
+    "registry/review_batches/gold_set_review_evidence.jsonl",
+    "registry/review_batches/gold_set_review_evidence.md",
+    "registry/report_intelligence/analytical_footprint_review_assist.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_evidence.md",
+    "registry/report_intelligence/analytical_footprint_review_workbook.md",
     "registry/gold_sets/tushare_research_reports.review_import_report.json",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_review_workbook.md",
@@ -110,10 +134,11 @@
     "registry/review_batches/source_license_policy_import_report.json",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
+    "registry/review_batches/lockbox_review_checklist.md",
     "registry/review_batches/lockbox_review_next_import_template.json",
     "registry/lockbox/central_bank_lockbox_review_import_report.json",
     "registry/review_batches/manual_review_bundle_manifest.json"
   ],
-  "passed_count": 15,
+  "passed_count": 18,
   "report_id": "RKE-OPERATOR-READINESS-REPORT-20260606"
 }

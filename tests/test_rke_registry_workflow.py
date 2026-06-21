@@ -97,6 +97,18 @@ def test_required_registry_files_are_present_in_repo():
         "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         not in REQUIRED_REGISTRY_FILES
     )
+    private_review_artifacts = {
+        "registry/review_batches/gold_set_next_import_template.jsonl",
+        "registry/review_batches/gold_set_full_import_template.jsonl",
+        "registry/review_batches/gold_set_review_workbook.md",
+        "registry/review_batches/gold_set_review_assist.jsonl",
+        "registry/review_batches/gold_set_review_assist.md",
+        "registry/review_batches/source_license_next_import_template.jsonl",
+        "registry/review_batches/source_license_review_workbook.md",
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+    }
+    assert private_review_artifacts <= PRIVATE_LOCAL_REGISTRY_FILES
+    assert private_review_artifacts.isdisjoint(REQUIRED_REGISTRY_FILES)
     assert (
         "registry/report_intelligence/analytical_footprint_review_summary.json"
         in REQUIRED_REGISTRY_FILES
@@ -262,7 +274,7 @@ def test_full_refresh_recreates_missing_review_templates(tmp_path: Path):
     assert result.manifest_valid
     assert gold_review.exists()
     assert license_review.exists()
-    assert len(gold_review.read_text(encoding="utf-8").splitlines()) == 500
+    assert result.outputs["gold_set_review_template"] == str(gold_review)
     source_rows = (
         (tmp_path / "registry/sources/tushare_research_reports.jsonl")
         .read_text(encoding="utf-8")

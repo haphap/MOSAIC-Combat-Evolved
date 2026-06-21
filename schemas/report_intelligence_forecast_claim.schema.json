@@ -10,6 +10,8 @@
     "source_id": {"type": "string", "minLength": 1},
     "source_span_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
     "claim_text": {"type": "string", "minLength": 1},
+    "analyst_claim": {"type": "string", "minLength": 1},
+    "pre_review": {"type": "object"},
     "claim_provenance": {"enum": ["source_grounded", "analyst_or_llm_hypothesis", "unknown"]},
     "forecast_testability": {"enum": ["testable", "non_testable", "insufficient_mapping"]},
     "forecast_type": {"type": "string", "minLength": 1},

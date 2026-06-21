@@ -1,23 +1,25 @@
 {
   "blockers": [
+    "broad-rollout completion audit still has blockers",
+    "manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
     "lockbox has not been opened"
   ],
   "criteria": [
     {
-      "blocker": "",
+      "blocker": "broad-rollout completion audit still has blockers",
       "criterion_id": "PG01",
       "description": "Broad-rollout completion audit is green.",
-      "evidence": "12 / 12 completion criteria passed",
+      "evidence": "11 / 12 completion criteria passed",
       "evidence_path": "registry/audits/rke_completion_audit.json",
-      "passed": true
+      "passed": false
     },
     {
-      "blocker": "",
+      "blocker": "manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
       "criterion_id": "PG02",
       "description": "Manual gold-set review passed before staged production.",
-      "evidence": "500 / 500 gold-set claims reviewed",
+      "evidence": "158 / 158 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
-      "passed": true
+      "passed": false
     },
     {
       "blocker": "",
@@ -85,9 +87,9 @@
     }
   ],
   "direct_production_forbidden": true,
-  "next_state": "staged_production",
+  "next_state": "paper_trading",
   "paper_trading_allowed": true,
   "production_allowed": false,
   "report_id": "RKE-PRODUCTION-PROMOTION-GATE-20260606",
-  "staged_production_allowed": true
+  "staged_production_allowed": false
 }

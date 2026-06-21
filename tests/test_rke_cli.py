@@ -12,6 +12,8 @@ from mosaic.rke import (
 )
 from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
+from mosaic.rke.tushare_reports import P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
 
 
 GOLD_MANUAL_FIELDS = (
@@ -19,6 +21,8 @@ GOLD_MANUAL_FIELDS = (
     "claim_correct",
     "source_span_supports_claim",
     "direction_correct",
+    "target_correct",
+    "horizon_correct",
     "variable_mapping_correct",
     "unsupported_field_false_grounded",
     "reviewer",
@@ -61,6 +65,8 @@ def _reset_gold_review_rows(path: Path) -> None:
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""
@@ -78,8 +84,10 @@ def _redaction_source_text_count(root: Path) -> int:
     return int(payload["source_text_count"])
 
 
-def test_rke_cli_validate_required_success(capsys):
-    code = main(("validate-required", "--root", "."))
+def test_rke_cli_validate_required_success(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("validate-required", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
 
     assert code == 0
@@ -139,11 +147,67 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     code = main(("master-plan-status", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
 
-    assert code == 0
-    assert output["coverage_complete"] is True
+    assert code == 2
+    assert output["coverage_complete"] is False
     assert output["ready_for_broad_rollout"] is False
     assert output["blocked_count"] == 1
+    assert output["missing_count"] == 0
+    next_actions = {action["action_id"]: action for action in output["next_actions"]}
+    assert {
+        "inspect_master_plan_schema_blockers",
+        "complete_manual_analytical_footprint_review",
+        "clear_patch_v1_5_manual_review_coverage",
+    } <= set(next_actions)
+    assert (
+        "schema-status --root . --failures-only --no-write"
+        in next_actions["inspect_master_plan_schema_blockers"]["commands"][
+            "schema_failures"
+        ]
+    )
+    assert next_actions["inspect_master_plan_schema_blockers"]["review_aids"][
+        "gold_set"
+    ]["fill_import_path"] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert "review_notes" in next_actions[
+        "complete_manual_analytical_footprint_review"
+    ]["field_contract"]["required_fields"]
     assert (tmp_path / "registry/audits/rke_master_plan_coverage_report.json").exists()
+
+
+def test_rke_cli_master_plan_status_no_write_preserves_artifacts(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    shutil.copytree(Path("docs"), tmp_path / "docs")
+    shutil.copytree(Path("schemas"), tmp_path / "schemas")
+
+    main(("master-plan-status", "--root", str(tmp_path)))
+    capsys.readouterr()
+
+    sentinel_by_path = {
+        tmp_path / "registry/audits/central_bank_mvp_audit_trace.json": '{"sentinel":"trace"}\n',
+        tmp_path / "registry/audits/central_bank_mvp_audit_view.json": '{"sentinel":"view"}\n',
+        tmp_path / "registry/audits/central_bank_mvp_audit_view.md": "sentinel view\n",
+        tmp_path / "registry/audits/rke_completion_audit.json": '{"sentinel":"completion"}\n',
+        tmp_path / "registry/audits/rke_master_plan_coverage_report.json": '{"sentinel":"coverage"}\n',
+    }
+    for path, sentinel in sentinel_by_path.items():
+        path.write_text(sentinel, encoding="utf-8")
+
+    code = main(("master-plan-status", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["coverage_complete"] is False
+    next_actions = {action["action_id"]: action for action in output["next_actions"]}
+    assert "inspect_master_plan_schema_blockers" in next_actions
+    assert (
+        "review-progress --root . --actions-only --no-write"
+        in next_actions["inspect_master_plan_schema_blockers"]["commands"][
+            "manual_queue"
+        ]
+    )
+    for path, sentinel in sentinel_by_path.items():
+        assert path.read_text(encoding="utf-8") == sentinel
 
 
 def test_rke_cli_audit_view_writes_trace_view(tmp_path: Path, capsys):
@@ -191,10 +255,13 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     rows[0]["claim_correct"] = True
     rows[0]["source_span_supports_claim"] = True
     rows[0]["direction_correct"] = True
+    rows[0]["target_correct"] = True
+    rows[0]["horizon_correct"] = True
     rows[0]["variable_mapping_correct"] = True
     rows[0]["unsupported_field_false_grounded"] = True
     rows[0]["reviewer"] = "tester"
     rows[0]["review_notes"] = "preserve manual review fields"
+    edited_claim_id = str(rows[0].get("claim_id") or "")
     gold_review.write_text(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
@@ -214,11 +281,20 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
 
     assert code == 0
     assert output["manifest_valid"] is True
-    assert refreshed_manual == original_manual
+    assert refreshed_manual[edited_claim_id] == original_manual[edited_claim_id]
+    assert all(
+        manual_fields == original_manual[claim_id]
+        for claim_id, manual_fields in refreshed_manual.items()
+    )
 
 
 def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
+    expected_review_row_count = len(
+        _load_jsonl(
+            tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+        )
+    )
 
     gold_code = main(("gold-set-status", "--root", str(tmp_path)))
     gold_output = json.loads(capsys.readouterr().out)
@@ -230,15 +306,32 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     license_output = json.loads(capsys.readouterr().out)
     license_packet_code = main(("license-review-packet", "--root", str(tmp_path)))
     license_packet_output = json.loads(capsys.readouterr().out)
+    candidate_claim_rows = _load_jsonl(
+        tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
+    )
+    candidate_summary = json.loads(
+        (
+            tmp_path
+            / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    packet_review_row_count = len(
+        _load_jsonl(
+            tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+        )
+    )
 
     assert gold_code == 0
-    assert gold_output["pending_claims"] == 500
+    assert gold_output["pending_claims"] == expected_review_row_count
     assert (
         tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
     ).exists()
     assert candidate_code == 0
-    assert candidate_output["candidate_claim_count"] == 500
-    assert candidate_output["review_rows_with_candidate_fields"] == 500
+    assert candidate_output["candidate_claim_count"] == len(candidate_claim_rows)
+    assert (
+        candidate_output["review_rows_with_candidate_fields"]
+        == candidate_summary["review_rows_with_candidate_fields"]
+    )
     assert candidate_output["manual_fields_preserved"] is True
     assert (
         tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
@@ -248,9 +341,12 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
         / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
     ).exists()
     assert packet_code == 0
-    assert packet_output["pending_review_rows"] == 500
-    assert packet_output["candidate_claim_count"] == 500
-    assert packet_output["review_rows_with_candidate_fields"] == 500
+    assert packet_output["pending_review_rows"] == packet_review_row_count
+    assert packet_output["candidate_claim_count"] == candidate_output["candidate_claim_count"]
+    assert (
+        packet_output["review_rows_with_candidate_fields"]
+        == candidate_output["review_rows_with_candidate_fields"]
+    )
     assert packet_output["candidate_span_ref_count"] > 0
     assert (
         tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
@@ -298,6 +394,52 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     assert (tmp_path / "registry/compliance/tushare_license_review_packet.md").exists()
 
 
+def test_rke_cli_gold_candidate_claims_refreshes_candidates_from_local_source(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_rows = [
+        {
+            "source_id": f"SRC-LOCAL-{idx:03d}",
+            "source_span_id": f"SRC-LOCAL-{idx:03d}:abstract",
+            "source_type": "tushare_research_report",
+            "report_type": "行业研报",
+            "query_key": f"行业{idx:03d}",
+            "publish_date": f"2026-06-{1 + idx % 28:02d}",
+            "discovered_at": "2026-06-15T00:00:00+00:00",
+            "title": f"local report {idx}",
+            "abstract": "若政策支持延续，行业需求改善，行业景气有望提升。",
+            "source_hash": f"sha256:local-{idx:03d}",
+            "point_in_time_available": True,
+            "license_status": "approved",
+        }
+        for idx in range(80)
+    ]
+    _write_jsonl(source_path, source_rows)
+
+    code = main(
+        (
+            "gold-candidate-claims",
+            "--root",
+            str(tmp_path),
+            "--refresh-candidates-from-source",
+            "--ensure-candidate-review-rows",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+    candidate_rows = _load_jsonl(
+        tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    )
+
+    assert code == 0
+    assert output["candidate_refresh"]["candidate_rows"] == 75
+    assert len(candidate_rows) == 75
+    assert output["ensure_candidate_review_rows"] is True
+    assert output["candidate_review_rows_added"] > 0
+
+
 def test_rke_cli_prepare_license_policy_review_protects_existing_file(
     tmp_path: Path, capsys
 ):
@@ -333,39 +475,273 @@ def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
 
-    code = main(("prepare-gold-review", "--root", str(tmp_path), "--full"))
+    code = main(
+        (
+            "prepare-gold-review",
+            "--root",
+            str(tmp_path),
+            "--full",
+            "--reviewer",
+            "hap",
+            "--review-date",
+            "2026-06-12",
+        )
+    )
     output = json.loads(capsys.readouterr().out)
     second_code = main(("prepare-gold-review", "--root", str(tmp_path), "--full"))
     second_output = json.loads(capsys.readouterr().out)
+    rows = _load_jsonl(reviewed_path)
 
     assert code == 0
     assert output["written"] is True
     assert output["full"] is True
-    assert output["rows"] == 500
+    assert output["rows"] == len(rows)
+    assert output["rows"] > 0
     assert output["path"] == str(reviewed_path)
+    assert isinstance(output["selected_priority_score_counts"], dict)
+    assert isinstance(output["selected_priority_reason_counts"], dict)
     assert reviewed_path.exists()
+    assert rows[0]["reviewer"] == "hap"
+    assert rows[0]["review_date"] == "2026-06-12"
+    assert rows[0]["claim_correct"] is None
     assert second_code == 2
     assert second_output["written"] is False
     assert "already exists" in second_output["blockers"][0]
 
 
+def test_rke_cli_backfill_gold_review_from_prior_human_review(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    template_rows = _load_jsonl(template_path)
+    for prior in template_rows:
+        if prior.get("proposed_claim_text") and prior.get(
+            "proposed_cause_variables"
+        ) and prior.get("proposed_target_variables"):
+            prior.update(
+                {
+                    "manual_claim_text": "Manual reviewed claim.",
+                    "claim_correct": True,
+                    "source_span_supports_claim": True,
+                    "direction_correct": True,
+                    "target_correct": False,
+                    "horizon_correct": True,
+                    "variable_mapping_correct": False,
+                    "unsupported_field_false_grounded": False,
+                    "reviewer": "hap",
+                    "review_date": "2026-06-15",
+                    "review_notes": "Prior human review.",
+                }
+            )
+    _write_jsonl(template_path, template_rows)
+
+    reviewed_path = tmp_path / "registry/review_batches/gold_set_reviewed.jsonl"
+    prepare_code = main(
+        (
+            "prepare-gold-review",
+            "--root",
+            str(tmp_path),
+            "--reviewed-failures",
+            "--gold-batch-size",
+            "1",
+            "--force",
+        )
+    )
+    prepare_output = json.loads(capsys.readouterr().out)
+    blank_rows = _load_jsonl(reviewed_path)
+
+    dry_code = main(
+        (
+            "backfill-gold-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+        )
+    )
+    dry_output = json.loads(capsys.readouterr().out)
+    dry_rows = _load_jsonl(reviewed_path)
+
+    write_code = main(
+        (
+            "backfill-gold-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+            "--write",
+        )
+    )
+    write_output = json.loads(capsys.readouterr().out)
+    rows = _load_jsonl(reviewed_path)
+    apply_code = main(
+        (
+            "apply-gold-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+            "--dry-run",
+        )
+    )
+    apply_output = json.loads(capsys.readouterr().out)
+
+    assert prepare_code == 0
+    assert prepare_output["rows"] == 1
+    assert blank_rows[0]["manual_claim_text"] == ""
+    assert dry_code == 0
+    assert dry_output["dry_run"] is True
+    assert dry_output["written"] is False
+    assert dry_output["matched_prior_rows"] == 1
+    assert dry_output["complete_after_backfill_rows"] == 1
+    assert dry_rows[0]["manual_claim_text"] == ""
+    assert write_code == 0
+    assert write_output["written"] is True
+    assert write_output["backed_up_existing_output"] is True
+    assert rows[0]["manual_claim_text"] == "Manual reviewed claim."
+    assert rows[0]["target_correct"] is False
+    assert rows[0]["target_row_hash"] == blank_rows[0]["target_row_hash"]
+    assert apply_code == 0
+    assert apply_output["accepted"] is True
+
+
+def test_rke_cli_review_progress_surfaces_gold_backfill_commands(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    template_rows = _load_jsonl(template_path)
+    for row in template_rows:
+        if row.get("proposed_claim_text") and row.get(
+            "proposed_cause_variables"
+        ) and row.get("proposed_target_variables"):
+            row.update(
+                {
+                    "manual_claim_text": "Manual reviewed claim.",
+                    "claim_correct": True,
+                    "source_span_supports_claim": True,
+                    "direction_correct": True,
+                    "target_correct": False,
+                    "horizon_correct": True,
+                    "variable_mapping_correct": False,
+                    "unsupported_field_false_grounded": False,
+                    "reviewer": "hap",
+                    "review_date": "2026-06-15",
+                }
+            )
+    _write_jsonl(template_path, template_rows)
+    prepare_code = main(
+        (
+            "prepare-gold-review",
+            "--root",
+            str(tmp_path),
+            "--reviewed-failures",
+            "--gold-batch-size",
+            "1",
+            "--force",
+        )
+    )
+    prepare_output = json.loads(capsys.readouterr().out)
+    assert prepare_code == 0
+    assert prepare_output["rows"] == 1
+    evidence_code = main(
+        (
+            "write-gold-review-evidence",
+            "--root",
+            str(tmp_path),
+            "--review-input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+        )
+    )
+    evidence_output = json.loads(capsys.readouterr().out)
+    assert evidence_code == 0
+    assert evidence_output["rows"] == 1
+    assert evidence_output["blockers"] == 0
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--actions-only",
+            "--no-write",
+            "--review-kind",
+            "gold_set",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert output["actions"][0]["evidence_aligned"] is True
+    commands = output["actions"][0]["commands"]
+
+    assert code == 2
+    assert (
+        "backfill-gold-review --root . --input "
+        "registry/review_batches/gold_set_reviewed.jsonl"
+        in commands["backfill_dry_run"]
+    )
+    assert "--write" in commands["backfill_write"]
+
+
 def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/lockbox_reviewed.json"
+    if reviewed_path.exists():
+        reviewed_path.unlink()
 
-    code = main(("prepare-lockbox-review", "--root", str(tmp_path)))
+    blocked_code = main(("prepare-lockbox-review", "--root", str(tmp_path)))
+    blocked_output = json.loads(capsys.readouterr().out)
+    assert blocked_code == 2
+    assert blocked_output["written"] is False
+    assert blocked_output["allow_pending_upstream"] is False
+    assert "gold_set gate must be ready before opening lockbox review" in (
+        blocked_output["upstream_blockers"]
+    )
+    assert "footprint_review gate must be ready before opening lockbox review" in (
+        blocked_output["upstream_blockers"]
+    )
+    assert not reviewed_path.exists()
+
+    code = main(
+        (
+            "prepare-lockbox-review",
+            "--root",
+            str(tmp_path),
+            "--allow-pending-upstream",
+        )
+    )
     output = json.loads(capsys.readouterr().out)
-    second_code = main(("prepare-lockbox-review", "--root", str(tmp_path)))
+    second_code = main(
+        (
+            "prepare-lockbox-review",
+            "--root",
+            str(tmp_path),
+            "--allow-pending-upstream",
+        )
+    )
     second_output = json.loads(capsys.readouterr().out)
 
     assert code == 0
     assert output["written"] is True
+    assert output["allow_pending_upstream"] is True
+    assert output["upstream_blockers"] == []
     assert output["path"] == str(reviewed_path)
     assert (
         output["template_path"]
         == "registry/review_batches/lockbox_review_next_import_template.json"
     )
+    assert (
+        output["checklist_path"]
+        == "registry/review_batches/lockbox_review_checklist.md"
+    )
     assert reviewed_path.exists()
+    checklist = tmp_path / "registry/review_batches/lockbox_review_checklist.md"
+    assert checklist.exists()
+    assert "RKE Lockbox Review Checklist" in checklist.read_text(encoding="utf-8")
     starter = json.loads(reviewed_path.read_text(encoding="utf-8"))
     assert starter["result"] == ""
     assert starter["target_row_hash"].startswith("sha256:")
@@ -419,17 +795,22 @@ def test_rke_cli_gold_candidate_claims_reports_malformed_jsonl_rows(
     candidates_path = (
         tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
     )
+    expected_candidate_count = len(_load_jsonl(candidates_path))
     candidates_path.write_text(
         candidates_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
     )
 
     code = main(("gold-candidate-claims", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
+    candidate_claim_rows = _load_jsonl(
+        tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
+    )
 
     assert code == 0
-    assert output["candidate_claim_count"] == 500
+    assert output["candidate_claim_count"] == len(candidate_claim_rows)
     assert any(
-        "gold candidate row 51 must contain valid JSON" in blocker
+        f"gold candidate row {expected_candidate_count + 1} must contain valid JSON"
+        in blocker
         for blocker in output["blockers"]
     )
 
@@ -526,7 +907,12 @@ def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
 
     assert code == 0
     assert output["accepted_for_sandbox"] is True
-    assert output["accepted_for_production"] is True
+    persisted = json.loads(
+        (
+            tmp_path / "registry/source_checks/source_registry_validation_report.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert output["accepted_for_production"] == persisted["accepted_for_production"]
     assert (
         tmp_path / "registry/source_checks/source_registry_validation_report.json"
     ).exists()
@@ -601,7 +987,110 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert output["staged_production_allowed"] is False
     assert output["production_allowed"] is False
     assert output["next_state"] == "paper_trading"
+    next_actions = {action["action_id"]: action for action in output["next_actions"]}
+    assert {
+        "complete_manual_forecast_gold_review",
+        "prepare_lockbox_after_upstream_manual_gates",
+    } == set(next_actions)
+    assert next_actions["complete_manual_forecast_gold_review"]["commands"][
+        "inspect"
+    ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
+    assert (
+        "write-gold-review-assist --root . --review-input "
+        "registry/review_batches/gold_set_reviewed.jsonl"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"][
+            "write_assist"
+        ]
+    )
+    assert (
+        "promotion-status --root . --no-write"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"][
+            "check_promotion_after_review"
+        ]
+    )
+    assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][
+        "fill_import_path"
+    ] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert next_actions["complete_manual_forecast_gold_review"][
+        "field_contract"
+    ]["optional_fields"] == ["review_notes"]
+    assert next_actions["complete_manual_forecast_gold_review"]["batch_overview"][
+        "current_batch_path"
+    ] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert next_actions["complete_manual_forecast_gold_review"][
+        "current_batch_pending_rows"
+    ] >= 0
+    assert (
+        "review-progress --root . --actions-only --no-write --review-kind lockbox"
+        in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
+            "inspect_lockbox_dependencies"
+        ]
+    )
+    assert next_actions["prepare_lockbox_after_upstream_manual_gates"]["review_aids"][
+        "footprint_review"
+    ]["promotion_import_path"] == (
+        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+    )
+    assert next_actions["prepare_lockbox_after_upstream_manual_gates"]["review_aids"][
+        "lockbox"
+    ]["fill_import_path"] == "registry/review_batches/lockbox_reviewed.json"
+    assert "passed" in next_actions[
+        "prepare_lockbox_after_upstream_manual_gates"
+    ]["field_contract"]["lockbox"]["allowed_results"]
+    assert "review_notes" in next_actions[
+        "prepare_lockbox_after_upstream_manual_gates"
+    ]["field_contract"]["footprint_review"]["required_fields"]
+    lockbox_gate_actions = next_actions["prepare_lockbox_after_upstream_manual_gates"][
+        "review_gate_actions"
+    ]
+    assert lockbox_gate_actions["gold_set"]["batch_overview"][
+        "current_batch_path"
+    ] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert lockbox_gate_actions["footprint_review"]["batch_overview"][
+        "current_batch_path"
+    ] == "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    assert lockbox_gate_actions["lockbox"]["next_manual_action"] in {
+        "wait_for_prior_manual_gates",
+        "complete_lockbox_decision_then_dry_run",
+        "prepare_lockbox_review",
+    }
+    assert (
+        "promotion-dry-run --root ."
+        in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
+            "promotion_dry_run_after_all_reviews"
+        ]
+    )
+    assert (
+        "--license-input"
+        not in next_actions["prepare_lockbox_after_upstream_manual_gates"][
+            "commands"
+        ]["promotion_dry_run_after_all_reviews"]
+    )
+    assert (
+        "build-license-review-import"
+        not in next_actions["prepare_lockbox_after_upstream_manual_gates"][
+            "commands"
+        ]["promotion_dry_run_after_all_reviews"]
+    )
     assert (tmp_path / "registry/promotion/rke_production_promotion_gate.json").exists()
+
+
+def test_rke_cli_promotion_status_no_write_preserves_report(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    main(("promotion-status", "--root", str(tmp_path)))
+    capsys.readouterr()
+    report_path = tmp_path / "registry/promotion/rke_production_promotion_gate.json"
+    before = report_path.read_text(encoding="utf-8")
+    before_mtime = report_path.stat().st_mtime_ns
+
+    code = main(("promotion-status", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["paper_trading_allowed"] is True
+    assert output["next_actions"]
+    assert report_path.read_text(encoding="utf-8") == before
+    assert report_path.stat().st_mtime_ns == before_mtime
 
 
 def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, capsys):
@@ -720,7 +1209,61 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(
     assert captured["max_reports_per_query"] == 42
     assert captured["stock_query_batch_size"] == 2
     assert captured["date_chunk_days"] == 7
+    assert captured["corpus_profile"] is None
     assert captured["preserve_review_templates"] is True
+
+
+def test_rke_cli_fetch_tushare_reports_p9_profile_defaults_date_chunk(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+):
+    captured = {}
+
+    def fake_refresh(root, **kwargs):
+        captured["root"] = str(root)
+        captured.update(kwargs)
+        return TushareResearchReportRefreshResult(
+            root=str(root),
+            source_rows=6,
+            rows_with_abstract=6,
+            skipped_empty_abstract_rows=0,
+            gold_candidate_rows=6,
+            gold_review_template_updated=True,
+            license_review_template_updated=True,
+            publish_date_min="2026-06-01",
+            publish_date_max="2026-06-01",
+            report_type_counts={"个股研报": 1, "行业研报": 1},
+            query_key_counts={"000001.SZ": 1, "半导体": 1},
+            completion_ready_for_broad_rollout=False,
+            manifest_valid=True,
+            outputs={"source": "registry/sources/tushare_research_reports.jsonl"},
+            corpus_profile=P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
+        )
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh
+    )
+
+    code = main(
+        (
+            "fetch-tushare-reports",
+            "--root",
+            str(tmp_path),
+            "--start-date",
+            "2026-06-01",
+            "--end-date",
+            "2026-06-01",
+            "--p9-profile",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["corpus_profile"] == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
+    assert captured["corpus_profile"] == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
+    assert captured["date_chunk_days"] == 7
+    assert captured["report_types"] == ()
 
 
 def test_rke_cli_fetch_tushare_reports_accepts_local_input_path(
@@ -776,6 +1319,285 @@ def test_rke_cli_fetch_tushare_reports_accepts_local_input_path(
     assert captured["stock_codes"] == ()
     assert captured["industry_keywords"] == ()
     assert captured["report_types"] == ()
+    assert captured["date_chunk_days"] == 31
+    assert captured["corpus_profile"] is None
+
+
+def test_rke_cli_evolution_readiness_alias_rebuilds_gate(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_write_gate(registry_dir, *, run_id):
+        captured["gate_registry_dir"] = str(registry_dir)
+        captured["gate_run_id"] = run_id
+        return {
+            "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
+            "gate_status": "blocked",
+            "blocker_count": 1,
+            "blockers": ["manual_review_pending"],
+            "blocked_check_ids": ["RI-EVOL-05"],
+            "passed_check_ids": ["RI-EVOL-01"],
+            "blocked_checks": [
+                {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]}
+            ],
+            "input_load_blockers": [],
+        }
+
+    def fake_write_mutations(registry_dir, *, run_id):
+        captured["mutations_registry_dir"] = str(registry_dir)
+        captured["mutations_run_id"] = run_id
+        return {
+            "prompt_mutation_candidates": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+            "prompt_mutation_candidate_count": 2,
+        }
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_evolution_readiness_gate",
+        fake_write_gate,
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_prompt_mutation_candidates",
+        fake_write_mutations,
+    )
+
+    code = main(
+        (
+            "evolution-readiness",
+            "--root",
+            str(tmp_path),
+            "--run-id",
+            "RIR-ALIAS-TEST",
+            "--refresh-prompt-mutations",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert captured == {
+        "gate_registry_dir": str(tmp_path / "registry/report_intelligence"),
+        "gate_run_id": "RIR-ALIAS-TEST",
+        "mutations_registry_dir": str(tmp_path / "registry/report_intelligence"),
+        "mutations_run_id": "RIR-ALIAS-TEST",
+    }
+    assert output["gate_status"] == "blocked"
+    assert output["blocker_count"] == 1
+    assert output["blocked_check_ids"] == ["RI-EVOL-05"]
+    assert output["blocked_checks"] == [
+        {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]}
+    ]
+    assert output["prompt_mutation_candidate_count"] == 2
+
+
+def test_rke_cli_evolution_readiness_no_write_uses_read_only_gate(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_write_gate(registry_dir, *, run_id, write=True):
+        captured["registry_dir"] = str(registry_dir)
+        captured["run_id"] = run_id
+        captured["write"] = write
+        return {
+            "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
+            "gate_status": "blocked",
+            "blocker_count": 1,
+            "blockers": ["manual_review_pending"],
+            "blocked_check_ids": ["RI-EVOL-05"],
+            "passed_check_ids": ["RI-EVOL-01"],
+            "blocked_checks": [
+                {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]}
+            ],
+            "input_load_blockers": [],
+            "written": write,
+        }
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_evolution_readiness_gate",
+        fake_write_gate,
+    )
+
+    code = main(
+        (
+            "evolution-readiness",
+            "--root",
+            str(tmp_path),
+            "--run-id",
+            "RIR-READ-ONLY",
+            "--no-write",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert captured == {
+        "registry_dir": str(tmp_path / "registry/report_intelligence"),
+        "run_id": "RIR-READ-ONLY",
+        "write": False,
+    }
+    assert output["written"] is False
+    assert output["blocked_check_ids"] == ["RI-EVOL-05"]
+
+
+def test_rke_cli_evolution_readiness_surfaces_manual_action_context(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    def fake_write_gate(registry_dir, *, run_id, write=True):
+        return {
+            "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
+            "gate_status": "blocked",
+            "blocker_count": 2,
+            "blockers": ["manual_review_pending", "schema_blocked"],
+            "blocked_check_ids": ["RI-EVOL-04", "RI-EVOL-05"],
+            "passed_check_ids": [],
+            "blocked_checks": [
+                {"check_id": "RI-EVOL-04", "blockers": ["schema_blocked"]},
+                {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]},
+            ],
+            "input_load_blockers": [],
+            "written": write,
+            "next_actions": [
+                {
+                    "action_id": "complete_manual_forecast_gold_review",
+                    "commands": {"inspect": "base gold inspect"},
+                },
+                {
+                    "action_id": "complete_manual_analytical_footprint_review",
+                    "commands": {"inspect": "base footprint inspect"},
+                },
+                {
+                    "action_id": "clear_current_schema_and_audit_blockers",
+                    "commands": {"manual_queue": "base manual queue"},
+                },
+            ],
+        }
+
+    def fake_action_queue(report, *, review_kinds, **kwargs):
+        review_kind = review_kinds[0]
+        if review_kind == "gold_set":
+            return {
+                "actions": [
+                    {
+                        "commands": {
+                            "assist": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-assist --root .",
+                            "evidence": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-evidence --root . --limit 7 --offset 0",
+                            "dry_run": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-gold-review --root . --dry-run",
+                        },
+                        "batch_overview": {
+                            "current_batch_rows": 7,
+                            "remaining_rows_after_current_batch": 2,
+                        },
+                        "after_dry_run_accepts": {
+                            "apply_current_batch": "apply gold batch"
+                        },
+                        "next_manual_action": "fill_current_batch_review_fields_then_dry_run",
+                        "action_state": "needs_human_review_fields",
+                        "can_run_now": True,
+                        "blocks_promotion": True,
+                        "post_current_batch_action": "apply_current_batch_then_rerun_review_progress",
+                        "manual_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+                        "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+                        "current_batch_pending_rows": 7,
+                        "evidence_aligned": True,
+                    }
+                ]
+            }
+        return {
+            "actions": [
+                {
+                    "commands": {
+                        "assist": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-assist --root .",
+                        "evidence": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-evidence --root . --limit 11 --offset 0",
+                        "dry_run": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-footprint-review --root . --dry-run",
+                    },
+                    "batch_overview": {
+                        "current_batch_rows": 11,
+                        "remaining_rows_after_current_batch": 90,
+                    },
+                    "after_dry_run_accepts": {
+                        "apply_current_batch": "apply footprint batch"
+                    },
+                    "next_manual_action": "fill_current_batch_review_fields_then_dry_run",
+                    "action_state": "needs_human_review_fields",
+                    "can_run_now": True,
+                    "blocks_promotion": True,
+                    "post_current_batch_action": "apply_current_batch_then_rerun_review_progress",
+                    "manual_input_path": (
+                        "registry/report_intelligence/"
+                        "analytical_footprint_review_batch.jsonl"
+                    ),
+                    "promotion_input_path": (
+                        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+                    ),
+                    "current_batch_pending_rows": 11,
+                    "evidence_aligned": True,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_evolution_readiness_gate",
+        fake_write_gate,
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli.build_manual_review_progress",
+        lambda root: object(),
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli.build_manual_review_action_queue",
+        fake_action_queue,
+    )
+
+    code = main(("evolution-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+    actions = {action["action_id"]: action for action in output["next_actions"]}
+
+    assert code == 2
+    gold_action = actions["complete_manual_forecast_gold_review"]
+    assert gold_action["action_state"] == "needs_human_review_fields"
+    assert gold_action["commands"]["write_evidence"].endswith("--limit 7 --offset 0")
+    assert gold_action["batch_overview"]["current_batch_rows"] == 7
+    assert gold_action["after_dry_run_accepts"]["apply_current_batch"] == (
+        "apply gold batch"
+    )
+    footprint_action = actions["complete_manual_analytical_footprint_review"]
+    assert footprint_action["commands"]["write_evidence"].endswith(
+        "--limit 11 --offset 0"
+    )
+    assert footprint_action["manual_input_path"] == (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
+    gate_actions = actions["clear_current_schema_and_audit_blockers"][
+        "review_gate_actions"
+    ]
+    assert gate_actions["gold_set"]["current_batch_pending_rows"] == 7
+    assert gate_actions["footprint_review"]["current_batch_pending_rows"] == 11
+
+
+def test_rke_cli_evolution_readiness_no_write_rejects_prompt_mutation_refresh(
+    tmp_path: Path,
+    capsys,
+):
+    code = main(
+        (
+            "evolution-readiness",
+            "--root",
+            str(tmp_path),
+            "--no-write",
+            "--refresh-prompt-mutations",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["accepted"] is False
+    assert "--no-write cannot be combined" in output["blockers"][0]
 
 
 def test_pyproject_exposes_mosaic_rke_console_script():

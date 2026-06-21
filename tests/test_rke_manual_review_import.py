@@ -17,8 +17,11 @@ from mosaic.rke import (
 )
 from mosaic.rke.cli import main
 from mosaic.rke.manual_review_import import (
+    GOLD_REVIEW_PACKET_PATH,
+    GOLD_REVIEW_TEMPLATE_PATH,
     LICENSE_REVIEW_PACKET_PATH,
     LICENSE_REVIEW_TEMPLATE_PATH,
+    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
     TARGET_ROW_HASH_FIELD,
     review_row_fingerprint,
 )
@@ -61,6 +64,8 @@ def _reset_gold_review_rows(path: Path) -> None:
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""
@@ -76,12 +81,20 @@ def _append_jsonl_value(path: Path, value) -> None:
 
 def _accepted_gold_template_row(row: dict) -> dict:
     out = dict(row)
+    for field in tuple(out):
+        if str(field).strip().lower() in MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS:
+            out.pop(field, None)
     out.update(
         {
+            TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+            "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+            "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
             "manual_claim_text": row.get("proposed_claim_text") or "manual claim",
             "claim_correct": True,
             "source_span_supports_claim": True,
             "direction_correct": True,
+            "target_correct": True,
+            "horizon_correct": True,
             "variable_mapping_correct": True,
             "unsupported_field_false_grounded": False,
             "reviewer": "reviewer-a",
@@ -107,7 +120,9 @@ def _accepted_license_template_row(row: dict) -> dict:
 
 
 def _gold_import_rows(root: Path) -> list[dict]:
-    rows = _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
+    rows = _load_jsonl(
+        root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
     return [_accepted_gold_template_row(row) for row in rows]
 
 
@@ -136,7 +151,8 @@ def _license_import_rows(root: Path) -> list[dict]:
 def test_apply_gold_set_review_import_passes_c02_when_all_rows_reviewed(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "gold_import.jsonl"
-    _write_jsonl(import_path, _gold_import_rows(tmp_path))
+    gold_rows = _gold_import_rows(tmp_path)
+    _write_jsonl(import_path, gold_rows)
 
     report = apply_gold_set_review_import(tmp_path, import_path)
     summary = summarize_gold_set_review(tmp_path)
@@ -144,7 +160,7 @@ def test_apply_gold_set_review_import_passes_c02_when_all_rows_reviewed(tmp_path
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
 
     assert report.accepted
-    assert report.applied_rows == 500
+    assert report.applied_rows == len(gold_rows)
     assert not report.blockers
     assert summary.review_complete
     assert summary.passed
@@ -202,6 +218,9 @@ def test_apply_gold_set_review_import_rejects_stale_target_row_hash(tmp_path: Pa
 
     assert not report.accepted
     assert "target_row_hash does not match target review row" in set(report.invalid_rows[0].reasons)
+    assert report.invalid_reason_counts[
+        "target_row_hash does not match target review row"
+    ] == 1
     assert any("stale target_row_hash" in blocker for blocker in report.blockers)
     assert any("prepare-gold-review --root . --full --force" in blocker for blocker in report.blockers)
 
@@ -213,10 +232,12 @@ def test_apply_gold_set_review_import_rejects_legacy_import_without_provenance(t
     legacy = {
         "claim_id": target_row["claim_id"],
         "manual_claim_text": target_row.get("proposed_claim_text") or "manual claim",
-        "claim_correct": True,
-        "source_span_supports_claim": True,
-        "direction_correct": True,
-        "variable_mapping_correct": True,
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": True,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": True,
         "unsupported_field_false_grounded": False,
         "reviewer": "reviewer-a",
         "review_date": "2026-06-06",
@@ -239,6 +260,11 @@ def test_apply_gold_set_review_import_rejects_forbidden_source_text_fields(tmp_p
         _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")[0]
     )
     row["abstract"] = "long source text must stay out of sparse manual imports"
+    row["claim_text"] = "source-grounded claim text must stay private"
+    row["metadata"] = {
+        "pdf_url": "https://private.example/report.pdf",
+        "markdown_path": "registry/report_intelligence/markdown/private.md",
+    }
     _write_jsonl(import_path, [row])
 
     report = apply_gold_set_review_import(tmp_path, import_path)
@@ -246,6 +272,9 @@ def test_apply_gold_set_review_import_rejects_forbidden_source_text_fields(tmp_p
 
     assert not report.accepted
     assert "abstract forbidden in manual review import" in reasons
+    assert "claim_text forbidden in manual review import" in reasons
+    assert "metadata.pdf_url forbidden in manual review import" in reasons
+    assert "metadata.markdown_path forbidden in manual review import" in reasons
 
 
 def test_apply_gold_set_review_import_rejects_nested_forbidden_source_text_fields(tmp_path: Path):
@@ -486,6 +515,8 @@ def test_apply_license_review_import_rejects_forbidden_source_text_fields(tmp_pa
         _load_jsonl(tmp_path / "registry/review_batches/source_license_next_import_template.jsonl")[0]
     )
     row["source_text"] = "long source text must stay out of sparse manual imports"
+    row["retrieval_locator"] = "private://source/report"
+    row["source_metadata"] = {"URL": "https://private.example/report"}
     _write_jsonl(import_path, [row])
 
     report = apply_source_license_review_import(tmp_path, import_path)
@@ -493,6 +524,8 @@ def test_apply_license_review_import_rejects_forbidden_source_text_fields(tmp_pa
 
     assert not report.accepted
     assert "source_text forbidden in manual review import" in reasons
+    assert "retrieval_locator forbidden in manual review import" in reasons
+    assert "source_metadata.URL forbidden in manual review import" in reasons
 
 
 def test_apply_license_review_import_rejects_nested_forbidden_source_text_fields(tmp_path: Path):
@@ -667,8 +700,9 @@ def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
     license_import = tmp_path / "license_import.jsonl"
+    gold_rows = _gold_import_rows(tmp_path)
     license_rows = _license_import_rows(tmp_path)
-    _write_jsonl(gold_import, _gold_import_rows(tmp_path))
+    _write_jsonl(gold_import, gold_rows)
     _write_jsonl(license_import, license_rows)
 
     gold_code = main(("apply-gold-review", "--root", str(tmp_path), "--input", str(gold_import)))
@@ -680,7 +714,7 @@ def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
 
     assert gold_code == 0
     assert gold_output["accepted"] is True
-    assert gold_output["applied_rows"] == 500
+    assert gold_output["applied_rows"] == len(gold_rows)
     assert license_code == 0
     assert license_output["accepted"] is True
     assert license_output["applied_rows"] == len(license_rows)

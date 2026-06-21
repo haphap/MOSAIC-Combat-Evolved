@@ -7,31 +7,71 @@
     "forecast_claim_count",
     "forecast_ledger_count",
     "ready_for_outcome_labeling_count",
+    "standard_blocked_count",
+    "proxy_label_ready_count",
+    "industry_proxy_label_ready_count",
+    "stock_proxy_label_ready_count",
+    "macro_proxy_label_ready_count",
+    "proxy_label_only_ready_count",
     "blocked_count",
     "test_status_counts",
     "mapping_gap_counts",
+    "unlabelable_mapping_gap_counts",
     "ready_forecast_claim_ids",
+    "standard_blocked_forecast_claim_ids",
+    "proxy_label_ready_forecast_claim_ids",
+    "industry_proxy_label_ready_forecast_claim_ids",
+    "stock_proxy_label_ready_forecast_claim_ids",
+    "macro_proxy_label_ready_forecast_claim_ids",
+    "proxy_label_only_ready_forecast_claim_ids",
+    "blocked_forecast_claim_ids",
     "blocked_reason",
     "minimum_required_mapping",
     "policy",
+    "industry_etf_proxy_readiness",
+    "stock_price_proxy_readiness",
+    "macro_asset_proxy_readiness",
     "next_actions"
   ],
   "properties": {
     "readiness_id": {"type": "string", "minLength": 1},
-    "forecast_claim_count": {"type": "integer"},
-    "forecast_ledger_count": {"type": "integer"},
-    "ready_for_outcome_labeling_count": {"type": "integer"},
-    "blocked_count": {"type": "integer"},
-    "test_status_counts": {"type": "object"},
-    "mapping_gap_counts": {"type": "object"},
-    "ready_forecast_claim_ids": {"type": "array", "items": {"type": "string"}},
-    "blocked_reason": {"type": "string"},
-    "minimum_required_mapping": {"type": "array", "items": {"type": "string"}},
-    "policy": {"type": "string", "minLength": 1},
-    "industry_etf_proxy_readiness": {"type": "object"},
-    "stock_price_proxy_readiness": {"type": "object"},
+    "forecast_claim_count": {"type": "integer", "minimum": 0},
+    "forecast_ledger_count": {"type": "integer", "minimum": 0},
+    "ready_for_outcome_labeling_count": {"type": "integer", "minimum": 0},
+    "standard_blocked_count": {"type": "integer", "minimum": 0},
+    "proxy_label_ready_count": {"type": "integer", "minimum": 0},
     "industry_proxy_label_ready_count": {"type": "integer", "minimum": 0},
     "stock_proxy_label_ready_count": {"type": "integer", "minimum": 0},
+    "macro_proxy_label_ready_count": {"type": "integer", "minimum": 0},
+    "proxy_label_only_ready_count": {"type": "integer", "minimum": 0},
+    "proxy_label_pending_count": {"type": "integer", "minimum": 0},
+    "industry_proxy_label_pending_count": {"type": "integer", "minimum": 0},
+    "stock_proxy_label_pending_count": {"type": "integer", "minimum": 0},
+    "macro_proxy_label_pending_count": {"type": "integer", "minimum": 0},
+    "proxy_label_pending_only_count": {"type": "integer", "minimum": 0},
+    "blocked_count": {"type": "integer", "minimum": 0},
+    "test_status_counts": {"type": "object"},
+    "mapping_gap_counts": {"type": "object"},
+    "unlabelable_mapping_gap_counts": {"type": "object"},
+    "macro_regime_counts": {"type": "object"},
+    "source_text_macro_regime_counts": {"type": "object"},
+    "as_of_date_macro_regime_counts": {"type": "object"},
+    "macro_regime_source_counts": {"type": "object"},
+    "industry_cycle_regime_counts": {"type": "object"},
+    "regime_gap_counts": {"type": "object"},
+    "mechanism_channel_counts": {"type": "object"},
+    "mechanism_action_counts": {"type": "object"},
+    "mechanism_impact_variable_counts": {"type": "object"},
+    "mechanism_gap_counts": {"type": "object"},
+    "ready_forecast_claim_ids": {"type": "array", "items": {"type": "string"}},
+    "standard_blocked_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "proxy_label_ready_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
     "industry_proxy_label_ready_forecast_claim_ids": {
       "type": "array",
       "items": {"type": "string"}
@@ -39,6 +79,393 @@
     "stock_proxy_label_ready_forecast_claim_ids": {
       "type": "array",
       "items": {"type": "string"}
+    },
+    "macro_proxy_label_ready_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "proxy_label_only_ready_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "proxy_label_pending_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "industry_proxy_label_pending_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "stock_proxy_label_pending_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "macro_proxy_label_pending_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "proxy_label_pending_only_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "blocked_forecast_claim_ids": {"type": "array", "items": {"type": "string"}},
+    "regime_gap_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "mechanism_gap_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "blocked_reason": {"type": "string"},
+    "minimum_required_mapping": {"type": "array", "items": {"type": "string"}},
+    "policy": {"type": "string", "minLength": 1},
+    "mechanism_policy": {"type": "string", "minLength": 1},
+    "as_of_date_macro_regime_policy": {"type": "string", "minLength": 1},
+    "industry_etf_proxy_readiness": {
+      "type": "object",
+      "required": [
+        "policy",
+        "outcome_label_source",
+        "llm_outcome_labeling_allowed",
+        "windows_days",
+        "entry_lag_trading_days",
+        "benchmark_symbol",
+        "benchmark_source",
+        "benchmark_family",
+        "cost_model_id",
+        "qlib_etf_dir_configured",
+        "latest_calendar_date",
+        "mapping_count",
+        "eligible_claim_count",
+        "eligible_forecast_claim_ids",
+        "labelable_forecast_claim_count",
+        "labelable_forecast_claim_ids",
+        "labelable_window_count",
+        "pending_future_window_count",
+        "data_gap_counts",
+        "pit_availability_status"
+      ],
+      "properties": {
+        "policy": {"type": "string", "minLength": 1},
+        "outcome_label_source": {"const": "pit_industry_etf_price_window"},
+        "llm_outcome_labeling_allowed": {"const": false},
+        "windows_days": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 1},
+          "minItems": 1
+        },
+        "entry_lag_trading_days": {"type": "integer", "minimum": 1},
+        "benchmark_symbol": {"type": "string", "minLength": 1},
+        "benchmark_symbols": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "minItems": 1
+        },
+        "benchmark_source": {"type": "string", "minLength": 1},
+        "benchmark_family": {"type": "string", "minLength": 1},
+        "cost_model_id": {"type": "string", "minLength": 1},
+        "qlib_etf_dir_configured": {"type": "string", "minLength": 1},
+        "latest_calendar_date": {"type": "string"},
+        "mapping_count": {"type": "integer", "minimum": 0},
+        "eligible_claim_count": {"type": "integer", "minimum": 0},
+        "eligible_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "labelable_forecast_claim_count": {"type": "integer", "minimum": 0},
+        "labelable_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "labelable_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_forecast_claim_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending_future_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "data_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "pit_availability_status": {
+          "type": "object",
+          "required": [
+            "availability_id",
+            "pit_available_mapping_count",
+            "pit_gap_counts"
+          ],
+          "properties": {
+            "availability_id": {"type": "string"},
+            "pit_available_mapping_count": {"type": "integer", "minimum": 0},
+            "pit_gap_counts": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "stock_price_proxy_readiness": {
+      "type": "object",
+      "required": [
+        "policy",
+        "outcome_label_source",
+        "llm_outcome_labeling_allowed",
+        "windows_days",
+        "entry_lag_trading_days",
+        "benchmark_symbol",
+        "benchmark_source",
+        "benchmark_family",
+        "cost_model_id",
+        "ordinary_stock_code_policy",
+        "qlib_stock_dir_configured",
+        "qlib_benchmark_dir_configured",
+        "latest_calendar_date",
+        "eligible_claim_count",
+        "eligible_forecast_claim_ids",
+        "labelable_forecast_claim_count",
+        "labelable_forecast_claim_ids",
+        "labelable_window_count",
+        "pending_future_window_count",
+        "data_gap_counts",
+        "stock_series_coverage_summary",
+        "pit_realism_policy"
+      ],
+      "properties": {
+        "policy": {"type": "string", "minLength": 1},
+        "outcome_label_source": {"const": "pit_stock_price_window"},
+        "llm_outcome_labeling_allowed": {"const": false},
+        "windows_days": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 1},
+          "minItems": 1
+        },
+        "entry_lag_trading_days": {"type": "integer", "minimum": 1},
+        "benchmark_symbol": {"type": "string", "minLength": 1},
+        "benchmark_source": {"type": "string", "minLength": 1},
+        "benchmark_family": {"type": "string", "minLength": 1},
+        "cost_model_id": {"type": "string", "minLength": 1},
+        "ordinary_stock_code_policy": {
+          "type": "object",
+          "required": [
+            "policy_id",
+            "allowed_prefixes",
+            "rejected_code_families",
+            "fund_like_prefix_examples",
+            "fallback_action"
+          ],
+          "properties": {
+            "policy_id": {"const": "ordinary_a_share_stock_codes_v1"},
+            "allowed_prefixes": {
+              "type": "object",
+              "required": ["SH", "SZ", "BJ"],
+              "properties": {
+                "SH": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "minItems": 1
+                },
+                "SZ": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "minItems": 1
+                },
+                "BJ": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "minItems": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "rejected_code_families": {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1
+            },
+            "fund_like_prefix_examples": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            },
+            "fallback_action": {"const": "stock_target_mapping_missing"}
+          },
+          "additionalProperties": false
+        },
+        "qlib_stock_dir_configured": {"type": "string", "minLength": 1},
+        "qlib_benchmark_dir_configured": {"type": "string", "minLength": 1},
+        "latest_calendar_date": {"type": "string"},
+        "eligible_claim_count": {"type": "integer", "minimum": 0},
+        "eligible_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "labelable_forecast_claim_count": {"type": "integer", "minimum": 0},
+        "labelable_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "labelable_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_forecast_claim_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending_future_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "data_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "stock_series_coverage_summary": {
+          "type": "object",
+          "properties": {
+            "target_series_count": {"type": "integer", "minimum": 0},
+            "target_series_missing_count": {"type": "integer", "minimum": 0},
+            "earliest_price_date_min": {"type": ["string", "null"]},
+            "earliest_price_date_max": {"type": ["string", "null"]},
+            "latest_price_date_min": {"type": ["string", "null"]},
+            "latest_price_date_max": {"type": ["string", "null"]},
+            "latest_calendar_date": {"type": "string"},
+            "latest_aligned_series_count": {"type": "integer", "minimum": 0},
+            "stale_before_latest_calendar_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "future_dated_series_count": {"type": "integer", "minimum": 0},
+            "series_lifecycle_status_counts": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "entry_before_series_start_count": {"type": "integer", "minimum": 0},
+            "entry_after_series_end_count": {"type": "integer", "minimum": 0},
+            "entry_within_series_range_count": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "pit_realism_policy": {
+          "type": "object",
+          "required": [
+            "entry_suspension_blocks_label",
+            "entry_limit_locked_blocks_label",
+            "exit_liquidity_unverified_blocks_label",
+            "exit_missing_or_delisted_blocks_label",
+            "benchmark_alignment",
+            "company_name_fuzzy_mapping_enabled",
+            "survivorship_status",
+            "survivorship_unverified",
+            "survivorship_basis"
+          ],
+          "properties": {
+            "entry_suspension_blocks_label": {"const": true},
+            "entry_limit_locked_blocks_label": {"const": true},
+            "exit_liquidity_unverified_blocks_label": {"const": true},
+            "exit_missing_or_delisted_blocks_label": {"const": true},
+            "benchmark_alignment": {"const": "date_key_cross_qlib_dir"},
+            "company_name_fuzzy_mapping_enabled": {"const": false},
+            "survivorship_status": {"type": "string", "minLength": 1},
+            "survivorship_unverified": {"type": "boolean"},
+            "survivorship_basis": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "macro_asset_proxy_readiness": {
+      "type": "object",
+      "required": [
+        "policy",
+        "outcome_label_source",
+        "llm_outcome_labeling_allowed",
+        "windows_days",
+        "entry_lag_trading_days",
+        "benchmark_symbol",
+        "benchmark_source",
+        "benchmark_family",
+        "cost_model_id",
+        "qlib_etf_dir_configured",
+        "latest_calendar_date",
+        "mapping_count",
+        "eligible_claim_count",
+        "eligible_forecast_claim_ids",
+        "labelable_forecast_claim_count",
+        "labelable_forecast_claim_ids",
+        "labelable_window_count",
+        "pending_future_window_count",
+        "data_gap_counts",
+        "mapping_policy"
+      ],
+      "properties": {
+        "policy": {"type": "string", "minLength": 1},
+        "outcome_label_source": {"const": "pit_macro_asset_etf_price_window"},
+        "llm_outcome_labeling_allowed": {"const": false},
+        "windows_days": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 1},
+          "minItems": 1
+        },
+        "entry_lag_trading_days": {"type": "integer", "minimum": 1},
+        "benchmark_symbol": {"const": "CASH_0"},
+        "benchmark_source": {"const": "cash_zero_return"},
+        "benchmark_family": {"const": "ABSOLUTE_RETURN_PROXY"},
+        "cost_model_id": {"const": "macro_asset_etf_round_trip_10bps_v1"},
+        "qlib_etf_dir_configured": {"type": "string", "minLength": 1},
+        "latest_calendar_date": {"type": "string"},
+        "mapping_count": {"type": "integer", "minimum": 0},
+        "eligible_claim_count": {"type": "integer", "minimum": 0},
+        "eligible_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "labelable_forecast_claim_count": {"type": "integer", "minimum": 0},
+        "labelable_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "labelable_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_forecast_claim_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending_future_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "data_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "mapping_policy": {
+          "type": "object",
+          "required": [
+            "mapping_version",
+            "mapping_count",
+            "crude_oil_mapping_enabled",
+            "crude_oil_mapping_gap_reason"
+          ],
+          "properties": {
+            "mapping_version": {"type": "integer", "minimum": 1},
+            "mapping_count": {"type": "integer", "minimum": 0},
+            "crude_oil_mapping_enabled": {"const": false},
+            "crude_oil_mapping_gap_reason": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
     },
     "next_actions": {"type": "array", "items": {"type": "string"}}
   },

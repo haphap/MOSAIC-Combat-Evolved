@@ -10,12 +10,28 @@
     "recipe_count",
     "paper_trading_run_count",
     "validation_pass_count",
+    "paper_trading_validated_recipe_count",
     "blocked_count",
     "status_counts",
     "blocker_counts",
     "passed_recipe_ids",
     "blocked_recipe_ids",
+    "direct_pit_bound_recipe_count",
+    "direct_pit_bound_recipe_ids",
+    "direct_pit_bound_blocker_counts",
+    "direct_pit_binding_diagnostics",
+    "validation_candidate_recipe_count",
+    "validation_candidate_recipe_ids",
+    "tool_only_blocked_recipe_count",
+    "tool_only_blocked_recipe_ids",
+    "tool_only_blocked_tool_gap_count",
+    "tool_only_blocked_tool_gap_ids",
+    "tool_only_blocked_tool_proposal_count",
+    "tool_only_blocked_tool_proposal_ids",
+    "tool_implementation_queue",
     "profile_paper_trade_disagreement_count",
+    "recipe_instability_gap_count",
+    "after_cost_paper_trading_summary",
     "minimum_effective_n",
     "pre_registration_policy",
     "validation_protocol",
@@ -25,20 +41,238 @@
     "summary_id": {"type": "string", "minLength": 1},
     "run_id": {"type": "string", "minLength": 1},
     "as_of_datetime": {"type": "string", "minLength": 1},
-    "protocol_version": {"type": "string", "minLength": 1},
+    "protocol_version": {"const": "recipe_shadow_paper_trading_v1"},
     "recipe_count": {"type": "integer", "minimum": 0},
     "paper_trading_run_count": {"type": "integer", "minimum": 0},
     "validation_pass_count": {"type": "integer", "minimum": 0},
+    "paper_trading_validated_recipe_count": {"type": "integer", "minimum": 0},
     "blocked_count": {"type": "integer", "minimum": 0},
-    "status_counts": {"type": "object"},
-    "blocker_counts": {"type": "object"},
+    "status_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "blocker_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "passed_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "blocked_recipe_ids": {"type": "array", "items": {"type": "string"}},
+    "direct_pit_bound_recipe_count": {"type": "integer", "minimum": 0},
+    "direct_pit_bound_recipe_ids": {"type": "array", "items": {"type": "string"}},
+    "direct_pit_bound_blocker_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "direct_pit_binding_diagnostics": {
+      "type": "object",
+      "required": [
+        "status",
+        "diagnostic_only",
+        "policy",
+        "recipe_count",
+        "direct_pit_bound_recipe_count",
+        "no_direct_recipe_outcome_binding_count",
+        "insufficient_effective_n_count",
+        "required_tools_not_shadow_implemented_count",
+        "next_actions"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "blocked_no_direct_pit_binding",
+            "partial_direct_pit_binding",
+            "ready_for_validation"
+          ]
+        },
+        "diagnostic_only": {"type": "boolean", "const": true},
+        "policy": {"type": "string", "minLength": 1},
+        "recipe_count": {"type": "integer", "minimum": 0},
+        "direct_pit_bound_recipe_count": {"type": "integer", "minimum": 0},
+        "no_direct_recipe_outcome_binding_count": {"type": "integer", "minimum": 0},
+        "insufficient_effective_n_count": {"type": "integer", "minimum": 0},
+        "required_tools_not_shadow_implemented_count": {"type": "integer", "minimum": 0},
+        "next_actions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "binding_gap_details": {
+          "type": "object",
+          "required": [
+            "diagnostic_version",
+            "artifact_counts",
+            "method_source_linkage",
+            "forecast_outcome_linkage",
+            "footprint_source_linkage",
+            "recipe_binding_linkage",
+            "missing_artifact_flags",
+            "next_actions"
+          ],
+          "properties": {
+            "diagnostic_version": {"const": "direct_pit_binding_gap_v1"},
+            "artifact_counts": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "method_source_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "forecast_outcome_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "footprint_source_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "recipe_binding_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "missing_artifact_flags": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1}
+            },
+            "next_actions": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1}
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "validation_candidate_recipe_count": {"type": "integer", "minimum": 0},
+    "validation_candidate_recipe_ids": {"type": "array", "items": {"type": "string"}},
+    "tool_only_blocked_recipe_count": {"type": "integer", "minimum": 0},
+    "tool_only_blocked_recipe_ids": {"type": "array", "items": {"type": "string"}},
+    "tool_only_blocked_tool_gap_count": {"type": "integer", "minimum": 0},
+    "tool_only_blocked_tool_gap_ids": {"type": "array", "items": {"type": "string"}},
+    "tool_only_blocked_tool_proposal_count": {"type": "integer", "minimum": 0},
+    "tool_only_blocked_tool_proposal_ids": {"type": "array", "items": {"type": "string"}},
+    "tool_implementation_queue": {
+      "type": "object",
+      "required": [
+        "queue_policy",
+        "source_blocker",
+        "blocked_recipe_count",
+        "blocked_recipe_ids",
+        "requested_tool_count",
+        "requested_tools",
+        "tool_gap_count",
+        "tool_gap_ids",
+        "tool_proposal_count",
+        "tool_proposal_ids",
+        "unlinked_tool_gap_registry_count",
+        "unlinked_requested_tool_count"
+      ],
+      "properties": {
+        "queue_policy": {"type": "string", "minLength": 1},
+        "source_blocker": {"const": "required_tools_not_shadow_implemented"},
+        "blocked_recipe_count": {"type": "integer", "minimum": 0},
+        "blocked_recipe_ids": {"type": "array", "items": {"type": "string"}},
+        "requested_tool_count": {"type": "integer", "minimum": 0},
+        "requested_tools": {"type": "array", "items": {"type": "string"}},
+        "tool_gap_count": {"type": "integer", "minimum": 0},
+        "tool_gap_ids": {"type": "array", "items": {"type": "string"}},
+        "tool_proposal_count": {"type": "integer", "minimum": 0},
+        "tool_proposal_ids": {"type": "array", "items": {"type": "string"}},
+        "unlinked_tool_gap_registry_count": {"type": "integer", "minimum": 0},
+        "unlinked_requested_tool_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
     "profile_paper_trade_disagreement_count": {"type": "integer", "minimum": 0},
+    "recipe_instability_gap_count": {"type": "integer", "minimum": 0},
     "mean_cost_adjusted_alpha": {"type": ["number", "null"]},
+    "after_cost_paper_trading_summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "validated_recipe_count",
+        "mean_after_cost_alpha",
+        "median_after_cost_alpha",
+        "min_after_cost_alpha",
+        "max_after_cost_alpha",
+        "positive_after_cost_recipe_count",
+        "policy"
+      ],
+      "properties": {
+        "status": {"enum": ["computed", "insufficient_validated_runs"]},
+        "validated_recipe_count": {"type": "integer", "minimum": 0},
+        "mean_after_cost_alpha": {"type": ["number", "null"]},
+        "median_after_cost_alpha": {"type": ["number", "null"]},
+        "min_after_cost_alpha": {"type": ["number", "null"]},
+        "max_after_cost_alpha": {"type": ["number", "null"]},
+        "positive_after_cost_recipe_count": {"type": "integer", "minimum": 0},
+        "policy": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    },
     "minimum_effective_n": {"type": "number", "minimum": 0},
     "pre_registration_policy": {"type": "string", "minLength": 1},
-    "validation_protocol": {"type": "object"},
+    "validation_protocol": {
+      "type": "object",
+      "required": [
+        "entry_semantics",
+        "exit_semantics",
+        "cost_model_id",
+        "benchmark_symbol",
+        "benchmark_source",
+        "slippage_model_id",
+        "round_trip_cost_includes_slippage",
+        "backtest_window_policy",
+        "out_of_sample_window_policy",
+        "out_of_sample_fraction",
+        "minimum_out_of_sample_effective_n",
+        "parameter_lock_policy",
+        "minimum_effective_n",
+        "max_drawdown",
+        "alpha_decay_fail_streak",
+        "max_horizon_contribution_share",
+        "max_regime_contribution_share",
+        "minimum_horizon_count",
+        "minimum_regime_count",
+        "cost_decay_turnover_threshold",
+        "profile_weight_is_sufficient",
+        "parameter_tuning_after_results_allowed",
+        "production_decision_impact_allowed"
+      ],
+      "properties": {
+        "entry_semantics": {"enum": ["T+1_or_more_conservative"]},
+        "exit_semantics": {"const": "fixed_horizon_shadow_exit"},
+        "cost_model_id": {"const": "single_stock_round_trip_20bps_v1"},
+        "benchmark_symbol": {"const": "SH510300"},
+        "benchmark_source": {"const": "cn_etf"},
+        "slippage_model_id": {"const": "included_in_round_trip_cost_20bps_v1"},
+        "round_trip_cost_includes_slippage": {"type": "boolean", "const": true},
+        "backtest_window_policy": {"const": "chronological_pre_oos_exit_windows_v1"},
+        "out_of_sample_window_policy": {
+          "enum": [
+            "chronological_last_20pct_exit_windows_v1",
+            "chronological_last_20pct_min_effective_n_exit_windows_v1"
+          ]
+        },
+        "out_of_sample_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "minimum_out_of_sample_effective_n": {"type": "number", "minimum": 0},
+        "parameter_lock_policy": {
+          "const": "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
+        },
+        "minimum_effective_n": {"type": "number", "minimum": 0},
+        "max_drawdown": {"type": "number", "minimum": 0},
+        "alpha_decay_fail_streak": {"type": "integer", "minimum": 1},
+        "max_horizon_contribution_share": {"type": "number", "minimum": 0, "maximum": 1},
+        "max_regime_contribution_share": {"type": "number", "minimum": 0, "maximum": 1},
+        "minimum_horizon_count": {"type": "integer", "minimum": 1},
+        "minimum_regime_count": {"type": "integer", "minimum": 1},
+        "cost_decay_turnover_threshold": {"type": "number", "minimum": 0},
+        "profile_weight_is_sufficient": {"type": "boolean", "const": false},
+        "parameter_tuning_after_results_allowed": {"type": "boolean", "const": false},
+        "production_decision_impact_allowed": {"type": "boolean", "const": false}
+      },
+      "additionalProperties": true
+    },
     "policy": {"type": "string", "minLength": 1}
   },
   "additionalProperties": true

@@ -1379,6 +1379,7 @@ def _patch_validator_gate(
 
 
 def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
+    summary_blockers = _gold_review_summary_blockers(root)
     raw_rows, raw_error = _optional_jsonl(
         root / "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "gold-set review",
@@ -1402,10 +1403,11 @@ def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
             "; ".join(integrity_failures),
         )
     if any(row.get(field) is None for row in rows for field in GOLD_REVIEW_FIELDS):
+        blockers = ("manual gold-set review still required", *summary_blockers)
         return (
             False,
             f"gold-set review records present: {len({str(row.get('document_id') or row.get('source_id') or '') for row in rows})} documents / {len(rows)} claims",
-            "manual gold-set review still required",
+            "; ".join(dict.fromkeys(blockers)),
         )
     gold_set = evaluate_gold_set_reviews(rows, gold_set_id="GOLD-CLAIM-2026Q2")
     if gold_set.passed:
@@ -1416,6 +1418,23 @@ def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
         f"gold-set review records present: {gold_set.sample_size_documents} documents / "
         f"{gold_set.sample_size_claims} claims",
         failures or "manual review fields are not yet accepted",
+    )
+
+
+def _gold_review_summary_blockers(root: Path) -> tuple[str, ...]:
+    summary_path = root / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    if not summary_path.exists():
+        return ()
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ()
+    if not isinstance(payload, Mapping):
+        return ()
+    return tuple(
+        str(blocker)
+        for blocker in payload.get("blockers") or ()
+        if str(blocker).strip()
     )
 
 

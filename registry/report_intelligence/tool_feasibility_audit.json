@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "as_of_datetime": "2026-06-15T04:01:55+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-TOOL-FEASIBILITY-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 253,
+  "checked_item_count": 8511,
   "checks": [
     {
       "accepted": true,
@@ -21,9 +21,10 @@
       "check_id": "RI-TOOL-01",
       "evidence": {
         "coverage_status_counts": {
-          "missing": 32
+          "exact_match": 103,
+          "missing": 442
         },
-        "metric_candidate_rows": 32,
+        "metric_candidate_rows": 545,
         "required_coverage_detail_fields": [
           "raw_source_match",
           "frequency_match",
@@ -32,7 +33,7 @@
           "unit_supported",
           "license_ok"
         ],
-        "tool_coverage_match_rows": 32
+        "tool_coverage_match_rows": 545
       },
       "failure_count": 0,
       "failures": [],
@@ -44,17 +45,19 @@
       "evidence": {
         "allowed_priority_buckets": [
           "blocked",
+          "resolved",
           "low",
           "medium",
           "high",
           "urgent"
         ],
         "gap_priority_counts": {
-          "low": 3,
-          "medium": 43
+          "low": 87,
+          "medium": 1140,
+          "resolved": 241
         },
-        "non_exact_coverage_rows": 32,
-        "tool_gap_rows": 46
+        "non_exact_coverage_rows": 442,
+        "tool_gap_rows": 1468
       },
       "failure_count": 0,
       "failures": [],
@@ -64,8 +67,8 @@
       "accepted": true,
       "check_id": "RI-TOOL-03",
       "evidence": {
-        "data_acquisition_proposal_rows": 46,
-        "tool_gap_rows": 46
+        "data_acquisition_proposal_rows": 1227,
+        "tool_gap_rows": 1468
       },
       "failure_count": 0,
       "failures": [],
@@ -77,8 +80,8 @@
       "evidence": {
         "minimum_required_effective_n": 30,
         "minimum_shadow_runtime_days": 60,
-        "tool_design_proposal_rows": 46,
-        "tool_gap_rows": 46
+        "tool_design_proposal_rows": 1227,
+        "tool_gap_rows": 1468
       },
       "failure_count": 0,
       "failures": [],
@@ -88,8 +91,8 @@
       "accepted": true,
       "check_id": "RI-TOOL-05",
       "evidence": {
-        "analysis_recipe_rows": 5,
-        "runtime_tool_gap_observation_rows": 46,
+        "analysis_recipe_rows": 2031,
+        "runtime_tool_gap_observation_rows": 1468,
         "safe_actionability": "no_trade_without_current_data_confirmation"
       },
       "failure_count": 0,
@@ -100,7 +103,7 @@
       "accepted": true,
       "check_id": "RI-TOOL-06",
       "evidence": {
-        "exact_coverage_count": 0,
+        "exact_coverage_count": 103,
         "paper_or_production_recipe_count": 0,
         "production_use_of_weighted_reports": false,
         "rollout_mode": "shadow_tooling"
@@ -111,5 +114,5 @@
     }
   ],
   "policy": "report-intelligence tool feasibility requires deterministic coverage records, explicit PIT and license requirements, gap-to-proposal lineage, checker-validatable output schemas, bounded fallback policy, and shadow-only runtime until tool correctness and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260607T171815+0000"
+  "run_id": "RIR-DERIVED-20260615T040153+0000"
 }

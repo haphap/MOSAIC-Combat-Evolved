@@ -66,6 +66,7 @@ docs = [
 # Kept separate because MinerU pulls large Torch/CUDA wheels.
 report-intelligence = [
     "mineru[core]>=3.2.3",
+    "vllm>=0.22.1",
 ]
 # Data-ingest collector subprocess deps (vendored qlib + tushare collectors).
 # These run in a child process spawned by mosaic.dataflows.qlib_ingest; the
@@ -97,5 +98,5 @@ include = ["mosaic*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --basetemp=/tmp/pytest-mosaic-rke"
+addopts = "-q"
 tmp_path_retention_count = 0

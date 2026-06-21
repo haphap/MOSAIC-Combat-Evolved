@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -15,11 +14,16 @@ from .manual_review_import import (
     apply_source_license_review_import,
 )
 from .promotion_gate import build_production_promotion_gate_report
+from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
+    apply_analytical_footprint_review_import,
+)
+from .temp_paths import rke_temporary_directory
 
 
 PROMOTION_DRY_RUN_REPORT_PATH = "registry/promotion/rke_promotion_dry_run_report.json"
 
-PromotionDryRunKind = Literal["gold_set", "source_license", "lockbox"]
+PromotionDryRunKind = Literal["gold_set", "footprint_review", "source_license", "lockbox"]
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,8 @@ def _manual_gate_already_passed(before: Any, review_kind: PromotionDryRunKind) -
         "source_license": "PG03",
         "lockbox": "PG09",
     }
+    if review_kind not in criterion_by_kind:
+        return False
     criterion_id = criterion_by_kind[review_kind]
     for criterion in before.criteria:
         if getattr(criterion, "criterion_id", "") == criterion_id:
@@ -126,20 +132,38 @@ def _manual_gate_already_passed(before: Any, review_kind: PromotionDryRunKind) -
     return False
 
 
+def _footprint_gate_already_passed(root_path: Path) -> bool:
+    path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(payload, Mapping)
+        and payload.get("accepted") is True
+        and payload.get("review_complete") is True
+        and payload.get("quality_gate_passed") is True
+    )
+
+
 def build_promotion_dry_run_report(
     root: str | Path = ".",
     *,
     gold_input: str | Path | None = None,
+    footprint_input: str | Path | None = None,
     license_input: str | Path | None = None,
     lockbox_input: str | Path | None = None,
 ) -> PromotionDryRunReport:
     root_path = Path(root)
     before = build_production_promotion_gate_report(root_path)
     resolved_gold = _resolve_input_path(root_path, gold_input)
+    resolved_footprint = _resolve_input_path(root_path, footprint_input)
     resolved_license = _resolve_input_path(root_path, license_input)
     resolved_lockbox = _resolve_input_path(root_path, lockbox_input)
 
-    with tempfile.TemporaryDirectory(prefix="mosaic-rke-promotion-dry-run-") as tmp_dir:
+    with rke_temporary_directory(prefix="mosaic-rke-promotion-dry-run-") as tmp_dir:
         temp_root = Path(tmp_dir)
         _copy_registry(root_path, temp_root)
         steps: list[PromotionDryRunStep] = []
@@ -155,6 +179,29 @@ def build_promotion_dry_run_report(
                 PromotionDryRunStep(
                     review_kind="gold_set",
                     input_path=str(resolved_gold),
+                    provided=True,
+                    accepted=report.accepted,
+                    applied=report.accepted,
+                    changed_rows=report.applied_rows,
+                    result="accepted" if report.accepted else "rejected",
+                    blockers=tuple(report.blockers),
+                )
+            )
+        if resolved_footprint is None:
+            steps.append(
+                _already_applied_step("footprint_review")
+                if _footprint_gate_already_passed(temp_root)
+                else _missing_step("footprint_review")
+            )
+        else:
+            report = apply_analytical_footprint_review_import(
+                temp_root,
+                resolved_footprint,
+            )
+            steps.append(
+                PromotionDryRunStep(
+                    review_kind="footprint_review",
+                    input_path=str(resolved_footprint),
                     provided=True,
                     accepted=report.accepted,
                     applied=report.accepted,
@@ -226,6 +273,7 @@ def write_promotion_dry_run_report(
     root: str | Path = ".",
     *,
     gold_input: str | Path | None = None,
+    footprint_input: str | Path | None = None,
     license_input: str | Path | None = None,
     lockbox_input: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -233,6 +281,7 @@ def write_promotion_dry_run_report(
     report = build_promotion_dry_run_report(
         root_path,
         gold_input=gold_input,
+        footprint_input=footprint_input,
         license_input=license_input,
         lockbox_input=lockbox_input,
     )

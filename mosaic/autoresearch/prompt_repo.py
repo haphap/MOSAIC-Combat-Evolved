@@ -55,6 +55,8 @@ def validate_private_prompt_repo(path: Path | str, *, project_root: Path | str |
         raise PromptRepoError("private prompt repo must not be the project repo")
     if _is_relative_to(repo, project):
         raise PromptRepoError("private prompt repo must not live inside the project repo")
+    if not (repo / ".git").exists():
+        raise PromptRepoError(f"private prompt repo is not a git repository: {_redact(repo)}")
 
     try:
         top = _git(repo, "rev-parse", "--show-toplevel").strip()

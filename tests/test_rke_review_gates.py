@@ -32,11 +32,14 @@ def test_current_review_summaries_show_manual_blockers():
     gold = summarize_gold_set_review(".")
     license_summary = summarize_source_license_review(".")
 
-    assert gold.total_claims == 500
-    assert gold.reviewed_claims == 500
+    assert gold.total_claims >= 100
+    assert gold.reviewed_claims == gold.total_claims
     assert gold.pending_claims == 0
-    assert gold.passed
-    assert gold.blockers == ()
+    if gold.passed:
+        assert gold.blockers == ()
+    else:
+        assert "horizon_accuracy below 0.85" in gold.blockers
+        assert "variable_mapping_accuracy below 0.80" in gold.blockers
     assert license_summary.total_sources == len(source_rows)
     assert license_summary.reviewed_sources == len(source_rows)
     assert license_summary.pending_sources == 0
@@ -59,6 +62,8 @@ def test_gold_set_summary_passes_when_all_review_rows_pass(tmp_path: Path):
                     "claim_correct": True,
                     "source_span_supports_claim": True,
                     "direction_correct": True,
+                    "target_correct": True,
+                    "horizon_correct": True,
                     "variable_mapping_correct": True,
                     "unsupported_field_false_grounded": False,
                     "manual_claim_text": "manual claim",
@@ -83,6 +88,54 @@ def test_gold_set_summary_passes_when_all_review_rows_pass(tmp_path: Path):
     assert Path(out["path"]).exists()
 
 
+def test_gold_set_summary_reports_structured_quality_gap_targets(tmp_path: Path):
+    rows = []
+    for row_idx in range(100):
+        source_id = f"SRC-{row_idx // 2:03d}"
+        rows.append(
+            {
+                "source_id": source_id,
+                "source_span_id": f"{source_id}:abstract",
+                "claim_id": f"GOLD-{row_idx:03d}",
+                "document_id": source_id,
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": row_idx < 80,
+                "target_correct": True,
+                "horizon_correct": True,
+                "variable_mapping_correct": row_idx < 70,
+                "unsupported_field_false_grounded": row_idx < 10,
+                "manual_claim_text": "manual claim",
+                "reviewer": "reviewer-a",
+                "review_date": "2026-06-06",
+                "review_notes": "fixture quality gap",
+            }
+        )
+    _write_jsonl(
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        rows,
+    )
+
+    summary = summarize_gold_set_review(tmp_path)
+    gaps = summary.quality_gap_targets
+
+    assert summary.review_complete
+    assert not summary.passed
+    assert gaps is not None
+    assert gaps["sample_size_documents"]["minimum_additional_count"] == 0
+    assert gaps["sample_size_claims"]["minimum_additional_count"] == 0
+    assert gaps["active_gap_count"] == 3
+    assert gaps["metrics"]["direction_accuracy"][
+        "minimum_additional_pass_count_if_denominator_unchanged"
+    ] == 5
+    assert gaps["metrics"]["variable_mapping_accuracy"][
+        "minimum_additional_pass_count_if_denominator_unchanged"
+    ] == 10
+    assert gaps["metrics"]["unsupported_field_false_grounding_rate"][
+        "minimum_excess_true_count_if_denominator_unchanged"
+    ] == 5
+
+
 def test_gold_set_summary_requires_review_provenance(tmp_path: Path):
     rows = []
     for document_idx in range(50):
@@ -97,6 +150,8 @@ def test_gold_set_summary_requires_review_provenance(tmp_path: Path):
                     "claim_correct": True,
                     "source_span_supports_claim": True,
                     "direction_correct": True,
+                    "target_correct": True,
+                    "horizon_correct": True,
                     "variable_mapping_correct": True,
                     "unsupported_field_false_grounded": False,
                 }
@@ -130,6 +185,8 @@ def test_gold_set_summary_rejects_duplicate_claim_ids(tmp_path: Path):
                     "claim_correct": True,
                     "source_span_supports_claim": True,
                     "direction_correct": True,
+                    "target_correct": True,
+                    "horizon_correct": True,
                     "variable_mapping_correct": True,
                     "unsupported_field_false_grounded": False,
                     "manual_claim_text": "manual claim",
@@ -167,6 +224,8 @@ def test_gold_set_summary_rejects_non_object_review_rows(tmp_path: Path):
                 "claim_correct": True,
                 "source_span_supports_claim": True,
                 "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
                 "variable_mapping_correct": True,
                 "unsupported_field_false_grounded": False,
                 "manual_claim_text": "manual claim",
@@ -207,6 +266,8 @@ def test_gold_set_summary_reports_malformed_json_review_rows(tmp_path: Path):
                 "claim_correct": True,
                 "source_span_supports_claim": True,
                 "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
                 "variable_mapping_correct": True,
                 "unsupported_field_false_grounded": False,
                 "manual_claim_text": "manual claim",

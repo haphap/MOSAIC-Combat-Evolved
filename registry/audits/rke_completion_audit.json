@@ -51,8 +51,10 @@
     }
   ],
   "acceptance_section": "22",
-  "blocked_count": 0,
-  "blockers": [],
+  "blocked_count": 1,
+  "blockers": [
+    "manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05"
+  ],
   "criteria": [
     {
       "blocker": "",
@@ -62,11 +64,11 @@
       "passed": true
     },
     {
-      "blocker": "",
+      "blocker": "manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
       "criterion_id": "C02",
       "description": "Claim extraction gold set passes the manual precision gate.",
-      "evidence": "manual gold-set review passed",
-      "passed": true
+      "evidence": "gold-set review records present: 63 documents / 205 claims",
+      "passed": false
     },
     {
       "blocker": "",
@@ -140,7 +142,7 @@
     }
   ],
   "master_plan_path": "docs/plans/master_plan_v1_1.md",
-  "passed_count": 12,
-  "ready_for_broad_rollout": true,
+  "passed_count": 11,
+  "ready_for_broad_rollout": false,
   "report_id": "RKE-COMPLETION-AUDIT-20260606"
 }

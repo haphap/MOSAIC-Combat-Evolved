@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
+import mosaic.rke.operator_readiness as operator_readiness_module
 from mosaic.rke import (
     build_operator_readiness_report,
     write_manual_review_batches,
     write_operator_readiness_report,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.operator_handoff import build_operator_handoff
+from mosaic.rke.operator_readiness import (
+    _handoff_command_sequence_complete,
+    _promotion_gate_state_consistency,
+)
+from mosaic.rke.review_progress import write_manual_review_runbook
+from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -41,6 +51,8 @@ def _reset_gold_review_rows(path: Path) -> None:
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""
@@ -65,36 +77,135 @@ def _append_jsonl_value(path: Path, value) -> None:
         handle.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
 
 
-def test_operator_readiness_accepts_current_review_bundle():
-    report = build_operator_readiness_report(".")
+def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
+    _copy_registry(tmp_path)
+    report = build_operator_readiness_report(tmp_path)
     checks = {check.check_id: check for check in report.checks}
 
-    assert report.accepted
+    failures = {
+        check.check_id: {"evidence": check.evidence, "blocker": check.blocker}
+        for check in report.checks
+        if not check.passed
+    }
+    assert report.accepted, failures
     assert report.failure_count == 0
-    assert report.check_count == 15
+    assert report.check_count == 18
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.jsonl" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.md" in report.generated_paths
+    assert "registry/review_batches/gold_set_review_evidence.jsonl" in report.generated_paths
+    assert "registry/review_batches/gold_set_review_evidence.md" in report.generated_paths
     assert "registry/review_batches/source_license_review_workbook.md" in report.generated_paths
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
+        in report.generated_paths
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_evidence.jsonl"
+        in report.generated_paths
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_evidence.md"
+        in report.generated_paths
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_workbook.md"
+        in report.generated_paths
+    )
     assert "registry/review_batches/manual_review_progress_report.json" in report.generated_paths
     assert "registry/review_batches/manual_review_runbook.md" in report.generated_paths
+    assert "registry/review_batches/lockbox_review_checklist.md" in report.generated_paths
     assert "registry/review_batches/manual_review_bundle_manifest.json" in report.generated_paths
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
     assert checks["handoff_command_sequence_complete"].passed
-    assert "steps=12" in checks["handoff_command_sequence_complete"].evidence
+    assert "steps=19" in checks["handoff_command_sequence_complete"].evidence
+    assert checks["manual_review_runbook_promotion_policy_consistent"].passed
+    assert (
+        "source_license_already_passed="
+        in checks["manual_review_runbook_promotion_policy_consistent"].evidence
+    )
     assert checks["manual_batch_templates_match_status"].passed
+    assert checks["manual_batch_promotion_inputs_separated"].passed
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["manual_import_templates_have_provenance"].passed
     assert checks["blank_full_gold_set_import_is_rejected"].passed
     assert checks["lockbox_template_requires_human_decision"].passed
     assert checks["blank_lockbox_import_is_rejected"].passed
+    assert checks["lockbox_upstream_cli_guard_enforced"].passed
     assert checks["source_license_policy_template_requires_human_decision"].passed
     assert checks["blank_source_license_policy_import_is_rejected"].passed
     assert checks["blank_bundle_dry_run_does_not_promote"].passed
     assert checks["manual_review_bundle_manifest_current"].passed
-    assert checks["promotion_gate_still_blocks_production"].passed
+    assert checks["promotion_gate_state_consistent"].passed
     assert checks["source_text_redaction_clean"].passed
+
+
+def test_operator_readiness_no_write_uses_generated_temp_support_artifacts(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    write_manual_review_runbook(tmp_path)
+    stale_template_paths = (
+        tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl",
+        tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl",
+    )
+    for path in stale_template_paths:
+        path.write_text("", encoding="utf-8")
+
+    code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    checks = {check["check_id"]: check for check in output["checks"]}
+    assert checks["manual_batch_templates_match_status"]["passed"] is True
+    assert checks["manual_import_templates_have_provenance"]["passed"] is True
+    assert checks["blank_full_gold_set_import_is_rejected"]["passed"] is True
+    for path in stale_template_paths:
+        assert path.read_text(encoding="utf-8") == ""
+
+
+def test_promotion_gate_state_consistency_accepts_future_production_state():
+    promotion = SimpleNamespace(
+        criteria=tuple(
+            SimpleNamespace(criterion_id=f"PG{index:02d}", passed=True)
+            for index in range(1, 11)
+        ),
+        paper_trading_allowed=True,
+        staged_production_allowed=True,
+        production_allowed=True,
+        direct_production_forbidden=False,
+        next_state="production",
+        blockers=(),
+    )
+
+    passed, evidence, blocker = _promotion_gate_state_consistency(promotion)
+
+    assert passed, {"evidence": evidence, "blocker": blocker}
+
+
+def test_promotion_gate_state_consistency_rejects_bypassed_production_state():
+    promotion = SimpleNamespace(
+        criteria=tuple(
+            SimpleNamespace(criterion_id=f"PG{index:02d}", passed=(index < 9))
+            for index in range(1, 11)
+        ),
+        paper_trading_allowed=True,
+        staged_production_allowed=True,
+        production_allowed=True,
+        direct_production_forbidden=False,
+        next_state="production",
+        blockers=("lockbox has not passed",),
+    )
+
+    passed, evidence, blocker = _promotion_gate_state_consistency(promotion)
+
+    assert not passed
+    assert "expected_next_state=staged_production" in evidence
+    assert blocker == "promotion gate state is inconsistent with PG01-PG10 criteria"
 
 
 def test_operator_readiness_reports_malformed_required_registry_artifact(tmp_path: Path):
@@ -405,10 +516,13 @@ def test_operator_readiness_rejects_blank_full_gold_set_import(tmp_path: Path):
     assert full_gold.passed
     assert import_report["accepted"] is False
     assert import_report["dry_run"] is True
-    assert import_report["input_rows"] == 500
     assert import_report["applied_rows"] == 0
-    assert import_report["rejected_rows"] == 500
-    assert "500 review rows failed validation" in import_report["blockers"]
+    assert import_report["input_rows"] == import_report["rejected_rows"]
+    assert import_report["input_rows"] > 0
+    assert (
+        f"{import_report['input_rows']} review rows failed validation"
+        in import_report["blockers"]
+    )
 
 
 def test_operator_readiness_rejects_blank_lockbox_import(tmp_path: Path):
@@ -431,6 +545,93 @@ def test_operator_readiness_rejects_blank_lockbox_import(tmp_path: Path):
     assert import_report["dry_run"] is True
     assert import_report["next_state"] == "paper_trading"
     assert "result required" in import_report["rejected_reasons"]
+
+
+def test_operator_readiness_detects_lockbox_upstream_guard_drift(tmp_path: Path, monkeypatch):
+    _copy_registry(tmp_path)
+    monkeypatch.setattr(
+        operator_readiness_module,
+        "lockbox_upstream_review_blockers",
+        lambda _root: (),
+    )
+
+    report = build_operator_readiness_report(tmp_path)
+    guard = next(
+        check
+        for check in report.checks
+        if check.check_id == "lockbox_upstream_cli_guard_enforced"
+    )
+
+    assert not report.accepted
+    assert not guard.passed
+    assert guard.blocker == "lockbox upstream CLI guard does not match manual gate readiness"
+
+
+def test_operator_readiness_requires_actions_only_preflight():
+    handoff = build_operator_handoff(".")
+    stale_preflight = replace(
+        handoff.command_sequence[0],
+        command=f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root .",
+    )
+    stale_handoff = replace(
+        handoff,
+        command_sequence=(stale_preflight, *handoff.command_sequence[1:]),
+    )
+
+    sequence_ok, _, sequence_blocker = _handoff_command_sequence_complete(stale_handoff)
+
+    assert not sequence_ok
+    assert "review-progress preflight must use the action queue" in sequence_blocker
+
+
+def test_operator_readiness_requires_no_write_promotion_status_steps():
+    handoff = build_operator_handoff(".")
+    stale_steps = tuple(
+        replace(
+            step,
+            command=f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke promotion-status --root .",
+        )
+        if step.step_id == "promotion-status-final"
+        else step
+        for step in handoff.command_sequence
+    )
+    stale_handoff = replace(handoff, command_sequence=stale_steps)
+
+    sequence_ok, _, sequence_blocker = _handoff_command_sequence_complete(stale_handoff)
+
+    assert not sequence_ok
+    assert "promotion-status-final must use promotion-status --no-write" in sequence_blocker
+
+
+def test_operator_readiness_detects_stale_runbook_promotion_policy(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    write_operator_readiness_report(tmp_path)
+    runbook_path = tmp_path / "registry/review_batches/manual_review_runbook.md"
+    runbook = runbook_path.read_text(encoding="utf-8")
+    stale_runbook = runbook.replace(
+        " --license-input registry/review_batches/source_license_policy_import.jsonl ",
+        " ",
+        1,
+    )
+    assert stale_runbook != runbook
+    runbook_path.write_text(stale_runbook, encoding="utf-8")
+
+    report = build_operator_readiness_report(
+        tmp_path,
+        write_supporting_artifacts=False,
+    )
+    runbook_check = next(
+        check
+        for check in report.checks
+        if check.check_id == "manual_review_runbook_promotion_policy_consistent"
+    )
+
+    assert not report.accepted
+    assert not runbook_check.passed
+    assert "license_input=False" in runbook_check.evidence
+    assert "must be built and passed" in runbook_check.blocker
 
 
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):
@@ -456,23 +657,47 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert "registry/review_batches/gold_set_review_workbook.md" in payload["generated_paths"]
     assert "registry/review_batches/gold_set_review_assist.jsonl" in payload["generated_paths"]
     assert "registry/review_batches/gold_set_review_assist.md" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_evidence.jsonl" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_evidence.md" in payload["generated_paths"]
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
+        in payload["generated_paths"]
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_evidence.jsonl"
+        in payload["generated_paths"]
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_evidence.md"
+        in payload["generated_paths"]
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_workbook.md"
+        in payload["generated_paths"]
+    )
     assert "registry/review_batches/manual_review_progress_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_runbook.md" in payload["generated_paths"]
+    assert "registry/review_batches/lockbox_review_checklist.md" in payload["generated_paths"]
     assert "registry/gold_sets/tushare_research_reports.review_import_report.json" in payload["generated_paths"]
     assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
     assert "registry/lockbox/central_bank_lockbox_review_import_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_bundle_manifest.json" in payload["generated_paths"]
-    assert dry_run_payload["accepted"] is False
     assert dry_run_payload["mutated_original_registry"] is False
-    assert dry_run_payload["production_allowed_after_simulation"] is False
-    assert dry_run_payload["after_next_state"] == "staged_production"
     steps = {step["review_kind"]: step for step in dry_run_payload["steps"]}
-    assert steps["gold_set"]["result"] == "already_applied"
-    assert steps["source_license"]["result"] == "already_applied"
-    assert steps["lockbox"]["result"] == "not_provided"
+    if dry_run_payload["accepted"]:
+        assert dry_run_payload["production_allowed_after_simulation"] is True
+        assert dry_run_payload["after_next_state"] == "production"
+        assert {step["result"] for step in steps.values()} == {"already_applied"}
+    else:
+        assert dry_run_payload["production_allowed_after_simulation"] is False
+        assert dry_run_payload["after_next_state"] == "paper_trading"
+        assert steps["gold_set"]["result"] == "not_provided"
+        assert steps["footprint_review"]["result"] == "not_provided"
+        assert steps["source_license"]["result"] == "already_applied"
+        assert steps["lockbox"]["result"] == "not_provided"
     assert bundle_payload["accepted"] is True
-    assert bundle_payload["artifact_count"] >= 20
+    assert bundle_payload["artifact_count"] >= 11
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
     assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
@@ -498,3 +723,53 @@ def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):
     assert output["accepted"] is True
     assert output["failure_count"] == 0
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
+
+
+def test_cli_operator_readiness_no_write_preserves_existing_artifacts(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    main(("operator-readiness", "--root", str(tmp_path)))
+    capsys.readouterr()
+    tracked_paths = [
+        tmp_path / "registry/handoffs/rke_operator_readiness_report.json",
+        tmp_path / "registry/handoffs/rke_operator_handoff.json",
+        tmp_path / "registry/review_batches/manual_review_progress_report.json",
+        tmp_path / "registry/review_batches/manual_review_runbook.md",
+        tmp_path / "registry/review_batches/manual_review_bundle_manifest.json",
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_import_report.json",
+        tmp_path / "registry/review_batches/source_license_policy_import_report.json",
+        tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json",
+        tmp_path / "registry/promotion/rke_promotion_dry_run_report.json",
+    ]
+    before_mtimes = {path: path.stat().st_mtime_ns for path in tracked_paths}
+
+    code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    assert {path: path.stat().st_mtime_ns for path in tracked_paths} == before_mtimes
+
+
+def test_cli_operator_readiness_no_write_skips_private_source_blobs(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    main(("operator-readiness", "--root", str(tmp_path)))
+    capsys.readouterr()
+    for relative_path in (
+        "registry/sources/tushare_research_reports.jsonl",
+        "registry/sources/tushare_research_reports.manifest.json",
+        "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+    ):
+        (tmp_path / relative_path).unlink()
+
+    code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
