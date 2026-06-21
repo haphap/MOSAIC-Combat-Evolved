@@ -6269,6 +6269,14 @@ def test_report_intelligence_evolution_gate_blocks_aggregate_calibration_drift()
     assert monitor_check["evidence"]["calibration_drift_rule_counts"] == {
         "negative_confidence_alpha_correlation": 1
     }
+    current_next_actions = {
+        action["action_id"]: action
+        for action in _evolution_gate_cli_summary(current_drift_gate)["next_actions"]
+    }
+    monitor_action = current_next_actions["stabilize_confidence_impact_monitor"]
+    assert "refresh_after_new_data_vintage" in monitor_action["commands"]
+    assert "refresh_derived" not in monitor_action["commands"]
+    assert any("new data_vintage_hash" in note for note in monitor_action["notes"])
 
     history_drift_gate = build_report_intelligence_evolution_readiness_gate(
         run_id="RIR-TEST-EVOLUTION-HISTORY-AGG-CALIBRATION-DRIFT",
@@ -6419,7 +6427,7 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
     audit_history_action = next_actions["build_distinct_clean_audit_refresh_history"]
     assert "refresh_after_new_data_vintage" in audit_history_action["commands"]
     assert "refresh_derived" not in audit_history_action["commands"]
-    assert "new data_vintage_hash" in audit_history_action["notes"][1]
+    assert any("new data_vintage_hash" in note for note in audit_history_action["notes"])
     assert gate["requirement_shortfalls"]["markdown_coverage"] == {}
     gate_dump = json.dumps(gate, ensure_ascii=False)
     assert "claim_text" not in gate_dump
