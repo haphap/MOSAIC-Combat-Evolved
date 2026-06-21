@@ -459,6 +459,19 @@ Additional 2026-06-20 tuning:
   footprint/manual-review schema gate plus the required clean audit vintages, so
   the next productive work is footprint review approval/import and derived audit
   refresh.
+- 2026-06-21 post-merge local promotion check: after applying the completed
+  gold-set, analytical-footprint, and lockbox review imports, then refreshing
+  derived report-intelligence artifacts, `operator-readiness` passed `18/18`
+  with `next_state=production` and `schema-status --failures-only` returned
+  `accepted=true, failure_count=0`. `evolution-readiness` then had only
+  `audit_refresh_history_below_threshold`: current `1/3`, remaining `2`
+  distinct clean data vintages. Do not keep rerunning `--refresh-derived-only`
+  on unchanged inputs; same-`data_vintage_hash` refreshes are deduplicated and
+  cannot satisfy `RI-EVOL-04`.
+- The generated registry outputs from that local promotion check were restored
+  and not committed. Re-run the review apply commands only when a local
+  promotion-state rehearsal is needed; commit code/docs/tests, not private
+  reviewed imports or bulky regenerated registry artifacts.
 - Sandbox note: the same smoke fails inside the managed network sandbox with
   DNS resolution errors. That is an environment restriction, not a Mimo
   rate-limit signal. Use the approved non-sandbox network execution path for
