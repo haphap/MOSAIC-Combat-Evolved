@@ -10,6 +10,7 @@ from mosaic.rke.lockbox_review_import import (
     LOCKBOX_BOOL_FIELDS,
     LOCKBOX_REQUIRED_FIELDS,
     LOCKBOX_RESULTS,
+    apply_lockbox_review_import,
 )
 from mosaic.rke.license_policy_import import (
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
@@ -85,6 +86,23 @@ def _copy_registry(dst_root: Path) -> None:
     )
     if footprint_reviewed.exists():
         footprint_reviewed.unlink()
+    footprint_summary = (
+        dst_root / "registry/report_intelligence/analytical_footprint_review_summary.json"
+    )
+    if footprint_summary.exists():
+        footprint_summary.unlink()
+    footprint_template = (
+        dst_root / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    if footprint_template.exists():
+        footprint_rows = _load_jsonl(footprint_template)
+        for row in footprint_rows:
+            for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+                row[field] = None
+            row["reviewer"] = ""
+            row["review_date"] = ""
+            row["review_notes"] = ""
+        _write_jsonl(footprint_template, footprint_rows)
     footprint_batch = (
         dst_root / "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
@@ -96,6 +114,20 @@ def _copy_registry(dst_root: Path) -> None:
     lockbox_reviewed = dst_root / "registry/review_batches/lockbox_reviewed.json"
     if lockbox_reviewed.exists():
         lockbox_reviewed.unlink()
+    lockbox_target = dst_root / "registry/lockbox/central_bank_lockbox_review.json"
+    if lockbox_target.exists():
+        lockbox = json.loads(lockbox_target.read_text(encoding="utf-8"))
+        lockbox.update(
+            {
+                "open_count": 0,
+                "opened_at": "",
+                "opened_by": "",
+                "parameter_search_after_open": False,
+                "result": "not_opened",
+                "rule_design_after_open": False,
+            }
+        )
+        _write_json(lockbox_target, lockbox)
     gold_path = dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     gold_rows = _load_jsonl(gold_path)
     for row in gold_rows:
@@ -958,15 +990,11 @@ def test_review_progress_summary_filter_exit_uses_selected_gate(
     tmp_path: Path,
     capsys,
 ):
-    _copy_registry_without_license_reset(tmp_path)
-    for incomplete_gate_path in (
-        tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl",
-        tmp_path
-        / "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
-        tmp_path / "registry/review_batches/lockbox_reviewed.json",
-    ):
-        if incomplete_gate_path.exists():
-            incomplete_gate_path.unlink()
+    _copy_registry(tmp_path)
+    _write_json(
+        tmp_path / "registry/review_batches/source_license_policy_reviewed.json",
+        _accepted_license_policy(tmp_path),
+    )
 
     code = main(
         (
@@ -1244,7 +1272,11 @@ def test_review_progress_actions_only_filters_review_kind(
     tmp_path: Path,
     capsys,
 ):
-    _copy_registry_without_license_reset(tmp_path)
+    _copy_registry(tmp_path)
+    _write_json(
+        tmp_path / "registry/review_batches/source_license_policy_reviewed.json",
+        _accepted_license_policy(tmp_path),
+    )
 
     code = main(
         (
@@ -1264,11 +1296,11 @@ def test_review_progress_actions_only_filters_review_kind(
     assert output["total_ready_for_promotion_dry_run"] is False
     assert output["reported_review_kinds"] == ["source_license"]
     assert [action["review_kind"] for action in output["actions"]] == ["source_license"]
-    assert output["action_state_counts"] == {"already_applied": 1}
-    assert output["actions"][0]["next_manual_action"] == "already_applied"
-    assert output["actions"][0]["action_state"] == "already_applied"
-    assert output["actions"][0]["can_run_now"] is False
-    assert output["actions"][0]["commands"] == {}
+    assert output["action_state_counts"] == {"ready_to_apply": 1}
+    assert output["actions"][0]["next_manual_action"] == "ready_for_promotion_apply"
+    assert output["actions"][0]["action_state"] == "ready_to_apply"
+    assert output["actions"][0]["can_run_now"] is True
+    assert "dry_run" in output["actions"][0]["commands"]
 
 
 def test_review_progress_actions_only_filters_action_state(
@@ -2323,6 +2355,34 @@ def test_review_progress_accepts_already_applied_source_license_with_stale_scrat
     assert source_license.complete_rows == source_license.target_rows
     assert source_license.pending_rows == 0
     assert source_license.blockers == ()
+
+
+def test_review_progress_accepts_already_applied_lockbox_with_stale_scratch(
+    tmp_path: Path,
+):
+    _copy_registry_without_license_reset(tmp_path)
+    lockbox_path = tmp_path / LOCKBOX_REVIEWED_IMPORT_PATH
+    row = _accepted_lockbox(tmp_path)
+    _write_json(lockbox_path, row)
+    applied = apply_lockbox_review_import(tmp_path, lockbox_path)
+    if not applied.accepted:
+        assert "lockbox target has already been opened" in applied.rejected_reasons
+
+    row["target_row_hash"] = "sha256:stale"
+    _write_json(lockbox_path, row)
+
+    report = build_manual_review_progress(tmp_path)
+    lockbox = next(gate for gate in report.gates if gate.review_kind == "lockbox")
+    action = build_manual_review_action_queue(report, review_kinds=("lockbox",))[
+        "actions"
+    ][0]
+
+    assert lockbox.ready_for_promotion is True
+    assert lockbox.simulation_accepted is True
+    assert lockbox.complete_rows == 1
+    assert lockbox.pending_rows == 0
+    assert lockbox.blockers == ()
+    assert action["action_state"] == "already_applied"
 
 
 def test_review_progress_accepts_already_applied_gold_with_stale_scratch(

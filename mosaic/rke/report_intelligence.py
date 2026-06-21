@@ -750,6 +750,8 @@ MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS = 80
 MARKDOWN_COVERAGE_MIN_STOCK_REPORTS = 80
 MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS = 30
 MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET = 5
+MARKDOWN_COVERAGE_RECENT_1Y_DAYS = 365
+MARKDOWN_COVERAGE_LONG_CYCLE_MIN_AGE_DAYS = 365 * 2
 MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS = (
     "recent_1y",
     "recent_3y",
@@ -5786,6 +5788,25 @@ def _normalize_forecast_direction(value: Any) -> str:
     return "unknown"
 
 
+def _normalize_claim_provenance(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "source_gounded": "source_grounded",
+        "source-grounded": "source_grounded",
+        "source grounded": "source_grounded",
+        "grounded": "source_grounded",
+        "true": "source_grounded",
+        "analyst_hypothesis": "analyst_or_llm_hypothesis",
+        "llm_hypothesis": "analyst_or_llm_hypothesis",
+        "hypothesis": "analyst_or_llm_hypothesis",
+        "false": "analyst_or_llm_hypothesis",
+    }
+    normalized = aliases.get(text, text)
+    if normalized in {"source_grounded", "analyst_or_llm_hypothesis", "unknown"}:
+        return normalized
+    return "unknown"
+
+
 def _duration_to_days(value: float, unit: str) -> int | None:
     normalized = unit.strip()
     if normalized in {"交易日"}:
@@ -7326,7 +7347,9 @@ def _normalize_forecast_claims(
             "source_span_ids": _source_span_ids(claim, chunk_span_id),
             "claim_text": claim_text,
             "analyst_claim": analyst_claim,
-            "claim_provenance": str(claim.get("claim_provenance") or "unknown"),
+            "claim_provenance": _normalize_claim_provenance(
+                claim.get("claim_provenance")
+            ),
             "forecast_testability": str(
                 claim.get("forecast_testability") or "insufficient_mapping"
             ),
@@ -12363,9 +12386,9 @@ def _coverage_time_bucket(
     age_days = (corpus_as_of.date() - report_date.date()).days
     if age_days < 0:
         return "future_report_date"
-    if age_days <= 365:
+    if age_days <= MARKDOWN_COVERAGE_RECENT_1Y_DAYS:
         return "recent_1y"
-    if age_days <= 365 * 3:
+    if age_days <= MARKDOWN_COVERAGE_LONG_CYCLE_MIN_AGE_DAYS:
         return "recent_3y"
     return "long_cycle_history"
 
@@ -14041,7 +14064,9 @@ def build_stock_price_proxy_readiness(
         "pending_future_forecast_claim_ids": pending_future_claim_ids,
         "data_gap_counts": dict(sorted(data_gap_counts.items())),
         "stock_series_coverage_summary": _stock_series_coverage_summary(
-            target_series_count=len(target_symbols_with_series),
+            target_series_count=len(
+                target_symbols_with_series | target_symbols_missing_series
+            ),
             target_series_missing_count=len(target_symbols_missing_series),
             earliest_price_dates=earliest_price_dates,
             latest_price_dates=latest_price_dates,
@@ -16305,6 +16330,37 @@ def _tail_non_positive_after_cost_exit_date_streak(
     return tail_streak
 
 
+def _cumulative_after_cost_drawdown_summary(
+    items: Sequence[Mapping[str, Any]],
+) -> tuple[float | None, int]:
+    buckets: dict[str, list[tuple[float, float]]] = {}
+    for item in items:
+        after_cost = _float_or_none(item.get("after_cost"))
+        if after_cost is None:
+            continue
+        exit_datetime = str(item.get("exit_datetime") or "")
+        buckets.setdefault(exit_datetime, []).append(
+            (after_cost, max(_float_or_none(item.get("weight")) or 0.0, 0.0))
+        )
+    if not buckets:
+        return None, 0
+    equity = 1.0
+    peak = 1.0
+    max_drawdown = 0.0
+    breach_count = 0
+    for exit_datetime in sorted(buckets):
+        date_return = _weighted_mean(buckets[exit_datetime], default=None)
+        if date_return is None:
+            continue
+        equity *= 1.0 + date_return
+        peak = max(peak, equity)
+        drawdown = (equity / peak) - 1.0 if peak else 0.0
+        max_drawdown = min(max_drawdown, drawdown)
+        if drawdown <= -RECIPE_PAPER_TRADING_MAX_DRAWDOWN:
+            breach_count += 1
+    return max_drawdown, breach_count
+
+
 def _paper_trading_metric_summary(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -16390,6 +16446,9 @@ def _paper_trading_metric_summary(
     tail_non_positive_streak = _tail_non_positive_after_cost_exit_date_streak(
         chronological_items
     )
+    max_drawdown, drawdown_breach_count = _cumulative_after_cost_drawdown_summary(
+        chronological_items
+    )
     if len(alpha_values) >= 2:
         midpoint = max(1, len(alpha_values) // 2)
         first = sum(alpha_values[:midpoint]) / len(alpha_values[:midpoint])
@@ -16397,7 +16456,6 @@ def _paper_trading_metric_summary(
         alpha_decay_slope = second - first
     else:
         alpha_decay_slope = None
-    max_drawdown = min(alpha_values) if alpha_values else None
     sharpe = None
     if len(alpha_values) >= 2:
         mean_alpha = sum(alpha_values) / len(alpha_values)
@@ -16465,11 +16523,7 @@ def _paper_trading_metric_summary(
             if market_regime_missing_count
             else "observed"
         ),
-        "drawdown_breach_count": sum(
-            1
-            for value in alpha_values
-            if value <= -RECIPE_PAPER_TRADING_MAX_DRAWDOWN
-        ),
+        "drawdown_breach_count": drawdown_breach_count,
         "backtest_label_count": backtest_metrics["label_count"],
         "backtest_effective_n": backtest_metrics["effective_n"],
         "backtest_cost_adjusted_alpha": backtest_metrics["cost_adjusted_alpha"],

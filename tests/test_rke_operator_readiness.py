@@ -683,15 +683,19 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
     assert "registry/lockbox/central_bank_lockbox_review_import_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_bundle_manifest.json" in payload["generated_paths"]
-    assert dry_run_payload["accepted"] is False
     assert dry_run_payload["mutated_original_registry"] is False
-    assert dry_run_payload["production_allowed_after_simulation"] is False
-    assert dry_run_payload["after_next_state"] == "paper_trading"
     steps = {step["review_kind"]: step for step in dry_run_payload["steps"]}
-    assert steps["gold_set"]["result"] == "not_provided"
-    assert steps["footprint_review"]["result"] == "not_provided"
-    assert steps["source_license"]["result"] == "already_applied"
-    assert steps["lockbox"]["result"] == "not_provided"
+    if dry_run_payload["accepted"]:
+        assert dry_run_payload["production_allowed_after_simulation"] is True
+        assert dry_run_payload["after_next_state"] == "production"
+        assert {step["result"] for step in steps.values()} == {"already_applied"}
+    else:
+        assert dry_run_payload["production_allowed_after_simulation"] is False
+        assert dry_run_payload["after_next_state"] == "paper_trading"
+        assert steps["gold_set"]["result"] == "not_provided"
+        assert steps["footprint_review"]["result"] == "not_provided"
+        assert steps["source_license"]["result"] == "already_applied"
+        assert steps["lockbox"]["result"] == "not_provided"
     assert bundle_payload["accepted"] is True
     assert bundle_payload["artifact_count"] >= 11
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()

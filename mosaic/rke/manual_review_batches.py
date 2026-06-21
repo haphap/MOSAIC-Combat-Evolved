@@ -2979,7 +2979,9 @@ def write_gold_review_starter(
     )
     offset_value = 0 if full else max(0, int(offset))
     if full:
-        selected_source_rows = tuple(source_rows)
+        selected_source_rows = tuple(source_rows) or tuple(
+            row for row in gold_rows if _gold_prior_review_complete(row)
+        )
         template_path = GOLD_FULL_IMPORT_TEMPLATE_PATH
     else:
         selected_source_rows = tuple(
@@ -2989,7 +2991,17 @@ def write_gold_review_starter(
     priority_score_counts, priority_reason_counts = _gold_priority_counts(
         selected_source_rows
     )
-    rows = tuple(_gold_template_row(row) for row in selected_source_rows)
+    rows = tuple(
+        {
+            **_gold_template_row(row),
+            **(
+                {field: row.get(field) for field in GOLD_MANUAL_REVIEW_FIELDS}
+                if full and _gold_prior_review_complete(row)
+                else {}
+            ),
+        }
+        for row in selected_source_rows
+    )
     reviewer_text = str(reviewer or "").strip()
     review_date_text = str(review_date or "").strip()
     if reviewer_text or review_date_text:

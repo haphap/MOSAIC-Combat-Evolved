@@ -2338,7 +2338,7 @@ def _fake_llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int)
             "forecast_claims": [
                 {
                     "claim_text": "公开市场净投放改善且DR007回落时，高 beta 风格相对沪深300可能占优。",
-                    "claim_provenance": "source_grounded",
+                    "claim_provenance": "source_gounded",
                     "forecast_testability": "testable",
                     "forecast_type": "macro_regime_to_style_relative_direction",
                     "target": {
@@ -4738,6 +4738,40 @@ def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
     assert passing["coverage_gate_blockers"] == []
 
 
+def test_markdown_coverage_long_cycle_bucket_uses_two_year_boundary():
+    def row(source_id: str, publish_datetime: str) -> dict[str, object]:
+        return {
+            "source_id": source_id,
+            "report_type": "宏观研报",
+            "institution": "Broker",
+            "publish_datetime": publish_datetime,
+            "sector": "macro",
+            "pdf": {"status": "downloaded"},
+            "markdown": {
+                "status": "converted",
+                "bytes": 200,
+                "backend": "hybrid-auto-engine",
+            },
+            "extraction": {"llm_status": "processed"},
+        }
+
+    summary = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-LONG-CYCLE-BOUNDARY-TEST",
+        metadata_rows=[
+            row("SRC-RECENT", "2026-06-01T00:00:00+08:00"),
+            row("SRC-MID", "2024-06-01T00:00:00+08:00"),
+            row("SRC-LONG", "2024-04-01T00:00:00+08:00"),
+        ],
+        forecast_rows=[],
+    )
+
+    assert summary["time_bucket_counts"] == {
+        "long_cycle_history": 1,
+        "recent_1y": 1,
+        "recent_3y": 1,
+    }
+
+
 def test_report_intelligence_analysis_recipes_pin_required_data():
     recipes = build_analysis_recipes(
         [
@@ -5307,6 +5341,77 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert multi_blocked_summary["tool_implementation_queue"]["tool_gap_ids"] == [
         "TG-TOOL-BLOCKED"
     ]
+
+
+def test_report_intelligence_recipe_paper_trading_drawdown_uses_exit_date_curve():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-DRAWDOWN-CURVE",
+        "method_pattern_id": "METHOD-DRAWDOWN-CURVE",
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": ["market.price_proxy"],
+        "required_data": ["stock_price", "benchmark_return"],
+        "steps": [{"step": 1, "tool": "market.price_proxy"}],
+        "output_signal": {"name": "drawdown_curve_score"},
+    }
+    labels = [
+        {
+            "analysis_recipe_id": "RECIPE-DRAWDOWN-CURVE",
+            "method_pattern_id": "METHOD-DRAWDOWN-CURVE",
+            "exit_datetime": "2026-01-10",
+            "directional_after_cost_return": 0.05,
+            "benchmark_return": 0.001,
+            "directional_hit": True,
+            "horizon_days": 20,
+            "market_regime": "base",
+            "effective_n_weight": 1.0,
+        },
+        {
+            "analysis_recipe_id": "RECIPE-DRAWDOWN-CURVE",
+            "method_pattern_id": "METHOD-DRAWDOWN-CURVE",
+            "exit_datetime": "2026-01-11",
+            "directional_after_cost_return": -0.30,
+            "benchmark_return": 0.001,
+            "directional_hit": False,
+            "horizon_days": 60,
+            "market_regime": "stress",
+            "effective_n_weight": 1.0,
+        },
+        {
+            "analysis_recipe_id": "RECIPE-DRAWDOWN-CURVE",
+            "method_pattern_id": "METHOD-DRAWDOWN-CURVE",
+            "exit_datetime": "2026-01-11",
+            "directional_after_cost_return": 0.30,
+            "benchmark_return": 0.001,
+            "directional_hit": True,
+            "horizon_days": 60,
+            "market_regime": "stress",
+            "effective_n_weight": 1.0,
+        },
+        {
+            "analysis_recipe_id": "RECIPE-DRAWDOWN-CURVE",
+            "method_pattern_id": "METHOD-DRAWDOWN-CURVE",
+            "exit_datetime": "2026-01-12",
+            "directional_after_cost_return": 0.04,
+            "benchmark_return": 0.001,
+            "directional_hit": True,
+            "horizon_days": 120,
+            "market_regime": "recovery",
+            "effective_n_weight": 1.0,
+        },
+    ]
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-DRAWDOWN-CURVE",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+
+    assert runs[0]["paper_trading_status"] == "passed"
+    assert runs[0]["metrics"]["max_drawdown"] == 0.0
+    assert runs[0]["metrics"]["drawdown_breach_count"] == 0
+    assert "max_drawdown_breach" not in runs[0]["blocked_reasons"]
 
 
 def test_direct_pit_binding_gap_details_trace_missing_method_links():
@@ -9641,6 +9746,24 @@ def test_report_intelligence_stock_readiness_records_price_gaps(
     assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
         "stock_series_missing": 1
     }
+    assert readiness["stock_price_proxy_readiness"][
+        "stock_series_coverage_summary"
+    ] == {
+        "target_series_count": 1,
+        "target_series_missing_count": 1,
+        "earliest_price_date_min": "",
+        "earliest_price_date_max": "",
+        "latest_price_date_min": "",
+        "latest_price_date_max": "",
+        "latest_calendar_date": "2026-05-31",
+        "latest_aligned_series_count": 0,
+        "stale_before_latest_calendar_count": 0,
+        "future_dated_series_count": 0,
+        "series_lifecycle_status_counts": {},
+        "entry_before_series_start_count": 0,
+        "entry_after_series_end_count": 0,
+        "entry_within_series_range_count": 0,
+    }
     assert readiness["blocked_count"] == 1
 
 
@@ -11188,7 +11311,7 @@ def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
         [
             row(
                 "SRC-IND-METALS",
-                publish_date="2024-06-01",
+                publish_date="2025-05-01",
                 report_type="行业研报",
                 industry="有色金属",
                 institution="Tail Broker A",

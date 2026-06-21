@@ -44,6 +44,7 @@ from .manual_review_import import (
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
 from .phase_minus1 import load_jsonl_with_errors
+from .promotion_gate import build_production_promotion_gate_report
 from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
@@ -1256,6 +1257,18 @@ def _lockbox_decision_status(root_path: Path) -> Mapping[str, Any]:
     return status
 
 
+def _lockbox_gate_already_passed(root_path: Path) -> bool:
+    try:
+        report = build_production_promotion_gate_report(root_path)
+    except Exception:
+        return False
+    return any(
+        getattr(criterion, "criterion_id", "") == "PG09"
+        and bool(getattr(criterion, "passed", False))
+        for criterion in report.criteria
+    )
+
+
 def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
     if pending_rows <= 0:
         return {}
@@ -1796,6 +1809,23 @@ def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
     apply_command = operator_command(
         f"mosaic-rke apply-lockbox-review --root . --input {input_path}"
     )
+    if _lockbox_gate_already_passed(root_path):
+        return ManualReviewGateProgress(
+            review_kind="lockbox",
+            input_path=input_path,
+            input_exists=resolved_input.exists(),
+            target_rows=1,
+            input_rows=_json_object_exists(resolved_input) if resolved_input.exists() else 0,
+            complete_rows=1,
+            pending_rows=0,
+            simulation_accepted=True,
+            ready_for_promotion=True,
+            blockers=(),
+            prepare_command=prepare_command,
+            dry_run_command=dry_run_command,
+            apply_command=apply_command,
+            current_batch_status={**current_batch_status, "already_applied": True},
+        )
     if not resolved_input.exists():
         return _missing_gate(
             review_kind="lockbox",

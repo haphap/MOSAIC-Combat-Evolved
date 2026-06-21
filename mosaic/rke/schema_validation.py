@@ -7451,21 +7451,43 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
                 "must not pass source-license input while source-license gate is already applied"
             )
 
-    if handoff.get("production_allowed") is not False:
-        failures.append("operator_handoff.production_allowed: must be false")
-    if handoff.get("direct_production_forbidden") is not True:
-        failures.append("operator_handoff.direct_production_forbidden: must be true")
+    raw_gates = handoff.get("gates")
+    handoff_gates = (
+        [gate for gate in raw_gates if isinstance(gate, Mapping)]
+        if isinstance(raw_gates, Sequence) and not isinstance(raw_gates, str)
+        else []
+    )
+    all_handoff_gates_passed = bool(handoff_gates) and all(
+        gate.get("passed") is True for gate in handoff_gates
+    )
+    if handoff.get("production_allowed") is True:
+        if handoff.get("direct_production_forbidden") is not False:
+            failures.append(
+                "operator_handoff.direct_production_forbidden: must be false when production is allowed"
+            )
+        if handoff.get("next_state") != "production":
+            failures.append(
+                "operator_handoff.next_state: expected production when production is allowed"
+            )
+        if not all_handoff_gates_passed:
+            failures.append(
+                "operator_handoff.production_allowed: requires all gates passed"
+            )
+    else:
+        if handoff.get("production_allowed") is not False:
+            failures.append("operator_handoff.production_allowed: must be false")
+        if handoff.get("direct_production_forbidden") is not True:
+            failures.append("operator_handoff.direct_production_forbidden: must be true")
     if handoff.get("ready_for_operator_review") is not True:
         failures.append("operator_handoff.ready_for_operator_review: must be true")
     run_order = tuple(str(item) for item in _string_items(handoff.get("run_order")))
     if run_order and run_order != tuple(step_ids):
         failures.append("operator_handoff.run_order mismatch with command_sequence")
 
-    raw_gates = handoff.get("gates")
     if not isinstance(raw_gates, Sequence) or isinstance(raw_gates, str):
         failures.append("operator_handoff.gates: expected array")
     else:
-        gates = [gate for gate in raw_gates if isinstance(gate, Mapping)]
+        gates = handoff_gates
         gate_by_kind = {str(gate.get("review_kind") or ""): gate for gate in gates}
         for review_kind in (
             "gold_set",

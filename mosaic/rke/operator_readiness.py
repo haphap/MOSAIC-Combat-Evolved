@@ -762,14 +762,21 @@ def build_operator_readiness_report(
 
     handoff = build_operator_handoff(root_path)
     gate_kinds = {gate.review_kind for gate in handoff.gates}
+    all_handoff_gates_passed = all(bool(gate.passed) for gate in handoff.gates)
+    handoff_state_safe = (
+        handoff.direct_production_forbidden and not handoff.production_allowed
+    ) or (
+        handoff.production_allowed
+        and handoff.next_state == "production"
+        and all_handoff_gates_passed
+    )
     checks.append(
         _check(
             "handoff_ready_for_operator",
             handoff.ready_for_operator_review
             and gate_kinds
             == {"gold_set", "footprint_review", "source_license", "lockbox"}
-            and handoff.direct_production_forbidden
-            and not handoff.production_allowed,
+            and handoff_state_safe,
             f"gates={sorted(gate_kinds)}, next_state={handoff.next_state}",
             "operator handoff does not expose all manual gates safely",
         )
@@ -1069,14 +1076,21 @@ def build_operator_readiness_report(
         license_input=LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         lockbox_input=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
+    blank_bundle_does_not_promote = (
+        blank_dry_run.mutated_original_registry is False
+        and blank_dry_run.accepted is False
+        and (
+            blank_dry_run.production_allowed_after_simulation is False
+            or blank_dry_run.before_next_state == "production"
+        )
+    )
     checks.append(
         _check(
             "blank_bundle_dry_run_does_not_promote",
-            blank_dry_run.mutated_original_registry is False
-            and blank_dry_run.accepted is False
-            and blank_dry_run.production_allowed_after_simulation is False,
+            blank_bundle_does_not_promote,
             (
                 f"accepted={blank_dry_run.accepted}, "
+                f"before_next_state={blank_dry_run.before_next_state}, "
                 f"after_next_state={blank_dry_run.after_next_state}"
             ),
             "blank manual templates unexpectedly pass promotion dry-run",
@@ -1104,14 +1118,25 @@ def build_operator_readiness_report(
         if isinstance(bundle_manifest.get("promotion_dry_run"), Mapping)
         else {}
     )
+    review_kinds = {"gold_set", "footprint_review", "source_license", "lockbox"}
+    bundle_dry_run_safe = (
+        bundle_dry_run.get("accepted") is False
+        and bundle_dry_run.get("production_allowed_after_simulation") is False
+    ) or (
+        bundle_dry_run.get("accepted") is True
+        and bundle_dry_run.get("production_allowed_after_simulation") is True
+        and bundle_dry_run.get("after_next_state") == "production"
+        and review_kinds <= set(bundle_dry_run.get("already_applied_steps") or ())
+        and not bundle_dry_run.get("missing_steps")
+        and not bundle_dry_run.get("rejected_steps")
+    )
     checks.append(
         _check(
             "manual_review_bundle_manifest_current",
             bundle_result["accepted"] is True
             and int(bundle_manifest.get("artifact_count") or 0) == len(MANUAL_REVIEW_BUNDLE_ARTIFACTS)
             and expected_bundle_paths <= bundle_paths
-            and bundle_dry_run.get("accepted") is False
-            and bundle_dry_run.get("production_allowed_after_simulation") is False
+            and bundle_dry_run_safe
             and all(str(artifact.get("sha256") or "").startswith("sha256:") for artifact in bundle_manifest["artifacts"]),
             (
                 f"artifact_count={bundle_manifest.get('artifact_count')}, "

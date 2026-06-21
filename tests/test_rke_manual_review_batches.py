@@ -943,6 +943,40 @@ def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
     assert rows[0]["target_row_hash"].startswith("sha256:")
 
 
+def test_write_gold_review_starter_full_exports_completed_target(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
+    rows = _load_jsonl(review_path)
+    for row in rows:
+        row.update(
+            {
+                "manual_claim_text": "reviewed claim",
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
+                "variable_mapping_correct": True,
+                "unsupported_field_false_grounded": False,
+                "reviewer": "hap",
+                "review_date": "2026-06-20",
+                "review_notes": "accepted",
+            }
+        )
+    _write_jsonl(review_path, rows)
+
+    result = write_gold_review_starter(tmp_path, full=True, force=True)
+    exported = _load_jsonl(reviewed_path)
+
+    assert result.written
+    assert result.rows == len(rows)
+    assert len(exported) == len(rows)
+    assert exported[0]["manual_claim_text"] == "reviewed claim"
+    assert exported[0]["claim_correct"] is True
+    assert exported[0]["unsupported_field_false_grounded"] is False
+
+
 def test_manual_review_batches_reject_malformed_review_rows_without_crashing(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"

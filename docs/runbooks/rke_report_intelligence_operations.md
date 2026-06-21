@@ -125,8 +125,23 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 Operational rules:
 
 - Start with `--limit 1` after any config change.
-- Use `--mineru-batch-size 1` for VLM mode unless a later runbook entry proves a
-  larger batch is stable.
+- For cached-stable VLM conversion on this 5090 host, prefer large MinerU
+  batches after the single-file smoke passes. The 2026-06-20 old-stock run
+  converted the remaining `44/44` PDFs in one VLM batch in roughly 5 minutes,
+  materially faster than the earlier batch-size-1 path.
+- Stop the Docker OpenAI-compatible vLLM service before local MinerU VLM runs
+  when GPU memory is needed:
+  `docker stop rke-vllm-qwen36-27b-160k-20260610`.
+- Prepend `.venv/bin` to `PATH` so MinerU's local VLM subprocess can find
+  `ninja`: `PATH=/home/hap/Project/MOSAIC-RKE/.venv/bin:$PATH`.
+- Current MinerU CLI does not expose a `--max_concurrency` flag. Use
+  `MINERU_API_MAX_CONCURRENT_REQUESTS=200` for the local MinerU API request
+  concurrency.
+- Current installed MinerU source does not read
+  `MINERU_MIN_BATCH_INFERENCE_SIZE`. The useful VLM window knob observed
+  locally is `MINERU_PROCESSING_WINDOW_SIZE=256`; keep
+  `MINERU_MIN_BATCH_INFERENCE_SIZE=256` only as a harmless compatibility env if
+  future MinerU versions add it.
 - Keep outputs under `.mosaic/` until quality is confirmed.
 - Do not reinstall MinerU or recreate the vLLM service before checking
   `.venv/bin/mineru --help` and the existing Docker/container state.
@@ -134,6 +149,30 @@ Operational rules:
 - If a previous `hybrid-auto-engine` run is still active, wait for it to return
   or terminate only that specific `report-intelligence`/MinerU process before
   launching the VLM batch.
+
+Tuned local VLM batch pattern:
+
+```bash
+PATH=/home/hap/Project/MOSAIC-RKE/.venv/bin:$PATH \
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+MINERU_API_MAX_CONCURRENT_REQUESTS=200 \
+MINERU_PROCESSING_WINDOW_SIZE=256 \
+MINERU_MIN_BATCH_INFERENCE_SIZE=256 \
+.venv/bin/mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path .mosaic/tmp/<frozen_source_batch>.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence_batches/<vlm_batch_registry> \
+  --selection-order oldest \
+  --limit <N> \
+  --skip-download \
+  --mineru-command .venv/bin/mineru \
+  --mineru-backend vlm-auto-engine \
+  --mineru-timeout-seconds 3600 \
+  --mineru-batch-size 80 \
+  --mineru-batch-max-bytes 200000000
+```
 
 ## Forecast Claim Pre-Review Rule
 
@@ -282,6 +321,148 @@ footprints/method patterns, while local qwen produced one more forecast claim an
 one more gold-reviewable claim. Use dual-model extraction for expansion; do not
 switch gold-claim extraction to Mimo-only unless later batches improve
 gold-reviewable yield.
+
+## Mimo Parallel Extraction
+
+`mimo-v2.5-pro` is suitable for sharded parallel extraction when Markdown is
+already cached. The RKE extraction loop is serial inside one process, so parallel
+throughput comes from running multiple independent `report-intelligence`
+processes against non-overlapping frozen source shards.
+
+2026-06-20 empirical result on an 80-report old-stock cached-Markdown batch:
+
+- Parallel plan: `8` shards, `10` reports per shard, each writing to its own
+  private batch registry under `.mosaic/rke/report_intelligence_batches/`.
+- First pass: `80` selected, `75` LLM-processed, `5` blockers, `86` forecast
+  claims, `223` analytical footprints, `316` stock proxy outcome labels.
+- Failure mode: no `429` rate-limit errors observed; blockers were transient
+  SSL EOF errors plus one malformed JSON response.
+- Retry plan: one failed source per retry shard, run concurrently.
+- Retry result: `5/5` processed, `0` blockers, `7` forecast claims, `19`
+  analytical footprints, `24` stock proxy outcome labels.
+- Clean merge rule: filter failed source rows out of the first-pass shard JSONL
+  inputs before merging retries, because a blocked multi-chunk report may leave
+  partial footprint rows. Merge retry directories after clean first-pass shard
+  directories.
+- Final merged registry after `current_212 + extra_120 + macro_cached_60_clean +
+  clean old-stock shards + retries`: `458` metadata rows, `458` forecast claims,
+  `456` LLM-processed reports, `680` outcome labels, and `593` stock proxy
+  outcome labels.
+- Gate effect: paper-trading validated recipes improved to `8`; the evolution
+  gate still requires `20`, so more directly labelable stock/industry claims or
+  stronger recipe-to-outcome binding is still needed.
+
+Shard command pattern:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+.venv/bin/mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path .mosaic/tmp/<mimo_parallel_batch>/shard_00.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence_batches/<batch>/shard_00 \
+  --selection-order oldest \
+  --limit 10 \
+  --skip-download \
+  --skip-convert \
+  --require-cached-markdown \
+  --vllm-timeout-seconds 180 \
+  --progress-jsonl
+```
+
+Recommended operating pattern:
+
+1. Freeze the source rows once under `.mosaic/tmp/`; never resample between
+   shards.
+2. Split into `8` concurrent shards while the Mimo RPM quota is `100`. Use
+   `10` reports per shard for small batches and up to `25` reports per shard
+   for larger cached-Markdown batches. Do not use `20` concurrent shards; the
+   2026-06-20 test triggered broad `429` rate-limit failures.
+3. Launch all shard commands concurrently, each with a distinct `--registry-dir`.
+4. Summarize `extraction_report.json` from every shard and collect blocker
+   source ids.
+5. Retry blockers as one-source shards, still concurrently, with the same
+   cached Markdown and `--vllm-timeout-seconds 180`.
+6. Build a clean first-pass shard set that removes blocked source ids from
+   mergeable JSONL inputs, then merge clean shards and retry dirs with
+   `--replace --refresh-derived`.
+7. Recheck `schema-status --failures-only --no-write`,
+   `evolution-readiness --no-write`, and `extraction_provenance_audit.json`.
+
+Do not commit the frozen source shards, batch registries, extracted claims,
+source spans, PDF/Markdown caches, or retry outputs.
+
+Additional 2026-06-20 tuning:
+
+- MinerU VLM converted a 200-report cached-PDF stock batch with
+  `--mineru-batch-size 80` as three batches (`80 + 80 + 40`), producing
+  `200/200` Markdown and `0` blockers.
+- Mimo `20`-way extraction over `20 x 10` shards was too aggressive: many
+  shards returned `429` and the run was discarded.
+- Mimo `8`-way extraction over `8 x 25` shards was stable: first pass
+  processed `199/200`, with `0` rate-limit errors and one transient SSL EOF.
+  A one-source retry succeeded, so the batch was cleanly mergeable after
+  filtering the failed source from the first-pass status/metadata rows.
+- The 200-report batch added `255` first-pass forecast claims, `597`
+  footprints, and `732` stock proxy outcome labels before retry; after merge
+  with prior batches the main private registry had `658` metadata rows, `714`
+  forecast claims, `656` LLM-processed reports, `1415` outcome labels, and
+  `1328` stock proxy outcome labels.
+- Quality implication: extraction throughput improved, but paper-trading
+  validated recipes fell to `4` after adding the newer 2026 stock reports.
+  Treat this as a signal that the current evolution blocker is recipe
+  effective-N/direct-outcome robustness, not just extraction volume.
+- Mature 2025 stock reports fixed the RI-EVOL-02 effective-N issue. The
+  2026-06-20 run added two older stock batches from January 2025:
+  one `100`-row frozen batch with `99/100` Markdown-ready rows after excluding
+  one empty-PDF source, and one follow-up `100/100` Markdown-ready batch. Both
+  used `8` concurrent Mimo shards, clean first-pass filtering, and one-source
+  retries for transient failures.
+- First mature 2025 Mimo batch: first pass processed `98/99`, then a one-source
+  retry succeeded. After merging clean shards plus retry, the main private
+  registry had `757` metadata rows, `838` forecast claims, `1772` stock proxy
+  outcome labels, and `15` validated paper-trading recipes.
+- Second mature 2025 Mimo batch: VLM conversion produced `100/100` Markdown,
+  first-pass Mimo processed `99/100`, and the one transient SSL EOF retry
+  succeeded. After merging clean shards plus retry, the main private registry
+  had `857` metadata rows, `958` forecast claims, `2188` stock proxy outcome
+  labels, and `27` validated paper-trading recipes.
+
+2026-06-21 Mimo concurrency smoke:
+
+- Purpose: validate `mimo-v2.5-pro` concurrent extraction under the documented
+  `100 RPM` quota before using the concurrent form for more cached-Markdown
+  batches.
+- Setup: `8` concurrent `report-intelligence` processes, `1` cached Markdown
+  report per shard, each shard writing to its own private registry under
+  `.mosaic/rke/report_intelligence_batches/mimo_concurrency_smoke_20260621_02/`.
+- Result: `8/8` reports LLM-processed, `0` blockers, `0` rate-limit shards,
+  `11` forecast claims, `28` analytical footprints, and `44` outcome labels.
+  Slowest shard finished in about `99s`; other shards finished in about
+  `28-49s`.
+- Post-smoke processing status: the main private registry already includes the
+  successful 2026-06-20 `8`-way Mimo stock-report batches. The current merged
+  derived refresh has `857` metadata rows, `855` LLM-processed reports, `958`
+  forecast claims, `2435` analytical footprints, `2188` stock price proxy
+  outcome labels, and `0` extraction blockers.
+- Operational decision: because the smoke passed, keep Mimo extraction in
+  sharded concurrent mode for cached-Markdown batches. Use `8` concurrent
+  shards by default while quota is `100 RPM`; use up to `25` reports per shard
+  for larger batches, and retry transient blockers as one-source shards. Serial
+  Mimo extraction should be reserved for single-report debugging or endpoint
+  isolation. Do not use `20` concurrent shards unless the provider quota or
+  observed rate-limit behavior changes.
+- Current gate implication: `RI-EVOL-02` passed once the mature 2025 samples
+  were merged. Because the merged registry is extraction-clean, do not add more
+  stock samples just to clear `RI-EVOL-04`. The active blocker is the
+  footprint/manual-review schema gate plus the required clean audit vintages, so
+  the next productive work is footprint review approval/import and derived audit
+  refresh.
+- Sandbox note: the same smoke fails inside the managed network sandbox with
+  DNS resolution errors. That is an environment restriction, not a Mimo
+  rate-limit signal. Use the approved non-sandbox network execution path for
+  real Mimo extraction.
 
 ## MinerU Smoke Status
 
