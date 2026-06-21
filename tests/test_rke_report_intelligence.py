@@ -66,6 +66,7 @@ from mosaic.rke.report_intelligence import (
     _context_seed_indicator_mentions,
     _direct_pit_binding_gap_details,
     _entry_calendar_index,
+    _evolution_gate_cli_summary,
     _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
     _normalize_indicator_mentions,
@@ -6411,6 +6412,14 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
         "status": "history_below_threshold",
         "trailing_audit_pass_count": 1,
     }
+    next_actions = {
+        action["action_id"]: action
+        for action in _evolution_gate_cli_summary(gate)["next_actions"]
+    }
+    audit_history_action = next_actions["build_distinct_clean_audit_refresh_history"]
+    assert "refresh_after_new_data_vintage" in audit_history_action["commands"]
+    assert "refresh_derived" not in audit_history_action["commands"]
+    assert "new data_vintage_hash" in audit_history_action["notes"][1]
     assert gate["requirement_shortfalls"]["markdown_coverage"] == {}
     gate_dump = json.dumps(gate, ensure_ascii=False)
     assert "claim_text" not in gate_dump

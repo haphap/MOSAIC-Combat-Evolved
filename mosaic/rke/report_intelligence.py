@@ -19863,7 +19863,7 @@ def _evolution_gate_cli_next_actions(
             )
         else:
             audit_history_commands = {
-                "refresh_derived": operator_command(
+                "refresh_after_new_data_vintage": operator_command(
                     "mosaic-rke report-intelligence --root . --refresh-derived-only"
                 ),
                 "check_evolution": operator_command(
@@ -19873,6 +19873,8 @@ def _evolution_gate_cli_next_actions(
             audit_history_notes = (
                 "Repeated refreshes on identical data_vintage_hash values are "
                 "deduplicated and do not satisfy the consecutive-vintage gate.",
+                "Run refresh-derived-only only after upstream registry inputs "
+                "change enough to produce a new data_vintage_hash.",
             )
         add_action(
             action_id="build_distinct_clean_audit_refresh_history",
