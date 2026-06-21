@@ -6,12 +6,12 @@
 - Master-plan coverage missing: 0
 - Master-plan coverage blocked: 1
 - Master-plan blocked sections: Phase-1B
-- MVP deliverables blocked: 1
-- MVP deliverable blocked sections: MVP-D2
-- MVP exit criteria blocked: 1
-- MVP exit blocked sections: MVP-E01
-- Final acceptance blocked: 1
-- Final acceptance blocked sections: FinalAcceptance-C02
+- MVP deliverables blocked: 0
+- MVP deliverable blocked sections: none
+- MVP exit criteria blocked: 0
+- MVP exit blocked sections: none
+- Final acceptance blocked: 0
+- Final acceptance blocked sections: none
 - Paper trading ready: true
 - Mean live vs baseline delta: 0.035
 - Production monitor state: production
@@ -44,15 +44,15 @@
 - Gold review assist: registry/review_batches/gold_set_review_assist.md
 - Next license review batch rows: 0
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
-- Manual review promotion dry-run ready: True
-- Manual review progress blockers: 0
+- Manual review promotion dry-run ready: False
+- Manual review progress blockers: 4
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 1
+- Operator handoff blockers: 2
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
-- Schema validation failures: 23
+- Schema validation failures: 17
 - Claim variable validation failures: 0
 - Claim grounding validation failures: 0
 - Rule pack validation failures: 0

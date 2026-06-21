@@ -12,6 +12,8 @@ Markdown excerpts here.
 - Local temp root: `~/tmp/mosaic-rke/`
 - MinerU CLI: `.venv/bin/mineru`
 - Required MinerU backend for report conversion: `vlm-auto-engine`
+- Required MinerU API/deployment backend env for that VLM path:
+  `MINERU_BACKEND=vlm-vllm-engine`
 - Previous `hybrid-auto-engine` smoke is useful only as environment proof; do
   not use it for the macro/strategy report batches unless the user explicitly
   asks for hybrid mode.
@@ -68,15 +70,21 @@ uv run mosaic-rke build-local-macro-report-sources \
 
 ## MinerU Usage
 
-User requirement: run MinerU in vLLM/VLM mode. Use `vlm-auto-engine` for PDF to
-Markdown conversion, not `pipeline`, and not `hybrid-auto-engine` for the normal
-macro/strategy batch path.
+User requirement: run MinerU in vLLM/VLM mode. For the current installed MinerU
+CLI, pass `vlm-auto-engine` as `-b/--backend` for PDF to Markdown conversion,
+not `pipeline`, and not `hybrid-auto-engine` for the normal macro/strategy batch
+path. Also set `MINERU_BACKEND=vlm-vllm-engine` in the MinerU subprocess
+environment. Recent MinerU documentation names the API/deployment backend
+`vlm-vllm-engine`; older/internal code paths may refer to the async engine as
+`vllm-async-engine`.
 
 Mode distinction:
 
-- `vlm-auto-engine` is MinerU local VLM mode. It uses local computing power
-  through MinerU's VLM engine and does not require the Docker vLLM OpenAI server
-  to be running. This mode has been smoke-tested locally.
+- `vlm-auto-engine` is the CLI backend accepted by the installed MinerU command
+  for local VLM conversion. RKE injects `MINERU_BACKEND=vlm-vllm-engine` when it
+  launches this backend so MinerU's API/deployment layer uses the local vLLM
+  engine. Do not pass `vlm-vllm-engine` directly to `mineru -b` unless
+  `.venv/bin/mineru --help` shows it as a supported CLI choice.
 - `vlm-http-client` and `hybrid-http-client` are MinerU HTTP-client modes. These
   require a compatible server URL via `--mineru-server-url` / MinerU `-u`, for
   example `http://127.0.0.1:30000`. Start and health-check the Docker vLLM
@@ -88,7 +96,8 @@ Mode distinction:
 Preferred smoke command:
 
 ```bash
-TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
+MINERU_BACKEND=vlm-vllm-engine TMPDIR=~/tmp/mosaic-rke \
+  uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -106,7 +115,8 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 Preferred batch command:
 
 ```bash
-TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
+MINERU_BACKEND=vlm-vllm-engine TMPDIR=~/tmp/mosaic-rke \
+  uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -155,6 +165,7 @@ Tuned local VLM batch pattern:
 ```bash
 PATH=/home/hap/Project/MOSAIC-RKE/.venv/bin:$PATH \
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+MINERU_BACKEND=vlm-vllm-engine \
 MINERU_API_MAX_CONCURRENT_REQUESTS=200 \
 MINERU_PROCESSING_WINDOW_SIZE=256 \
 MINERU_MIN_BATCH_INFERENCE_SIZE=256 \
@@ -806,3 +817,25 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   MinerU `vlm-auto-engine` on 14 cached Tushare PDFs in a private staging
   registry with `--skip-llm`; all 14 were Markdown-ready and the refreshed
   private gold evidence batch now has 0 missing Markdown rows.
+- `2026-06-21`: Updated RKE's MinerU launcher so the normal local VLM path still
+  passes CLI backend `vlm-auto-engine` but explicitly injects
+  `MINERU_BACKEND=vlm-vllm-engine` for MinerU's vLLM API/deployment engine. This
+  matches recent MinerU documentation without passing an unsupported backend
+  name to the current installed CLI.
+- `2026-06-21`: Ran a one-report forced-overwrite MinerU smoke under isolated
+  cache `.mosaic/rke/report_intelligence_mineru_vllm_smoke` with
+  `MINERU_BACKEND=vlm-vllm-engine`, CLI backend `vlm-auto-engine`, and
+  `--skip-llm`; the PDF was downloaded, Markdown conversion completed, Markdown
+  quality passed, and blocker count was `0`.
+- `2026-06-21`: For macro curve extraction, title-level matches such as
+  `期限利差` or `收益率曲线` were too broad and often produced sector/asset claims
+  rather than curve claims. The useful selector is a Markdown window containing
+  forecast language plus curve/spread terms plus a direction term, for example
+  forecast/expected language near `期限利差`, `收益率曲线`, `中美利差`,
+  `走陡`, `走平`, `扩大`, or `收窄`. After prompt and normalizer updates, the
+  explicit-curve staging batch
+  `.mosaic/rke/report_intelligence_batches/macro_curve_explicit_reextract_20260621_01`
+  refreshed with 1 `macro_curve_directional` eligible claim and 3 curve outcome
+  labels on `US_2S10S`, plus direct macro-series labels. The normalizer now
+  preserves the parent `macro_curve` leg when the LLM also emits component
+  `macro_series` legs.

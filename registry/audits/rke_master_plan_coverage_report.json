@@ -1,10 +1,10 @@
 {
   "blocked_count": 1,
   "coverage_complete": false,
-  "final_acceptance_blocked_count": 1,
+  "final_acceptance_blocked_count": 0,
   "final_acceptance_missing_count": 0,
-  "final_acceptance_passed_count": 11,
-  "final_acceptance_ready": false,
+  "final_acceptance_passed_count": 12,
+  "final_acceptance_ready": true,
   "final_acceptance_records": [
     {
       "blocker": "",
@@ -16,13 +16,13 @@
       "status": "passed"
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "evidence_paths": [
         "registry/audits/rke_completion_audit.json"
       ],
       "requirement": "Claim extraction gold set passes the manual gate.",
       "section_id": "FinalAcceptance-C02",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -130,7 +130,7 @@
       "status": "passed"
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.review_summary.json",
@@ -138,7 +138,7 @@
       ],
       "requirement": "Claim extraction gold set for 50 documents / 100 claims.",
       "section_id": "MVP-D2",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -227,26 +227,26 @@
       "status": "passed"
     }
   ],
-  "mvp_deliverables_blocked_count": 1,
+  "mvp_deliverables_blocked_count": 0,
   "mvp_deliverables_missing_count": 0,
-  "mvp_deliverables_passed_count": 9,
-  "mvp_deliverables_ready": false,
+  "mvp_deliverables_passed_count": 10,
+  "mvp_deliverables_ready": true,
   "mvp_deliverables_section": "16.3",
-  "mvp_exit_blocked_count": 1,
+  "mvp_exit_blocked_count": 0,
   "mvp_exit_criteria_section": "16.4",
   "mvp_exit_missing_count": 0,
-  "mvp_exit_passed_count": 12,
-  "mvp_exit_ready": false,
+  "mvp_exit_passed_count": 13,
+  "mvp_exit_ready": true,
   "mvp_exit_records": [
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_summary.json",
         "registry/audits/rke_completion_audit.json"
       ],
       "requirement": "Claim extraction gold set precision reaches the manual threshold.",
       "section_id": "MVP-E01",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -390,7 +390,7 @@
       "status": "passed"
     },
     {
-      "blocker": "manual gold-set review still required; registry/report_intelligence/patch_v1_5_coverage_report.json accepted must be true; registry/report_intelligence/patch_v1_5_coverage_report.json blocker_count must be zero; registry/report_intelligence/patch_v1_5_coverage_report.json blocked phases: B, D",
+      "blocker": "registry/report_intelligence/patch_v1_5_coverage_report.json accepted must be true; registry/report_intelligence/patch_v1_5_coverage_report.json blocker_count must be zero; registry/report_intelligence/patch_v1_5_coverage_report.json blocked phases: B, D",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",

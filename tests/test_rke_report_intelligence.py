@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import sqlite3
 import struct
 import subprocess
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,7 @@ import pytest
 from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
+from mosaic.scorecard.macro_series_backfill import backfill_macro_series
 from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
@@ -21,6 +24,7 @@ from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     DEFAULT_MINERU_ARGS_TEMPLATE,
+    DEFAULT_MINERU_BACKEND,
     DEFAULT_VLLM_TIMEOUT_SECONDS,
     MAX_STORED_CLAIM_TEXT_CHARS,
     MineruBatchConversionTask,
@@ -34,8 +38,17 @@ from mosaic.rke.report_intelligence import (
     build_analytical_footprint_review_evidence,
     build_analytical_footprint_review_summary,
     build_local_macro_strategy_report_sources,
+    build_macro_agent_research_priors,
     build_markdown_coverage_summary,
     build_prompt_mutation_candidates,
+    build_macro_asset_proxy_outcome_labels,
+    build_macro_asset_proxy_readiness,
+    build_macro_curve_directional_outcome_labels,
+    build_macro_curve_directional_readiness,
+    build_macro_market_series_catalog,
+    build_macro_regime_snapshots,
+    build_macro_series_directional_outcome_labels,
+    build_macro_series_directional_readiness,
     build_industry_etf_proxy_outcome_labels,
     build_industry_etf_proxy_readiness,
     build_report_intelligence_evolution_readiness_gate,
@@ -44,6 +57,7 @@ from mosaic.rke.report_intelligence import (
     build_recipe_paper_trading_runs,
     build_recipe_paper_trading_summary,
     build_report_intelligence_extraction_provenance_audit,
+    build_report_intelligence_statistical_robustness_audit,
     build_source_performance_profiles,
     build_data_acquisition_proposals,
     build_tool_design_proposals,
@@ -52,6 +66,7 @@ from mosaic.rke.report_intelligence import (
     call_vllm_extractor,
     classify_tool_coverage,
     convert_pdfs_with_mineru_batch,
+    load_scorecard_macro_series_rows,
     merge_report_intelligence_batch_outputs,
     prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
@@ -67,6 +82,7 @@ from mosaic.rke.report_intelligence import (
     _direct_pit_binding_gap_details,
     _entry_calendar_index,
     _evolution_gate_cli_summary,
+    _forecast_rows_with_macro_claim_legs,
     _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
     _normalize_indicator_mentions,
@@ -213,6 +229,13 @@ def test_user_prompt_requires_context_synthesized_forecast_claims():
     assert "industry-cycle regime" in prompt
     assert "rate-cut cycle" in prompt
     assert "global copper supply is structurally tight" in prompt
+    assert "Direct macro market forecasts are valid forecast_claims" in prompt
+    assert "forecast_type='macro_series_directional'" in prompt
+    assert "forecast_type='macro_curve_directional'" in prompt
+    assert "US_2S10S" in prompt
+    assert "CN_US_10Y_SPREAD" in prompt
+    assert "bond_yield_level" in prompt
+    assert "yield_curve_slope" in prompt
 
 
 def test_user_prompt_includes_stock_subject_metadata_for_stock_reports():
@@ -846,6 +869,405 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
         record["extraction_quality"]["metric_proxy_mapping_inferred_from_claim_text"]
         is True
     )
+
+
+def test_normalize_forecast_claims_records_macro_claim_legs():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": (
+                        "在美联储更高更久和全球风险偏好回落背景下，"
+                        "美债收益率预计上行，波动率中枢预计抬升。"
+                    ),
+                    "analyst_claim": (
+                        "美联储更高更久通过利率和风险偏好传导，预计推升"
+                        "美债收益率与波动率。"
+                    ),
+                    "pre_review_decision": "include",
+                    "pre_review_reason": "宏观 regime、机制、目标和方向明确。",
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "forecast_type": "macro_strategy",
+                    "target": {"target_type": "macro_asset", "target_id": "US_RATES"},
+                    "benchmark": {"benchmark_type": "cash"},
+                    "horizon": {"max_days": 360, "unit": "day"},
+                    "metric_proxy_mapping": ["bond_yield_level", "volatility_index"],
+                    "macro_claim_legs": [
+                        {
+                            "leg_index": 1,
+                            "target_type": "macro_series",
+                            "target_id": "US_10Y_YIELD",
+                            "metric_family": "bond_yield_level",
+                            "metric_proxy": "bond_yield_level",
+                            "direction": "positive",
+                            "quote_convention": "yield_level_percent",
+                            "orientation_rule": "positive means yield rises",
+                            "target_agent_candidates": [
+                                "macro.yield_curve",
+                                "macro.central_bank",
+                            ],
+                        },
+                        {
+                            "leg_index": 2,
+                            "target_type": "macro_series",
+                            "target_id": "VIX",
+                            "metric_family": "volatility_index",
+                            "metric_proxy": "volatility_index",
+                            "direction": "positive",
+                            "quote_convention": "volatility_index_level",
+                            "orientation_rule": "positive means volatility rises",
+                            "target_agent_candidates": ["macro.volatility"],
+                        },
+                    ],
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-MACRO-LEGS",
+            "publish_date": "2026-01-01",
+            "report_type": "宏观策略",
+        },
+        run_id="RUN-MACRO-LEGS",
+        model="fake-vllm",
+        report_id="RPT-MACRO-LEGS",
+        chunk_span_id="SRC-MACRO-LEGS:chunk-1",
+    )
+
+    assert len(records) == 1
+    record = records[0]
+    legs = record["macro_claim_legs"]
+    assert [leg["leg_index"] for leg in legs] == [1, 2]
+    assert {leg["parent_forecast_claim_id"] for leg in legs} == {
+        record["forecast_claim_id"]
+    }
+    assert {leg["target_id"] for leg in legs} == {"US_10Y_YIELD", "VIX"}
+    assert {tuple(leg["evaluation_windows"]) for leg in legs} == {(90, 180, 360)}
+    assert record["extraction_quality"]["macro_claim_leg_count"] == 2
+    assert all(str(leg["macro_claim_leg_id"]).startswith("MCL-") for leg in legs)
+
+
+def test_report_intelligence_builds_public_safe_macro_market_series_catalog():
+    catalog = build_macro_market_series_catalog(
+        [
+            {
+                "series_id": "US10Y",
+                "date": "2026-01-01",
+                "value": 4.20,
+                "source": "fixture",
+                "source_endpoint": "fixture.us10y",
+            },
+            {
+                "series_id": "US10Y",
+                "date": "2026-01-05",
+                "value": 4.25,
+                "source": "fixture",
+                "source_endpoint": "fixture.us10y",
+            },
+            {
+                "series_id": "US2Y",
+                "date": "2026-01-02",
+                "value": 3.95,
+                "source": "fixture",
+                "source_endpoint": "fixture.us2y",
+            },
+            {
+                "series_id": "US2Y",
+                "date": "2026-01-03",
+                "value": 3.98,
+                "source": "fixture",
+                "source_endpoint": "fixture.us2y",
+            },
+            {
+                "series_id": "VIX",
+                "date": "2026-01-05",
+                "value": 18.0,
+                "source": "fixture",
+                "source_endpoint": "fixture.vix",
+            },
+        ]
+    )
+
+    us10y = next(row for row in catalog if row["series_id"] == "US10Y")
+    assert us10y["schema_version"] == "macro_market_series_catalog_v1"
+    assert us10y["readiness_status"] == "ready"
+    assert us10y["earliest_observation_date"] == "2026-01-01"
+    assert us10y["latest_observation_date"] == "2026-01-05"
+    assert us10y["target_agent_candidates"] == [
+        "macro.yield_curve",
+        "macro.central_bank",
+    ]
+
+    us_2s10s = next(row for row in catalog if row["series_id"] == "US_2S10S")
+    assert us_2s10s["readiness_status"] == "ready"
+    assert us_2s10s["long_leg_series_id"] == "US10Y"
+    assert us_2s10s["short_leg_series_id"] == "US2Y"
+    assert us_2s10s["earliest_observation_date"] == "2026-01-02"
+    assert us_2s10s["latest_observation_date"] == "2026-01-03"
+
+    us_3m10y = next(row for row in catalog if row["series_id"] == "US_3M10Y")
+    assert us_3m10y["readiness_status"] == "series_history_missing"
+    assert us_3m10y["gap_reason"] == "curve_leg_series_history_missing"
+
+    for row in catalog:
+        assert row["private_text_included"] is False
+        assert row["raw_observations_included"] is False
+        assert "value" not in row
+        assert "close" not in row
+        assert "observations" not in row
+        assert "raw_observations" not in row
+
+    catalog_dump = json.dumps(catalog, ensure_ascii=False)
+    assert "claim_text" not in catalog_dump
+    assert "source_span_ids" not in catalog_dump
+    assert "4.25" not in catalog_dump
+
+
+def test_report_intelligence_builds_public_safe_macro_regime_snapshots():
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-TRACE-1",
+            "claim_id": "CLAIM-PRIVATE-1",
+            "claim_text": "美元走强和美债收益率上行将压制风险资产。",
+            "source_span_ids": ["SRC-PRIVATE:chunk-1"],
+            "claim_regime_trace": {
+                "schema_version": "claim_regime_trace_v1",
+                "as_of_date": "2026-01-15",
+                "macro": {
+                    "macro.dollar": {
+                        "as_of_date": "2026-01-15",
+                        "regime_types": ["fx_usd_cycle", "rmb_fx_stability_window"],
+                        "as_of_date_regime_types": ["rmb_fx_stability_window"],
+                        "source_text_regime_types": ["fx_usd_cycle"],
+                        "regime_details": [
+                            {
+                                "regime_id": "MACRO-REGIME-RMB-FX-STABILITY-20260101",
+                                "regime_type": "rmb_fx_stability_window",
+                            }
+                        ],
+                        "background_only": True,
+                    },
+                    "macro.volatility": {
+                        "as_of_date": "2026-01-15",
+                        "regime_types": [],
+                        "as_of_date_regime_types": [],
+                        "source_text_regime_types": [],
+                        "background_only": True,
+                    },
+                },
+            },
+        }
+    ]
+
+    snapshots = build_macro_regime_snapshots(forecast_rows)
+    dollar = next(row for row in snapshots if row["agent_id"] == "macro.dollar")
+
+    assert dollar["schema_version"] == "macro_regime_snapshot_v1"
+    assert dollar["as_of_date"] == "2026-01-15"
+    assert dollar["regime_family"] == "dollar"
+    assert dollar["regime_bucket"] == "fx_usd_cycle|rmb_fx_stability_window"
+    assert dollar["regime_features"] == {
+        "regime_type_count": 2,
+        "as_of_date_regime_type_count": 1,
+        "source_text_regime_type_count": 1,
+        "source_claim_count": 1,
+    }
+    assert dollar["feature_units"]["source_claim_count"] == "count"
+    assert set(dollar["source_series_ids"]) == {"CN10Y", "US10Y", "USDCNY"}
+    assert dollar["missing_feature_reasons"] == []
+    assert dollar["source_claim_count"] == 1
+    assert dollar["background_only"] is True
+    assert dollar["claim_validation_allowed"] is False
+    assert dollar["private_text_included"] is False
+    assert "MACRO-REGIME-RMB-FX-STABILITY-20260101" in dollar["regime_detail_ids"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "source_span_ids" not in snapshot_dump
+    assert "FC-MACRO-TRACE-1" not in snapshot_dump
+
+
+def test_report_intelligence_builds_redacted_macro_agent_research_priors():
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-PRIOR-1",
+            "claim_id": "CLAIM-PRIVATE-2",
+            "claim_text": "美元兑人民币上行将体现美元流动性压力。",
+            "source_span_ids": ["SRC-PRIVATE:chunk-2"],
+            "target": {
+                "target_type": "macro_series",
+                "target_id": "USDCNY",
+                "metric_family": "fx_rate",
+            },
+            "benchmark": {"benchmark_type": "direct_macro_series"},
+            "direction": "positive",
+            "horizon": {"bucket": "medium"},
+            "metric_proxy_mapping": ["fx_rate"],
+            "failure_modes": [
+                {
+                    "text": "若政策干预超预期，汇率方向可能反转。",
+                    "provenance": "source_grounded",
+                }
+            ],
+            "claim_regime_trace": {
+                "schema_version": "claim_regime_trace_v1",
+                "as_of_date": "2026-01-15",
+                "macro": {
+                    "macro.dollar": {
+                        "as_of_date": "2026-01-15",
+                        "regime_types": ["fx_usd_cycle"],
+                        "as_of_date_regime_types": [],
+                        "source_text_regime_types": ["fx_usd_cycle"],
+                        "background_only": True,
+                    }
+                },
+            },
+        }
+    ]
+    outcome_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-PRIOR-1",
+            "pit_valid": True,
+            "label_type": "macro_series_directional",
+            "benchmark_family": "DIRECT_MACRO_SERIES_FX",
+            "cost_model_id": "macro_series_no_trade_cost_v1",
+            "effective_n_weight": 12.0,
+            "performance_value": 0.02,
+            "performance_value_basis": "directional_fx_change",
+            "directional_hit": True,
+            "entry_datetime": "2026-01-16T00:00:00+08:00",
+            "exit_datetime": "2026-04-16T00:00:00+08:00",
+        }
+    ]
+
+    profiles = build_viewpoint_performance_profiles(
+        forecast_rows,
+        outcome_label_rows=outcome_rows,
+    )
+    snapshots = build_macro_regime_snapshots(forecast_rows)
+    priors = build_macro_agent_research_priors(
+        forecast_rows,
+        viewpoint_performance_profile_rows=profiles,
+        macro_regime_snapshot_rows=snapshots,
+    )
+    dollar_prior = next(row for row in priors if row["agent_id"] == "macro.dollar")
+
+    assert dollar_prior["schema_version"] == "macro_agent_research_prior_v1"
+    assert dollar_prior["rating_bucket"] == "supportive_evidence"
+    assert dollar_prior["rating_source"] == "non_llm_viewpoint_performance_profile"
+    assert dollar_prior["regime_bucket"] == "fx_usd_cycle"
+    assert dollar_prior["metric_families"] == ["fx_rate"]
+    assert dollar_prior["metric_family"] == "fx_rate"
+    assert dollar_prior["target_series_family"] == "fx"
+    assert dollar_prior["expected_direction"] == "positive"
+    assert dollar_prior["latest_completed_exit_date"] == "2026-04-15"
+    assert dollar_prior["freshness_bucket"] == "completed_exit_after_prior_as_of"
+    assert dollar_prior["macro_claim_leg_ids_redacted"] == []
+    assert dollar_prior["known_failure_mode_count"] == 1
+    assert dollar_prior["known_failure_mode_tags"] == ["known_failure_modes_present"]
+    assert dollar_prior["tool_gap_ids"] == []
+    assert dollar_prior["research_only"] is True
+    assert dollar_prior["current_data_required"] is True
+    assert dollar_prior["production_signal_allowed"] is False
+    assert dollar_prior["private_text_included"] is False
+    prior_dump = json.dumps(priors, ensure_ascii=False)
+    assert "claim_text" not in prior_dump
+    assert "source_span_ids" not in prior_dump
+    assert "若政策干预超预期" not in prior_dump
+    assert "FC-MACRO-PRIOR-1" not in prior_dump
+
+
+def test_report_intelligence_export_macro_agent_priors_cli(capsys, tmp_path: Path):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True)
+    rows = [
+        {
+            "prior_id": "MAP-CLI-1",
+            "schema_version": "macro_agent_research_prior_v1",
+            "agent_id": "macro.dollar",
+            "as_of_date": "2026-01-15",
+            "viewpoint_profile_id": "VPP-CLI-1",
+            "viewpoint_cluster_id": "VIEW-CLI-1",
+            "macro_claim_leg_ids_redacted": ["MCLRED-1"],
+            "mechanism_chain": ["fx_rate"],
+            "metric_families": ["fx_rate"],
+            "metric_family": "fx_rate",
+            "target_series_family": "fx",
+            "expected_direction": "positive",
+            "regime_snapshot_id": "MRS-CLI-1",
+            "regime_bucket": "fx_usd_cycle",
+            "rating_bucket": "supportive_evidence",
+            "rating_source": "non_llm_viewpoint_performance_profile",
+            "n_effective": 12.0,
+            "statistical_reliability_bucket": "medium_effective_n",
+            "shrunk_performance_bucket": "positive_after_cost_alpha",
+            "shrunk_hit_rate": 0.6,
+            "shrunk_performance_value": 0.02,
+            "latest_completed_exit_date": "2026-04-15",
+            "freshness_bucket": "completed_exit_after_prior_as_of",
+            "viewpoint_weight_multiplier": 1.0,
+            "outcome_layer_support": {},
+            "known_failure_mode_count": 0,
+            "known_failure_mode_tags": [],
+            "tool_gap_ids": [],
+            "current_data_required": True,
+            "research_only": True,
+            "production_signal_allowed": False,
+            "use_policy": "shadow_research_prior_only_not_current_signal",
+            "source_policy": "public_safe_aggregate_no_source_prose",
+            "private_text_included": False,
+        },
+        {
+            "prior_id": "MAP-CLI-FUTURE",
+            "schema_version": "macro_agent_research_prior_v1",
+            "agent_id": "macro.dollar",
+            "as_of_date": "2026-03-15",
+            "viewpoint_profile_id": "VPP-CLI-2",
+            "viewpoint_cluster_id": "VIEW-CLI-2",
+            "mechanism_chain": ["fx_rate"],
+            "metric_families": ["fx_rate"],
+            "regime_snapshot_id": "",
+            "regime_bucket": "fx_usd_cycle",
+            "rating_bucket": "mixed_evidence",
+            "rating_source": "non_llm_viewpoint_performance_profile",
+            "n_effective": 1.0,
+            "statistical_reliability_bucket": "low_effective_n",
+            "shrunk_performance_bucket": "neutral_after_cost_alpha",
+            "viewpoint_weight_multiplier": 1.0,
+            "known_failure_mode_count": 0,
+            "current_data_required": True,
+            "research_only": True,
+            "production_signal_allowed": False,
+            "use_policy": "shadow_research_prior_only_not_current_signal",
+            "source_policy": "public_safe_aggregate_no_source_prose",
+            "private_text_included": False,
+        },
+    ]
+    (registry_dir / "macro_agent_research_priors.jsonl").write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        (
+            "export-macro-agent-priors",
+            "--root",
+            str(tmp_path),
+            "--agent-id",
+            "macro.dollar",
+            "--as-of-date",
+            "2026-02-01",
+            "--no-source-prose",
+        )
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["accepted"] is True
+    assert payload["prior_count"] == 1
+    assert payload["priors"][0]["prior_id"] == "MAP-CLI-1"
+    assert payload["production_signal_allowed"] is False
+    assert "claim_text" not in json.dumps(payload, ensure_ascii=False)
 
 
 def test_normalize_forecast_claims_filters_generic_price_from_commodity_proxy():
@@ -1850,6 +2272,132 @@ def _full_evolution_outcome_fixture() -> tuple[
     return forecast_rows, outcome_rows
 
 
+def test_report_intelligence_evolution_gate_checks_macro_branch():
+    forecast_rows, outcome_rows = _full_evolution_outcome_fixture()
+    macro_parent = {
+        "forecast_claim_id": "FC-MACRO-GATE",
+        "claim_id": "CLAIM-MACRO-GATE",
+        "source_id": "SRC-MACRO-GATE",
+        "report_id": "RPT-MACRO-GATE",
+        "signal_datetime": "2026-01-15",
+        "forecast_type": "macro_strategy",
+        "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+        "direction": "positive",
+        "horizon": {"max_days": 360, "unit": "trading_day"},
+        "metric_proxy_mapping": ["fx_rate"],
+        "claim_regime_trace": {
+            "schema_version": "claim_regime_trace_v1",
+            "as_of_date": "2026-01-15",
+            "macro": {
+                "macro.dollar": {
+                    "as_of_date": "2026-01-15",
+                    "regime_types": ["fx_usd_cycle"],
+                    "as_of_date_regime_types": [],
+                    "source_text_regime_types": ["fx_usd_cycle"],
+                    "background_only": True,
+                }
+            },
+        },
+    }
+    macro_leg = _forecast_rows_with_macro_claim_legs([macro_parent])[0]
+    forecast_rows.append(macro_parent)
+    outcome_rows.append(
+        {
+            "forecast_claim_id": "FC-MACRO-GATE",
+            "label_type": "macro_series_directional",
+            "parent_forecast_claim_id": "FC-MACRO-GATE",
+            "macro_claim_leg_id": macro_leg["macro_claim_leg_id"],
+            "benchmark_family": "DIRECT_MACRO_SERIES_FX",
+            "cost_model_id": "macro_series_no_trade_cost_v1",
+            "horizon_days": 90,
+            "effective_n_weight": 1.0,
+            "pit_valid": True,
+            "performance_value": 0.01,
+            "directional_hit": True,
+            "entry_datetime": "2026-01-16T00:00:00+00:00",
+            "exit_datetime": "2026-04-16T00:00:00+00:00",
+        }
+    )
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "aggregate_calibration_drift_count": 0,
+        "calibration_drift_rule_counts": {},
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    common_kwargs = {
+        "run_id": "RIR-TEST-MACRO-GATE",
+        "forecast_rows": forecast_rows,
+        "outcome_label_rows": outcome_rows,
+        "recipe_paper_trading_summary": _passing_recipe_paper_trading_summary(),
+        "confidence_impact_monitor": clean_monitor,
+        "markdown_coverage_summary": {
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+        },
+        "pit_leakage_audit": {"accepted": True},
+        "extraction_provenance_audit": {"accepted": True},
+        "statistical_robustness_audit": {"accepted": True},
+        "schema_validation_report": {"accepted": True},
+        "gold_review_summary": _passing_forecast_gold_review_summary(),
+        "outcome_labeling_readiness": {
+            "mapping_gap_counts": {},
+            "macro_series_label_ready_count": 1,
+            "macro_series_directional_readiness": {"data_gap_counts": {}},
+        },
+        "monitor_refresh_history_rows": [
+            {**clean_monitor, "data_vintage_hash": "sha256:" + "1" * 64},
+            {**clean_monitor, "data_vintage_hash": "sha256:" + "2" * 64},
+        ],
+        "audit_refresh_history_rows": [
+            {**accepted_audit, "data_vintage_hash": "sha256:" + "1" * 64},
+            {**accepted_audit, "data_vintage_hash": "sha256:" + "2" * 64},
+        ],
+        "gap_distribution_history_rows": [
+            {"stable": True, "data_vintage_hash": "sha256:" + "1" * 64},
+            {"stable": True, "data_vintage_hash": "sha256:" + "2" * 64},
+        ],
+    }
+
+    blocked_gate = build_report_intelligence_evolution_readiness_gate(**common_kwargs)
+    assert "RI-MACRO-03" in {
+        row["check_id"] for row in blocked_gate["checks"] if not row["passed"]
+    }
+    assert "macro_agent_prior_missing" in blocked_gate["blockers"]
+
+    macro_snapshots = build_macro_regime_snapshots([macro_leg])
+    macro_profiles = build_viewpoint_performance_profiles(
+        [macro_leg],
+        outcome_label_rows=outcome_rows,
+    )
+    macro_priors = build_macro_agent_research_priors(
+        [macro_leg],
+        viewpoint_performance_profile_rows=macro_profiles,
+        macro_regime_snapshot_rows=macro_snapshots,
+    )
+    passed_gate = build_report_intelligence_evolution_readiness_gate(
+        **common_kwargs,
+        macro_regime_snapshot_rows=macro_snapshots,
+        macro_agent_research_prior_rows=macro_priors,
+    )
+    macro_checks = {
+        row["check_id"]: row
+        for row in passed_gate["checks"]
+        if str(row["check_id"]).startswith("RI-MACRO-")
+    }
+    assert all(row["passed"] is True for row in macro_checks.values())
+    assert "macro_agent_prior_missing" not in passed_gate["blockers"]
+
+
 def _write_source(
     path: Path,
     *,
@@ -2302,6 +2850,12 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
     assert {row["macro_asset_target_id"] for row in outcome_labels} == {
         "CN_A_SHARE_BROAD"
     }
+    assert {row["series_family"] for row in outcome_labels} == {"macro_asset_proxy"}
+    assert {row["quote_convention"] for row in outcome_labels} == {"price_return"}
+    assert {row["proxy_or_direct"] for row in outcome_labels} == {"proxy"}
+    assert {tuple(row["target_agent_candidates"]) for row in outcome_labels} == {
+        ("macro.china",)
+    }
     assert {row["benchmark_symbol"] for row in outcome_labels} == {"CASH_0"}
     assert {row["benchmark_return"] for row in outcome_labels} == {0.0}
     assert {row["outcome_label_source"] for row in outcome_labels} == {
@@ -2340,6 +2894,1031 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
     assert macro_readiness["labelable_window_count"] == 3
     assert macro_readiness["data_gap_counts"] == {}
     assert macro_readiness["mapping_policy"]["crude_oil_mapping_enabled"] is False
+
+
+def test_report_intelligence_labels_macro_yield_claim_with_direct_series(
+    tmp_path: Path,
+) -> None:
+    source_id = "SRC-MACRO-YIELD"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-YIELD",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-YIELD",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_series_directional",
+            "target": {
+                "target_type": "macro_series",
+                "target_id": "US_10Y_YIELD",
+            },
+            "direction": "positive",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["bond_yield_level"],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+    macro_series_rows = [
+        {
+            "series_id": "US10Y",
+            "date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+            "value": 3.0 + index * 0.001,
+            "series_family": "yield",
+            "unit": "percent",
+            "quote_convention": "yield_level_percent",
+            "source": "fixture",
+            "data_vintage_hash": "fixture-v1",
+        }
+        for index in range(370)
+    ]
+    readiness = build_macro_series_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    assert readiness["eligible_claim_count"] == 1
+    assert readiness["labelable_window_count"] == 3
+    assert readiness["data_gap_counts"] == {}
+    labels = build_macro_series_directional_outcome_labels(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-YIELD",
+                "forecast_family_id": "FF-MACRO-YIELD",
+            }
+        ],
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    assert [row["horizon_days"] for row in labels] == [90, 180, 360]
+    assert {row["label_type"] for row in labels} == {"macro_series_directional"}
+    assert {row["target_series_id"] for row in labels} == {"US10Y"}
+    assert {row["outcome_label_source"] for row in labels} == {
+        "pit_macro_series_window"
+    }
+    assert {row["performance_value_basis"] for row in labels} == {
+        "directional_bps_change"
+    }
+    assert {row["quote_convention"] for row in labels} == {"yield_level_percent"}
+    assert all(row["directional_hit"] is True for row in labels)
+    assert labels[0]["bps_change"] == pytest.approx(9.0)
+
+    outcome_readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-YIELD",
+                "test_status": "not_ready_insufficient_mapping",
+            }
+        ],
+        macro_series_directional_readiness=readiness,
+    )
+    assert outcome_readiness["macro_series_label_ready_count"] == 1
+    assert outcome_readiness["proxy_label_ready_count"] == 1
+    assert outcome_readiness["macro_series_directional_readiness"][
+        "mapping_policy"
+    ]["etf_proxy_inversion_allowed"] is False
+
+
+def test_report_intelligence_expands_macro_claim_legs_for_direct_series_labels():
+    source_id = "SRC-MACRO-MULTI-LEG"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-MULTI-LEG",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-MULTI-LEG",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_strategy",
+            "target": {"target_type": "macro_asset", "target_id": "MULTI_ASSET"},
+            "direction": "ambiguous",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["bond_yield_level", "volatility_index"],
+            "macro_claim_legs": [
+                {
+                    "leg_index": 1,
+                    "target_type": "macro_series",
+                    "target_id": "US_10Y_YIELD",
+                    "metric_family": "bond_yield_level",
+                    "direction": "positive",
+                    "claim_horizon": {"max_days": 360, "unit": "trading_day"},
+                },
+                {
+                    "leg_index": 2,
+                    "target_type": "macro_series",
+                    "target_id": "VIX",
+                    "metric_family": "volatility_index",
+                    "direction": "negative",
+                    "claim_horizon": {"max_days": 360, "unit": "trading_day"},
+                },
+            ],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+    macro_series_rows = []
+    for index in range(370):
+        row_date = (date(2026, 1, 1) + timedelta(days=index)).isoformat()
+        macro_series_rows.extend(
+            [
+                {
+                    "series_id": "US10Y",
+                    "date": row_date,
+                    "value": 3.0 + index * 0.001,
+                    "series_family": "yield",
+                    "unit": "percent",
+                    "quote_convention": "yield_level_percent",
+                    "source": "fixture",
+                    "data_vintage_hash": "fixture-v1",
+                },
+                {
+                    "series_id": "VIX",
+                    "date": row_date,
+                    "value": 20.0 - index * 0.01,
+                    "series_family": "volatility",
+                    "unit": "index_level",
+                    "quote_convention": "volatility_index_level",
+                    "source": "fixture",
+                    "data_vintage_hash": "fixture-v1",
+                },
+            ]
+        )
+
+    labels = build_macro_series_directional_outcome_labels(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-MULTI-LEG",
+                "forecast_family_id": "FF-MACRO-MULTI-LEG",
+            }
+        ],
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    assert len(labels) == 6
+    assert {row["forecast_claim_id"] for row in labels} == {"FC-MACRO-MULTI-LEG"}
+    assert {row["parent_forecast_claim_id"] for row in labels} == {
+        "FC-MACRO-MULTI-LEG"
+    }
+    assert {row["target_series_id"] for row in labels} == {"US10Y", "VIX"}
+    assert len({row["macro_claim_leg_id"] for row in labels}) == 2
+    assert len({row["outcome_id"] for row in labels}) == 6
+    assert {row["forecast_family_id"] for row in labels} == {
+        "FF-MACRO-MULTI-LEG"
+    }
+    assert all(row["directional_hit"] is True for row in labels)
+
+    expanded_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
+    assert [row["macro_claim_leg_index"] for row in expanded_rows] == [1, 2]
+    profiles = build_viewpoint_performance_profiles(
+        expanded_rows,
+        outcome_label_rows=labels,
+    )
+    assert sorted(int(profile["n_nominal"]) for profile in profiles) == [3, 3]
+    assert {
+        tuple(profile["mechanism_chain"]) for profile in profiles
+    } == {("bond_yield_level",), ("volatility_index",)}
+
+
+def test_report_intelligence_preserves_parent_macro_curve_leg_with_series_components():
+    source_id = "SRC-MACRO-CURVE-WITH-SERIES-LEGS"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-CURVE-WITH-SERIES-LEGS",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-CURVE-WITH-SERIES-LEGS",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_series_directional",
+            "target": {
+                "target_type": "macro_curve",
+                "target_id": "US_2S10S",
+                "target_label": "US 10Y-2Y spread",
+            },
+            "direction": "positive",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["yield_curve_slope", "bond_yield_level"],
+            "macro_claim_legs": [
+                {
+                    "leg_index": 1,
+                    "target_type": "macro_series",
+                    "target_id": "US_2Y_YIELD",
+                    "metric_family": "bond_yield_level",
+                    "direction": "negative",
+                },
+                {
+                    "leg_index": 2,
+                    "target_type": "macro_series",
+                    "target_id": "US_10Y_YIELD",
+                    "metric_family": "bond_yield_level",
+                    "direction": "negative",
+                },
+            ],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+    macro_series_rows = []
+    for index in range(370):
+        row_date = (date(2026, 1, 1) + timedelta(days=index)).isoformat()
+        macro_series_rows.extend(
+            [
+                {
+                    "series_id": "US10Y",
+                    "date": row_date,
+                    "value": 4.0 + index * 0.002,
+                    "series_family": "yield",
+                    "unit": "percent",
+                    "quote_convention": "yield_level_percent",
+                    "source": "fixture",
+                    "data_vintage_hash": "fixture-v1",
+                },
+                {
+                    "series_id": "US2Y",
+                    "date": row_date,
+                    "value": 3.5 + index * 0.001,
+                    "series_family": "yield",
+                    "unit": "percent",
+                    "quote_convention": "yield_level_percent",
+                    "source": "fixture",
+                    "data_vintage_hash": "fixture-v1",
+                },
+            ]
+        )
+
+    expanded_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
+    assert [row["target"]["target_type"] for row in expanded_rows] == [
+        "macro_curve",
+        "macro_series",
+        "macro_series",
+    ]
+    assert expanded_rows[0]["forecast_type"] == "macro_curve_directional"
+    assert expanded_rows[0]["target"]["target_id"] == "US_2S10S"
+    assert [row["macro_claim_leg_index"] for row in expanded_rows] == [1, 2, 3]
+
+    labels = build_macro_curve_directional_outcome_labels(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[],
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    assert [row["horizon_days"] for row in labels] == [90, 180, 360]
+    assert {row["label_type"] for row in labels} == {"macro_curve_directional"}
+    assert {row["macro_curve_target_id"] for row in labels} == {"US_2S10S"}
+    assert {row["curve_direction"] for row in labels} == {"steepen_or_widen"}
+
+
+def test_report_intelligence_marks_macro_leg_direction_missing():
+    source_id = "SRC-MACRO-LEG-DIRECTION-MISSING"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-LEG-DIRECTION-MISSING",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-LEG-DIRECTION-MISSING",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_strategy",
+            "target": {"target_type": "macro_asset", "target_id": "MULTI_ASSET"},
+            "direction": "ambiguous",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["bond_yield_level"],
+            "macro_claim_legs": [
+                {
+                    "leg_index": 1,
+                    "target_type": "macro_series",
+                    "target_id": "US_10Y_YIELD",
+                    "metric_family": "bond_yield_level",
+                }
+            ],
+        }
+    ]
+    readiness = build_macro_series_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=[
+            {
+                "source_id": source_id,
+                "report_type": "宏观策略",
+                "publish_date": "2026-01-01",
+            }
+        ],
+        macro_series_rows=[],
+    )
+
+    assert readiness["eligible_claim_count"] == 0
+    assert readiness["data_gap_counts"] == {"leg_direction_missing": 1}
+
+
+def test_report_intelligence_loads_scorecard_macro_series_for_direct_labels(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "scorecard.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE macro_series (
+                series_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                endpoint_name TEXT,
+                instrument TEXT,
+                date TEXT NOT NULL,
+                value REAL,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume REAL,
+                metadata_json TEXT,
+                fetched_at TEXT,
+                as_of_date TEXT NOT NULL
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO macro_series (
+                series_id, source, endpoint_name, instrument, date, value,
+                open, high, low, close, volume, metadata_json, fetched_at,
+                as_of_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "US10Y",
+                    "scorecard_macro_series",
+                    "fred_or_tushare",
+                    "US Treasury 10Y",
+                    (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+                    3.0 + index * 0.001,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "2026-01-01T00:00:00+00:00",
+                    (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+                )
+                for index in range(370)
+            ],
+        )
+        conn.execute(
+            """
+            INSERT INTO macro_series (
+                series_id, source, endpoint_name, instrument, date, value,
+                open, high, low, close, volume, metadata_json, fetched_at,
+                as_of_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "VIX",
+                "scorecard_macro_series",
+                "akshare",
+                "VIX",
+                "2026-01-01",
+                20.0,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01",
+            ),
+        )
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-SCORECARD-US10Y",
+            "source_id": "SRC-MACRO-SCORECARD",
+            "report_id": "RPT-MACRO-SCORECARD",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_series_directional",
+            "target": {
+                "target_type": "macro_series",
+                "target_id": "US_10Y_YIELD",
+            },
+            "direction": "positive",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["bond_yield_level"],
+        }
+    ]
+
+    loaded_rows = load_scorecard_macro_series_rows(
+        root_path=tmp_path,
+        forecast_rows=forecast_rows,
+        scorecard_db_path=db_path,
+    )
+    assert len(loaded_rows) == 371
+    assert {row["series_id"] for row in loaded_rows} == {"US10Y", "VIX"}
+    assert all(str(row["data_vintage_hash"]).startswith("sha256:") for row in loaded_rows)
+
+    labels = build_macro_series_directional_outcome_labels(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-SCORECARD-US10Y",
+                "forecast_family_id": "FF-MACRO-SCORECARD-US10Y",
+            }
+        ],
+        metadata_rows=[
+            {
+                "source_id": "SRC-MACRO-SCORECARD",
+                "report_type": "宏观策略",
+                "publish_date": "2026-01-01",
+            }
+        ],
+        macro_series_rows=loaded_rows,
+    )
+    assert [row["horizon_days"] for row in labels] == [90, 180, 360]
+    assert {row["target_series_id"] for row in labels} == {"US10Y"}
+    assert labels[0]["bps_change"] == pytest.approx(9.0)
+    assert str(labels[0]["data_vintage_hash"]).startswith("sha256:")
+
+
+def test_macro_series_backfill_writes_dataflow_rows_to_scorecard(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "scorecard.db"
+
+    def fake_tushare_macro_series(series_id, *, start_date, end_date):
+        assert series_id == "DGS10"
+        assert start_date == "2026-01-01"
+        assert end_date == "2026-01-03"
+        return (
+            "# Tushare macro series\n"
+            "# Source: fixture\n"
+            "date,value\n"
+            "2026-01-01,3.01\n"
+            "2026-01-02,3.02\n"
+            "2026-01-03,3.03\n"
+        )
+
+    result = backfill_macro_series(
+        start_date="2026-01-01",
+        end_date="2026-01-03",
+        series_ids=("US10Y",),
+        db_path=db_path,
+        fetchers={"tushare_macro_series": fake_tushare_macro_series},
+    )
+
+    assert result["accepted"] is True
+    assert result["inserted_rows"] == 3
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "select series_id, date, value, source, endpoint_name, as_of_date "
+            "from macro_series order by date"
+        ).fetchall()
+    assert rows == [
+        ("US10Y", "2026-01-01", 3.01, "tushare", "us_tycr", "2026-01-01"),
+        ("US10Y", "2026-01-02", 3.02, "tushare", "us_tycr", "2026-01-02"),
+        ("US10Y", "2026-01-03", 3.03, "tushare", "us_tycr", "2026-01-03"),
+    ]
+
+
+@pytest.mark.parametrize(
+    (
+        "target_id",
+        "series_id",
+        "metric_family",
+        "direction",
+        "base_value",
+        "step_value",
+        "expected_basis",
+        "expected_family",
+    ),
+    [
+        (
+            "USDCNY",
+            "USDCNY",
+            "fx_rate",
+            "positive",
+            7.0,
+            0.001,
+            "directional_fx_change",
+            "fx",
+        ),
+        (
+            "VIX",
+            "VIX",
+            "volatility_index",
+            "negative",
+            20.0,
+            -0.01,
+            "directional_volatility_change",
+            "volatility",
+        ),
+        (
+            "COPPER",
+            "COPPER",
+            "commodity_price",
+            "positive",
+            100.0,
+            1.0,
+            "directional_price_return",
+            "commodity",
+        ),
+    ],
+)
+def test_report_intelligence_labels_macro_direct_series_families(
+    target_id: str,
+    series_id: str,
+    metric_family: str,
+    direction: str,
+    base_value: float,
+    step_value: float,
+    expected_basis: str,
+    expected_family: str,
+) -> None:
+    source_id = f"SRC-{target_id}"
+    forecast_rows = [
+        {
+            "forecast_claim_id": f"FC-{target_id}",
+            "source_id": source_id,
+            "report_id": f"RPT-{target_id}",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_series_directional",
+            "target": {
+                "target_type": "macro_series",
+                "target_id": target_id,
+            },
+            "direction": direction,
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": [metric_family],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+    macro_series_rows = [
+        {
+            "series_id": series_id,
+            "date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+            "value": base_value + index * step_value,
+            "series_family": expected_family,
+            "unit": "price" if expected_family == "commodity" else "index_level",
+            "quote_convention": f"{series_id}_test_quote",
+            "source": "fixture",
+            "data_vintage_hash": "fixture-v1",
+        }
+        for index in range(370)
+    ]
+    labels = build_macro_series_directional_outcome_labels(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": f"FC-{target_id}",
+                "forecast_family_id": "FF-MACRO-DIRECT-SERIES",
+            }
+        ],
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    assert [row["horizon_days"] for row in labels] == [90, 180, 360]
+    assert {row["series_family"] for row in labels} == {expected_family}
+    assert {row["performance_value_basis"] for row in labels} == {expected_basis}
+    assert {row["forecast_family_id"] for row in labels} == {
+        "FF-MACRO-DIRECT-SERIES"
+    }
+    assert all(row["performance_value"] > 0 for row in labels)
+    assert all(row["directional_hit"] is True for row in labels)
+
+
+def test_statistical_audit_accepts_direct_macro_series_and_curve_labels():
+    feature_flags = {
+        "rollout_mode": "shadow_tooling",
+        "flags": {"production_use_of_weighted_reports": False},
+    }
+    forecast_ledger_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-SERIES",
+            "forecast_family_id": "FF-MACRO-SERIES",
+            "dedup_cluster_id": "DEDUP-MACRO-SERIES",
+            "consensus_cluster_id": "CONS-MACRO-SERIES",
+            "copying_risk_bucket": "unknown",
+            "independent_viewpoint_count": None,
+        },
+        {
+            "forecast_claim_id": "FC-MACRO-CURVE",
+            "forecast_family_id": "FF-MACRO-CURVE",
+            "dedup_cluster_id": "DEDUP-MACRO-CURVE",
+            "consensus_cluster_id": "CONS-MACRO-CURVE",
+            "copying_risk_bucket": "unknown",
+            "independent_viewpoint_count": None,
+        },
+    ]
+    temporal_summary = {
+        "window_evidence_policy": "do_not_collapse_multi_window_outcome_to_single_label"
+    }
+    outcome_label_rows = [
+        {
+            "outcome_id": "OUT-MACRO-SERIES",
+            "forecast_claim_id": "FC-MACRO-SERIES",
+            "forecast_family_id": "FF-MACRO-SERIES",
+            "claim_window_set_id": "WSET-MACRO-SERIES",
+            "overlap_group_id": "OVL-MACRO-SERIES",
+            "label_type": "macro_series_directional",
+            "target_series_id": "GOLD_SPOT",
+            "mapping_id": "MSER-MAP-GOLD",
+            "benchmark_symbol": "GOLD_SPOT",
+            "benchmark_return": 0.0,
+            "entry_datetime": "2026-01-02T00:00:00+00:00",
+            "exit_datetime": "2026-04-02T00:00:00+00:00",
+            "horizon_days": 90,
+            "effective_n_weight": 1.0,
+            "after_cost_alpha": 0.12,
+            "performance_value": 0.12,
+            "directional_change": 0.12,
+            "performance_value_basis": "directional_price_return",
+            "directional_hit": True,
+            "direction_evaluated": "positive",
+            "decision_basis": "directional_macro_series_change",
+            "outcome_label_source": "pit_macro_series_window",
+            "llm_outcome_labeling_allowed": False,
+            "evaluation_policy": "macro_series_t_plus_1_multi_window_direct_pit_series",
+            "window_role": "short",
+            "temporal_validation_summary": temporal_summary,
+        },
+        {
+            "outcome_id": "OUT-MACRO-CURVE",
+            "forecast_claim_id": "FC-MACRO-CURVE",
+            "forecast_family_id": "FF-MACRO-CURVE",
+            "claim_window_set_id": "WSET-MACRO-CURVE",
+            "overlap_group_id": "OVL-MACRO-CURVE",
+            "label_type": "macro_curve_directional",
+            "macro_curve_target_id": "US_2S10S",
+            "mapping_id": "MCURVE-MAP-US2S10S",
+            "benchmark_symbol": "US_2S10S",
+            "benchmark_return": 0.0,
+            "entry_datetime": "2026-01-02T00:00:00+00:00",
+            "exit_datetime": "2026-04-02T00:00:00+00:00",
+            "horizon_days": 90,
+            "effective_n_weight": 1.0,
+            "after_cost_alpha": 15.0,
+            "performance_value": 15.0,
+            "directional_change": 15.0,
+            "performance_value_basis": "directional_curve_bps_change",
+            "directional_hit": True,
+            "direction_evaluated": "positive",
+            "decision_basis": "directional_macro_curve_spread_change",
+            "outcome_label_source": "pit_macro_curve_window",
+            "llm_outcome_labeling_allowed": False,
+            "evaluation_policy": "macro_curve_t_plus_1_multi_window_direct_pit_spread",
+            "window_role": "short",
+            "temporal_validation_summary": temporal_summary,
+        },
+    ]
+
+    audit = build_report_intelligence_statistical_robustness_audit(
+        run_id="TEST-RUN",
+        feature_flags=feature_flags,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        source_performance_profile_rows=[],
+        viewpoint_performance_profile_rows=[],
+        method_performance_profile_rows=[],
+        weighted_research_context_rows=[],
+    )
+
+    assert audit["accepted"] is True
+    assert audit["blocker_count"] == 0
+    stat01 = next(row for row in audit["checks"] if row["check_id"] == "RI-STAT-01")
+    assert stat01["evidence"]["macro_series_directional_label_rows"] == 1
+    assert stat01["evidence"]["macro_curve_directional_label_rows"] == 1
+
+
+def test_provenance_audit_treats_direct_macro_labels_as_governed_channels():
+    audit = build_report_intelligence_extraction_provenance_audit(
+        run_id="TEST-RUN",
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-SERIES",
+                "claim_provenance": "source_grounded",
+                "source_span_ids": ["SPAN-1"],
+                "forecast_testability": "insufficient_mapping",
+                "forecast_type": "macro_series_directional",
+                "target": {
+                    "target_type": "macro_series",
+                    "target_id": "GOLD_SPOT",
+                },
+                "direction": "positive",
+                "horizon": {"max_days": 360},
+                "extraction_quality": {"mapping_gaps": ["benchmark"]},
+            }
+        ],
+        footprint_rows=[],
+        metric_rows=[],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-SERIES",
+                "test_status": "not_ready_insufficient_mapping",
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-SERIES",
+                "label_type": "macro_series_directional",
+                "outcome_label_source": "pit_macro_series_window",
+                "decision_basis": "directional_macro_series_change",
+                "llm_outcome_labeling_allowed": False,
+            }
+        ],
+        outcome_labeling_readiness={
+            "ready_for_outcome_labeling_count": 0,
+            "standard_blocked_count": 1,
+            "blocked_count": 0,
+            "proxy_label_pending_only_forecast_claim_ids": [],
+        },
+    )
+
+    by_id = {row["check_id"]: row for row in audit["checks"]}
+    assert audit["accepted"] is True
+    assert by_id["RI-PROV-04"]["evidence"]["unlabelable_forecast_count"] == 0
+    assert (
+        by_id["RI-PROV-04"]["evidence"][
+            "macro_series_directional_outcome_claim_count"
+        ]
+        == 1
+    )
+
+
+def test_report_intelligence_maps_legacy_commodity_target_to_direct_series() -> None:
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-GOLD-LEGACY",
+            "source_id": "SRC-MACRO-GOLD-LEGACY",
+            "report_id": "RPT-MACRO-GOLD-LEGACY",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_asset_proxy",
+            "target": {
+                "target_type": "commodity",
+                "target_id": "GOLD",
+            },
+            "direction": "positive",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["commodity_spot_price"],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": "SRC-MACRO-GOLD-LEGACY",
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+    macro_series_rows = [
+        {
+            "series_id": "GOLD_SPOT",
+            "date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(),
+            "value": 100.0 + index,
+            "series_family": "commodity",
+            "unit": "price",
+            "quote_convention": "spot_price",
+            "source": "fixture",
+            "data_vintage_hash": "fixture-v1",
+        }
+        for index in range(370)
+    ]
+
+    readiness = build_macro_series_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    labels = build_macro_series_directional_outcome_labels(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[],
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+
+    assert readiness["eligible_claim_count"] == 1
+    assert readiness["labelable_window_count"] == 3
+    assert {row["label_type"] for row in labels} == {"macro_series_directional"}
+    assert {row["target_series_id"] for row in labels} == {"GOLD_SPOT"}
+    assert {row["series_family"] for row in labels} == {"commodity"}
+    assert all(row["directional_hit"] is True for row in labels)
+
+
+def test_report_intelligence_labels_macro_curve_claim_with_direct_spread() -> None:
+    source_id = "SRC-MACRO-CURVE"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-CURVE",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-CURVE",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_curve_directional",
+            "target": {
+                "target_type": "macro_curve",
+                "target_id": "US_2S10S",
+            },
+            "direction": "positive",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["yield_curve_slope"],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+    macro_series_rows = []
+    for index in range(370):
+        row_date = (date(2026, 1, 1) + timedelta(days=index)).isoformat()
+        macro_series_rows.extend(
+            [
+                {
+                    "series_id": "US10Y",
+                    "date": row_date,
+                    "value": 4.0 + index * 0.002,
+                    "series_family": "yield",
+                    "unit": "percent",
+                    "quote_convention": "yield_level_percent",
+                    "source": "fixture",
+                    "data_vintage_hash": "fixture-v1",
+                },
+                {
+                    "series_id": "US2Y",
+                    "date": row_date,
+                    "value": 3.5 + index * 0.001,
+                    "series_family": "yield",
+                    "unit": "percent",
+                    "quote_convention": "yield_level_percent",
+                    "source": "fixture",
+                    "data_vintage_hash": "fixture-v1",
+                },
+            ]
+        )
+    readiness = build_macro_curve_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    assert readiness["eligible_claim_count"] == 1
+    assert readiness["labelable_window_count"] == 3
+    assert readiness["data_gap_counts"] == {}
+    labels = build_macro_curve_directional_outcome_labels(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-CURVE",
+                "forecast_family_id": "FF-MACRO-CURVE-PARENT",
+            }
+        ],
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    assert [row["horizon_days"] for row in labels] == [90, 180, 360]
+    assert {row["label_type"] for row in labels} == {"macro_curve_directional"}
+    assert {row["macro_curve_target_id"] for row in labels} == {"US_2S10S"}
+    assert {row["long_leg_series_id"] for row in labels} == {"US10Y"}
+    assert {row["short_leg_series_id"] for row in labels} == {"US2Y"}
+    assert {row["outcome_label_source"] for row in labels} == {
+        "pit_macro_curve_window"
+    }
+    assert {row["performance_value_basis"] for row in labels} == {
+        "directional_curve_bps_change"
+    }
+    assert {row["forecast_family_id"] for row in labels} == {
+        "FF-MACRO-CURVE-PARENT"
+    }
+    assert {row["curve_direction"] for row in labels} == {"steepen_or_widen"}
+    assert labels[0]["entry_spread_bps"] == pytest.approx(50.1)
+    assert labels[0]["exit_spread_bps"] == pytest.approx(59.1)
+    assert labels[0]["spread_change_bps"] == pytest.approx(9.0)
+    assert all(row["directional_hit"] is True for row in labels)
+
+
+def test_report_intelligence_does_not_invert_bond_etf_for_yield_claim(
+    tmp_path: Path,
+) -> None:
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir, long_calendar=True)
+    source_id = "SRC-MACRO-YIELD-NO-ETF"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-YIELD-NO-ETF",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-YIELD-NO-ETF",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_yield_level",
+            "target": {
+                "target_type": "macro_asset",
+                "target_id": "CN_BOND",
+            },
+            "direction": "negative",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": ["bond_yield_level"],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+
+    labels = build_macro_asset_proxy_outcome_labels(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[],
+        metadata_rows=metadata_rows,
+    )
+    assert labels == []
+    readiness = build_macro_asset_proxy_readiness(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    assert readiness["eligible_claim_count"] == 0
+    assert readiness["data_gap_counts"] == {
+        "direct_series_required_proxy_not_allowed": 1
+    }
+
+
+def test_report_intelligence_keeps_macro_asset_proxy_when_rate_is_mechanism(
+    tmp_path: Path,
+) -> None:
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir, long_calendar=True)
+    dates = (qlib_etf_dir / "calendars/day.txt").read_text(encoding="utf-8").splitlines()
+    _write_qlib_series(
+        qlib_etf_dir,
+        "SH513500",
+        [1.00 + index * 0.002 for index in range(len(dates))],
+    )
+    source_id = "SRC-MACRO-ASSET-RATE-MECHANISM"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-ASSET-RATE-MECHANISM",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-ASSET-RATE-MECHANISM",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "macro_asset_forward_return",
+            "target": {
+                "target_type": "macro_asset",
+                "target_id": "US_EQUITY_SP500",
+            },
+            "direction": "positive",
+            "horizon": {"max_days": 360, "unit": "trading_day"},
+            "metric_proxy_mapping": [
+                "equity_index_forward_return",
+                "bond_yield_level",
+            ],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+        }
+    ]
+
+    readiness = build_macro_asset_proxy_readiness(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    labels = build_macro_asset_proxy_outcome_labels(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-MACRO-ASSET-RATE-MECHANISM",
+                "forecast_family_id": "FF-MACRO-ASSET-RATE-MECHANISM",
+            }
+        ],
+        metadata_rows=metadata_rows,
+    )
+
+    assert readiness["eligible_claim_count"] == 1
+    assert readiness["data_gap_counts"] == {}
+    assert [row["horizon_days"] for row in labels] == [90, 180, 360]
+    assert {row["proxy_symbol"] for row in labels} == {"SH513500"}
 
 
 def _fake_llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
@@ -10838,11 +12417,24 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert "--require-cached-markdown" in help_text
     assert "--vllm-timeout-seconds" in help_text
     assert "--max-llm-output-tokens" in help_text
+    assert "--scorecard-db-path" in help_text
     assert "--progress-jsonl" in help_text
     assert "stratified" in help_text
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
     assert ReportIntelligenceConfig().vllm_timeout_seconds == DEFAULT_VLLM_TIMEOUT_SECONDS
     assert ReportIntelligenceConfig().vllm_timeout_seconds >= 7200
+
+
+def test_macro_series_backfill_cli_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(("macro-series-backfill", "--help"))
+
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--start-date" in help_text
+    assert "--end-date" in help_text
+    assert "--series-id" in help_text
+    assert "--scorecard-db-path" in help_text
 
 
 def test_report_intelligence_progress_jsonl_is_redacted(
@@ -14366,10 +15958,10 @@ def test_report_intelligence_retires_tool_gaps_with_existing_coverage():
     assert build_tool_design_proposals(rows) == []
 
 
-def test_report_intelligence_defaults_to_hybrid_mineru_backend():
+def test_report_intelligence_defaults_to_vlm_mineru_backend():
     config = ReportIntelligenceConfig()
 
-    assert config.mineru_backend == "hybrid-auto-engine"
+    assert config.mineru_backend == DEFAULT_MINERU_BACKEND == "vlm-auto-engine"
     assert "{backend}" in DEFAULT_MINERU_ARGS_TEMPLATE
 
 
@@ -14394,6 +15986,7 @@ def test_mineru_batch_conversion_uses_directory_input(tmp_path: Path, monkeypatc
                 "from pathlib import Path",
                 "assert os.environ.get('MINERU_TABLE_ENABLE') == 'true'",
                 "assert os.environ.get('MINERU_FORMULA_ENABLE') == 'true'",
+                "assert os.environ.get('MINERU_BACKEND') == 'vlm-vllm-engine'",
                 "assert os.environ.get('HF_HUB_OFFLINE') == '1'",
                 "assert os.environ.get('TRANSFORMERS_OFFLINE') == '1'",
                 "args = sys.argv[1:]",
@@ -14689,6 +16282,86 @@ def test_merge_report_intelligence_batch_outputs_can_replace_existing_registry(
     assert result["row_counts"]["report_metadata.jsonl"] == 1
     assert _read_jsonl(registry / "report_metadata.jsonl") == [
         {"report_id": "RPT-1", "source_id": "SRC-1"}
+    ]
+
+
+def test_merge_report_intelligence_batch_outputs_can_replace_source_ids(
+    tmp_path: Path,
+):
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    (registry / "report_metadata.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"report_id": "RPT-0", "source_id": "SRC-0"}),
+                json.dumps({"report_id": "RPT-OLD", "source_id": "SRC-REPLACE"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (registry / "forecast_claims.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"forecast_claim_id": "FC-KEEP", "source_id": "SRC-0"}),
+                json.dumps(
+                    {
+                        "forecast_claim_id": "FC-OLD",
+                        "source_id": "SRC-REPLACE",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (registry / "report_outcome_labels.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"outcome_label_id": "OL-KEEP", "forecast_claim_id": "FC-KEEP"}),
+                json.dumps({"outcome_label_id": "OL-OLD", "forecast_claim_id": "FC-OLD"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "report_metadata.jsonl").write_text(
+        json.dumps({"report_id": "RPT-NEW", "source_id": "SRC-REPLACE"}) + "\n",
+        encoding="utf-8",
+    )
+    (batch / "forecast_claims.jsonl").write_text(
+        json.dumps({"forecast_claim_id": "FC-NEW", "source_id": "SRC-REPLACE"}) + "\n",
+        encoding="utf-8",
+    )
+    (batch / "report_outcome_labels.jsonl").write_text(
+        json.dumps({"outcome_label_id": "OL-NEW", "forecast_claim_id": "FC-NEW"}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = merge_report_intelligence_batch_outputs(
+        root=tmp_path,
+        input_dirs=(batch,),
+        replace_source_ids=True,
+    )
+
+    assert result["blocker_count"] == 0
+    assert result["include_existing_registry"] is True
+    assert result["replace_source_ids"] is True
+    assert result["replacement_source_id_count"] == 1
+    assert result["replacement_forecast_claim_id_count"] == 1
+    assert _read_jsonl(registry / "report_metadata.jsonl") == [
+        {"report_id": "RPT-0", "source_id": "SRC-0"},
+        {"report_id": "RPT-NEW", "source_id": "SRC-REPLACE"},
+    ]
+    assert _read_jsonl(registry / "forecast_claims.jsonl") == [
+        {"forecast_claim_id": "FC-KEEP", "source_id": "SRC-0"},
+        {"forecast_claim_id": "FC-NEW", "source_id": "SRC-REPLACE"},
+    ]
+    assert _read_jsonl(registry / "report_outcome_labels.jsonl") == [
+        {"outcome_label_id": "OL-KEEP", "forecast_claim_id": "FC-KEEP"},
+        {"outcome_label_id": "OL-NEW", "forecast_claim_id": "FC-NEW"},
     ]
 
 

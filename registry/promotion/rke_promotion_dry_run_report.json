@@ -26,13 +26,15 @@
       "review_kind": "gold_set"
     },
     {
-      "accepted": true,
+      "accepted": false,
       "applied": false,
-      "blockers": [],
-      "changed_rows": 0,
+      "blockers": [
+        "footprint_review input not provided"
+      ],
+      "changed_rows": null,
       "input_path": "",
       "provided": false,
-      "result": "already_applied",
+      "result": "not_provided",
       "review_kind": "footprint_review"
     },
     {

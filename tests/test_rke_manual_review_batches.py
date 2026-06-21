@@ -1061,15 +1061,19 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert payload["promotion_dry_run"]["accepted"] is False
     assert payload["promotion_dry_run"]["production_allowed_after_simulation"] is False
     assert payload["promotion_dry_run"]["provided_steps"] == []
-    assert payload["promotion_dry_run"]["accepted_steps"] == ["source_license"]
-    assert set(payload["promotion_dry_run"]["rejected_steps"]) == {
+    assert payload["promotion_dry_run"]["accepted_steps"] == [
         "gold_set",
+        "source_license",
+    ]
+    assert set(payload["promotion_dry_run"]["rejected_steps"]) == {
         "footprint_review",
         "lockbox",
     }
-    assert payload["promotion_dry_run"]["already_applied_steps"] == ["source_license"]
-    assert set(payload["promotion_dry_run"]["missing_steps"]) == {
+    assert payload["promotion_dry_run"]["already_applied_steps"] == [
         "gold_set",
+        "source_license",
+    ]
+    assert set(payload["promotion_dry_run"]["missing_steps"]) == {
         "footprint_review",
         "lockbox",
     }

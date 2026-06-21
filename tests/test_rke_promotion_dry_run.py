@@ -176,7 +176,7 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
 
     assert report.accepted
     assert report.mutated_original_registry is False
-    assert report.before_next_state == "paper_trading"
+    assert report.before_next_state == "staged_production"
     assert report.after_next_state == "production"
     assert report.staged_production_allowed_after_simulation is True
     assert report.production_allowed_after_simulation is True
@@ -198,8 +198,8 @@ def test_promotion_dry_run_reports_missing_inputs():
     assert not report.production_allowed_after_simulation
     assert set(steps) == {"gold_set", "footprint_review", "source_license", "lockbox"}
     assert all(not step.provided for step in report.steps)
-    assert steps["gold_set"].result == "not_provided"
-    assert not steps["gold_set"].accepted
+    assert steps["gold_set"].result == "already_applied"
+    assert steps["gold_set"].accepted
     assert steps["footprint_review"].result == "not_provided"
     assert steps["source_license"].result == "already_applied"
     assert steps["source_license"].accepted

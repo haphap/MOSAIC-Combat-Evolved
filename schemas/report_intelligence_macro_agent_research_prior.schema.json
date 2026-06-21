@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Macro Agent Research Prior",
+  "type": "object",
+  "required": [
+    "prior_id",
+    "schema_version",
+    "agent_id",
+    "as_of_date",
+    "viewpoint_profile_id",
+    "viewpoint_cluster_id",
+    "mechanism_chain",
+    "metric_families",
+    "regime_snapshot_id",
+    "regime_bucket",
+    "rating_bucket",
+    "rating_source",
+    "n_effective",
+    "statistical_reliability_bucket",
+    "shrunk_performance_bucket",
+    "viewpoint_weight_multiplier",
+    "known_failure_mode_count",
+    "current_data_required",
+    "research_only",
+    "production_signal_allowed",
+    "use_policy",
+    "source_policy",
+    "private_text_included"
+  ],
+  "properties": {
+    "prior_id": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "macro_agent_research_prior_v1"},
+    "agent_id": {"type": "string", "pattern": "^macro\\."},
+    "as_of_date": {"type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$"},
+    "viewpoint_profile_id": {"type": "string", "minLength": 1},
+    "viewpoint_cluster_id": {"type": "string", "minLength": 1},
+    "macro_claim_leg_ids_redacted": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "mechanism_chain": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "metric_families": {"type": "array", "items": {"type": "string"}},
+    "metric_family": {"type": "string"},
+    "target_series_family": {"type": "string"},
+    "expected_direction": {
+      "enum": ["positive", "negative", "mixed", "unknown"]
+    },
+    "regime_snapshot_id": {"type": "string"},
+    "regime_bucket": {"type": "string", "minLength": 1},
+    "rating_bucket": {
+      "enum": [
+        "supportive_evidence",
+        "contradictory_evidence",
+        "mixed_evidence",
+        "pending_insufficient_market_feedback"
+      ]
+    },
+    "rating_source": {"const": "non_llm_viewpoint_performance_profile"},
+    "n_effective": {"type": "number", "minimum": 0},
+    "statistical_reliability_bucket": {"type": "string", "minLength": 1},
+    "shrunk_performance_bucket": {"type": "string", "minLength": 1},
+    "shrunk_hit_rate": {"type": ["number", "null"]},
+    "shrunk_performance_value": {"type": ["number", "null"]},
+    "latest_completed_exit_date": {
+      "type": "string",
+      "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "freshness_bucket": {"type": "string"},
+    "viewpoint_weight_multiplier": {"type": "number"},
+    "outcome_layer_support": {"type": "object"},
+    "known_failure_mode_count": {"type": "integer", "minimum": 0},
+    "known_failure_mode_tags": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "tool_gap_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "current_data_required": {"const": true},
+    "research_only": {"const": true},
+    "production_signal_allowed": {"const": false},
+    "use_policy": {"const": "shadow_research_prior_only_not_current_signal"},
+    "source_policy": {"const": "public_safe_aggregate_no_source_prose"},
+    "private_text_included": {"const": false}
+  },
+  "additionalProperties": false
+}

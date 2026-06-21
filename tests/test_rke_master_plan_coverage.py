@@ -27,25 +27,23 @@ def test_master_plan_coverage_reports_current_registry_ready():
     assert report.blocked_count == 1
     assert report.mvp_deliverables_section == "16.3"
     assert report.mvp_exit_criteria_section == "16.4"
-    assert report.mvp_deliverables_passed_count == 9
-    assert report.mvp_deliverables_blocked_count == 1
+    assert report.mvp_deliverables_passed_count == 10
+    assert report.mvp_deliverables_blocked_count == 0
     assert report.mvp_deliverables_missing_count == 0
-    assert not report.mvp_deliverables_ready
-    assert report.mvp_exit_passed_count == 12
-    assert report.mvp_exit_blocked_count == 1
+    assert report.mvp_deliverables_ready
+    assert report.mvp_exit_passed_count == 13
+    assert report.mvp_exit_blocked_count == 0
     assert report.mvp_exit_missing_count == 0
-    assert not report.mvp_exit_ready
+    assert report.mvp_exit_ready
     assert report.final_acceptance_section == "22"
-    assert report.final_acceptance_passed_count == 11
-    assert report.final_acceptance_blocked_count == 1
+    assert report.final_acceptance_passed_count == 12
+    assert report.final_acceptance_blocked_count == 0
     assert report.final_acceptance_missing_count == 0
-    assert not report.final_acceptance_ready
+    assert report.final_acceptance_ready
     phase_1b = next(
         record for record in report.records if record.section_id == "Phase-1B"
     )
     assert phase_1b.status == "blocked"
-    assert "horizon_accuracy below 0.85" in phase_1b.blocker
-    assert "variable_mapping_accuracy below 0.80" in phase_1b.blocker
     assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
     assert "blocked phases: B, D" in phase_1b.blocker
     assert all(
@@ -53,46 +51,15 @@ def test_master_plan_coverage_reports_current_registry_ready():
         for record in report.records
         if record.section_id != "Phase-1B"
     )
-    assert all(
-        record.status == "passed"
-        for record in report.mvp_deliverable_records
-        if record.section_id != "MVP-D2"
-    )
-    mvp_d2 = next(
-        record
-        for record in report.mvp_deliverable_records
-        if record.section_id == "MVP-D2"
-    )
-    assert mvp_d2.status == "blocked"
-    assert "horizon_accuracy below 0.85" in mvp_d2.blocker
+    assert all(record.status == "passed" for record in report.mvp_deliverable_records)
     mvp_d3 = next(
         record
         for record in report.mvp_deliverable_records
         if record.section_id == "MVP-D3"
     )
     assert mvp_d3.status == "passed"
-    assert all(
-        record.status == "passed"
-        for record in report.mvp_exit_records
-        if record.section_id != "MVP-E01"
-    )
-    assert (
-        next(record for record in report.mvp_exit_records if record.section_id == "MVP-E01").status
-        == "blocked"
-    )
-    assert all(
-        record.status == "passed"
-        for record in report.final_acceptance_records
-        if record.section_id != "FinalAcceptance-C02"
-    )
-    assert (
-        next(
-            record
-            for record in report.final_acceptance_records
-            if record.section_id == "FinalAcceptance-C02"
-        ).status
-        == "blocked"
-    )
+    assert all(record.status == "passed" for record in report.mvp_exit_records)
+    assert all(record.status == "passed" for record in report.final_acceptance_records)
     assert all(
         record.evidence_paths == ("registry/audits/rke_completion_audit.json",)
         for record in report.final_acceptance_records

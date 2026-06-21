@@ -211,9 +211,9 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 
 ### RI-FOOTPRINT-REVIEW footprint_review
 
-- Passed: true
-- Blocker: analytical-footprint review still required
-- Evidence: 2446 / 2446 analytical footprints reviewed
+- Passed: false
+- Blocker: 259 analytical footprint review rows still pending
+- Evidence: 2329 / 2588 analytical footprints reviewed
 - Review packet: registry/report_intelligence/analytical_footprint_review_template.jsonl
 - Review workbook: registry/report_intelligence/analytical_footprint_review_workbook.md
 - Import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
@@ -221,11 +221,11 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 - Policy template: none
 - Reviewed policy/input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
 - Prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
-- Pending rows: 0
-- Exported rows: 2446
+- Pending rows: 259
+- Exported rows: 2588
 - Review aids: policy: private_review_aids_only_not_import_files; fill_import_path: registry/report_intelligence/analytical_footprint_review_batch.jsonl; promotion_import_path: registry/report_intelligence/analytical_footprint_reviewed.jsonl; assist_jsonl: registry/report_intelligence/analytical_footprint_review_assist.jsonl; assist_workbook_markdown: registry/report_intelligence/analytical_footprint_review_workbook.md; evidence_jsonl: registry/report_intelligence/analytical_footprint_review_evidence.jsonl; evidence_markdown: registry/report_intelligence/analytical_footprint_review_evidence.md
 - Field contract: policy: human_decisions_only_preserve_ids_hashes_and_context_refs; required_fields: footprint_correct, source_span_supports_footprint, metric_mapping_correct, inferred_steps_tagged_correctly, unknowns_used_when_uncertain, no_proprietary_text_leakage, reviewer, review_date, review_notes; optional_fields: none; boolean_fields: footprint_correct, source_span_supports_footprint, metric_mapping_correct, inferred_steps_tagged_correctly, unknowns_used_when_uncertain, no_proprietary_text_leakage; boolean_allowed_values: true, false; date_fields: review_date=YYYY-MM-DD; text_fields: reviewer, review_date, review_notes; preserve_fields: footprint_id, target_row_hash, review_context_ref, target_review_path
-- Batch overview: batch_count: 0; pending_rows: 0; rerun_review_progress_after_batch_apply: false
+- Batch overview: batch_count: 6; pending_rows: 259; current_batch_path: registry/report_intelligence/analytical_footprint_review_batch.jsonl; current_batch_rows: 0; current_batch_pending_rows: 0; current_batch_target_covered_rows: 0; remaining_rows_after_current_batch: 259; current_batch_evidence_aligned: false; current_batch_target_aligned: false; next_batch_offset: 0; next_batch_limit: 50; remaining_rows_after_next_batch: 209; rerun_review_progress_after_batch_apply: true; workload_field_count: 6; workload_manual_review_required_cells: 0; workload_draft_decision_available_cells: 12
 - Dry run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
 - Apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
 - Note: Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying. For batch work, prepare registry/report_intelligence/analytical_footprint_review_batch.jsonl with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress.
@@ -275,3 +275,4 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 ## Remaining Blockers
 
 - lockbox has not been opened
+- 259 analytical footprint review rows still pending

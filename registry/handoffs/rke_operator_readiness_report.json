@@ -35,7 +35,7 @@
     {
       "blocker": "",
       "check_id": "manual_batch_promotion_inputs_separated",
-      "evidence": "gates=2, batches=0, failures=0",
+      "evidence": "gates=2, batches=6, failures=0",
       "passed": true
     },
     {
@@ -71,7 +71,7 @@
     {
       "blocker": "",
       "check_id": "lockbox_upstream_cli_guard_enforced",
-      "evidence": "pending=none; ready=gold_set,footprint_review,source_license; blockers=0",
+      "evidence": "pending=footprint_review; ready=gold_set,source_license; blockers=1",
       "passed": true
     },
     {

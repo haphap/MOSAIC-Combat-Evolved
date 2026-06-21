@@ -26,24 +26,24 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-21T09:47:17+00:00",
+  "as_of_datetime": "2026-06-21T16:36:21+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
-    "alpha_decay_fail_count": 110,
-    "alpha_decay_watch_count": 9,
-    "calibration_drift_count": 11,
-    "confidence_alpha_correlation": 0.02793889,
+    "alpha_decay_fail_count": 113,
+    "alpha_decay_watch_count": 14,
+    "calibration_drift_count": 13,
+    "confidence_alpha_correlation": 0.35183667,
     "confidence_alpha_correlation_status": "non_negative",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
-    "observation_count": 5774,
-    "paper_trading_validated_recipe_count": 28,
+    "observation_count": 6482,
+    "paper_trading_validated_recipe_count": 42,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "freeze_recipe": 110,
-      "keep_shadow": 5644,
-      "reduce_confidence_impact": 9,
-      "send_to_manual_review": 11
+      "freeze_recipe": 113,
+      "keep_shadow": 6342,
+      "reduce_confidence_impact": 14,
+      "send_to_manual_review": 13
     },
     "regime_fragile_alpha_count": 0,
     "unvalidated_confidence_impact_count": 0
@@ -51,16 +51,16 @@
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {
-    "forecast_claim_rows": 963,
-    "metadata_rows": 863,
-    "outcome_label_rows": 2288
+    "forecast_claim_rows": 999,
+    "metadata_rows": 890,
+    "outcome_label_rows": 2375
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
     "effective_n_by_method": {
       "max_effective_n": 0.0,
       "nonzero_effective_n_count": 0,
-      "profile_count": 5774,
+      "profile_count": 6482,
       "top_profiles": [
         {
           "bucket": "",
@@ -125,10 +125,16 @@
       ]
     },
     "effective_n_by_source": {
-      "max_effective_n": 11.0,
-      "nonzero_effective_n_count": 1236,
+      "max_effective_n": 11.333332,
+      "nonzero_effective_n_count": 1241,
       "profile_count": 1789,
       "top_profiles": [
+        {
+          "bucket": "positive_medium_effective_n",
+          "id": "SPP-6924fe41732ecf2e",
+          "insufficient_data": false,
+          "n_effective": 11.333332
+        },
         {
           "bucket": "positive_medium_effective_n",
           "id": "SPP-4db7f22514e9a718",
@@ -154,6 +160,12 @@
           "n_effective": 9.0
         },
         {
+          "bucket": "negative_low_effective_n",
+          "id": "SPP-f6dddfb535976156",
+          "insufficient_data": false,
+          "n_effective": 8.999998
+        },
+        {
           "bucket": "neutral_low_effective_n",
           "id": "SPP-71ffba60d65670b3",
           "insufficient_data": false,
@@ -173,28 +185,16 @@
         },
         {
           "bucket": "positive_low_effective_n",
-          "id": "SPP-4da523c0e077f5b7",
+          "id": "SPP-3fb43728ccc87e96",
           "insufficient_data": false,
-          "n_effective": 6.0
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-c5e6408860ace43d",
-          "insufficient_data": false,
-          "n_effective": 6.0
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-1a2c6a36c614dcc6",
-          "insufficient_data": false,
-          "n_effective": 6.0
+          "n_effective": 6.333332
         }
       ]
     },
     "effective_n_by_viewpoint": {
       "max_effective_n": 10.0,
-      "nonzero_effective_n_count": 489,
-      "profile_count": 678,
+      "nonzero_effective_n_count": 515,
+      "profile_count": 738,
       "top_profiles": [
         {
           "bucket": "negative_medium_effective_n",
@@ -261,36 +261,36 @@
     "high_weight_source_decay_count": 0,
     "low_weight_source_false_negative_rate": null,
     "source_weight_drift": {
-      "max_effective_n": 11.0,
-      "non_neutral_profile_count": 47
+      "max_effective_n": 11.333332,
+      "non_neutral_profile_count": 50
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.192108
+    "weighted_vs_unweighted_retrieval_difference": 0.203203
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260621T094633+0000",
+  "run_id": "RIR-DERIVED-20260621T163534+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 2611,
+    "data_proposal_open_count": 5402,
     "evidence_coverage": {
-      "exact_or_partial_coverage_rate": 0.086389,
-      "metric_candidate_count": 1991,
+      "exact_or_partial_coverage_rate": 0.08075,
+      "metric_candidate_count": 2774,
       "tool_coverage_status_counts": {
-        "exact_match": 165,
-        "missing": 1819,
-        "partial_match": 7
+        "exact_match": 207,
+        "missing": 2550,
+        "partial_match": 17
       }
     },
     "high_priority_gap_aging_count": 0,
     "missing_data_reduction": null,
     "recipe_validation_pass_rate": 0.0,
-    "runtime_fallback_observation_count": 2852,
-    "shadow_recipe_count": 5774,
+    "runtime_fallback_observation_count": 5658,
+    "shadow_recipe_count": 6482,
     "shadow_tool_correctness_failure_rate": null,
-    "tool_gap_open_count": 2852,
+    "tool_gap_open_count": 5658,
     "tool_gap_priority_counts": {
-      "low": 87,
-      "medium": 2524,
-      "resolved": 241
+      "low": 206,
+      "medium": 5196,
+      "resolved": 256
     },
     "tool_proposal_acceptance_rate": 0.0
   }

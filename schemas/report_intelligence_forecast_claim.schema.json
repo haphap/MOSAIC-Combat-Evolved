@@ -21,6 +21,57 @@
     "horizon": {"type": "object"},
     "signal_datetime": {"type": "string", "minLength": 1},
     "metric_proxy_mapping": {"type": "array", "items": {"type": "string"}},
+    "macro_claim_legs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "parent_forecast_claim_id",
+          "macro_claim_leg_id",
+          "leg_index",
+          "target_type",
+          "target_id",
+          "direction",
+          "claim_horizon",
+          "evaluation_windows",
+          "source_grounding_status",
+          "target_agent_candidates"
+        ],
+        "properties": {
+          "schema_version": {"const": "macro_claim_leg_v1"},
+          "parent_forecast_claim_id": {"type": "string", "minLength": 1},
+          "macro_claim_leg_id": {"type": "string", "minLength": 1},
+          "leg_index": {"type": "integer", "minimum": 1},
+          "target_type": {"type": "string", "minLength": 1},
+          "target_id": {"type": "string", "minLength": 1},
+          "target_label": {"type": "string"},
+          "target": {"type": "object"},
+          "metric_family": {"type": "string"},
+          "metric_proxy": {"type": "string"},
+          "metric_proxy_mapping": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "direction": {
+            "enum": ["positive", "negative", "neutral", "ambiguous", "unknown"]
+          },
+          "quote_convention": {"type": "string"},
+          "orientation_rule": {"type": "string"},
+          "claim_horizon": {"type": "object"},
+          "evaluation_windows": {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 1}
+          },
+          "source_grounding_status": {"type": "string", "minLength": 1},
+          "target_agent_candidates": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        },
+        "additionalProperties": true
+      }
+    },
     "failure_modes": {"type": "array", "items": {"type": "object"}},
     "extraction_quality": {"type": "object"},
     "extractor": {"type": "object"}

@@ -111,12 +111,14 @@ from .registry_manifest import (
 from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    DEFAULT_MINERU_BACKEND,
     DEFAULT_VLLM_TIMEOUT_SECONDS,
     ReportIntelligenceConfig,
     _footprint_review_quality_gap_targets_from_summary,
     _gold_review_quality_gap_targets_from_summary,
     apply_analytical_footprint_review_import,
     build_local_macro_strategy_report_sources,
+    export_macro_agent_research_priors,
     merge_report_intelligence_batch_outputs,
     prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
@@ -1745,7 +1747,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_intelligence.add_argument(
         "--mineru-backend",
-        default="hybrid-auto-engine",
+        default=DEFAULT_MINERU_BACKEND,
         choices=(
             "hybrid-auto-engine",
             "vlm-auto-engine",
@@ -1753,7 +1755,7 @@ def build_parser() -> argparse.ArgumentParser:
             "vlm-http-client",
             "hybrid-http-client",
         ),
-        help="MinerU backend. Defaults to hybrid-auto-engine.",
+        help=f"MinerU backend. Defaults to {DEFAULT_MINERU_BACKEND}.",
     )
     report_intelligence.add_argument(
         "--mineru-server-url",
@@ -1836,6 +1838,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local qlib stock data directory for stock proxy outcome labels.",
     )
     report_intelligence.add_argument(
+        "--scorecard-db-path",
+        default=None,
+        help=(
+            "Optional existing scorecard SQLite DB path for PIT macro_series "
+            "direct outcome labels. Defaults to MOSAIC_DATA_DIR/scorecard.db "
+            "or ./data/scorecard.db."
+        ),
+    )
+    report_intelligence.add_argument(
         "--chunk-chars",
         type=int,
         default=60000,
@@ -1853,6 +1864,70 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Emit redacted progress JSON lines to stderr for long PDF/LLM runs."
         ),
+    )
+
+    export_macro_priors = subparsers.add_parser(
+        "export-macro-agent-priors",
+        help="Export redacted shadow macro agent research priors for downstream agents.",
+    )
+    export_macro_priors.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    export_macro_priors.add_argument(
+        "--registry-dir",
+        default="registry/report_intelligence",
+        help=(
+            "Report Intelligence registry directory. Defaults to "
+            "registry/report_intelligence."
+        ),
+    )
+    export_macro_priors.add_argument(
+        "--as-of-date",
+        default="",
+        help="Only include priors with as_of_date <= this YYYY-MM-DD date.",
+    )
+    export_macro_priors.add_argument(
+        "--agent-id",
+        default="",
+        help="Optional macro agent id such as macro.central_bank.",
+    )
+    export_macro_priors.add_argument(
+        "--no-source-prose",
+        action="store_true",
+        help="Drop any row that fails the public-safe no-source-prose guard.",
+    )
+
+    macro_series_backfill = subparsers.add_parser(
+        "macro-series-backfill",
+        help="Backfill scorecard macro_series from existing macro dataflow adapters.",
+    )
+    macro_series_backfill.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    macro_series_backfill.add_argument(
+        "--start-date",
+        required=True,
+        help="Inclusive start date (YYYY-MM-DD).",
+    )
+    macro_series_backfill.add_argument(
+        "--end-date",
+        required=True,
+        help="Inclusive end date (YYYY-MM-DD).",
+    )
+    macro_series_backfill.add_argument(
+        "--series-id",
+        action="append",
+        dest="series_ids",
+        default=[],
+        help=(
+            "Macro series id to backfill, repeatable or comma-separated. "
+            "Defaults to all supported series."
+        ),
+    )
+    macro_series_backfill.add_argument(
+        "--scorecard-db-path",
+        default=None,
+        help="Optional scorecard SQLite DB path. Defaults to the scorecard store default.",
     )
 
     evolution_gate = subparsers.add_parser(
@@ -1935,6 +2010,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Replace registry JSONL inputs from the supplied batches instead of "
             "preserving existing registry rows first."
+        ),
+    )
+    merge_report_batches.add_argument(
+        "--replace-source-ids",
+        action="store_true",
+        help=(
+            "When preserving existing registry rows, remove rows for source_ids "
+            "present in the supplied batches before appending the batch rows."
         ),
     )
 
@@ -2640,6 +2723,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 qlib_etf_dir=args.qlib_etf_dir,
                 qlib_stock_dir=args.qlib_stock_dir,
+                scorecard_db_path=args.scorecard_db_path,
                 vllm_timeout_seconds=args.vllm_timeout_seconds,
                 chunk_chars=args.chunk_chars,
                 max_chunks=args.max_chunks,
@@ -2649,6 +2733,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(result))
         return 0 if result.blocker_count == 0 else 2
+
+    if args.command == "export-macro-agent-priors":
+        result = export_macro_agent_research_priors(
+            root=root,
+            registry_dir=args.registry_dir,
+            as_of_date=args.as_of_date,
+            agent_id=args.agent_id,
+            no_source_prose=args.no_source_prose,
+        )
+        _print_json(result)
+        return 0 if result.get("accepted") else 2
+
+    if args.command == "macro-series-backfill":
+        from mosaic.scorecard.macro_series_backfill import backfill_macro_series
+
+        result = backfill_macro_series(
+            start_date=args.start_date,
+            end_date=args.end_date,
+            series_ids=_split_repeated_csv(args.series_ids),
+            db_path=args.scorecard_db_path,
+        )
+        _print_json(result)
+        return 0 if result.get("accepted") else 1
+
     if args.command in {"report-intelligence-evolution-gate", "evolution-readiness"}:
         if args.no_write and args.refresh_prompt_mutations:
             _print_json(
@@ -2693,6 +2801,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             root=root,
             input_dirs=args.input_dir,
             include_existing_registry=not args.replace,
+            replace_source_ids=args.replace_source_ids,
         )
         if args.refresh_derived and result["blocker_count"] == 0:
             refresh = run_report_intelligence_refresh(

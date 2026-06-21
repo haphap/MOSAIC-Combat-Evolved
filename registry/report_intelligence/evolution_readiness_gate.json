@@ -1,16 +1,18 @@
 {
-  "as_of_datetime": "2026-06-21T09:48:04+00:00",
-  "blocker_count": 0,
-  "blockers": [],
+  "as_of_datetime": "2026-06-21T16:36:21+00:00",
+  "blocker_count": 1,
+  "blockers": [
+    "audit_refresh_history_below_threshold"
+  ],
   "checks": [
     {
       "blockers": [],
       "check_id": "RI-EVOL-01",
       "evidence": {
-        "forecast_claim_count": 963,
+        "forecast_claim_count": 999,
         "industry_proxy_unique_claim_count": 33,
         "stock_proxy_unique_claim_count": 647,
-        "unique_outcome_claim_count": 692
+        "unique_outcome_claim_count": 707
       },
       "passed": true,
       "requirement": "Evolution requires enough stock and industry PIT outcome coverage before prompt mutation candidates can influence prompts."
@@ -20,18 +22,18 @@
       "check_id": "RI-EVOL-02",
       "evidence": {
         "after_cost_paper_trading_summary": {
-          "max_after_cost_alpha": 0.29408309,
-          "mean_after_cost_alpha": 0.10534614,
-          "median_after_cost_alpha": 0.08232772,
+          "max_after_cost_alpha": 5.79627721,
+          "mean_after_cost_alpha": 1.07563432,
+          "median_after_cost_alpha": 0.09231066,
           "min_after_cost_alpha": 0.03335793,
           "policy": "computed from passed pre-registered paper-trading runs only; blocked or profile-only recipes are excluded",
-          "positive_after_cost_recipe_count": 28,
+          "positive_after_cost_recipe_count": 42,
           "status": "computed",
-          "validated_recipe_count": 28
+          "validated_recipe_count": 42
         },
-        "mean_cost_adjusted_alpha": 0.00995571,
-        "paper_trading_run_count": 5774,
-        "validation_pass_count": 28
+        "mean_cost_adjusted_alpha": 0.04216152,
+        "paper_trading_run_count": 6482,
+        "validation_pass_count": 42
       },
       "passed": true,
       "requirement": "At least 20 pre-registered recipes need passed after-cost paper-trading before evolution can use recipe evidence."
@@ -41,46 +43,48 @@
       "check_id": "RI-EVOL-03",
       "evidence": {
         "aggregate_calibration_drift_count": 0,
-        "alpha_decay_fail_count": 110,
-        "blocked_recipe_count": 5746,
-        "calibration_drift_count": 11,
+        "alpha_decay_fail_count": 113,
+        "blocked_recipe_count": 6440,
+        "calibration_drift_count": 13,
         "calibration_drift_rule_counts": {},
         "cost_decay_fail_count": 0,
-        "data_vintage_hash": "sha256:c596c75787b7d41f5edc910a928b276a49c0c7544a4cedb3a1ab6b40c55aa878",
+        "data_vintage_hash": "sha256:50d2324f66cfde16131619ded9bb0426488776f3aff9e9e34043c470142a441a",
         "distinct_data_vintage_required": true,
-        "monitor_observation_count": 5774,
+        "monitor_observation_count": 6482,
         "profile_paper_trade_disagreement_count": 0,
         "recipe_level_monitor": {
-          "actionable_recipe_level_action_count": 130,
+          "actionable_recipe_level_action_count": 140,
           "actionable_recipe_level_action_counts": {
-            "freeze_recipe": 110,
-            "reduce_confidence_impact": 9,
-            "send_to_manual_review": 11
+            "freeze_recipe": 113,
+            "reduce_confidence_impact": 14,
+            "send_to_manual_review": 13
           },
           "global_blocker_policy": "unvalidated positive confidence impact, aggregate calibration drift, and aggregate calibration rule breaches block RI-EVOL-03; per-recipe alpha decay, calibration watch, and regime fragility remain shadow-only through freeze/manual/replay action queues",
-          "recipe_level_risk_count": 130,
+          "recipe_level_risk_count": 140,
           "recipe_level_risk_counts": {
-            "alpha_decay_fail_count": 110,
-            "alpha_decay_watch_count": 9,
-            "calibration_drift_count": 11
+            "alpha_decay_fail_count": 113,
+            "alpha_decay_watch_count": 14,
+            "calibration_drift_count": 13
           },
           "recommended_action_counts": {
-            "freeze_recipe": 110,
-            "keep_shadow": 5644,
-            "reduce_confidence_impact": 9,
-            "send_to_manual_review": 11
+            "freeze_recipe": 113,
+            "keep_shadow": 6342,
+            "reduce_confidence_impact": 14,
+            "send_to_manual_review": 13
           }
         },
         "regime_fragile_alpha_count": 0,
-        "trailing_monitor_distinct_vintage_count": 45,
-        "trailing_monitor_pass_count": 45,
+        "trailing_monitor_distinct_vintage_count": 50,
+        "trailing_monitor_pass_count": 50,
         "unvalidated_confidence_impact_count": 0
       },
       "passed": true,
       "requirement": "Confidence impact monitor must have no unvalidated positive confidence impact or aggregate calibration drift for three consecutive refreshes before evolution can change prompts."
     },
     {
-      "blockers": [],
+      "blockers": [
+        "audit_refresh_history_below_threshold"
+      ],
       "check_id": "RI-EVOL-04",
       "evidence": {
         "audit_history_dependency": {
@@ -99,10 +103,10 @@
           },
           "history_counts_only_passing_current_audits": true,
           "min_consecutive_audit_refreshes": 3,
-          "next_action": "none",
+          "next_action": "run_distinct_derived_refreshes_after_current_audits_pass",
           "refresh_without_current_audit_pass_can_satisfy_history": false,
-          "status": "ready",
-          "trailing_audit_pass_count": 3
+          "status": "history_below_threshold",
+          "trailing_audit_pass_count": 1
         },
         "current_failure_counts": {
           "pit": 0,
@@ -116,16 +120,16 @@
           "schema": [],
           "statistical": []
         },
-        "data_vintage_hash": "sha256:c596c75787b7d41f5edc910a928b276a49c0c7544a4cedb3a1ab6b40c55aa878",
+        "data_vintage_hash": "sha256:50d2324f66cfde16131619ded9bb0426488776f3aff9e9e34043c470142a441a",
         "distinct_data_vintage_required": true,
         "pit_accepted": true,
         "provenance_accepted": true,
         "schema_accepted": true,
         "statistical_accepted": true,
-        "trailing_audit_distinct_vintage_count": 3,
-        "trailing_audit_pass_count": 3
+        "trailing_audit_distinct_vintage_count": 1,
+        "trailing_audit_pass_count": 1
       },
-      "passed": true,
+      "passed": false,
       "requirement": "The last three derived refreshes must pass schema, PIT, provenance, and statistical robustness gates."
     },
     {
@@ -170,22 +174,22 @@
       "evidence": {
         "current_all_mapping_gap_counts": {
           "benchmark": 2,
-          "direction": 14,
-          "horizon": 73,
+          "direction": 18,
+          "horizon": 75,
           "target": 3,
           "unknown_mapping_gap": 4
         },
         "current_mapping_gap_counts": {
-          "direction": 14,
-          "horizon": 21,
+          "direction": 18,
+          "horizon": 20,
           "target": 1,
           "unknown_mapping_gap": 1
         },
-        "data_vintage_hash": "sha256:c596c75787b7d41f5edc910a928b276a49c0c7544a4cedb3a1ab6b40c55aa878",
+        "data_vintage_hash": "sha256:50d2324f66cfde16131619ded9bb0426488776f3aff9e9e34043c470142a441a",
         "distinct_data_vintage_required": true,
         "gap_count_basis": "unlabelable_mapping_gap_counts",
-        "trailing_gap_distribution_distinct_vintage_count": 16,
-        "trailing_gap_distribution_stable_count": 16
+        "trailing_gap_distribution_distinct_vintage_count": 21,
+        "trailing_gap_distribution_stable_count": 21
       },
       "passed": true,
       "requirement": "Outcome and missing-gap distributions must be stable across recent refreshes before evolution changes prompts."
@@ -213,21 +217,21 @@
           },
           "llm_extraction_processed_count": {
             "blocker": "llm_extraction_processed_count_below_p9_target",
-            "current": 860,
+            "current": 888,
             "next_action": "run_llm_extraction_on_quality_passed_markdown",
             "remaining": 0,
             "target": 100
           },
           "markdown_quality_pass_count": {
             "blocker": "markdown_quality_pass_count_below_p9_target",
-            "current": 863,
+            "current": 890,
             "next_action": "resolve_markdown_quality_gaps_before_llm_extraction",
             "remaining": 0,
             "target": 300
           },
           "markdown_ready_count": {
             "blocker": "markdown_ready_count_below_p9_target",
-            "current": 863,
+            "current": 890,
             "next_action": "download_pdfs_and_convert_quality_gated_markdown",
             "remaining": 0,
             "target": 300
@@ -241,7 +245,7 @@
           },
           "selected_report_count": {
             "blocker": "selected_report_count_below_p9_target",
-            "current": 863,
+            "current": 890,
             "next_action": "add_stratified_real_reports_to_private_source_pool",
             "remaining": 0,
             "target": 300
@@ -300,35 +304,35 @@
         },
         "evaluability_bucket_counts": {
           "industry_proxy_candidate": 122,
-          "llm_extraction_pending": 3,
-          "macro_asset_proxy_candidate": 22,
-          "mapping_gap_candidate": 78,
-          "no_forecast_claim_extracted": 113,
-          "standard_evaluable_candidate": 4,
-          "stock_proxy_candidate": 605
+          "llm_extraction_pending": 2,
+          "macro_asset_proxy_candidate": 32,
+          "mapping_gap_candidate": 85,
+          "no_forecast_claim_extracted": 114,
+          "standard_evaluable_candidate": 14,
+          "stock_proxy_candidate": 608
         },
         "industry_report_count": 186,
         "institution_bucket_counts": {
           "head_institution": 245,
-          "long_tail_institution": 618
+          "long_tail_institution": 645
         },
-        "llm_extraction_processed_count": 860,
+        "llm_extraction_processed_count": 888,
         "markdown_false_positive_review_queue_count": 0,
-        "markdown_quality_pass_count": 863,
+        "markdown_quality_pass_count": 890,
         "markdown_quality_review_queue_count": 0,
         "markdown_quality_spot_check_required": false,
-        "markdown_ready_count": 863,
+        "markdown_ready_count": 890,
         "report_horizon_bucket_counts": {
-          "20d": 55,
+          "20d": 58,
           "5d": 17,
-          "60d": 31,
-          "long_horizon": 722,
+          "60d": 36,
+          "long_horizon": 739,
           "no_extracted_forecast_horizon": 116,
-          "unknown": 62
+          "unknown": 65
         },
         "sector_bucket_below_min_count": 0,
         "sector_bucket_coverage_gaps": [],
-        "selected_report_count": 863,
+        "selected_report_count": 890,
         "stock_outcome_120d_ready_report_count": 310,
         "stock_outcome_age_bucket_counts": {
           "stock_outcome_120d_calendar_ready": 310,
@@ -339,22 +343,120 @@
         },
         "stock_report_count": 614,
         "time_bucket_counts": {
-          "long_cycle_history": 6,
+          "long_cycle_history": 33,
           "recent_1y": 521,
           "recent_3y": 336
         }
       },
       "passed": true,
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-MACRO-01",
+      "evidence": {
+        "labels_missing_leg_trace_count": 0,
+        "macro_claim_leg_row_count": 109,
+        "macro_forecast_row_count": 109,
+        "macro_label_count": 109
+      },
+      "passed": true,
+      "requirement": "Macro parent claims must expand into child macro claim legs, and macro outcome labels must retain parent/leg trace ids."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-MACRO-02",
+      "evidence": {
+        "macro_gap_counts": {
+          "macro_asset_proxy_readiness.direct_series_required_proxy_not_allowed": 41,
+          "macro_asset_proxy_readiness.direction_missing_or_unsupported": 1,
+          "macro_asset_proxy_readiness.leg_direction_missing": 11,
+          "macro_asset_proxy_readiness.macro_asset_proxy_mapping_missing": 24,
+          "macro_curve_directional_readiness.curve_mapping_missing": 2,
+          "macro_series_directional_readiness.leg_direction_missing": 4,
+          "macro_series_directional_readiness.series_history_missing": 2,
+          "macro_series_directional_readiness.series_mapping_missing": 16
+        },
+        "macro_label_count": 109,
+        "macro_pending_counts": {
+          "macro_asset_proxy": 20,
+          "macro_curve_directional": 0,
+          "macro_series_directional": 9
+        },
+        "macro_ready_counts": {
+          "macro_asset_proxy": 29,
+          "macro_curve_directional": 1,
+          "macro_series_directional": 14
+        }
+      },
+      "passed": true,
+      "requirement": "Macro asset, direct-series, and curve viewpoints must have PIT label coverage, pending windows, or explicit readiness gaps."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-MACRO-03",
+      "evidence": {
+        "macro_regime_snapshot_count": 712,
+        "snapshot_policy_violation_count": 0
+      },
+      "passed": true,
+      "requirement": "Macro regime snapshots must be background-only and cannot validate claim correctness."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-MACRO-04",
+      "evidence": {
+        "macro_market_feedback_label_count": 109
+      },
+      "passed": true,
+      "requirement": "Macro rating/profile evidence must be based on non-LLM market feedback before agent priors can be interpreted."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-MACRO-05",
+      "evidence": {
+        "macro_agent_prior_count": 3403,
+        "private_text_violation_count": 0
+      },
+      "passed": true,
+      "requirement": "Macro agent priors must not contain source prose or private ids."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-MACRO-06",
+      "evidence": {
+        "macro_agent_prior_count": 3403,
+        "shadow_policy_violation_count": 0
+      },
+      "passed": true,
+      "requirement": "Macro agent priors must remain shadow-only, not production signals."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-MACRO-07",
+      "evidence": {
+        "macro_gap_counts": {
+          "macro_asset_proxy_readiness.direct_series_required_proxy_not_allowed": 41,
+          "macro_asset_proxy_readiness.direction_missing_or_unsupported": 1,
+          "macro_asset_proxy_readiness.leg_direction_missing": 11,
+          "macro_asset_proxy_readiness.macro_asset_proxy_mapping_missing": 24,
+          "macro_curve_directional_readiness.curve_mapping_missing": 2,
+          "macro_series_directional_readiness.leg_direction_missing": 4,
+          "macro_series_directional_readiness.series_history_missing": 2,
+          "macro_series_directional_readiness.series_mapping_missing": 16
+        }
+      },
+      "passed": true,
+      "requirement": "Macro mapping, data, and quality gaps must be present in readiness evidence so evolution candidates can be audited."
     }
   ],
-  "data_vintage_hash": "sha256:c596c75787b7d41f5edc910a928b276a49c0c7544a4cedb3a1ab6b40c55aa878",
+  "data_vintage_hash": "sha256:50d2324f66cfde16131619ded9bb0426488776f3aff9e9e34043c470142a441a",
   "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
-  "gate_status": "passed",
+  "gate_status": "blocked",
   "policy": "Prompt and agent evolution remains blocked until governed aggregate PIT outcome coverage, paper-trading, monitor stability, audit history, gold-set quality, gap stability, and Markdown coverage gates pass; this artifact stores aggregate evidence only and cannot change production prompts.",
   "private_text_included": false,
   "production_prompt_change_allowed": false,
-  "promotion_state": "ready_for_shadow_evolution_candidate",
+  "promotion_state": "blocked_before_prompt_evolution",
   "requirement_shortfalls": {
     "after_cost_paper_trading_summary": {
       "blocker": "",
@@ -363,14 +465,14 @@
     },
     "audit_distinct_vintage_count": {
       "blocker": "audit_refresh_history_below_threshold",
-      "current": 3,
-      "next_action": "none",
-      "remaining": 0,
+      "current": 1,
+      "next_action": "run_distinct_derived_refreshes_after_current_audits_pass",
+      "remaining": 2,
       "target": 3
     },
     "gap_distribution_distinct_vintage_count": {
       "blocker": "gap_distribution_history_below_threshold",
-      "current": 16,
+      "current": 21,
       "next_action": "refresh_distinct_data_vintages_until_gap_distribution_is_stable",
       "remaining": 0,
       "target": 3
@@ -418,21 +520,21 @@
       },
       "llm_extraction_processed_count": {
         "blocker": "llm_extraction_processed_count_below_p9_target",
-        "current": 860,
+        "current": 888,
         "next_action": "run_llm_extraction_on_quality_passed_markdown",
         "remaining": 0,
         "target": 100
       },
       "markdown_quality_pass_count": {
         "blocker": "markdown_quality_pass_count_below_p9_target",
-        "current": 863,
+        "current": 890,
         "next_action": "resolve_markdown_quality_gaps_before_llm_extraction",
         "remaining": 0,
         "target": 300
       },
       "markdown_ready_count": {
         "blocker": "markdown_ready_count_below_p9_target",
-        "current": 863,
+        "current": 890,
         "next_action": "download_pdfs_and_convert_quality_gated_markdown",
         "remaining": 0,
         "target": 300
@@ -446,7 +548,7 @@
       },
       "selected_report_count": {
         "blocker": "selected_report_count_below_p9_target",
-        "current": 863,
+        "current": 890,
         "next_action": "add_stratified_real_reports_to_private_source_pool",
         "remaining": 0,
         "target": 300
@@ -475,40 +577,40 @@
     },
     "monitor_distinct_vintage_count": {
       "blocker": "confidence_impact_monitor_history_below_threshold",
-      "current": 45,
+      "current": 50,
       "next_action": "refresh_distinct_data_vintages_until_monitor_gate_passes_three_times",
       "remaining": 0,
       "target": 3
     },
     "monitor_recipe_level_action_count": {
       "blocker": "confidence_monitor_recipe_level_actions_open",
-      "current": 130,
+      "current": 140,
       "global_blocker_policy": "unvalidated positive confidence impact, aggregate calibration drift, and aggregate calibration rule breaches block RI-EVOL-03; per-recipe alpha decay, calibration watch, and regime fragility remain shadow-only through freeze/manual/replay action queues",
       "next_action": "review_freeze_manual_or_replay_recipe_level_confidence_monitor_actions",
       "recipe_level_risk_counts": {
-        "alpha_decay_fail_count": 110,
-        "alpha_decay_watch_count": 9,
-        "calibration_drift_count": 11
+        "alpha_decay_fail_count": 113,
+        "alpha_decay_watch_count": 14,
+        "calibration_drift_count": 13
       },
       "recommended_action_counts": {
-        "freeze_recipe": 110,
-        "keep_shadow": 5644,
-        "reduce_confidence_impact": 9,
-        "send_to_manual_review": 11
+        "freeze_recipe": 113,
+        "keep_shadow": 6342,
+        "reduce_confidence_impact": 14,
+        "send_to_manual_review": 13
       },
-      "remaining": 130,
+      "remaining": 140,
       "target": 0
     },
     "paper_trading_run_count": {
       "blocker": "paper_trading_run_count_below_threshold",
-      "current": 5774,
+      "current": 6482,
       "next_action": "pre_register_more_analysis_recipes_for_shadow_paper_trading",
       "remaining": 0,
       "target": 20
     },
     "paper_trading_validated_recipe_count": {
       "blocker": "paper_trading_validated_recipe_count_below_threshold",
-      "current": 28,
+      "current": 42,
       "next_action": "bind_recipe_runs_to_direct_pit_outcomes_and_after_cost_metrics",
       "remaining": 0,
       "target": 20
@@ -522,13 +624,13 @@
     },
     "unique_outcome_claim_count": {
       "blocker": "unique_outcome_claim_count_below_threshold",
-      "current": 692,
+      "current": 707,
       "next_action": "produce_more_non_llm_pit_outcome_labels",
       "remaining": 0,
       "target": 100
     }
   },
-  "run_id": "RIR-PUBLIC-EVOLUTION-GATE",
+  "run_id": "RIR-DERIVED-20260621T163534+0000",
   "thresholds": {
     "min_consecutive_audit_refreshes": 3,
     "min_consecutive_monitor_refreshes": 3,

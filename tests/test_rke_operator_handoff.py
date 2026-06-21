@@ -118,9 +118,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
     assert gold.pending_rows == expected_gold_pending_rows
-    assert not gold.passed
-    assert "horizon_accuracy below 0.85" in gold.blocker
-    assert "variable_mapping_accuracy below 0.80" in gold.blocker
+    assert gold.passed
+    assert gold.blocker == ""
     assert (
         gold.full_import_template_path
         == "registry/review_batches/gold_set_full_import_template.jsonl"
@@ -134,12 +133,6 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "manual_claim_text" in gold.field_contract["required_fields"]
     assert gold.batch_overview == expected_gold_batch_overview
-    assert (
-        gold.batch_overview.get("current_batch_path")
-        or gold.batch_overview.get("stale_current_batch_path")
-    ) == (
-        "registry/review_batches/gold_set_reviewed.jsonl"
-    )
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
@@ -449,7 +442,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "Batch overview:" in markdown
     assert "current_batch_path" in markdown
     assert "current_batch_review_field_workload:" not in markdown
-    assert "horizon_accuracy below 0.85; variable_mapping_accuracy below 0.80" in markdown
+    assert "259 analytical footprint review rows still pending" in markdown
     assert "manual_claim_text" in markdown
     assert "analytical_footprint_review_batch.jsonl" in markdown
     assert "## Command Sequence" in markdown
