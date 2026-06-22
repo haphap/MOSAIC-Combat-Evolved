@@ -4255,9 +4255,9 @@ def test_report_intelligence_derived_refresh_refuses_clean_checkout_overwrite(
     tmp_path: Path,
 ):
     registry = _copy_committed_report_intelligence_public_artifacts(tmp_path)
-    ledger_path = registry / "report_forecast_ledger.jsonl"
+    extraction_path = registry / "extraction_report.json"
     readiness_path = registry / "outcome_labeling_readiness.json"
-    before_ledger = ledger_path.read_text(encoding="utf-8")
+    before_extraction = extraction_path.read_text(encoding="utf-8")
     before_readiness = readiness_path.read_text(encoding="utf-8")
 
     result = run_report_intelligence_derived_refresh(
@@ -4266,7 +4266,7 @@ def test_report_intelligence_derived_refresh_refuses_clean_checkout_overwrite(
 
     assert result.blocker_count == 1
     assert "private report-intelligence inputs missing" in result.blockers[0]
-    assert ledger_path.read_text(encoding="utf-8") == before_ledger
+    assert extraction_path.read_text(encoding="utf-8") == before_extraction
     assert readiness_path.read_text(encoding="utf-8") == before_readiness
 
 
@@ -4282,9 +4282,9 @@ def test_report_intelligence_derived_refresh_refuses_empty_private_inputs_overwr
         "report_metadata.jsonl",
     ):
         (private_dir / name).write_text("", encoding="utf-8")
-    ledger_path = registry / "report_forecast_ledger.jsonl"
+    extraction_path = registry / "extraction_report.json"
     readiness_path = registry / "outcome_labeling_readiness.json"
-    before_ledger = ledger_path.read_text(encoding="utf-8")
+    before_extraction = extraction_path.read_text(encoding="utf-8")
     before_readiness = readiness_path.read_text(encoding="utf-8")
 
     result = run_report_intelligence_derived_refresh(
@@ -4294,7 +4294,7 @@ def test_report_intelligence_derived_refresh_refuses_empty_private_inputs_overwr
     assert result.blocker_count == 1
     assert "private report-intelligence inputs missing" in result.blockers[0]
     assert "forecast_claims.jsonl" in result.blockers[0]
-    assert ledger_path.read_text(encoding="utf-8") == before_ledger
+    assert extraction_path.read_text(encoding="utf-8") == before_extraction
     assert readiness_path.read_text(encoding="utf-8") == before_readiness
 
 

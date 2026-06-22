@@ -392,7 +392,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_report_forecast_ledger.schema.json",
         "registry/report_intelligence/report_forecast_ledger.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_markdown_coverage_summary.schema.json",
@@ -434,13 +434,13 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_source_performance_profile.schema.json",
         "registry/report_intelligence/source_performance_profiles.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_viewpoint_performance_profile.schema.json",
         "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_macro_regime_snapshot.schema.json",
@@ -464,55 +464,55 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_method_performance_profile.schema.json",
         "registry/report_intelligence/method_performance_profiles.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_metric_candidate.schema.json",
         "registry/report_intelligence/metric_candidates.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_method_pattern.schema.json",
         "registry/report_intelligence/method_patterns.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_tool_coverage_match.schema.json",
         "registry/report_intelligence/tool_coverage_matches.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_tool_gap.schema.json",
         "registry/report_intelligence/tool_gaps.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_data_acquisition_proposal.schema.json",
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_tool_design_proposal.schema.json",
         "registry/report_intelligence/tool_design_proposals.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_analysis_recipe.schema.json",
         "registry/report_intelligence/analysis_recipes.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_recipe_paper_trading_run.schema.json",
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_recipe_paper_trading_summary.schema.json",
@@ -524,7 +524,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_confidence_impact_observation.schema.json",
         "registry/report_intelligence/confidence_impact_observations.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_confidence_impact_monitor.schema.json",
@@ -536,19 +536,19 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_evolution_refresh_history.schema.json",
         "registry/report_intelligence/monitor_refresh_history.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_evolution_refresh_history.schema.json",
         "registry/report_intelligence/audit_refresh_history.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_evolution_refresh_history.schema.json",
         "registry/report_intelligence/gap_distribution_history.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_evolution_readiness_gate.schema.json",
@@ -560,7 +560,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_prompt_mutation_candidate.schema.json",
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_weighted_research_context.schema.json",
@@ -572,7 +572,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_runtime_tool_gap_observation.schema.json",
         "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_monitoring_report.schema.json",
@@ -745,6 +745,13 @@ def _load_optional_mapping_jsonl(
         return [], [], False
     rows, failures = _load_mapping_jsonl(root_path, artifact_path)
     return rows, failures, True
+
+
+def _load_public_semantic_jsonl(
+    root_path: Path,
+    artifact_path: str,
+) -> tuple[list[Mapping[str, Any]], list[str], bool]:
+    return _load_optional_mapping_jsonl(root_path, artifact_path)
 
 
 def _has_mapping_gap(row: Mapping[str, Any]) -> bool:
@@ -1259,6 +1266,22 @@ EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS = (
     ("tool_design_proposal_rows", "registry/report_intelligence/tool_design_proposals.jsonl"),
     ("analysis_recipe_rows", "registry/report_intelligence/analysis_recipes.jsonl"),
     ("runtime_tool_gap_observation_rows", "registry/report_intelligence/runtime_tool_gap_observations.jsonl"),
+)
+REPORT_INTELLIGENCE_LOCAL_DETAIL_SEMANTIC_PATHS = frozenset(
+    artifact_path
+    for _count_field, artifact_path in EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS
+) | frozenset(
+    {
+        "registry/report_intelligence/audit_refresh_history.jsonl",
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+        "registry/report_intelligence/gap_distribution_history.jsonl",
+        "registry/report_intelligence/macro_agent_research_priors.jsonl",
+        "registry/report_intelligence/macro_regime_snapshots.jsonl",
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
+        "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+        "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+        "registry/report_intelligence/tool_design_proposals.jsonl",
+    }
 )
 REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS = {
     "abstract",
@@ -3505,10 +3528,13 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
 
     item_count = 1
     for count_field, artifact_path in EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS:
-        rows, row_failures = _load_mapping_jsonl(root_path, artifact_path)
+        rows, row_failures, rows_present = _load_public_semantic_jsonl(
+            root_path,
+            artifact_path,
+        )
         failures.extend(row_failures)
         item_count += len(rows)
-        if _int_or_none(extraction_report.get(count_field)) != len(rows):
+        if rows_present and _int_or_none(extraction_report.get(count_field)) != len(rows):
             failures.append(f"extraction_report.{count_field}: expected {len(rows)}")
 
     markdown_summary, markdown_errors = _read_mapping_json(
@@ -3966,11 +3992,15 @@ def _confidence_contract_is_new_regime(row: Mapping[str, Any]) -> bool:
 def _validate_recipe_paper_trading_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
-    run_rows, run_failures = _load_mapping_jsonl(
+    run_rows, run_failures, run_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
     )
-    confidence_rows, confidence_failures = _load_mapping_jsonl(
+    (
+        confidence_rows,
+        confidence_failures,
+        _confidence_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/confidence_impact_observations.jsonl",
     )
@@ -4245,7 +4275,7 @@ def _validate_recipe_paper_trading_contract(
             if profile_support.get("profile_paper_trade_disagreement") is True:
                 disagreement_count += 1
 
-    if summary:
+    if summary and run_rows_present:
         expected_count_fields = {
             "recipe_count": len(run_rows),
             "paper_trading_run_count": len(run_rows),
@@ -4623,7 +4653,7 @@ def _validate_recipe_paper_trading_contract(
     aggregate_calibration_recipe_ids = sorted(set(aggregate_calibration_recipe_ids))
     calibration_drift_recipe_ids.extend(aggregate_calibration_recipe_ids)
     manual_review_recipe_ids.extend(aggregate_calibration_recipe_ids)
-    if monitor:
+    if monitor and run_rows_present and _confidence_rows_present:
         expected_monitor_counts = {
             "recipe_count": len(run_rows),
             "observation_count": len(confidence_rows),
@@ -4801,15 +4831,15 @@ def _validate_history_data_vintage_hash(
 def _validate_evolution_refresh_history_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
-    monitor_rows, monitor_failures = _load_mapping_jsonl(
+    monitor_rows, monitor_failures, _monitor_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/monitor_refresh_history.jsonl",
     )
-    audit_rows, audit_failures = _load_mapping_jsonl(
+    audit_rows, audit_failures, _audit_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/audit_refresh_history.jsonl",
     )
-    gap_rows, gap_failures = _load_mapping_jsonl(
+    gap_rows, gap_failures, _gap_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/gap_distribution_history.jsonl",
     )
@@ -6262,7 +6292,7 @@ def _confidence_gate_prompt_candidate_expected_evidence_refs(
     root_path: Path,
     failures: list[str],
 ) -> list[dict[str, Any]]:
-    rows, row_failures = _load_mapping_jsonl(
+    rows, row_failures, _rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/confidence_impact_observations.jsonl",
     )
@@ -6399,7 +6429,7 @@ def _tool_gap_prompt_candidate_expected_evidence_refs(
     root_path: Path,
     failures: list[str],
 ) -> list[dict[str, Any]]:
-    rows, row_failures = _load_mapping_jsonl(
+    rows, row_failures, _rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_gaps.jsonl",
     )
@@ -6497,7 +6527,7 @@ def _recipe_paper_trading_prompt_candidate_expected_evidence_refs(
     root_path: Path,
     failures: list[str],
 ) -> list[dict[str, Any]]:
-    runs, runs_failures = _load_mapping_jsonl(
+    runs, runs_failures, _runs_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
     )
@@ -6866,7 +6896,11 @@ def _validate_prompt_mutation_governed_evidence(
 def _validate_prompt_mutation_candidate_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
-    candidate_rows, candidate_failures = _load_mapping_jsonl(
+    (
+        candidate_rows,
+        candidate_failures,
+        _candidate_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
     )
@@ -6999,7 +7033,10 @@ def _validate_profile_outcome_layer_support(
     failures: list[str] = []
     item_count = 0
     for profile_kind, artifact_path, id_field in profile_specs:
-        rows, row_failures = _load_mapping_jsonl(root_path, artifact_path)
+        rows, row_failures, _rows_present = _load_public_semantic_jsonl(
+            root_path,
+            artifact_path,
+        )
         failures.extend(row_failures)
         item_count += len(rows)
         for index, profile in enumerate(rows, 1):
@@ -9844,7 +9881,7 @@ def validate_report_intelligence_semantics(
         )
     )
 
-    ledger_rows, ledger_failures = _load_mapping_jsonl(
+    ledger_rows, ledger_failures, _ledger_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/report_forecast_ledger.jsonl",
     )
@@ -10026,11 +10063,11 @@ def validate_report_intelligence_semantics(
                 "feature_flags.runtime_behavior must state no agent decision impact"
             )
 
-    method_rows, method_failures = _load_mapping_jsonl(
+    method_rows, method_failures, _method_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/method_patterns.jsonl",
     )
-    recipe_rows, recipe_failures = _load_mapping_jsonl(
+    recipe_rows, recipe_failures, _recipe_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/analysis_recipes.jsonl",
     )
@@ -10042,7 +10079,11 @@ def validate_report_intelligence_semantics(
         root_path,
         "registry/report_intelligence/weighted_research_contexts.jsonl",
     )
-    gap_observation_rows, gap_observation_failures = _load_mapping_jsonl(
+    (
+        gap_observation_rows,
+        gap_observation_failures,
+        _gap_observation_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
     )
@@ -10115,31 +10156,55 @@ def validate_report_intelligence_semantics(
         "registry/report_intelligence/extraction_report.json",
     )
     monitoring_failures.extend(extraction_report_errors)
-    source_profile_rows, source_profile_failures = _load_mapping_jsonl(
+    (
+        source_profile_rows,
+        source_profile_failures,
+        _source_profile_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/source_performance_profiles.jsonl",
     )
-    viewpoint_profile_rows, viewpoint_profile_failures = _load_mapping_jsonl(
+    (
+        viewpoint_profile_rows,
+        viewpoint_profile_failures,
+        _viewpoint_profile_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
     )
-    method_profile_rows, method_profile_failures = _load_mapping_jsonl(
+    (
+        method_profile_rows,
+        method_profile_failures,
+        _method_profile_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/method_performance_profiles.jsonl",
     )
-    tool_gap_rows, tool_gap_failures = _load_mapping_jsonl(
+    tool_gap_rows, tool_gap_failures, _tool_gap_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_gaps.jsonl",
     )
-    data_proposal_rows, data_proposal_failures = _load_mapping_jsonl(
+    (
+        data_proposal_rows,
+        data_proposal_failures,
+        _data_proposal_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
     )
-    metric_candidate_rows, metric_candidate_failures = _load_mapping_jsonl(
+    (
+        metric_candidate_rows,
+        metric_candidate_failures,
+        _metric_candidate_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/metric_candidates.jsonl",
     )
-    tool_coverage_rows, tool_coverage_failures = _load_mapping_jsonl(
+    (
+        tool_coverage_rows,
+        tool_coverage_failures,
+        _tool_coverage_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_coverage_matches.jsonl",
     )
@@ -10264,33 +10329,48 @@ def validate_report_intelligence_semantics(
                 "monitoring_report tooling_loop_monitoring must be object"
             )
         else:
-            expected_tooling_counts = {
-                "tool_gap_open_count": len(tool_gap_rows),
-                "data_proposal_open_count": len(data_proposal_rows),
-                "runtime_fallback_observation_count": len(gap_observation_rows),
-                "shadow_recipe_count": len(recipe_rows),
-            }
-            for field, expected in expected_tooling_counts.items():
-                if _int_or_none(tooling_loop.get(field)) != expected:
+            expected_tooling_counts = (
+                (
+                    "tool_gap_open_count",
+                    len(tool_gap_rows),
+                    _tool_gap_rows_present,
+                ),
+                (
+                    "data_proposal_open_count",
+                    len(data_proposal_rows),
+                    _data_proposal_rows_present,
+                ),
+                (
+                    "runtime_fallback_observation_count",
+                    len(gap_observation_rows),
+                    _gap_observation_rows_present,
+                ),
+                ("shadow_recipe_count", len(recipe_rows), _recipe_rows_present),
+            )
+            for field, expected, rows_present in expected_tooling_counts:
+                if rows_present and _int_or_none(tooling_loop.get(field)) != expected:
                     monitoring_failures.append(
                         f"tooling_loop_monitoring {field}: expected {expected}"
                     )
-            expected_priority_counts: dict[str, int] = {}
-            for row in tool_gap_rows:
-                bucket = str(row.get("priority_bucket") or "").strip()
-                if bucket:
-                    expected_priority_counts[bucket] = (
-                        expected_priority_counts.get(bucket, 0) + 1
-                    )
-            observed_priority_counts = _count_mapping(
-                tooling_loop.get("tool_gap_priority_counts"),
-                row_label="tooling_loop_monitoring.tool_gap_priority_counts",
-                failures=monitoring_failures,
-            )
-            if observed_priority_counts != dict(sorted(expected_priority_counts.items())):
-                monitoring_failures.append(
-                    "tooling_loop_monitoring tool_gap_priority_counts mismatch"
+            if _tool_gap_rows_present:
+                expected_priority_counts: dict[str, int] = {}
+                for row in tool_gap_rows:
+                    bucket = str(row.get("priority_bucket") or "").strip()
+                    if bucket:
+                        expected_priority_counts[bucket] = (
+                            expected_priority_counts.get(bucket, 0) + 1
+                        )
+                observed_priority_counts = _count_mapping(
+                    tooling_loop.get("tool_gap_priority_counts"),
+                    row_label="tooling_loop_monitoring.tool_gap_priority_counts",
+                    failures=monitoring_failures,
                 )
+                if observed_priority_counts != dict(
+                    sorted(expected_priority_counts.items())
+                ):
+                    monitoring_failures.append(
+                        "tooling_loop_monitoring tool_gap_priority_counts mismatch"
+                    )
             evidence_coverage = (
                 tooling_loop.get("evidence_coverage")
                 if isinstance(tooling_loop.get("evidence_coverage"), Mapping)
@@ -10301,34 +10381,37 @@ def validate_report_intelligence_semantics(
                     "tooling_loop_monitoring.evidence_coverage must be object"
                 )
             else:
-                if _int_or_none(evidence_coverage.get("metric_candidate_count")) != len(
-                    metric_candidate_rows
+                if (
+                    _metric_candidate_rows_present
+                    and _int_or_none(evidence_coverage.get("metric_candidate_count"))
+                    != len(metric_candidate_rows)
                 ):
                     monitoring_failures.append(
                         "tooling_loop_monitoring.evidence_coverage metric_candidate_count mismatch"
                     )
-                expected_coverage_counts: dict[str, int] = {}
-                for row in tool_coverage_rows:
-                    status = str(row.get("coverage_status") or "").strip()
-                    if status:
-                        expected_coverage_counts[status] = (
-                            expected_coverage_counts.get(status, 0) + 1
-                        )
-                observed_coverage_counts = _count_mapping(
-                    evidence_coverage.get("tool_coverage_status_counts"),
-                    row_label=(
-                        "tooling_loop_monitoring.evidence_coverage."
-                        "tool_coverage_status_counts"
-                    ),
-                    failures=monitoring_failures,
-                )
-                if observed_coverage_counts != dict(
-                    sorted(expected_coverage_counts.items())
-                ):
-                    monitoring_failures.append(
-                        "tooling_loop_monitoring.evidence_coverage "
-                        "tool_coverage_status_counts mismatch"
+                if _tool_coverage_rows_present:
+                    expected_coverage_counts: dict[str, int] = {}
+                    for row in tool_coverage_rows:
+                        status = str(row.get("coverage_status") or "").strip()
+                        if status:
+                            expected_coverage_counts[status] = (
+                                expected_coverage_counts.get(status, 0) + 1
+                            )
+                    observed_coverage_counts = _count_mapping(
+                        evidence_coverage.get("tool_coverage_status_counts"),
+                        row_label=(
+                            "tooling_loop_monitoring.evidence_coverage."
+                            "tool_coverage_status_counts"
+                        ),
+                        failures=monitoring_failures,
                     )
+                    if observed_coverage_counts != dict(
+                        sorted(expected_coverage_counts.items())
+                    ):
+                        monitoring_failures.append(
+                            "tooling_loop_monitoring.evidence_coverage "
+                            "tool_coverage_status_counts mismatch"
+                        )
         weighting_monitoring = (
             monitoring_report.get("report_weighting_monitoring")
             if isinstance(monitoring_report.get("report_weighting_monitoring"), Mapping)
@@ -10339,11 +10422,28 @@ def validate_report_intelligence_semantics(
                 "monitoring_report report_weighting_monitoring must be object"
             )
         else:
-            for field, rows, profile_kind in (
-                ("effective_n_by_source", source_profile_rows, "source"),
-                ("effective_n_by_viewpoint", viewpoint_profile_rows, "viewpoint"),
-                ("effective_n_by_method", method_profile_rows, "method"),
+            for field, rows, profile_kind, rows_present in (
+                (
+                    "effective_n_by_source",
+                    source_profile_rows,
+                    "source",
+                    _source_profile_rows_present,
+                ),
+                (
+                    "effective_n_by_viewpoint",
+                    viewpoint_profile_rows,
+                    "viewpoint",
+                    _viewpoint_profile_rows_present,
+                ),
+                (
+                    "effective_n_by_method",
+                    method_profile_rows,
+                    "method",
+                    _method_profile_rows_present,
+                ),
             ):
+                if not rows_present:
+                    continue
                 summary = (
                     weighting_monitoring.get(field)
                     if isinstance(weighting_monitoring.get(field), Mapping)
@@ -10369,7 +10469,7 @@ def validate_report_intelligence_semantics(
                 monitoring_failures.append(
                     "report_weighting_monitoring.source_weight_drift must be object"
                 )
-            else:
+            elif _source_profile_rows_present:
                 source_summary = _profile_effective_n_summary(
                     source_profile_rows,
                     profile_kind="source",
@@ -10434,15 +10534,18 @@ def validate_report_intelligence_semantics(
             for row in recipe_rows
             if str(row.get("runtime_mode") or "") == "production"
         )
-        if alpha_decay.get("paper_trading_recipe_count") != paper_count:
+        if _recipe_rows_present and alpha_decay.get("paper_trading_recipe_count") != paper_count:
             monitoring_failures.append(
                 "alpha_decay_monitoring paper_trading_recipe_count mismatch"
             )
-        if alpha_decay.get("limited_production_recipe_count") != limited_count:
+        if (
+            _recipe_rows_present
+            and alpha_decay.get("limited_production_recipe_count") != limited_count
+        ):
             monitoring_failures.append(
                 "alpha_decay_monitoring limited_production_recipe_count mismatch"
             )
-        if alpha_decay.get("production_recipe_count") != production_count:
+        if _recipe_rows_present and alpha_decay.get("production_recipe_count") != production_count:
             monitoring_failures.append(
                 "alpha_decay_monitoring production_recipe_count mismatch"
             )
@@ -10567,15 +10670,23 @@ def validate_report_intelligence_semantics(
     )
 
     tooling_failures: list[str] = []
-    tool_gap_rows, tool_gap_failures = _load_mapping_jsonl(
+    tool_gap_rows, tool_gap_failures, _tool_gap_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_gaps.jsonl",
     )
-    data_proposal_rows, data_proposal_failures = _load_mapping_jsonl(
+    (
+        data_proposal_rows,
+        data_proposal_failures,
+        _data_proposal_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
     )
-    tool_proposal_rows, tool_proposal_failures = _load_mapping_jsonl(
+    (
+        tool_proposal_rows,
+        tool_proposal_failures,
+        _tool_proposal_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_design_proposals.jsonl",
     )
@@ -10698,8 +10809,13 @@ def validate_report_intelligence_semantics(
             "tool_gap_rows": "registry/report_intelligence/tool_gaps.jsonl",
         }
         for count_field, artifact_path in public_corpus_count_artifacts.items():
-            rows, load_failures = _load_mapping_jsonl(root_path, artifact_path)
+            rows, load_failures, rows_present = _load_public_semantic_jsonl(
+                root_path,
+                artifact_path,
+            )
             patch_coverage_failures.extend(load_failures)
+            if not rows_present:
+                continue
             observed_count = _float_or_none(corpus_counts.get(count_field))
             expected_count = len(rows)
             if observed_count is None or int(observed_count) != expected_count:

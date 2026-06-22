@@ -10,16 +10,16 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
 
 ## Current State
 
-- Current public-safe extraction summary: 890 selected reports, 890 Markdown-ready
-  reports, 999 forecast claims, and 2375 outcome labels.
+- Current public-safe extraction summary: 929 selected reports, 929 Markdown-ready
+  reports, 1033 forecast claims, and 2375 outcome labels.
 - Outcome label split: 78 industry ETF proxy labels, 2188 stock price proxy
   labels, 75 macro asset proxy labels, 31 macro direct-series labels, and 3
   macro curve labels.
-- Outcome readiness currently has 900 standard ready claims, 707 proxy-label
-  ready claims, and 38 still blocked claims.
+- Outcome readiness currently has 921 standard ready claims, 707 proxy-label
+  ready claims, and 50 still blocked claims.
 - Manual gold-set review is imported: 125 reviewed claims across 71 documents;
   all gold quality gates pass.
-- Manual analytical-footprint review is complete and imported: 2588 reviewed
+- Manual analytical-footprint review is complete and imported: 2710 reviewed
   footprints, 0 pending rows, `quality_gate_passed=true`, and all measured
   quality thresholds pass.
 - `schema-status --root . --failures-only --no-write` currently reports 0

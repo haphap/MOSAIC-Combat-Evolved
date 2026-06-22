@@ -1,17 +1,17 @@
 {
   "accepted": true,
   "blockers": [],
-  "complete_rows": 2588,
+  "complete_rows": 2710,
   "error_counts": {
     "analysis_pattern_missing": 2,
-    "boilerplate_risk_warning_footprint": 46,
-    "low_information_footprint": 26,
+    "boilerplate_risk_warning_footprint": 47,
+    "low_information_footprint": 31,
     "metric_mapping_hidden_ungrounded": 1,
     "metric_mapping_hidden_unknown": 1,
-    "metric_mapping_inference_available": 4,
-    "metric_mapping_missing": 26,
+    "metric_mapping_inference_available": 7,
+    "metric_mapping_missing": 31,
     "metric_mapping_ungrounded": 2,
-    "metric_mapping_unknown": 41,
+    "metric_mapping_unknown": 42,
     "metric_mapping_unsupported": 8,
     "not_reusable_footprint": 8,
     "policy_suggestion_not_analysis_footprint": 1,
@@ -22,13 +22,13 @@
   "pending_rows": 0,
   "policy": "analytical footprint review is a manual gold-set gate for source grounding, metric mapping, inferred-step tagging, ambiguity handling, and proprietary text leakage; no rows are accepted until reviewers fill all required fields and quality thresholds pass",
   "precision_recall_report": {
-    "footprint_precision": 0.971793,
-    "inferred_step_tagging_accuracy": 0.971793,
-    "metric_mapping_accuracy": 0.9833,
+    "footprint_precision": 0.970111,
+    "inferred_step_tagging_accuracy": 0.970111,
+    "metric_mapping_accuracy": 0.982883,
     "proprietary_leakage_free_rate": 1.0,
     "recall_estimate": null,
     "recall_status": "requires_human_negative_examples",
-    "span_support_precision": 0.988408,
+    "span_support_precision": 0.986347,
     "unknown_on_ambiguity_rate": 1.0
   },
   "quality_gap_targets": {
@@ -36,75 +36,75 @@
     "interpretation": "count deltas are computed over each metric denominator; metric mapping is evaluated only on footprint_correct=true rows so rejected footprints are not double-counted as mapping failures",
     "metrics": {
       "footprint_precision": {
-        "current_pass_count": 2515,
-        "current_rate": 0.971793,
-        "denominator": 2588,
+        "current_pass_count": 2629,
+        "current_rate": 0.970111,
+        "denominator": 2710,
         "denominator_policy": "completed_review_rows",
         "is_passing": true,
         "minimum_additional_pass_count_if_denominator_unchanged": 0,
         "operator": ">=",
-        "required_pass_count": 2071,
+        "required_pass_count": 2168,
         "threshold": 0.8
       },
       "inferred_step_tagging_accuracy": {
-        "current_pass_count": 2515,
-        "current_rate": 0.971793,
-        "denominator": 2588,
+        "current_pass_count": 2629,
+        "current_rate": 0.970111,
+        "denominator": 2710,
         "denominator_policy": "completed_review_rows",
         "is_passing": true,
         "minimum_additional_pass_count_if_denominator_unchanged": 0,
         "operator": ">=",
-        "required_pass_count": 2071,
+        "required_pass_count": 2168,
         "threshold": 0.8
       },
       "metric_mapping_accuracy": {
-        "current_pass_count": 2473,
-        "current_rate": 0.9833,
-        "denominator": 2515,
+        "current_pass_count": 2584,
+        "current_rate": 0.982883,
+        "denominator": 2629,
         "denominator_policy": "footprint_correct_true_rows",
         "is_passing": true,
         "minimum_additional_pass_count_if_denominator_unchanged": 0,
         "operator": ">=",
-        "required_pass_count": 2012,
+        "required_pass_count": 2104,
         "threshold": 0.8
       },
       "proprietary_leakage_free_rate": {
-        "current_pass_count": 2588,
+        "current_pass_count": 2710,
         "current_rate": 1.0,
-        "denominator": 2588,
+        "denominator": 2710,
         "denominator_policy": "completed_review_rows",
         "is_passing": true,
         "minimum_additional_pass_count_if_denominator_unchanged": 0,
         "operator": ">=",
-        "required_pass_count": 2588,
+        "required_pass_count": 2710,
         "threshold": 1.0
       },
       "span_support_precision": {
-        "current_pass_count": 2558,
-        "current_rate": 0.988408,
-        "denominator": 2588,
+        "current_pass_count": 2673,
+        "current_rate": 0.986347,
+        "denominator": 2710,
         "denominator_policy": "completed_review_rows",
         "is_passing": true,
         "minimum_additional_pass_count_if_denominator_unchanged": 0,
         "operator": ">=",
-        "required_pass_count": 2330,
+        "required_pass_count": 2439,
         "threshold": 0.9
       },
       "unknown_on_ambiguity_rate": {
-        "current_pass_count": 2588,
+        "current_pass_count": 2710,
         "current_rate": 1.0,
-        "denominator": 2588,
+        "denominator": 2710,
         "denominator_policy": "completed_review_rows",
         "is_passing": true,
         "minimum_additional_pass_count_if_denominator_unchanged": 0,
         "operator": ">=",
-        "required_pass_count": 2071,
+        "required_pass_count": 2168,
         "threshold": 0.8
       }
     },
     "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
     "sample_size_completed_rows": {
-      "current_count": 2588,
+      "current_count": 2710,
       "pending_rows_are_excluded_from_metric_denominator": true
     }
   },
@@ -122,5 +122,5 @@
   "review_kind": "analytical_footprint_gold_set",
   "review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
   "summary_id": "RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-SUMMARY",
-  "total_rows": 2588
+  "total_rows": 2710
 }

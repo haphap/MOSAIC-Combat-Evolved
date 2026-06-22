@@ -53,6 +53,26 @@ registry/sources/local_macro_strategy_reports.manifest.json
 
 Both paths are gitignored and must remain private.
 
+## GitHub Registry Boundary
+
+Do not commit the full Report Intelligence runtime database to GitHub. The
+tracked `registry/report_intelligence/` surface is limited to public-safe control
+plane artifacts such as feature flags, compact catalogs, readiness gates, and
+aggregate audit summaries. Large per-claim/per-footprint/per-recipe derived
+JSONL artifacts are local generated outputs, even when they are redacted.
+
+Keep these classes local/gitignored:
+
+- extracted claim, footprint, metadata, review-aid, and outcome-label files;
+- recipe/method/tool-gap/metric-candidate detail JSONL files;
+- macro regime snapshot and macro agent research-prior detail exports;
+- audit, monitor, gap-distribution, prompt-mutation, and paper-trading history
+  JSONL files.
+
+If downstream macro agents need one of these views, consume it from the local
+registry or add a separate compact public export. Do not re-add the full detail
+JSONL files to `REQUIRED_REGISTRY_FILES`.
+
 Last source build:
 
 - Command:
