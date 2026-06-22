@@ -147,8 +147,10 @@ flowchart LR
   明文。
 - 如果只需要验证 pipeline，可先运行 `--skip-convert` 或 `--skip-llm`；真正扩大
   覆盖率时再打开 MinerU/vLLM。
-- 宏观策略本地 PDF source 以 `/home/hap/Downloads/yanbaoke/宏观策略` 目录内
-  的 PDF 为准，递归扫描 `*.pdf`，不要依赖不完整的文件清单。
+- 宏观策略本地 PDF source 以 `/home/hap/Downloads/yanbaoke` 父目录内的 PDF
+  为准，递归扫描 `*.pdf`，不要依赖不完整的文件清单；`宏观策略`、`其他债券研究`、
+  `期货研究`、`全球策略`、`国际宏观评论` 等宏观相邻目录进入同一 private source
+  corpus。
 
 ## 4. Artifact 架构
 

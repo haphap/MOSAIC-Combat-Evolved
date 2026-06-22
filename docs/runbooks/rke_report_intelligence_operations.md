@@ -33,14 +33,16 @@ docker inspect rke-vllm-qwen36-27b-160k-20260610
 
 ## Local Macro Strategy Source
 
-The macro strategy source registry is built from actual PDFs under:
+The macro strategy source registry is built from actual PDFs under the local
+Yanbaoke root:
 
 ```text
-/home/hap/Downloads/yanbaoke/宏观策略
+/home/hap/Downloads/yanbaoke
 ```
 
-Do not rely on `文件清单.txt`; it is incomplete. Scan the directory recursively
-for `*.pdf`.
+Do not rely on `文件清单.txt`; it is incomplete. Scan the root recursively for
+`*.pdf` so newly added macro-adjacent folders such as `其他债券研究`, `期货研究`,
+`全球策略`, and `国际宏观评论` are included in the same private source registry.
 
 Current private source outputs:
 
@@ -58,15 +60,16 @@ Last source build:
 ```bash
 uv run mosaic-rke build-local-macro-report-sources \
   --root . \
-  --input-dir /home/hap/Downloads/yanbaoke/宏观策略
+  --input-dir /home/hap/Downloads/yanbaoke
 ```
 
-- Scanned PDF count: `788`
-- Written source rows: `788`
-- Date range: `2023-08-30` to `2026-06-09`
+- Scanned PDF count: `1898`
+- Written source rows: `1898`
+- Date range: `2017-10-15` to `2026-06-21`
 - Report type counts:
-  `宏观策略=329`, `A股=22`, `债券=7`, `商品=33`, `大类资产=20`,
-  `海外=11`, `待分类=366`
+  `宏观策略=605`, `宏观策略-A股=44`, `宏观策略-债券=233`,
+  `宏观策略-商品=83`, `宏观策略-大类资产=100`, `宏观策略-海外=44`,
+  `宏观策略-待分类=789`
 
 ## Macro Series Backfill
 
@@ -835,6 +838,10 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 
 - `2026-06-15`: Added local macro source support and built private source rows
   from `/home/hap/Downloads/yanbaoke/宏观策略`; 788 PDFs found.
+- `2026-06-22`: Rebuilt the private local macro source rows from the parent
+  `/home/hap/Downloads/yanbaoke` root so macro-adjacent additions in
+  `其他债券研究`, `期货研究`, `全球策略`, and `国际宏观评论` are included; 1898 PDFs
+  found, with no source-scan blockers.
 - `2026-06-15`: Documented that MinerU/vLLM are already configured locally and
   should be reused before reinstalling.
 - `2026-06-15`: Fixed MinerU command resolution so relative commands such as
