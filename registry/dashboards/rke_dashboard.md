@@ -20,9 +20,9 @@
 - Production monitor diagnostic failures: 0
 - Rollback readiness accepted: True
 - Rollback readiness failures: 0
-- Lockbox result: not_opened
-- Promotion next state: staged_production
-- Promotion production allowed: False
+- Lockbox result: passed
+- Promotion next state: production
+- Promotion production allowed: True
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
 - Experiment validation failures: 0
@@ -44,15 +44,15 @@
 - Gold review assist: registry/review_batches/gold_set_review_assist.md
 - Next license review batch rows: 0
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
-- Manual review promotion dry-run ready: False
-- Manual review progress blockers: 4
+- Manual review promotion dry-run ready: True
+- Manual review progress blockers: 0
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 2
+- Operator handoff blockers: 0
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
-- Schema validation failures: 17
+- Schema validation failures: 0
 - Claim variable validation failures: 0
 - Claim grounding validation failures: 0
 - Rule pack validation failures: 0

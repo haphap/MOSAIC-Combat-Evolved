@@ -10,7 +10,7 @@
     "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
   ],
   "blockers": [],
-  "checked_path_count": 466,
+  "checked_path_count": 445,
   "failure_count": 0,
   "fingerprint_count": 509675,
   "malformed_source_row_count": 0,
@@ -29,7 +29,7 @@
     "mosaic-ts/src/**/*.ts",
     "mosaic-ts/src/**/*.tsx"
   ],
-  "skipped_allowed_path_count": 45,
+  "skipped_allowed_path_count": 66,
   "source_path": "registry/sources/tushare_research_reports.jsonl",
   "source_text_count": 17470
 }

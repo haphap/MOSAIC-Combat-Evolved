@@ -94,6 +94,7 @@ from mosaic.rke.report_intelligence import (
     _paper_trading_train_oos_split_items,
     _select_report_forecast_claims,
     _stable_id,
+    _text_grounded_indicator_mentions,
     _user_prompt,
     _refresh_analytical_footprint_indicator_governance,
     _refresh_forecast_mapping_governance,
@@ -4971,6 +4972,20 @@ def test_report_intelligence_backfills_source_grounded_footprint_metrics_from_ch
     }
     assert "real_estate_transaction_area" in refreshed_canonicals
     assert "real_estate_sell_through_rate" in refreshed_canonicals
+
+
+def test_report_intelligence_does_not_seed_company_financials_from_macro_forecast_context():
+    mentions = _text_grounded_indicator_mentions(
+        "美国劳动力市场降温，联储政策利率路径仍是核心变量。",
+        footprint_context="US Labor Market Cooling; forecast Fed policy path",
+    )
+
+    canonicals = {row["canonical_metric_candidate"] for row in mentions}
+    assert "macro_activity_or_inflation_metric" in canonicals
+    assert "policy_rate_expectation" in canonicals
+    assert "forecast_net_profit" not in canonicals
+    assert "revenue_growth" not in canonicals
+    assert "dr007_policy_rate_spread" not in canonicals
 
 
 def test_report_intelligence_prioritizes_source_grounded_footprint_metrics_in_preview(

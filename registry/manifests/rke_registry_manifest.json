@@ -49,17 +49,17 @@
     {
       "bytes": 1083,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:56dcd4fe4acea730e0a2fa7a8e1252616e5a6218d2c02442e1a69f67489ad7f9"
+      "sha256": "sha256:f0c93bfef5bcb06ef117eb6b8bf8a65b4ba8ed77a5eb69e008f30deb95cfa2b9"
     },
     {
-      "bytes": 9460,
+      "bytes": 9438,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:014040892a7a6a839bf606e9e5c7573ae4177ba252455f579606a585d63c6665"
+      "sha256": "sha256:e097c860e3bb95d42ad0b3bb97b0bbd373a395bdcc5776cf661ee3bd7968a627"
     },
     {
-      "bytes": 2559,
+      "bytes": 2545,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:a6e83fcd66ec8428bb064d44771af7b1b79aa777cd5f69b9b35109aa66c9213c"
+      "sha256": "sha256:8c8240a5bc8c83a255881c596c63b0a5b62e19ae1feef4b4a9946700e8fe2e55"
     },
     {
       "bytes": 1233,
@@ -137,14 +137,14 @@
       "sha256": "sha256:2d1f68bea8757460a3c59dc298c713ec3750b44f5ed8f40378787772e9fad027"
     },
     {
-      "bytes": 35786,
+      "bytes": 27601,
       "path": "registry/handoffs/rke_operator_handoff.json",
-      "sha256": "sha256:7576371e59c519d0f769b498d1e54aebf8d542d1a495fcb78dbd1dd3e38f180c"
+      "sha256": "sha256:75f7fc127fbb7d0400f5f0fc3efee60e46f792f612c0795341f42213d29ef2fe"
     },
     {
-      "bytes": 20293,
+      "bytes": 19662,
       "path": "registry/handoffs/rke_operator_handoff.md",
-      "sha256": "sha256:1208eadc185871da48e096d5128411f5b9aff2b947bc4d88cc72b353fb976292"
+      "sha256": "sha256:2ec31cd9c6ecabe5434d0698895452ef8d7c08d59477beaa844b08d7d494d48e"
     },
     {
       "bytes": 5530,
@@ -167,14 +167,14 @@
       "sha256": "sha256:ab7a7dcd7899ae968372b312e9a330a84ff3e15cb3008eed15f715876993eb0e"
     },
     {
-      "bytes": 397,
+      "bytes": 470,
       "path": "registry/lockbox/central_bank_lockbox_review.json",
-      "sha256": "sha256:e8005bf5292b74fd693b24da4e26279209433c5b8442524d0126fefa190244ed"
+      "sha256": "sha256:a33f6c91e3d62f96b26a8bfd6aeedd30dd95e8b7bd4b539bcf6cdbe57c8c09f1"
     },
     {
-      "bytes": 699,
+      "bytes": 1105,
       "path": "registry/lockbox/central_bank_lockbox_review_import_report.json",
-      "sha256": "sha256:ccd4ec73bfdf2da39a4689070f5fb6605702ac379e21d44cdf6551bc898af7c8"
+      "sha256": "sha256:43999eb257d4cf57c64e23fc2e4a9736d3cda56874910a7b2454cd6a54acf23a"
     },
     {
       "bytes": 3696,
@@ -207,9 +207,9 @@
       "sha256": "sha256:79106ac57735b5c943efc4294a250bfd2c3eed3c615ed8e7a77d5c8e7da5c218"
     },
     {
-      "bytes": 3396,
+      "bytes": 3336,
       "path": "registry/promotion/rke_production_promotion_gate.json",
-      "sha256": "sha256:1e50d4146d338f299fef92df2dbe00bdae72d0419a3aabe29d7a965ea2577105"
+      "sha256": "sha256:b937514c96650eeb84b020a19a76b4b8376727bf800f61d30d318cf10ed62f60"
     },
     {
       "bytes": 1491,
@@ -242,29 +242,29 @@
       "sha256": "sha256:5a5c478c417df1b7e29a6b4a1329249e820acf93c3de5d1be9fe741fdfe6ab1e"
     },
     {
-      "bytes": 4785,
+      "bytes": 5293,
       "path": "registry/report_intelligence/analytical_footprint_review_summary.json",
-      "sha256": "sha256:863a77a2f94cdec83f496bf9ed9a28dd30ac3f325742bcceb9bd46c0dbb06914"
+      "sha256": "sha256:f21e313830d32dc726359c421ee1acd23e21ac087187e0d1ba350a6f81fadc6c"
     },
     {
-      "bytes": 221418,
+      "bytes": 221728,
       "path": "registry/report_intelligence/confidence_impact_monitor.json",
-      "sha256": "sha256:972aba8ed49f616b665277ec54375b74fd325d6f60c68786e20411991aa856bf"
+      "sha256": "sha256:2350d8adce8363cfcd95f0e23c38dd1c950596ec47e9ebe78a5f5b07e35f45b1"
     },
     {
       "bytes": 24741,
       "path": "registry/report_intelligence/evolution_readiness_gate.json",
-      "sha256": "sha256:ed726e36fce9cdeb3c8390ae701f2b0ee6493dd6939d2ed23ebf55954b16e911"
+      "sha256": "sha256:16743b0cba36285b6362ee10863b44a33eb89625f14358d766a43d140ae4aa54"
     },
     {
       "bytes": 3343,
       "path": "registry/report_intelligence/extraction_provenance_audit.json",
-      "sha256": "sha256:1503892db57163d2a0359b39b5409339bdd77d06fc97d3669676175b40508576"
+      "sha256": "sha256:63136289eba2def73967efa6448006db00483551b31021046e02668ac10c4c94"
     },
     {
-      "bytes": 6473,
+      "bytes": 6475,
       "path": "registry/report_intelligence/extraction_report.json",
-      "sha256": "sha256:983fba67ad6161d26fbb823d6c8a9d30a7e0ff161580c4d491d07bae1a516b13"
+      "sha256": "sha256:c3c95139081483e6c175d9f72c375bdcf1bf89e737cc20e7af1dc4a798873adc"
     },
     {
       "bytes": 747,
@@ -294,52 +294,52 @@
     {
       "bytes": 6936,
       "path": "registry/report_intelligence/markdown_coverage_summary.json",
-      "sha256": "sha256:2413405c293c62246202f2a5cdf7b7a12dd68ded1a8f26e12816b6c481e9bf62"
+      "sha256": "sha256:fdef0874c823455ca66545c42c4544c040119c628247351e47c5bba3ebe4c412"
     },
     {
       "bytes": 8897,
       "path": "registry/report_intelligence/monitoring_report.json",
-      "sha256": "sha256:142adc69967ed8549a02d6263ecdfa0512584297d534453c9b0ca1e522a5373e"
+      "sha256": "sha256:1b63580aaa0ab5c009003b0464bf31014d17969be0cfbe9195c1f2d84e03481d"
     },
     {
-      "bytes": 149963,
+      "bytes": 150242,
       "path": "registry/report_intelligence/outcome_labeling_readiness.json",
-      "sha256": "sha256:51634d116e2992f6e09ecb792a686012b3d746af32a57237618263b3689d1c9e"
+      "sha256": "sha256:b526a4c2e5d3b84d6f0e64c3f3701cb7bfe9d29eb887d065741bff2d0be7813e"
     },
     {
-      "bytes": 21084,
+      "bytes": 21806,
       "path": "registry/report_intelligence/patch_v1_5_coverage_report.json",
-      "sha256": "sha256:bd3ac11403a2ead8dd11adc142551a3049792257a5f8d782696efd4167d4ee84"
+      "sha256": "sha256:0ba293ba9f6e3d7af67d6897df4d2d39540bc1f740bb17a0a90e772d008ab9dc"
     },
     {
       "bytes": 3604,
       "path": "registry/report_intelligence/pit_leakage_audit.json",
-      "sha256": "sha256:c339e51b30a392695268cb5435bdb1ac0182c58f40f506abd930060defbdba84"
+      "sha256": "sha256:ca7ff741e463103ac74387415ec9167905d6e636760f498e7dfb1e2093352a92"
     },
     {
-      "bytes": 517626,
+      "bytes": 518842,
       "path": "registry/report_intelligence/recipe_paper_trading_summary.json",
-      "sha256": "sha256:faa7fd8fe035f403ff2687785a7a04896bedefc3e8f662cd9dc1769f49a1cafd"
+      "sha256": "sha256:6ba2544c893fef0f5bb376c407300961b7f79bb5ab5c0887bada3fa1e55b7f71"
     },
     {
       "bytes": 3953,
       "path": "registry/report_intelligence/recipe_validation_audit.json",
-      "sha256": "sha256:43dbf2f7bf18ad368223de879173de531e07095c9792e4f3d584a3e32180c39c"
+      "sha256": "sha256:528cee053a9b4891eb95edf3387c42934ddc1110739b78d90bb51fda962996dd"
     },
     {
       "bytes": 4514,
       "path": "registry/report_intelligence/runtime_safety_audit.json",
-      "sha256": "sha256:3f399914edbd0389008b7bb639f549c249c834f0514581032023557d9e0e8cd4"
+      "sha256": "sha256:8eece9eec1ceb5be7fd2e5351f3db398295bc3f0675fc719fb727dc22f77f2f1"
     },
     {
       "bytes": 5545,
       "path": "registry/report_intelligence/statistical_robustness_audit.json",
-      "sha256": "sha256:c0a09f8e192c6f06a64c9e41180b3e5faa18e9f542cffb6bc4897c9af6b3fe2a"
+      "sha256": "sha256:c8c6ab706935c498c7a97b143798bb578bb0ec76fd346f6cd5acf0c861364325"
     },
     {
       "bytes": 4137,
       "path": "registry/report_intelligence/tool_feasibility_audit.json",
-      "sha256": "sha256:de256cbf6596721cc6408da3487b78827928dd14a58d5d0bf0527ea8a59a6a89"
+      "sha256": "sha256:524a918c83ad61d77a09ab8650d8d451ded0e063a8651bd33a79c6f7502c93b4"
     },
     {
       "bytes": 111500,
@@ -357,14 +357,14 @@
       "sha256": "sha256:136d2cbb0645343dd68b7b3d7cdb6c74df68fa452f2824e1757c6db153af3a85"
     },
     {
-      "bytes": 2180,
+      "bytes": 2176,
       "path": "registry/review_batches/lockbox_review_checklist.md",
-      "sha256": "sha256:61bbb339846e4c15ef6c10cf462a0e5f1ffba5b25269848417d5e9cff9086957"
+      "sha256": "sha256:179a3bff94514c4533c66b0d8f1e0b9f13a059ad9fef004fa7f0e8c98915b8b5"
     },
     {
       "bytes": 613,
       "path": "registry/review_batches/lockbox_review_next_import_template.json",
-      "sha256": "sha256:9dafa74c7b3122920a347ad8d386e470bf6ebb895bf0fa6cfe7f8e79b0efec85"
+      "sha256": "sha256:f31368624adb8bf1538a6ca70798631600ec1d5e6dd26fb9be374b728393aebc"
     },
     {
       "bytes": 2878,
@@ -377,14 +377,14 @@
       "sha256": "sha256:f9332e28594dd49f6b6e7f20c0d18789122a656190f2286ad6cc4634d86be1e8"
     },
     {
-      "bytes": 39190,
+      "bytes": 19324,
       "path": "registry/review_batches/manual_review_progress_report.json",
-      "sha256": "sha256:6544a8435fdc8576ad95da0266034d83668798b4d7d191d3db1992277d2d21a0"
+      "sha256": "sha256:2ba83704909728e31e72162261626611c4384ad10d7be7f1fe0005af75a468e4"
     },
     {
-      "bytes": 29872,
+      "bytes": 21115,
       "path": "registry/review_batches/manual_review_runbook.md",
-      "sha256": "sha256:94af5b2e32e2af0bca7d0e24be1aca37361bd03233c1e885d364b53e6e74c060"
+      "sha256": "sha256:e071073f789df1f92336a92e550a6e36f8a3d92f50080d7fcef1a3fdd58dc338"
     },
     {
       "bytes": 1031,

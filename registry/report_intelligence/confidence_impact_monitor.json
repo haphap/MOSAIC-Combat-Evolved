@@ -132,19 +132,19 @@
     "RECIPE-fd197c28a477e490"
   ],
   "alpha_decay_watch_count": 14,
-  "as_of_datetime": "2026-06-22T07:55:01+00:00",
-  "blocked_recipe_count": 6738,
+  "as_of_datetime": "2026-06-22T15:10:38+00:00",
+  "blocked_recipe_count": 6748,
   "blocker_counts": {
     "after_cost_alpha_non_positive": 76,
     "consecutive_non_positive_after_cost_windows": 47,
     "hit_rate_below_threshold": 87,
-    "insufficient_effective_n": 6570,
+    "insufficient_effective_n": 6580,
     "market_regime_missing": 3,
     "max_drawdown_breach": 93,
-    "no_direct_recipe_outcome_binding": 4031,
+    "no_direct_recipe_outcome_binding": 4034,
     "out_of_sample_after_cost_alpha_non_positive": 76,
     "recipe_instability_gap": 3,
-    "required_tools_not_shadow_implemented": 1980
+    "required_tools_not_shadow_implemented": 1986
   },
   "calibration_drift_count": 13,
   "calibration_drift_recipe_ids": [
@@ -163,7 +163,7 @@
     "RECIPE-ec8e0e2abb7cb3a8"
   ],
   "calibration_drift_rule_counts": {},
-  "confidence_alpha_correlation": 0.35183667,
+  "confidence_alpha_correlation": 0.35183619,
   "confidence_alpha_correlation_status": "non_negative",
   "confidence_delta_bucket_outcomes": {
     "high_positive": {
@@ -172,9 +172,9 @@
       "mean_realized_alpha": 2.05550661
     },
     "zero": {
-      "count": 6765,
-      "mean_hit_rate": 0.458342,
-      "mean_realized_alpha": 0.03111537
+      "count": 6775,
+      "mean_hit_rate": 0.459725,
+      "mean_realized_alpha": 0.03113194
     }
   },
   "cost_decay_fail_count": 0,
@@ -183,7 +183,7 @@
     "alpha_decay_fail": 113,
     "alpha_decay_watch": 14,
     "calibration_drift_watch": 13,
-    "paper_trading_blocked": 6625,
+    "paper_trading_blocked": 6635,
     "stable_shadow": 15
   },
   "freeze_recipe_ids": [
@@ -319,16 +319,16 @@
   ],
   "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
   "new_regime_miscalibration_recipe_ids": [],
-  "observation_count": 6780,
+  "observation_count": 6790,
   "paper_trading_validated_recipe_count": 42,
   "policy": "confidence impact remains shadow-only; paper-trading validation, alpha-decay checks, calibration drift checks, and lockbox gates are required before any production confidence change",
   "production_decision_impact_allowed": false,
   "profile_paper_trade_disagreement_count": 0,
   "profile_paper_trade_disagreement_recipe_ids": [],
-  "recipe_count": 6780,
+  "recipe_count": 6790,
   "recommended_action_counts": {
     "freeze_recipe": 113,
-    "keep_shadow": 6640,
+    "keep_shadow": 6650,
     "reduce_confidence_impact": 14,
     "send_to_manual_review": 13
   },
@@ -351,7 +351,7 @@
   "regime_fragile_alpha_count": 0,
   "regime_fragile_recipe_ids": [],
   "retire_recipe_ids": [],
-  "run_id": "RIR-DERIVED-20260622T075412+0000",
+  "run_id": "RIR-DERIVED-20260622T150944+0000",
   "tracked_recipe_ids": [
     "RECIPE-0013bd5f2468073a",
     "RECIPE-00187bb379384666",
@@ -754,6 +754,7 @@
     "RECIPE-0ed068f965eff96d",
     "RECIPE-0ee13cc997356a70",
     "RECIPE-0ee227d93f08a240",
+    "RECIPE-0eeaaa9eecf3f2fb",
     "RECIPE-0f008964858fa0a4",
     "RECIPE-0f03206033902606",
     "RECIPE-0f16b8dfd2987558",
@@ -1101,6 +1102,7 @@
     "RECIPE-1ac5a30279c23948",
     "RECIPE-1ac945dc30a04317",
     "RECIPE-1ad3fca5d6655fa2",
+    "RECIPE-1ad86ab8202dd7fe",
     "RECIPE-1ad96dcc4636776e",
     "RECIPE-1ad9cab1dfd7c39e",
     "RECIPE-1ae4db80422234c4",
@@ -2995,6 +2997,7 @@
     "RECIPE-6292a330278066fa",
     "RECIPE-6299174c5afa71a4",
     "RECIPE-62a40931dc787331",
+    "RECIPE-62a4336c3f1779da",
     "RECIPE-62baae91d3de6308",
     "RECIPE-62bca87701336489",
     "RECIPE-62beed86d705bfc2",
@@ -3926,6 +3929,7 @@
     "RECIPE-85bb575cc43cfca8",
     "RECIPE-85dc349851b64d50",
     "RECIPE-85e2af8076e4aac3",
+    "RECIPE-85e44e337ccb5714",
     "RECIPE-85e7070b0e5a18d4",
     "RECIPE-85ee357e69f54312",
     "RECIPE-85f3cbf00283ad42",
@@ -5183,6 +5187,7 @@
     "RECIPE-b604c060c9b5d503",
     "RECIPE-b605c8fc1616ac97",
     "RECIPE-b61fba27549bda98",
+    "RECIPE-b61fec2faf994ecf",
     "RECIPE-b6246077a7e71157",
     "RECIPE-b62dc3b2dd57ef71",
     "RECIPE-b63795858b1d80d0",
@@ -5851,6 +5856,7 @@
     "RECIPE-ce9b0d4e5f5ac55e",
     "RECIPE-cea6be495a8aadc3",
     "RECIPE-ceacd619887c4831",
+    "RECIPE-ceae1b8b46efaaea",
     "RECIPE-ceb1c0ef846b9ed3",
     "RECIPE-ceb8d05edefeac84",
     "RECIPE-cebc5e72c5773954",
@@ -5925,6 +5931,7 @@
     "RECIPE-d18e48098c73e1bf",
     "RECIPE-d19172487cb85912",
     "RECIPE-d1a3ef5158a24651",
+    "RECIPE-d1aec9a7d0a5f318",
     "RECIPE-d1e7894863f4e1f5",
     "RECIPE-d1e8520e6bf08174",
     "RECIPE-d1f8b2481493d86b",
@@ -6007,6 +6014,7 @@
     "RECIPE-d4f148974428da5d",
     "RECIPE-d4f223cab7237288",
     "RECIPE-d4fd5b51430f3af7",
+    "RECIPE-d5042d9973c06761",
     "RECIPE-d508a198128dec9d",
     "RECIPE-d50f3c482542f021",
     "RECIPE-d5135c6b669d6707",
@@ -6640,6 +6648,7 @@
     "RECIPE-ecb07be7eb53858c",
     "RECIPE-ecc1bc8be0b556b2",
     "RECIPE-eccd000a599ce457",
+    "RECIPE-ecd1d1edf0f5b763",
     "RECIPE-ecd7241670c816a9",
     "RECIPE-ecd95f30210a115e",
     "RECIPE-ecde1bdd9ff74989",
@@ -7043,6 +7052,7 @@
     "RECIPE-fca92d323c461355",
     "RECIPE-fcaa3bdfa79f08d1",
     "RECIPE-fcad871ab85d2bfb",
+    "RECIPE-fce47bea0afb9660",
     "RECIPE-fce9cd52d68a6315",
     "RECIPE-fcf106a060309dc9",
     "RECIPE-fcf16fc0cd2a37a3",

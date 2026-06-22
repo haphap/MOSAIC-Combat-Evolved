@@ -5,12 +5,12 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 
 ## Current Progress
 
-- Promotion dry-run ready: false
+- Promotion dry-run ready: true
 - Gold-set review: 125/125 complete; scratch exists: true; simulation accepted: true
-- Analytical-footprint review: 2329/2588 complete; scratch exists: true; simulation accepted: false
+- Analytical-footprint review: 2717/2717 complete; scratch exists: true; simulation accepted: true
 - Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
 - Lockbox review: 1/1 complete; scratch exists: true; simulation accepted: true
-- Lockbox dependency status: waiting_on footprint_review
+- Lockbox dependency status: ready
 
 ## Current Batch Scratch
 
@@ -29,18 +29,19 @@ This section reports aggregate completion counts for the current local batch or 
   Review workflow groups: decision: none; metadata: none; text: none; draft_verify: `claim_correct`=50, `source_span_supports_claim`=50, `variable_mapping_correct`=50, `horizon_correct`=48, `target_correct`=45, `direction_correct`=42, `unsupported_field_false_grounded`=26; text_draft_verify: none
   Review field workload: `claim_correct`=missing:0,draft:50,text_draft:0,manual:0; `direction_correct`=missing:0,draft:42,text_draft:0,manual:0; `horizon_correct`=missing:0,draft:48,text_draft:0,manual:0; `source_span_supports_claim`=missing:0,draft:50,text_draft:0,manual:0; `target_correct`=missing:0,draft:45,text_draft:0,manual:0; `unsupported_field_false_grounded`=missing:0,draft:26,text_draft:0,manual:0; `variable_mapping_correct`=missing:0,draft:50,text_draft:0,manual:0
   Evidence alignment gaps: `extra_evidence_rows`=50
-- Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 0; complete: 0; pending: 0; malformed: 0
-  Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 2; covered: 0/0; same_order: false; aligned: false
-  Evidence quality: snippet_ready: 2; missing_markdown: 0
-  Evidence priority metadata: reason_ready: 2; missing_reason_rows: 0; refresh_recommended: false
-  Evidence priority scores: `1`=1, `3`=1
-  Evidence priority reasons: `complex_multi_step_patterns`=1, `missing_target_agent_candidates`=2
-  Suggested decision counts: `footprint_correct`={true:2}; `inferred_steps_tagged_correctly`={true:2}; `metric_mapping_correct`={true:2}; `no_proprietary_text_leakage`={true:2}; `source_span_supports_footprint`={true:2}; `unknowns_used_when_uncertain`={true:2}
-  Review workload summary: missing_required_cells=0; draft_decision_available_cells=12; draft_text_available_cells=0; manual_review_required_cells=0; fields_with_manual_review_required=0
-  Review next fields: manual_required: none; draft_available: `footprint_correct`=2, `inferred_steps_tagged_correctly`=2, `metric_mapping_correct`=2, `no_proprietary_text_leakage`=2, `source_span_supports_footprint`=2, `unknowns_used_when_uncertain`=2; text_draft_available: none
-  Review workflow groups: decision: none; metadata: none; text: none; draft_verify: `footprint_correct`=2, `inferred_steps_tagged_correctly`=2, `metric_mapping_correct`=2, `no_proprietary_text_leakage`=2, `source_span_supports_footprint`=2, `unknowns_used_when_uncertain`=2; text_draft_verify: none
-  Review field workload: `footprint_correct`=missing:0,draft:2,text_draft:0,manual:0; `inferred_steps_tagged_correctly`=missing:0,draft:2,text_draft:0,manual:0; `metric_mapping_correct`=missing:0,draft:2,text_draft:0,manual:0; `no_proprietary_text_leakage`=missing:0,draft:2,text_draft:0,manual:0; `source_span_supports_footprint`=missing:0,draft:2,text_draft:0,manual:0; `unknowns_used_when_uncertain`=missing:0,draft:2,text_draft:0,manual:0
-  Evidence alignment gaps: `extra_evidence_rows`=2
+- Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 25; complete: 25; pending: 0; malformed: 0
+  Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 25; covered: 25/25; same_order: true; aligned: true
+  Evidence quality: snippet_ready: 25; missing_markdown: 0
+  Evidence priority metadata: reason_ready: 25; missing_reason_rows: 0; refresh_recommended: false
+  Quality-gap focus fields: `footprint_correct`=1, `inferred_steps_tagged_correctly`=1, `metric_mapping_correct`=1
+  Suggested evidence tags: `boilerplate_risk_warning_footprint`=1
+  Evidence priority scores: `1`=19, `3`=6
+  Evidence priority reasons: `complex_multi_step_patterns`=6, `missing_target_agent_candidates`=25
+  Suggested decision counts: `footprint_correct`={false:1,true:24}; `inferred_steps_tagged_correctly`={false:1,true:24}; `metric_mapping_correct`={false:1,true:24}; `no_proprietary_text_leakage`={true:25}; `source_span_supports_footprint`={true:25}; `unknowns_used_when_uncertain`={true:25}
+  Review workload summary: missing_required_cells=0; draft_decision_available_cells=150; draft_text_available_cells=0; manual_review_required_cells=0; fields_with_manual_review_required=0
+  Review next fields: manual_required: none; draft_available: `footprint_correct`=25, `inferred_steps_tagged_correctly`=25, `metric_mapping_correct`=25, `no_proprietary_text_leakage`=25, `source_span_supports_footprint`=25, `unknowns_used_when_uncertain`=25; text_draft_available: none
+  Review workflow groups: decision: none; metadata: none; text: none; draft_verify: `footprint_correct`=25, `inferred_steps_tagged_correctly`=25, `metric_mapping_correct`=25, `no_proprietary_text_leakage`=25, `source_span_supports_footprint`=25, `unknowns_used_when_uncertain`=25; text_draft_verify: none
+  Review field workload: `footprint_correct`=missing:0,draft:25,text_draft:0,manual:0; `inferred_steps_tagged_correctly`=missing:0,draft:25,text_draft:0,manual:0; `metric_mapping_correct`=missing:0,draft:25,text_draft:0,manual:0; `no_proprietary_text_leakage`=missing:0,draft:25,text_draft:0,manual:0; `source_span_supports_footprint`=missing:0,draft:25,text_draft:0,manual:0; `unknowns_used_when_uncertain`=missing:0,draft:25,text_draft:0,manual:0
 - Lockbox decision: `registry/review_batches/lockbox_reviewed.json`; exists: true; rows: 1; complete: 1; pending: 0; malformed: 0
 
 ## Prepare Commands
@@ -49,7 +50,7 @@ This section reports aggregate completion counts for the current local batch or 
 - Gold-set: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full`
 - Analytical-footprint: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
 - Source-license: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .`
-- Lockbox: wait for upstream gates before running `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .`
+- Lockbox: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .`
 
 ## Reviewer Inputs
 
@@ -198,60 +199,12 @@ This plan slices the current pending set before any new batch is applied. If you
 
 - Gold-set review: no pending review batches.
 
-### Analytical-footprint review
-
-- Batch 1: pending rows 1-50; limit=50; offset=0; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-  - assist: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-  - dry_run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 2: pending rows 51-100; limit=50; offset=50; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-  - assist: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 50 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 50 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-  - dry_run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 3: pending rows 101-150; limit=50; offset=100; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-  - assist: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 100 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 100 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-  - dry_run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 4: pending rows 151-200; limit=50; offset=150; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-  - assist: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 150 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 150 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-  - dry_run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 5: pending rows 201-250; limit=50; offset=200; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-  - assist: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 200 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 200 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-  - dry_run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 6: pending rows 251-259; limit=9; offset=250; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-  - assist: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 9 --offset 250 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 9 --offset 250 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-  - dry_run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
+- Analytical-footprint review: no pending review batches.
 
 ## Next Batch Commands
 
 These commands operate on the current pending set. After applying an accepted batch, rerun review-progress and use the refreshed commands.
 
-### footprint_review
-
-- assist: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- evidence: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-- dry_run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-- apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-
 ## Current Blockers
 
-- footprint_review: 2329/2588 ready
-- footprint_review: 116 footprint ids are missing from target
-- footprint_review: 117 analytical footprint review rows failed validation
-- footprint_review: 259 analytical footprint review rows still pending
+- none

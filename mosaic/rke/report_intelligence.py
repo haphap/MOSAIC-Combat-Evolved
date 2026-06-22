@@ -3481,7 +3481,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"\bdr\s*007\b|dr007|policy[_\s-]*rate|政策利率",
+        r"\bdr\s*007\b|dr007|DR007与政策利率利差",
         {
             "canonical_metric_candidate": "dr007_policy_rate_spread",
             "data_source_mentioned": "interbank_repo_rate_and_policy_rate",
@@ -4128,12 +4128,22 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"联邦基金利率期货|fed[_\s-]*funds[_\s-]*futures|加息概率|降息概率",
+        r"\bnfp\b|nonfarm|labor[_\s-]*market|employment|unemployment|wage[_\s-]*growth|劳动力|就业|失业|非农|薪资",
+        {
+            "canonical_metric_candidate": "macro_activity_or_inflation_metric",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly",
+            "transformation": "level_growth_or_rate_change",
+            "role_in_argument": "labor_market_regime_metric",
+        },
+    ),
+    (
+        r"联邦基金利率期货|fed[_\s-]*funds[_\s-]*(?:futures|rate)|fed[_\s-]*policy[_\s-]*rate|fomc|美联储|联储|政策利率(?:预期|路径)|加息概率|降息概率|降息|加息",
         {
             "canonical_metric_candidate": "policy_rate_expectation",
-            "data_source_mentioned": "rates_futures_market_data",
+            "data_source_mentioned": "central_bank_policy_statement_or_rates_futures_market_data",
             "frequency": "daily",
-            "transformation": "implied_probability",
+            "transformation": "policy_rate_path_or_implied_probability",
             "role_in_argument": "monetary_policy_expectation_metric",
         },
     ),
@@ -5501,7 +5511,7 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"流动性|资金|公开市场|liquidity|funding",
     ),
     (
-        r"\bdr\s*007\b|DR007|政策利率",
+        r"\bdr\s*007\b|DR007",
         "DR007与政策利率利差",
         r"流动性|资金|利率|DR007|liquidity|funding|rate",
     ),
@@ -5509,6 +5519,21 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"宏观经济|PMI|财政政策|投资结构|专项债|社融|信贷|GDP|通胀",
         "宏观经济/财政信用指标",
         r"宏观|财政|投资|PMI|社融|信贷|GDP|通胀|macro|fiscal|credit",
+    ),
+    (
+        r"劳动力|就业|失业|非农|薪资|labor[_\s-]*market|employment|unemployment|\bnfp\b|wage",
+        "劳动力市场指标",
+        r"劳动力|就业|失业|非农|薪资|Fed|policy|macro|labor|employment|unemployment",
+    ),
+    (
+        r"美联储|联储|FOMC|降息|加息|fed[_\s-]*policy|fed[_\s-]*funds",
+        "政策利率预期",
+        r"美联储|联储|FOMC|降息|加息|政策|利率|流动性|Fed|policy|rate|liquidity",
+    ),
+    (
+        r"工业企业利润|利润总额|PPI|ppi",
+        "工业企业利润/PPI",
+        r"盈利|利润|PPI|通胀|价格|投资|macro|profit|inflation",
     ),
     (
         r"成交面积|成交指数|商品房成交|新房成交|二手房成交",
@@ -5606,13 +5631,13 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"业绩|财务表现|历史财务|业绩预告|盈利预测|财务预测|"
         r"company[_\s-]*financials|financial[_\s-]*performance|earnings[_\s-]*forecast",
         "营业收入",
-        r"业绩|财务|盈利|收入|financial|earnings|forecast",
+        r"业绩|财务|盈利|收入|financial|earnings",
     ),
     (
         r"业绩|净利润|盈利预测|财务预测|业绩预告|"
         r"net[_\s-]*profit|earnings[_\s-]*forecast",
         "归母净利润",
-        r"业绩|财务|盈利|利润|financial|earnings|forecast",
+        r"业绩|财务|盈利|利润|financial|earnings",
     ),
     (
         r"估值|市盈率|市净率|\bpe\b|\bpb\b|valuation",
