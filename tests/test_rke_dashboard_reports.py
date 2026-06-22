@@ -44,11 +44,11 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["ready_for_broad_rollout"] is True
     assert report["completion"]["passed"] == 12
     assert report["completion"]["total"] == 12
-    assert report["master_plan_coverage"]["coverage_complete"] is False
-    assert report["master_plan_coverage"]["ready_for_broad_rollout"] is False
+    assert report["master_plan_coverage"]["coverage_complete"] is True
+    assert report["master_plan_coverage"]["ready_for_broad_rollout"] is True
     assert report["master_plan_coverage"]["missing_count"] == 0
-    assert report["master_plan_coverage"]["blocked_count"] == 1
-    assert report["master_plan_coverage"]["blocked_sections"] == ("Phase-1B",)
+    assert report["master_plan_coverage"]["blocked_count"] == 0
+    assert report["master_plan_coverage"]["blocked_sections"] == ()
     assert report["master_plan_coverage"]["mvp_deliverables"]["section"] == "16.3"
     assert report["master_plan_coverage"]["mvp_deliverables"]["ready"] is True
     assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 0
@@ -264,8 +264,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "Broad rollout ready: true" in markdown
     assert "Dashboard artifact errors: 0" in markdown
     assert "Master-plan coverage missing: 0" in markdown
-    assert "Master-plan coverage blocked: 1" in markdown
-    assert "Master-plan blocked sections: Phase-1B" in markdown
+    assert "Master-plan coverage blocked: 0" in markdown
+    assert "Master-plan blocked sections: none" in markdown
     assert "MVP deliverables blocked: 0" in markdown
     assert "MVP deliverable blocked sections: none" in markdown
     assert "MVP exit criteria blocked: 0" in markdown

@@ -4,8 +4,8 @@
 - Dashboard artifact errors: 0
 - Completion: 12 / 12
 - Master-plan coverage missing: 0
-- Master-plan coverage blocked: 1
-- Master-plan blocked sections: Phase-1B
+- Master-plan coverage blocked: 0
+- Master-plan blocked sections: none
 - MVP deliverables blocked: 0
 - MVP deliverable blocked sections: none
 - MVP exit criteria blocked: 0
@@ -20,9 +20,9 @@
 - Production monitor diagnostic failures: 0
 - Rollback readiness accepted: True
 - Rollback readiness failures: 0
-- Lockbox result: passed
-- Promotion next state: production
-- Promotion production allowed: True
+- Lockbox result: not_opened
+- Promotion next state: staged_production
+- Promotion production allowed: False
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
 - Experiment validation failures: 0
@@ -48,7 +48,7 @@
 - Manual review progress blockers: 0
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 0
+- Operator handoff blockers: 1
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2

@@ -56,9 +56,9 @@
     "superinvestor_agent": "superinvestor.druckenmiller"
   },
   "lockbox": {
-    "open_count": 1,
-    "production_allowed": true,
-    "result": "passed"
+    "open_count": 0,
+    "production_allowed": false,
+    "result": "not_opened"
   },
   "macro_expansion": {
     "candidate_count": 3,
@@ -129,11 +129,9 @@
     }
   },
   "master_plan_coverage": {
-    "blocked_count": 1,
-    "blocked_sections": [
-      "Phase-1B"
-    ],
-    "coverage_complete": false,
+    "blocked_count": 0,
+    "blocked_sections": [],
+    "coverage_complete": true,
     "final_acceptance": {
       "blocked_count": 0,
       "blocked_sections": [],
@@ -159,14 +157,14 @@
       "ready": true,
       "section": "16.4"
     },
-    "passed_count": 11,
-    "ready_for_broad_rollout": false
+    "passed_count": 12,
+    "ready_for_broad_rollout": true
   },
   "operator_handoff": {
     "gate_count": 4,
-    "next_state": "production",
+    "next_state": "staged_production",
     "ready_for_operator_review": true,
-    "remaining_blocker_count": 0,
+    "remaining_blocker_count": 1,
     "run_order": [
       "review-progress-preflight",
       "prepare-gold-review",
@@ -221,11 +219,11 @@
     "scenario_count": 6
   },
   "promotion_gate": {
-    "blocker_count": 0,
-    "direct_production_forbidden": false,
-    "next_state": "production",
+    "blocker_count": 1,
+    "direct_production_forbidden": true,
+    "next_state": "staged_production",
     "paper_trading_allowed": true,
-    "production_allowed": true,
+    "production_allowed": false,
     "staged_production_allowed": true
   },
   "prompt_evolution": {
