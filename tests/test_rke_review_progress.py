@@ -56,6 +56,7 @@ from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
+    apply_analytical_footprint_review_import,
 )
 from mosaic.rke.review_progress import (
     build_manual_review_action_queue,
@@ -2432,6 +2433,39 @@ def test_review_progress_accepts_already_applied_gold_with_stale_scratch(
         "stale_current_batch_path": "registry/review_batches/gold_set_reviewed.jsonl",
         "stale_current_batch_pending_rows": 1,
     }
+
+
+def test_review_progress_accepts_already_applied_footprint_with_stale_scratch(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    accepted_rows = _accepted_footprint_rows(tmp_path)
+    reviewed_path = tmp_path / ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH
+    _write_jsonl(reviewed_path, accepted_rows)
+    applied = apply_analytical_footprint_review_import(tmp_path, reviewed_path)
+    assert applied.accepted
+
+    stale_row = dict(accepted_rows[0])
+    stale_row["target_row_hash"] = "sha256:stale"
+    _write_jsonl(reviewed_path, [stale_row])
+
+    report = build_manual_review_progress(tmp_path)
+    footprint = next(
+        gate for gate in report.gates if gate.review_kind == "footprint_review"
+    )
+    action_queue = build_manual_review_action_queue(
+        report,
+        review_kinds=("footprint_review",),
+    )
+    action = action_queue["actions"][0]
+
+    assert footprint.ready_for_promotion is True
+    assert footprint.simulation_accepted is True
+    assert footprint.complete_rows == footprint.target_rows
+    assert footprint.pending_rows == 0
+    assert footprint.blockers == ()
+    assert action["action_state"] == "already_applied"
+    assert action["commands"] == {}
 
 
 def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):

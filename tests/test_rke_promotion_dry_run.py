@@ -200,7 +200,8 @@ def test_promotion_dry_run_reports_missing_inputs():
     assert all(not step.provided for step in report.steps)
     assert steps["gold_set"].result == "already_applied"
     assert steps["gold_set"].accepted
-    assert steps["footprint_review"].result == "not_provided"
+    assert steps["footprint_review"].result == "already_applied"
+    assert steps["footprint_review"].accepted
     assert steps["source_license"].result == "already_applied"
     assert steps["source_license"].accepted
     assert steps["lockbox"].result == "not_provided"
@@ -218,7 +219,8 @@ def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
     assert steps["gold_set"].provided
     assert steps["gold_set"].accepted
     assert not steps["footprint_review"].provided
-    assert steps["footprint_review"].result == "not_provided"
+    assert steps["footprint_review"].result == "already_applied"
+    assert steps["footprint_review"].accepted
     assert not steps["source_license"].provided
     assert steps["source_license"].accepted
     assert steps["source_license"].result == "already_applied"

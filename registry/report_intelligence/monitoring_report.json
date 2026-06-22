@@ -26,7 +26,7 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-21T18:49:52+00:00",
+  "as_of_datetime": "2026-06-22T00:47:47+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
     "alpha_decay_fail_count": 113,
@@ -268,7 +268,7 @@
     "weighted_vs_unweighted_retrieval_difference": 0.203203
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260621T184905+0000",
+  "run_id": "RIR-DERIVED-20260622T004700+0000",
   "tooling_loop_monitoring": {
     "data_proposal_open_count": 5402,
     "evidence_coverage": {

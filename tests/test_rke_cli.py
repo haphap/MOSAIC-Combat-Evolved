@@ -153,23 +153,13 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     assert output["blocked_count"] == 1
     assert output["missing_count"] == 0
     next_actions = {action["action_id"]: action for action in output["next_actions"]}
-    assert {
-        "inspect_master_plan_schema_blockers",
-        "complete_manual_analytical_footprint_review",
-        "clear_patch_v1_5_manual_review_coverage",
-    } <= set(next_actions)
+    assert {"inspect_master_plan_schema_blockers"} <= set(next_actions)
     assert (
         "schema-status --root . --failures-only --no-write"
         in next_actions["inspect_master_plan_schema_blockers"]["commands"][
             "schema_failures"
         ]
     )
-    assert next_actions["inspect_master_plan_schema_blockers"]["review_aids"][
-        "gold_set"
-    ]["fill_import_path"] == "registry/review_batches/gold_set_reviewed.jsonl"
-    assert "review_notes" in next_actions[
-        "complete_manual_analytical_footprint_review"
-    ]["field_contract"]["required_fields"]
     assert (tmp_path / "registry/audits/rke_master_plan_coverage_report.json").exists()
 
 
@@ -701,8 +691,9 @@ def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, c
     assert "gold_set gate must be ready before opening lockbox review" in (
         blocked_output["upstream_blockers"]
     )
-    assert "footprint_review gate must be ready before opening lockbox review" in (
-        blocked_output["upstream_blockers"]
+    assert not any(
+        "footprint_review gate must be ready" in blocker
+        for blocker in blocked_output["upstream_blockers"]
     )
     assert not reviewed_path.exists()
 
@@ -1046,9 +1037,14 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert lockbox_gate_actions["gold_set"]["batch_overview"][
         "current_batch_path"
     ] == "registry/review_batches/gold_set_reviewed.jsonl"
-    assert lockbox_gate_actions["footprint_review"]["batch_overview"][
-        "current_batch_path"
-    ] == "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    footprint_batch = lockbox_gate_actions["footprint_review"]["batch_overview"]
+    assert footprint_batch.get("current_batch_path") in {
+        None,
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+    }
+    assert footprint_batch["promotion_input_path"] == (
+        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+    )
     assert lockbox_gate_actions["lockbox"]["next_manual_action"] in {
         "wait_for_prior_manual_gates",
         "complete_lockbox_decision_then_dry_run",

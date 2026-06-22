@@ -512,23 +512,21 @@ Additional 2026-06-20 tuning:
   observed rate-limit behavior changes.
 - Current gate implication: `RI-EVOL-02` passed once the mature 2025 samples
   were merged. Because the merged registry is extraction-clean, do not add more
-  stock samples just to clear `RI-EVOL-04`. The active blocker is the
-  footprint/manual-review schema gate plus the required clean audit vintages, so
-  the next productive work is footprint review approval/import and derived audit
-  refresh.
-- 2026-06-21 post-merge local promotion check: after applying the completed
-  gold-set, analytical-footprint, and lockbox review imports, then refreshing
-  derived report-intelligence artifacts, `operator-readiness` passed `18/18`
-  with `next_state=production` and `schema-status --failures-only` returned
+  stock samples just to clear `RI-EVOL-04`. The active blocker is now only the
+  required distinct clean audit-vintage history.
+- 2026-06-22 post-review local promotion check: after applying the completed
+  gold-set and analytical-footprint review imports, then refreshing derived
+  report-intelligence artifacts, `operator-readiness` passed `18/18` with
+  `next_state=staged_production` and `schema-status --failures-only` returned
   `accepted=true, failure_count=0`. `evolution-readiness` then had only
   `audit_refresh_history_below_threshold`: current `1/3`, remaining `2`
   distinct clean data vintages. Do not keep rerunning `--refresh-derived-only`
   on unchanged inputs; same-`data_vintage_hash` refreshes are deduplicated and
   cannot satisfy `RI-EVOL-04`.
-- The generated registry outputs from that local promotion check were restored
-  and not committed. Re-run the review apply commands only when a local
-  promotion-state rehearsal is needed; commit code/docs/tests, not private
-  reviewed imports or bulky regenerated registry artifacts.
+- Public-safe aggregate outputs from this check may be committed with the
+  associated code/docs/tests. Private reviewed imports, review aids, source rows,
+  PDFs, Markdown, MinerU caches, local scorecard DBs, and claim/source prose
+  artifacts remain uncommitted.
 - Sandbox note: the same smoke fails inside the managed network sandbox with
   DNS resolution errors. That is an environment restriction, not a Mimo
   rate-limit signal. Use the approved non-sandbox network execution path for

@@ -138,7 +138,7 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
     assert gold.exported_rows == expected_gold_pending_rows
     assert footprint.pending_rows == progress_footprint.pending_rows
-    assert not footprint.passed
+    assert footprint.passed
     assert (
         footprint.import_template_path
         == "registry/report_intelligence/analytical_footprint_review_template.jsonl"
@@ -153,8 +153,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "review_notes" in footprint.field_contract["required_fields"]
     assert footprint.batch_overview == expected_footprint_batch_overview
-    assert footprint.batch_overview["current_batch_path"] == (
-        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    assert footprint.batch_overview["promotion_input_path"] == (
+        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
     )
     assert (
         footprint.workbook_path
@@ -440,9 +440,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "Review aids:" in markdown
     assert "Field contract:" in markdown
     assert "Batch overview:" in markdown
-    assert "current_batch_path" in markdown
     assert "current_batch_review_field_workload:" not in markdown
-    assert "259 analytical footprint review rows still pending" in markdown
+    assert "lockbox has not been opened" in markdown
     assert "manual_claim_text" in markdown
     assert "analytical_footprint_review_batch.jsonl" in markdown
     assert "## Command Sequence" in markdown

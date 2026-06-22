@@ -1,6 +1,6 @@
 {
-  "accepted": false,
-  "failure_count": 17,
+  "accepted": true,
+  "failure_count": 0,
   "records": [
     {
       "accepted": true,
@@ -174,7 +174,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/macro_regime_snapshots.jsonl",
       "failures": [],
-      "item_count": 712,
+      "item_count": 764,
       "schema_path": "schemas/report_intelligence_macro_regime_snapshot.schema.json"
     },
     {
@@ -286,14 +286,14 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/audit_refresh_history.jsonl",
       "failures": [],
-      "item_count": 33,
+      "item_count": 34,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/gap_distribution_history.jsonl",
       "failures": [],
-      "item_count": 35,
+      "item_count": 36,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
@@ -307,7 +307,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
       "failures": [],
-      "item_count": 10,
+      "item_count": 9,
       "schema_path": "schemas/report_intelligence_prompt_mutation_candidate.schema.json"
     },
     {
@@ -426,7 +426,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 4125,
+      "item_count": 4177,
       "schema_path": "schemas/report_intelligence_macro_public_research_rules"
     },
     {
@@ -486,14 +486,9 @@
       "schema_path": "schemas/report_intelligence_markdown_coverage_privacy_rules"
     },
     {
-      "accepted": false,
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
-      "failures": [
-        "analytical_footprint_review_summary accepted must be true",
-        "analytical_footprint_review_summary review_complete must be true",
-        "analytical_footprint_review_summary quality_gate_passed must be true",
-        "analytical_footprint_review_summary pending_rows must be zero"
-      ],
+      "failures": [],
       "item_count": 1,
       "schema_path": "schemas/report_intelligence_analytical_footprint_review_rules"
     },
@@ -536,7 +531,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/*_refresh_history.jsonl",
       "failures": [],
-      "item_count": 118,
+      "item_count": 120,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history_rules"
     },
     {
@@ -557,7 +552,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
       "failures": [],
-      "item_count": 10,
+      "item_count": 9,
       "schema_path": "schemas/report_intelligence_prompt_mutation_candidate_contract_rules"
     },
     {
@@ -652,23 +647,9 @@
       "schema_path": "schemas/report_intelligence_tooling_readiness_rules"
     },
     {
-      "accepted": false,
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/patch_v1_5_coverage_report.json",
-      "failures": [
-        "patch_v1_5_coverage_report accepted must be true",
-        "patch_v1_5_coverage_report blocker_count must be zero",
-        "patch_v1_5_coverage_report blocked_phase_ids must be empty",
-        "patch_v1_5_coverage_report Phase B: accepted must be true",
-        "patch_v1_5_coverage_report Phase B: status cannot be blocked",
-        "patch_v1_5_coverage_report Phase B: failure_count must be zero",
-        "patch_v1_5_coverage_report Phase D: accepted must be true",
-        "patch_v1_5_coverage_report Phase D: status cannot be blocked",
-        "patch_v1_5_coverage_report Phase D: failure_count must be zero",
-        "patch_v1_5_coverage_report RI15-B-D2: accepted must be true",
-        "patch_v1_5_coverage_report RI15-B-D2: status cannot be blocked",
-        "patch_v1_5_coverage_report RI15-D-D1: accepted must be true",
-        "patch_v1_5_coverage_report RI15-D-D1: status cannot be blocked"
-      ],
+      "failures": [],
       "item_count": 18,
       "schema_path": "schemas/report_intelligence_patch_v1_5_coverage_rules"
     }

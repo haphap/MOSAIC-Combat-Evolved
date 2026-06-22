@@ -693,7 +693,7 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
         assert dry_run_payload["production_allowed_after_simulation"] is False
         assert dry_run_payload["after_next_state"] == "staged_production"
         assert steps["gold_set"]["result"] == "already_applied"
-        assert steps["footprint_review"]["result"] == "not_provided"
+        assert steps["footprint_review"]["result"] == "already_applied"
         assert steps["source_license"]["result"] == "already_applied"
         assert steps["lockbox"]["result"] == "not_provided"
     assert bundle_payload["accepted"] is True

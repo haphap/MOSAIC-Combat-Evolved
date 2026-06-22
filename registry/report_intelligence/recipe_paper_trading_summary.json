@@ -9,7 +9,7 @@
     "status": "computed",
     "validated_recipe_count": 42
   },
-  "as_of_datetime": "2026-06-21T18:49:52+00:00",
+  "as_of_datetime": "2026-06-22T00:47:46+00:00",
   "blocked_count": 6440,
   "blocked_recipe_ids": [
     "RECIPE-0013bd5f2468073a",
@@ -9340,7 +9340,7 @@
   "protocol_version": "recipe_shadow_paper_trading_v1",
   "recipe_count": 6482,
   "recipe_instability_gap_count": 3,
-  "run_id": "RIR-DERIVED-20260621T184905+0000",
+  "run_id": "RIR-DERIVED-20260622T004700+0000",
   "status_counts": {
     "blocked": 6440,
     "passed": 42

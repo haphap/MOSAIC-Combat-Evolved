@@ -21,10 +21,10 @@ def test_master_plan_coverage_reports_current_registry_ready():
     report = build_master_plan_coverage_report(".")
 
     assert report.report_id == "RKE-MASTER-PLAN-COVERAGE-REPORT-20260606"
-    assert not report.coverage_complete
-    assert not report.ready_for_broad_rollout
+    assert report.coverage_complete
+    assert report.ready_for_broad_rollout
     assert report.missing_count == 0
-    assert report.blocked_count == 1
+    assert report.blocked_count == 0
     assert report.mvp_deliverables_section == "16.3"
     assert report.mvp_exit_criteria_section == "16.4"
     assert report.mvp_deliverables_passed_count == 10
@@ -40,17 +40,7 @@ def test_master_plan_coverage_reports_current_registry_ready():
     assert report.final_acceptance_blocked_count == 0
     assert report.final_acceptance_missing_count == 0
     assert report.final_acceptance_ready
-    phase_1b = next(
-        record for record in report.records if record.section_id == "Phase-1B"
-    )
-    assert phase_1b.status == "blocked"
-    assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
-    assert "blocked phases: B, D" in phase_1b.blocker
-    assert all(
-        record.status == "passed"
-        for record in report.records
-        if record.section_id != "Phase-1B"
-    )
+    assert all(record.status == "passed" for record in report.records)
     assert all(record.status == "passed" for record in report.mvp_deliverable_records)
     mvp_d3 = next(
         record
@@ -80,6 +70,9 @@ def test_master_plan_coverage_reports_current_registry_ready():
     )
     phase_0 = next(
         record for record in report.records if record.section_id == "Phase-0"
+    )
+    phase_1b = next(
+        record for record in report.records if record.section_id == "Phase-1B"
     )
     assert (
         "registry/lockbox/central_bank_lockbox_review_import_report.json"
@@ -157,7 +150,7 @@ def test_master_plan_coverage_claim_checker_ignores_unrelated_schema_gate(
     _copy_registry_and_schemas(tmp_path)
     schema_report_path = tmp_path / "registry/schemas/rke_schema_validation_report.json"
     schema_report = json.loads(schema_report_path.read_text(encoding="utf-8"))
-    assert schema_report["accepted"] is False
+    assert schema_report["accepted"] is True
 
     report = build_master_plan_coverage_report(tmp_path)
     mvp_d3 = next(
@@ -464,10 +457,10 @@ def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     output = json.loads(capsys.readouterr().out)
 
     assert Path(result["path"]).exists()
-    assert code == 2
-    assert output["coverage_complete"] is False
-    assert output["ready_for_broad_rollout"] is False
-    assert output["blocked_count"] == 1
+    assert code == 0
+    assert output["coverage_complete"] is True
+    assert output["ready_for_broad_rollout"] is True
+    assert output["blocked_count"] == 0
     assert output["missing_count"] == 0
     assert output["mvp_deliverables_section"] == "16.3"
     assert output["mvp_deliverables_blocked_count"] == 0

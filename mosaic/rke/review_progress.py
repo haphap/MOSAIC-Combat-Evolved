@@ -1929,7 +1929,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
-            current_batch_status=current_batch_status,
+            current_batch_status={**current_batch_status, "already_applied": True},
             quality_gap_targets=summary.get("quality_gap_targets"),
         )
     if not resolved_input.exists():

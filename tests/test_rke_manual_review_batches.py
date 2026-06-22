@@ -1063,20 +1063,16 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert payload["promotion_dry_run"]["provided_steps"] == []
     assert payload["promotion_dry_run"]["accepted_steps"] == [
         "gold_set",
+        "footprint_review",
         "source_license",
     ]
-    assert set(payload["promotion_dry_run"]["rejected_steps"]) == {
-        "footprint_review",
-        "lockbox",
-    }
+    assert payload["promotion_dry_run"]["rejected_steps"] == ["lockbox"]
     assert payload["promotion_dry_run"]["already_applied_steps"] == [
         "gold_set",
+        "footprint_review",
         "source_license",
     ]
-    assert set(payload["promotion_dry_run"]["missing_steps"]) == {
-        "footprint_review",
-        "lockbox",
-    }
+    assert payload["promotion_dry_run"]["missing_steps"] == ["lockbox"]
     assert artifacts["registry/review_batches/manual_review_progress_report.json"]["format"] == "json"
     assert artifacts["registry/review_batches/manual_review_runbook.md"]["format"] == "markdown"
     assert "registry/review_batches/gold_set_full_import_template.jsonl" not in artifacts

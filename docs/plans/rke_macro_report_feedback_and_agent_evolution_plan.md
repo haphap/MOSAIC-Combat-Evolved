@@ -1015,9 +1015,11 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
   `supportive_evidence`、`mixed_evidence`、`contradictory_evidence`、
   `pending_or_unrated`；当前分布为 supportive 40、mixed 66、contradictory 16、
   pending 3281。
-- 条件 8：未满足。PIT、provenance、statistical 检查通过，但全局
-  `schema-status --root . --failures-only --no-write` 仍有 17 个失败，来源是
-  incomplete analytical-footprint manual review 和 patch v1.5 coverage gate。
+- 条件 8：部分满足。当前 `schema-status --root . --failures-only --no-write`
+  为 0 failure，PIT、provenance、statistical 检查也为 0 failure；
+  analytical-footprint review 已完成 2588/2588 且 patch v1.5 coverage accepted。
+  但 RI-EVOL-04 仍要求 3 个不同 `data_vintage_hash` 的 clean audit refresh；
+  当前只有 1/3，仍需后续上游数据 vintage 变化后再积累 2 个 clean refresh。
 - 条件 9：已验证当前宏观 public artifacts。`macro_agent_research_priors.jsonl`、
   `macro_market_series_catalog.jsonl`、`macro_regime_snapshots.jsonl`、
   `extraction_report.json`、`outcome_labeling_readiness.json` 未命中
@@ -1027,8 +1029,10 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
   `production_signal_allowed=false`，且不含 claim text/source span。
 
 因此当前状态是：宏观研报观点已经可评级、可导出 shadow prior、可进入 evolution gate；
-但全局 schema gate 仍被 footprint review / patch coverage 阻塞，不能标记为 plan
-fully delivered，也不能进入任何生产 promotion。
+全局 schema/patch/manual review 阻塞已经清除。剩余交付限制是 RI-EVOL-04 的
+distinct clean audit vintage history：在出现新的上游数据 vintage 前，重复
+`refresh-derived-only` 不会增加有效计数，不能把本计划标记为 fully delivered，也不能让
+宏观研报 prior 影响生产交易。
 
 ## P13：首轮不做的事
 
