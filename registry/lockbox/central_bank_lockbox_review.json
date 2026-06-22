@@ -1,11 +1,11 @@
 {
   "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
   "experiment_id": "EXP-CB-20260605-0001",
-  "open_count": 0,
-  "opened_at": "",
-  "opened_by": "",
+  "notes": "Upstream gold-set, analytical-footprint, and source-license gates passed before lockbox opening; final lockbox opened once with no parameter search or rule design after open.",
+  "open_count": 1,
+  "opened_at": "2026-06-21T07:40:56+08:00",
+  "opened_by": "hap",
   "parameter_search_after_open": false,
-  "result": "not_opened",
-  "rule_design_after_open": false,
-  "notes": "Central-bank MVP is paper-trading ready but not final-production eligible until one-time lockbox review is opened and passed."
+  "result": "passed",
+  "rule_design_after_open": false
 }

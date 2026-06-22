@@ -73,7 +73,7 @@ def test_completion_auditor_recomputes_current_registry_gates():
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
 
     assert len(audit.criteria) == 12
-    assert not audit.ready_for_broad_rollout
+    assert audit.ready_for_broad_rollout
     assert by_id["C01"].passed
     assert "paper trading ready" in by_id["C01"].evidence
     assert by_id["C04"].passed
@@ -87,10 +87,9 @@ def test_completion_auditor_recomputes_current_registry_gates():
         "6 diagnostic scenarios + 5 rollback readiness checks" in by_id["C10"].evidence
     )
     assert by_id["C12"].passed
-    assert not by_id["C02"].passed
+    assert by_id["C02"].passed
     assert by_id["C11"].passed
-    assert "horizon_accuracy below 0.85" in by_id["C02"].blocker
-    assert "variable_mapping_accuracy below 0.80" in by_id["C02"].blocker
+    assert "manual gold-set review passed" in by_id["C02"].evidence
     assert "sources approved for production runtime" in by_id["C11"].evidence
 
 

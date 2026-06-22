@@ -15,6 +15,7 @@ import re
 import signal
 import shlex
 import shutil
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -129,6 +130,15 @@ REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH = (
 REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH = (
     "registry/report_intelligence/prompt_mutation_candidates.jsonl"
 )
+REPORT_INTELLIGENCE_MACRO_REGIME_SNAPSHOTS_PATH = (
+    "registry/report_intelligence/macro_regime_snapshots.jsonl"
+)
+REPORT_INTELLIGENCE_MACRO_AGENT_RESEARCH_PRIORS_PATH = (
+    "registry/report_intelligence/macro_agent_research_priors.jsonl"
+)
+REPORT_INTELLIGENCE_MACRO_MARKET_SERIES_CATALOG_PATH = (
+    "registry/report_intelligence/macro_market_series_catalog.jsonl"
+)
 REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH = (
     "registry/report_intelligence/evolution_readiness_gate.json"
 )
@@ -143,12 +153,33 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH,
         ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
         "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/analysis_recipes.jsonl",
+        "registry/report_intelligence/audit_refresh_history.jsonl",
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/gap_distribution_history.jsonl",
+        REPORT_INTELLIGENCE_MACRO_AGENT_RESEARCH_PRIORS_PATH,
+        REPORT_INTELLIGENCE_MACRO_REGIME_SNAPSHOTS_PATH,
+        "registry/report_intelligence/method_patterns.jsonl",
+        "registry/report_intelligence/method_performance_profiles.jsonl",
+        "registry/report_intelligence/metric_candidates.jsonl",
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
         "registry/report_intelligence/processing_status.jsonl",
+        REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH,
+        REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_RUNS_PATH,
+        "registry/report_intelligence/report_forecast_ledger.jsonl",
         "registry/report_intelligence/report_metadata.jsonl",
         "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
+        "registry/report_intelligence/source_performance_profiles.jsonl",
+        "registry/report_intelligence/tool_coverage_matches.jsonl",
+        "registry/report_intelligence/tool_design_proposals.jsonl",
+        "registry/report_intelligence/tool_gaps.jsonl",
+        "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
         "registry/report_intelligence/weighted_research_contexts.jsonl",
     }
 )
@@ -168,7 +199,6 @@ REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
 REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH,
-        ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
         REPORT_INTELLIGENCE_EXTRACTION_PROVENANCE_AUDIT_PATH,
         REPORT_INTELLIGENCE_PATCH_V1_5_COVERAGE_REPORT_PATH,
@@ -177,39 +207,26 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
         REPORT_INTELLIGENCE_RUNTIME_SAFETY_AUDIT_PATH,
         REPORT_INTELLIGENCE_STATISTICAL_ROBUSTNESS_AUDIT_PATH,
         REPORT_INTELLIGENCE_TOOL_FEASIBILITY_AUDIT_PATH,
-        "registry/report_intelligence/analysis_recipes.jsonl",
-        "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/extraction_report.json",
         "registry/report_intelligence/feature_flags.json",
         REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_MAP_PATH,
         REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_PIT_AVAILABILITY_PATH,
         REPORT_INTELLIGENCE_MARKDOWN_COVERAGE_SUMMARY_PATH,
-        "registry/report_intelligence/method_patterns.jsonl",
-        "registry/report_intelligence/method_performance_profiles.jsonl",
-        "registry/report_intelligence/metric_candidates.jsonl",
         "registry/report_intelligence/monitoring_report.json",
+        REPORT_INTELLIGENCE_MACRO_MARKET_SERIES_CATALOG_PATH,
         "registry/report_intelligence/outcome_labeling_readiness.json",
         REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH,
-        REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_OBSERVATIONS_PATH,
         REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH,
-        REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH,
-        REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_RUNS_PATH,
         REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_SUMMARY_PATH,
-        "registry/report_intelligence/report_forecast_ledger.jsonl",
-        "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
-        "registry/report_intelligence/source_performance_profiles.jsonl",
-        "registry/report_intelligence/tool_coverage_matches.jsonl",
-        "registry/report_intelligence/tool_design_proposals.jsonl",
-        "registry/report_intelligence/tool_gaps.jsonl",
-        "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
     }
 )
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8020/v1"
 DEFAULT_VLLM_TIMEOUT_SECONDS = 7200
 DEFAULT_Q_LIB_ETF_PATH = "~/.qlib/qlib_data/cn_etf"
 DEFAULT_Q_LIB_STOCK_PATH = "~/.qlib/qlib_data/cn_data"
-DEFAULT_MINERU_BACKEND = "hybrid-auto-engine"
+DEFAULT_MINERU_BACKEND = "vlm-auto-engine"
 DEFAULT_MINERU_ARGS_TEMPLATE = "-p {pdf} -o {output_dir} -b {backend} -m auto"
+DEFAULT_MINERU_VLM_API_BACKEND = "vlm-vllm-engine"
 DEFAULT_MINERU_ENV = {
     "MINERU_TABLE_ENABLE": "true",
     "MINERU_FORMULA_ENABLE": "true",
@@ -742,6 +759,175 @@ MACRO_ASSET_PROXY_MAPPING: Mapping[str, Mapping[str, Any]] = {
         "aliases": ("黄金", "金价", "贵金属"),
     },
 }
+MACRO_SERIES_DIRECTIONAL_WINDOWS_DAYS = MACRO_ASSET_PROXY_WINDOWS_DAYS
+MACRO_SERIES_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS = (
+    MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS
+)
+MACRO_SERIES_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS = 1
+MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE = "pit_macro_series_window"
+MACRO_SERIES_DIRECTIONAL_DECISION_BASIS = "directional_macro_series_change"
+MACRO_SERIES_DIRECTIONAL_COST_MODEL_ID = "macro_series_no_trade_cost_v1"
+MACRO_SERIES_DIRECTIONAL_EVALUATION_POLICY = (
+    "macro_series_t_plus_1_multi_window_direct_pit_series"
+)
+MACRO_SERIES_DIRECTIONAL_MAPPING_VERSION = 1
+MACRO_DIRECT_SERIES_REQUIRED_METRIC_FAMILIES = frozenset(
+    {
+        "policy_rate_level",
+        "money_market_rate",
+        "bond_yield_level",
+        "fx_rate",
+        "volatility_index",
+        "commodity_price",
+    }
+)
+MACRO_CURVE_REQUIRED_METRIC_FAMILIES = frozenset(
+    {
+        "yield_curve_slope",
+        "cross_market_yield_spread",
+    }
+)
+MACRO_SERIES_DIRECTIONAL_PERFORMANCE_BASIS: Mapping[str, str] = {
+    "yield": "directional_bps_change",
+    "rate": "directional_bps_change",
+    "fx": "directional_fx_change",
+    "volatility": "directional_volatility_change",
+    "commodity": "directional_price_return",
+}
+MACRO_SERIES_DIRECTIONAL_MAPPING: Mapping[str, Mapping[str, Any]] = {
+    "US_10Y_YIELD": {
+        "series_id": "US10Y",
+        "series_family": "yield",
+        "quote_convention": "yield_level_percent",
+        "unit": "percent",
+        "aliases": ("美国10年期国债收益率", "美债10年", "US10Y", "10Y UST"),
+        "target_agent_candidates": ("macro.yield_curve", "macro.central_bank"),
+    },
+    "CN_10Y_YIELD": {
+        "series_id": "CN10Y",
+        "series_family": "yield",
+        "quote_convention": "yield_level_percent",
+        "unit": "percent",
+        "aliases": ("中国10年期国债收益率", "10年国债收益率", "CN10Y"),
+        "target_agent_candidates": ("macro.yield_curve", "macro.central_bank"),
+    },
+    "USDCNY": {
+        "series_id": "USDCNY",
+        "series_family": "fx",
+        "quote_convention": "USD/CNY up means RMB depreciation",
+        "unit": "rate",
+        "aliases": ("美元兑人民币", "美元人民币", "人民币汇率", "USD/CNY"),
+        "target_agent_candidates": ("macro.dollar", "macro.emerging_markets"),
+    },
+    "VIX": {
+        "series_id": "VIX",
+        "series_family": "volatility",
+        "quote_convention": "volatility_index_level",
+        "unit": "index_level",
+        "aliases": ("VIX", "波动率指数", "恐慌指数"),
+        "target_agent_candidates": ("macro.volatility",),
+    },
+    "GOLD_SPOT": {
+        "series_id": "GOLD_SPOT",
+        "series_family": "commodity",
+        "quote_convention": "spot_price",
+        "unit": "price",
+        "aliases": ("黄金现货", "金价", "伦敦金", "黄金价格"),
+        "target_agent_candidates": ("macro.commodities", "macro.geopolitical"),
+    },
+    "COPPER": {
+        "series_id": "COPPER",
+        "series_family": "commodity",
+        "quote_convention": "futures_or_spot_price",
+        "unit": "price",
+        "aliases": ("铜价", "铜", "LME铜", "沪铜"),
+        "target_agent_candidates": ("macro.commodities", "macro.china"),
+    },
+    "CRUDE_OIL": {
+        "series_id": "CRUDE_OIL",
+        "series_family": "commodity",
+        "quote_convention": "futures_or_spot_price",
+        "unit": "price",
+        "aliases": ("原油", "油价", "布伦特", "WTI", "BRENT_CRUDE_OIL"),
+        "target_agent_candidates": ("macro.commodities", "macro.geopolitical"),
+    },
+}
+MACRO_SERIES_DIRECTIONAL_TARGET_ALIASES: Mapping[str, str] = {
+    "BRENT_CRUDE_OIL": "CRUDE_OIL",
+    "GOLD": "GOLD_SPOT",
+    "USD/CNY": "USDCNY",
+    "USD_CNY": "USDCNY",
+    "WTI_CRUDE_OIL": "CRUDE_OIL",
+}
+MACRO_CURVE_DIRECTIONAL_WINDOWS_DAYS = MACRO_ASSET_PROXY_WINDOWS_DAYS
+MACRO_CURVE_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS = (
+    MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS
+)
+MACRO_CURVE_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS = 1
+MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE = "pit_macro_curve_window"
+MACRO_CURVE_DIRECTIONAL_DECISION_BASIS = "directional_macro_curve_spread_change"
+MACRO_CURVE_DIRECTIONAL_COST_MODEL_ID = "macro_curve_no_trade_cost_v1"
+MACRO_CURVE_DIRECTIONAL_EVALUATION_POLICY = (
+    "macro_curve_t_plus_1_multi_window_direct_pit_spread"
+)
+MACRO_CURVE_DIRECTIONAL_MAPPING_VERSION = 1
+MACRO_CURVE_DIRECTIONAL_MAPPING: Mapping[str, Mapping[str, Any]] = {
+    "US_2S10S": {
+        "long_leg_series_id": "US10Y",
+        "short_leg_series_id": "US2Y",
+        "curve_family": "yield_curve_slope",
+        "quote_convention": "long_yield_minus_short_yield_percent",
+        "unit": "percent",
+        "aliases": ("美国2s10s", "美债2s10s", "US 2s10s", "2s10s"),
+        "target_agent_candidates": ("macro.yield_curve",),
+    },
+    "US_3M10Y": {
+        "long_leg_series_id": "US10Y",
+        "short_leg_series_id": "US3M",
+        "curve_family": "yield_curve_slope",
+        "quote_convention": "long_yield_minus_short_yield_percent",
+        "unit": "percent",
+        "aliases": ("美国3m10y", "美债3m10y", "US 3m10y", "3m10y"),
+        "target_agent_candidates": ("macro.yield_curve",),
+    },
+    "CN_US_10Y_SPREAD": {
+        "long_leg_series_id": "CN10Y",
+        "short_leg_series_id": "US10Y",
+        "curve_family": "cross_market_yield_spread",
+        "quote_convention": "cn_10y_yield_minus_us_10y_yield_percent",
+        "unit": "percent",
+        "aliases": ("中美10年利差", "中美国债利差", "CN-US 10Y spread"),
+        "target_agent_candidates": ("macro.yield_curve", "macro.dollar"),
+    },
+}
+MACRO_CLAIM_LEG_SCHEMA_VERSION = "macro_claim_leg_v1"
+MAX_MACRO_CLAIM_LEGS_PER_PARENT = 6
+MACRO_CLAIM_LEG_TARGET_TYPES = frozenset(
+    {
+        "macro_asset",
+        "market_index",
+        "equity_index",
+        "bond",
+        "commodity",
+        "macro_series",
+        "macro_curve",
+        "macro_variable",
+        "macro_rate",
+        "macro_indicator",
+        "macro_policy_event",
+        "macro_regime",
+    }
+)
+MACRO_CLAIM_LEG_ASSET_TARGET_TYPES = frozenset(
+    {"macro_asset", "market_index", "equity_index", "bond", "commodity"}
+)
+
+
+def _macro_series_canonical_target_id(value: Any) -> str:
+    target_id = str(value or "").strip().upper()
+    return MACRO_SERIES_DIRECTIONAL_TARGET_ALIASES.get(target_id, target_id)
+
+
 MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
@@ -808,7 +994,13 @@ EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES = 3
 EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES = 3
 EVOLUTION_REFRESH_HISTORY_MAX_ROWS = 50
 REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
-    {"industry_etf_proxy", "stock_price_proxy", "macro_asset_proxy"}
+    {
+        "industry_etf_proxy",
+        "stock_price_proxy",
+        "macro_asset_proxy",
+        "macro_series_directional",
+        "macro_curve_directional",
+    }
 )
 
 JsonMapping = Mapping[str, Any]
@@ -848,6 +1040,7 @@ class ReportIntelligenceConfig:
     vllm_api_key: str | None = None
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
     qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
+    scorecard_db_path: str | Path | None = None
     vllm_timeout_seconds: int = DEFAULT_VLLM_TIMEOUT_SECONDS
     chunk_chars: int = 60_000
     max_chunks: int = 8
@@ -901,8 +1094,19 @@ class ReportIntelligenceRunResult:
     macro_asset_proxy_eligible_claim_rows: int
     macro_asset_proxy_labelable_window_rows: int
     macro_asset_proxy_pending_window_rows: int
+    macro_series_directional_outcome_label_rows: int
+    macro_series_directional_eligible_claim_rows: int
+    macro_series_directional_labelable_window_rows: int
+    macro_series_directional_pending_window_rows: int
+    macro_curve_directional_outcome_label_rows: int
+    macro_curve_directional_eligible_claim_rows: int
+    macro_curve_directional_labelable_window_rows: int
+    macro_curve_directional_pending_window_rows: int
     source_performance_profile_rows: int
     viewpoint_performance_profile_rows: int
+    macro_market_series_catalog_rows: int
+    macro_regime_snapshot_rows: int
+    macro_agent_research_prior_rows: int
     method_performance_profile_rows: int
     tool_coverage_match_rows: int
     data_acquisition_proposal_rows: int
@@ -1290,8 +1494,19 @@ def _blocked_report_intelligence_derived_refresh_result(
         macro_asset_proxy_eligible_claim_rows=0,
         macro_asset_proxy_labelable_window_rows=0,
         macro_asset_proxy_pending_window_rows=0,
+        macro_series_directional_outcome_label_rows=0,
+        macro_series_directional_eligible_claim_rows=0,
+        macro_series_directional_labelable_window_rows=0,
+        macro_series_directional_pending_window_rows=0,
+        macro_curve_directional_outcome_label_rows=0,
+        macro_curve_directional_eligible_claim_rows=0,
+        macro_curve_directional_labelable_window_rows=0,
+        macro_curve_directional_pending_window_rows=0,
         source_performance_profile_rows=0,
         viewpoint_performance_profile_rows=0,
+        macro_market_series_catalog_rows=0,
+        macro_regime_snapshot_rows=0,
+        macro_agent_research_prior_rows=0,
         method_performance_profile_rows=0,
         tool_coverage_match_rows=0,
         data_acquisition_proposal_rows=0,
@@ -1948,14 +2163,24 @@ def _mineru_cached_vlm_model_exists(env: Mapping[str, str]) -> bool:
     )
 
 
-def _mineru_subprocess_env() -> dict[str, str]:
+def _mineru_subprocess_env(extra_env: Mapping[str, str] | None = None) -> dict[str, str]:
     env = os.environ.copy()
     for key, value in DEFAULT_MINERU_ENV.items():
         env.setdefault(key, value)
+    for key, value in (extra_env or {}).items():
+        if value:
+            env.setdefault(key, value)
     if _mineru_cached_vlm_model_exists(env):
         env.setdefault("HF_HUB_OFFLINE", "1")
         env.setdefault("TRANSFORMERS_OFFLINE", "1")
     return env
+
+
+def _mineru_subprocess_extra_env_for_backend(backend: str) -> dict[str, str]:
+    backend = backend.strip()
+    if backend == "vlm-auto-engine":
+        return {"MINERU_BACKEND": DEFAULT_MINERU_VLM_API_BACKEND}
+    return {}
 
 
 def _mineru_args(
@@ -2018,10 +2243,16 @@ def _terminate_process_tree(pid: int) -> None:
             continue
 
 
-def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapping[str, Any]:
+def _run_mineru(
+    args: Sequence[str],
+    *,
+    cwd: Path,
+    timeout_seconds: int,
+    extra_env: Mapping[str, str] | None = None,
+) -> Mapping[str, Any]:
     command = " ".join(shlex.quote(part) for part in args)
     started_at = time.monotonic()
-    env = _mineru_subprocess_env()
+    env = _mineru_subprocess_env(extra_env)
     try:
         process = subprocess.Popen(
             list(args),
@@ -2106,7 +2337,12 @@ def convert_pdf_with_mineru(
     )
     if blocker:
         return {"status": "blocked", "blocker": blocker}
-    run_result = _run_mineru(args, cwd=output_dir, timeout_seconds=timeout_seconds)
+    run_result = _run_mineru(
+        args,
+        cwd=output_dir,
+        timeout_seconds=timeout_seconds,
+        extra_env=_mineru_subprocess_extra_env_for_backend(backend),
+    )
     if run_result["status"] == "blocked":
         return run_result
     produced = _largest_markdown_file(output_dir)
@@ -2307,6 +2543,7 @@ def convert_pdfs_with_mineru_batch(
             args,
             cwd=batch_output_dir,
             timeout_seconds=timeout_seconds,
+            extra_env=_mineru_subprocess_extra_env_for_backend(backend),
         )
         for task in batch:
             converted = _copy_batch_markdown_result(
@@ -2777,7 +3014,8 @@ def _user_prompt(
         "(testable|non_testable|insufficient_mapping), forecast_type, target, "
         "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
         "horizon, explicitness (explicit|inferred|unknown), source_conviction, "
-        "metric_proxy_mapping, failure_modes, extraction_quality.\n"
+        "metric_proxy_mapping, macro_claim_legs, failure_modes, "
+        "extraction_quality.\n"
         "Only emit forecast_claims for source-grounded research theses with a "
         "complete economic chain. The claim_text must be a compact synthesis over "
         "the full supported report context or a coherent multi-paragraph window: "
@@ -2828,8 +3066,10 @@ def _user_prompt(
         "policy/liquidity transmission, or valuation repricing. "
         "A forecast_claim must have a finance-relevant target impact: demand, "
         "orders, revenue, margin, profit, valuation, stock return, sector return, "
-        "industry prosperity, credit growth, liquidity, or explicit investment "
-        "view. General clinical, public-health, scientific, regulatory, or policy "
+        "industry prosperity, credit growth, liquidity, explicit investment "
+        "view, or a directional macro market variable such as rates, yields, "
+        "FX, volatility, commodities, term spreads, or yield-curve slope. "
+        "General clinical, public-health, scientific, regulatory, or policy "
         "recommendations without such market/fundamental linkage belong in "
         "analytical_footprints, not forecast_claims. "
         "Do not emit forecast_claims for generic boilerplate such as '风险提示：...', "
@@ -2889,11 +3129,39 @@ def _user_prompt(
         "CN_POLICY_BANK_BOND, or GOLD. For those mapped views, use proxies such "
         "as macro_asset_forward_return, equity_index_forward_return, "
         "bond_etf_forward_return, gold_etf_forward_return, or relative_alpha. "
-        "For crude oil, dollar index, CPI, GDP, policy-rate level, yield level, "
-        "or other macro variables without a configured price proxy, still "
-        "extract the analytical footprint and tool gap, but do not invent an "
-        "ETF proxy or canonical target_id. Leave the list empty only when the claim has "
-        "no finance/fundamental/return proxy in the source text.\n"
+        "Direct macro market forecasts are valid forecast_claims when the source "
+        "states a clear target, direction, and horizon for rates, yields, FX, "
+        "volatility, commodities, term spreads, or yield-curve slope; they do "
+        "not need to be rewritten into a sector or ETF return view. For direct "
+        "series claims, use target.target_type='macro_series', forecast_type="
+        "'macro_series_directional', and canonical target_id such as "
+        "US_10Y_YIELD, CN_10Y_YIELD, USDCNY, VIX, GOLD_SPOT, COPPER, or "
+        "CRUDE_OIL when supported. Use metric_proxy_mapping values such as "
+        "bond_yield_level, fx_rate, volatility_index, or commodity_price. For "
+        "curve or spread claims, use target.target_type='macro_curve', "
+        "forecast_type='macro_curve_directional', canonical target_id such as "
+        "US_2S10S, US_3M10Y, or CN_US_10Y_SPREAD, and metric_proxy_mapping "
+        "yield_curve_slope or cross_market_yield_spread. For CPI, GDP, policy "
+        "events, or other macro variables without a configured direct series, "
+        "still extract the analytical footprint and tool gap, but do not invent "
+        "an ETF proxy or canonical target_id. Leave the list empty only when the claim has "
+        "no finance/fundamental/return proxy in the source text. For macro "
+        "strategy claims that contain multiple evaluable assets or variables, "
+        "keep one complete parent claim_text with the full regime/mechanism "
+        "logic and add at most six primary macro_claim_legs. Each "
+        "macro_claim_leg should contain leg_index, target_type, target_id, "
+        "target_label, metric_family, metric_proxy, direction, quote_convention, "
+        "orientation_rule, claim_horizon, evaluation_windows, "
+        "source_grounding_status, and target_agent_candidates. Use target_type "
+        "macro_asset for ETF/asset proxy views, macro_series for direct "
+        "rate/yield/FX/volatility/commodity series, and macro_curve for spreads "
+        "or yield-curve slope. For explicit yield-curve, term-spread, steepening, "
+        "flattening, inversion, long-end versus short-end, or US-China rate-spread "
+        "views, prefer target_type='macro_curve' with canonical target_id such as "
+        "US_2S10S, US_3M10Y, or CN_US_10Y_SPREAD; use positive for steepening or "
+        "spread widening and negative for flattening or spread narrowing when the "
+        "source states that direction. Do not create a leg when the report gives no "
+        "clear target and direction.\n"
         "analytical_footprints fields: topic, indicator_mentions, "
         "analysis_patterns, target_agent_candidates. Mark each mention/step "
         "with source_grounded true/false when possible. For analytical_footprints, "
@@ -3213,7 +3481,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"\bdr\s*007\b|dr007|policy[_\s-]*rate|政策利率",
+        r"\bdr\s*007\b|dr007|DR007与政策利率利差",
         {
             "canonical_metric_candidate": "dr007_policy_rate_spread",
             "data_source_mentioned": "interbank_repo_rate_and_policy_rate",
@@ -3860,12 +4128,22 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"联邦基金利率期货|fed[_\s-]*funds[_\s-]*futures|加息概率|降息概率",
+        r"\bnfp\b|nonfarm|labor[_\s-]*market|employment|unemployment|wage[_\s-]*growth|劳动力|就业|失业|非农|薪资",
+        {
+            "canonical_metric_candidate": "macro_activity_or_inflation_metric",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly",
+            "transformation": "level_growth_or_rate_change",
+            "role_in_argument": "labor_market_regime_metric",
+        },
+    ),
+    (
+        r"联邦基金利率期货|fed[_\s-]*funds[_\s-]*(?:futures|rate)|fed[_\s-]*policy[_\s-]*rate|fomc|美联储|联储|政策利率(?:预期|路径)|加息概率|降息概率|降息|加息",
         {
             "canonical_metric_candidate": "policy_rate_expectation",
-            "data_source_mentioned": "rates_futures_market_data",
+            "data_source_mentioned": "central_bank_policy_statement_or_rates_futures_market_data",
             "frequency": "daily",
-            "transformation": "implied_probability",
+            "transformation": "policy_rate_path_or_implied_probability",
             "role_in_argument": "monetary_policy_expectation_metric",
         },
     ),
@@ -5233,7 +5511,7 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"流动性|资金|公开市场|liquidity|funding",
     ),
     (
-        r"\bdr\s*007\b|DR007|政策利率",
+        r"\bdr\s*007\b|DR007",
         "DR007与政策利率利差",
         r"流动性|资金|利率|DR007|liquidity|funding|rate",
     ),
@@ -5241,6 +5519,21 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"宏观经济|PMI|财政政策|投资结构|专项债|社融|信贷|GDP|通胀",
         "宏观经济/财政信用指标",
         r"宏观|财政|投资|PMI|社融|信贷|GDP|通胀|macro|fiscal|credit",
+    ),
+    (
+        r"劳动力|就业|失业|非农|薪资|labor[_\s-]*market|employment|unemployment|\bnfp\b|wage",
+        "劳动力市场指标",
+        r"劳动力|就业|失业|非农|薪资|Fed|policy|macro|labor|employment|unemployment",
+    ),
+    (
+        r"美联储|联储|FOMC|降息|加息|fed[_\s-]*policy|fed[_\s-]*funds",
+        "政策利率预期",
+        r"美联储|联储|FOMC|降息|加息|政策|利率|流动性|Fed|policy|rate|liquidity",
+    ),
+    (
+        r"工业企业利润|利润总额|PPI|ppi",
+        "工业企业利润/PPI",
+        r"盈利|利润|PPI|通胀|价格|投资|macro|profit|inflation",
     ),
     (
         r"成交面积|成交指数|商品房成交|新房成交|二手房成交",
@@ -5338,13 +5631,13 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"业绩|财务表现|历史财务|业绩预告|盈利预测|财务预测|"
         r"company[_\s-]*financials|financial[_\s-]*performance|earnings[_\s-]*forecast",
         "营业收入",
-        r"业绩|财务|盈利|收入|financial|earnings|forecast",
+        r"业绩|财务|盈利|收入|financial|earnings",
     ),
     (
         r"业绩|净利润|盈利预测|财务预测|业绩预告|"
         r"net[_\s-]*profit|earnings[_\s-]*forecast",
         "归母净利润",
-        r"业绩|财务|盈利|利润|financial|earnings|forecast",
+        r"业绩|财务|盈利|利润|financial|earnings",
     ),
     (
         r"估值|市盈率|市净率|\bpe\b|\bpb\b|valuation",
@@ -7136,19 +7429,525 @@ def _normalize_or_infer_horizon(
     return normalized, False
 
 
+def _macro_claim_leg_windows_for_target_type(target_type: str) -> list[int]:
+    normalized = str(target_type or "").strip().lower()
+    if normalized == "macro_series":
+        return [int(value) for value in MACRO_SERIES_DIRECTIONAL_WINDOWS_DAYS]
+    if normalized == "macro_curve":
+        return [int(value) for value in MACRO_CURVE_DIRECTIONAL_WINDOWS_DAYS]
+    if normalized in MACRO_CLAIM_LEG_ASSET_TARGET_TYPES:
+        return [int(value) for value in MACRO_ASSET_PROXY_WINDOWS_DAYS]
+    return []
+
+
+def _normalize_macro_claim_leg_evaluation_windows(
+    value: Any,
+    *,
+    target_type: str,
+) -> list[int]:
+    windows: list[int] = []
+    for item in _ensure_list(value):
+        try:
+            days = int(item)
+        except (TypeError, ValueError):
+            continue
+        if days > 0:
+            windows.append(days)
+    if windows:
+        return sorted(dict.fromkeys(windows))
+    return _macro_claim_leg_windows_for_target_type(target_type)
+
+
+def _infer_macro_claim_leg_target_type(
+    target_type: Any,
+    target_id: str,
+    parent_target: Mapping[str, Any],
+) -> str:
+    normalized = str(target_type or "").strip().lower()
+    if normalized:
+        return normalized
+    target_key = _macro_series_canonical_target_id(target_id)
+    if target_key in MACRO_CURVE_DIRECTIONAL_MAPPING:
+        return "macro_curve"
+    if target_key in MACRO_SERIES_DIRECTIONAL_MAPPING:
+        return "macro_series"
+    if target_key in MACRO_ASSET_PROXY_MAPPING:
+        return "macro_asset"
+    return str(parent_target.get("target_type") or "").strip().lower()
+
+
+def _normalize_macro_claim_leg_target(
+    leg: Mapping[str, Any],
+    *,
+    parent_target: Mapping[str, Any],
+) -> dict[str, Any]:
+    nested = _ensure_mapping(leg.get("target"))
+    target = dict(nested)
+    target_id = str(
+        leg.get("target_id")
+        or nested.get("target_id")
+        or nested.get("target_name")
+        or ""
+    ).strip()
+    target_key = _macro_series_canonical_target_id(target_id)
+    if target_key in (
+        set(MACRO_ASSET_PROXY_MAPPING)
+        | set(MACRO_SERIES_DIRECTIONAL_MAPPING)
+        | set(MACRO_CURVE_DIRECTIONAL_MAPPING)
+    ):
+        target_id = target_key
+    target_type = _infer_macro_claim_leg_target_type(
+        leg.get("target_type") or nested.get("target_type"),
+        target_id,
+        parent_target,
+    )
+    target_label = str(
+        leg.get("target_label")
+        or nested.get("target_label")
+        or nested.get("target_name")
+        or target_id
+    ).strip()
+    if target_type:
+        target["target_type"] = target_type
+    if target_id:
+        target["target_id"] = target_id
+    if target_label:
+        target["target_label"] = target_label
+        target.setdefault("target_name", target_label)
+    return target
+
+
+def _macro_claim_leg_metric_mapping(
+    leg: Mapping[str, Any],
+    *,
+    parent_record: Mapping[str, Any],
+) -> list[str]:
+    values = [
+        str(item).strip()
+        for item in _ensure_list(leg.get("metric_proxy_mapping"))
+        if str(item or "").strip()
+    ]
+    for key in ("metric_proxy", "metric_family"):
+        value = str(leg.get(key) or "").strip()
+        if value:
+            values.append(value)
+    if not values:
+        values.extend(
+            str(item).strip()
+            for item in _ensure_list(parent_record.get("metric_proxy_mapping"))
+            if str(item or "").strip()
+        )
+    return list(dict.fromkeys(values))
+
+
+def _macro_claim_leg_target_agent_candidates(
+    *,
+    target: Mapping[str, Any],
+    metric_mapping: Sequence[Any],
+    explicit_agents: Sequence[Any],
+) -> list[str]:
+    target_id = _macro_series_canonical_target_id(
+        target.get("target_id") or target.get("target_name")
+    )
+    agents: list[str] = [
+        *_macro_agent_ids(explicit_agents),
+        *_macro_agent_ids(_ensure_list(target.get("target_agent_candidates"))),
+        *_macro_agents_for_metric_families(metric_mapping),
+        *MACRO_AGENT_BY_ASSET_TARGET.get(target_id, ()),
+    ]
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type == "macro_series" and target_id in MACRO_SERIES_DIRECTIONAL_MAPPING:
+        agents.extend(
+            _macro_agent_ids(
+                _ensure_list(
+                    MACRO_SERIES_DIRECTIONAL_MAPPING[target_id].get(
+                        "target_agent_candidates"
+                    )
+                )
+            )
+        )
+    if target_type == "macro_curve" and target_id in MACRO_CURVE_DIRECTIONAL_MAPPING:
+        agents.extend(
+            _macro_agent_ids(
+                _ensure_list(
+                    MACRO_CURVE_DIRECTIONAL_MAPPING[target_id].get(
+                        "target_agent_candidates"
+                    )
+                )
+            )
+        )
+    return list(dict.fromkeys(agent for agent in agents if agent))
+
+
+def _macro_claim_leg_source_grounding_status(
+    leg: Mapping[str, Any],
+    parent_record: Mapping[str, Any],
+) -> str:
+    explicit = str(
+        leg.get("source_grounding_status")
+        or leg.get("source_grounded")
+        or ""
+    ).strip()
+    if explicit.lower() == "true":
+        return "source_grounded"
+    if explicit.lower() == "false":
+        return "source_grounding_uncertain"
+    if explicit:
+        return explicit
+    provenance = str(parent_record.get("claim_provenance") or "").strip()
+    return provenance or "unknown"
+
+
+def _is_macro_claim_leg_parent_candidate(record: Mapping[str, Any]) -> bool:
+    target = _ensure_mapping(record.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    target_id = str(target.get("target_id") or target.get("target_name") or "").upper()
+    if target_type in MACRO_CLAIM_LEG_ASSET_TARGET_TYPES | {
+        "macro_series",
+        "macro_curve",
+        "macro_variable",
+        "macro_rate",
+        "macro_indicator",
+    }:
+        return True
+    return target_id in (
+        set(MACRO_ASSET_PROXY_MAPPING)
+        | set(MACRO_SERIES_DIRECTIONAL_MAPPING)
+        | set(MACRO_CURVE_DIRECTIONAL_MAPPING)
+    )
+
+
+def _normalize_single_macro_claim_leg(
+    leg: Mapping[str, Any],
+    *,
+    parent_record: Mapping[str, Any],
+    leg_index: int,
+) -> dict[str, Any] | None:
+    parent_target = _ensure_mapping(parent_record.get("target"))
+    target = _normalize_macro_claim_leg_target(leg, parent_target=parent_target)
+    target_type = str(target.get("target_type") or "").strip().lower()
+    target_id = str(target.get("target_id") or target.get("target_name") or "").strip()
+    if not target_type and not target_id:
+        return None
+    if target_type and target_type not in MACRO_CLAIM_LEG_TARGET_TYPES:
+        return None
+    metric_mapping = _macro_claim_leg_metric_mapping(leg, parent_record=parent_record)
+    metric_family = str(
+        leg.get("metric_family")
+        or (metric_mapping[0] if metric_mapping else "")
+    ).strip()
+    direction = _normalize_forecast_direction(
+        leg.get("direction") or parent_record.get("direction")
+    )
+    claim_horizon = _ensure_mapping(
+        leg.get("claim_horizon") or leg.get("horizon")
+    ) or dict(_ensure_mapping(parent_record.get("horizon")))
+    normalized_leg_index = _int_or_none(leg.get("leg_index")) or leg_index
+    parent_claim_id = str(parent_record.get("forecast_claim_id") or "")
+    explicit_agents = [
+        *_ensure_list(leg.get("target_agent_candidates")),
+        *_ensure_list(leg.get("target_agents")),
+    ]
+    target_agent_candidates = _macro_claim_leg_target_agent_candidates(
+        target=target,
+        metric_mapping=metric_mapping,
+        explicit_agents=explicit_agents,
+    )
+    leg_id = _stable_id(
+        "MCL",
+        {
+            "parent_forecast_claim_id": parent_claim_id,
+            "leg_index": normalized_leg_index,
+            "target_type": target_type,
+            "target_id": target_id,
+            "metric_mapping": metric_mapping,
+            "direction": direction,
+        },
+    )
+    return {
+        "schema_version": MACRO_CLAIM_LEG_SCHEMA_VERSION,
+        "parent_forecast_claim_id": parent_claim_id,
+        "macro_claim_leg_id": leg_id,
+        "leg_index": normalized_leg_index,
+        "target_type": target_type,
+        "target_id": target_id,
+        "target_label": str(target.get("target_label") or target_id),
+        "target": target,
+        "metric_family": metric_family,
+        "metric_proxy": str(leg.get("metric_proxy") or metric_family),
+        "metric_proxy_mapping": metric_mapping,
+        "direction": direction,
+        "quote_convention": str(leg.get("quote_convention") or "").strip(),
+        "orientation_rule": str(leg.get("orientation_rule") or "").strip(),
+        "claim_horizon": claim_horizon,
+        "evaluation_windows": _normalize_macro_claim_leg_evaluation_windows(
+            leg.get("evaluation_windows"),
+            target_type=target_type,
+        ),
+        "source_grounding_status": _macro_claim_leg_source_grounding_status(
+            leg,
+            parent_record,
+        ),
+        "target_agent_candidates": target_agent_candidates,
+    }
+
+
+def _primary_macro_claim_leg(parent_record: Mapping[str, Any]) -> dict[str, Any] | None:
+    if not _is_macro_claim_leg_parent_candidate(parent_record):
+        return None
+    target = _ensure_mapping(parent_record.get("target"))
+    metric_mapping = [
+        str(item).strip()
+        for item in _ensure_list(parent_record.get("metric_proxy_mapping"))
+        if str(item or "").strip()
+    ]
+    leg = {
+        "leg_index": 1,
+        "target": target,
+        "target_type": target.get("target_type"),
+        "target_id": target.get("target_id") or target.get("target_name"),
+        "target_label": target.get("target_label") or target.get("target_name"),
+        "metric_proxy_mapping": metric_mapping,
+        "direction": parent_record.get("direction"),
+        "claim_horizon": parent_record.get("horizon"),
+        "source_grounding_status": parent_record.get("claim_provenance"),
+        "target_agent_candidates": parent_record.get("target_agent_candidates"),
+    }
+    return _normalize_single_macro_claim_leg(
+        leg,
+        parent_record=parent_record,
+        leg_index=1,
+    )
+
+
+def _normalize_macro_claim_legs(
+    value: Any,
+    *,
+    parent_record: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    legs: list[dict[str, Any]] = []
+    for fallback_index, item in enumerate(_ensure_list(value), 1):
+        if len(legs) >= MAX_MACRO_CLAIM_LEGS_PER_PARENT:
+            break
+        leg = _normalize_single_macro_claim_leg(
+            _ensure_mapping(item),
+            parent_record=parent_record,
+            leg_index=fallback_index,
+        )
+        if leg is not None:
+            legs.append(leg)
+    primary_leg = _primary_macro_claim_leg(parent_record)
+    if legs:
+        if _should_prepend_primary_macro_claim_leg(legs, primary_leg):
+            legs.insert(0, primary_leg)
+        return _renumber_macro_claim_legs(
+            legs[:MAX_MACRO_CLAIM_LEGS_PER_PARENT],
+            parent_record=parent_record,
+        )
+    return [primary_leg] if primary_leg is not None else []
+
+
+def _macro_claim_leg_target_key(leg: Mapping[str, Any]) -> tuple[str, str]:
+    return (
+        str(leg.get("target_type") or "").strip().lower(),
+        str(leg.get("target_id") or "").strip().upper(),
+    )
+
+
+def _should_prepend_primary_macro_claim_leg(
+    legs: Sequence[Mapping[str, Any]],
+    primary_leg: Mapping[str, Any] | None,
+) -> bool:
+    if primary_leg is None:
+        return False
+    primary_key = _macro_claim_leg_target_key(primary_leg)
+    if primary_key[0] not in {"macro_curve", "macro_series"} or not primary_key[1]:
+        return False
+    return primary_key not in {_macro_claim_leg_target_key(leg) for leg in legs}
+
+
+def _renumber_macro_claim_legs(
+    legs: Sequence[Mapping[str, Any]],
+    *,
+    parent_record: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    parent_claim_id = str(parent_record.get("forecast_claim_id") or "")
+    renumbered: list[dict[str, Any]] = []
+    for index, leg in enumerate(legs, 1):
+        updated = dict(leg)
+        updated["leg_index"] = index
+        updated["macro_claim_leg_id"] = _stable_id(
+            "MCL",
+            {
+                "parent_forecast_claim_id": parent_claim_id,
+                "leg_index": index,
+                "target_type": str(updated.get("target_type") or "").strip().lower(),
+                "target_id": str(
+                    updated.get("target_id") or updated.get("target_name") or ""
+                ).strip(),
+                "metric_mapping": [
+                    str(item).strip()
+                    for item in _ensure_list(updated.get("metric_proxy_mapping"))
+                    if str(item or "").strip()
+                ],
+                "direction": _normalize_forecast_direction(updated.get("direction")),
+            },
+        )
+        renumbered.append(updated)
+    return renumbered
+
+
+def _macro_claim_leg_forecast_type(
+    leg: Mapping[str, Any],
+    parent_record: Mapping[str, Any],
+) -> str:
+    explicit = str(leg.get("forecast_type") or "").strip()
+    if explicit:
+        return explicit
+    target_type = str(leg.get("target_type") or "").strip().lower()
+    if target_type == "macro_series":
+        return "macro_series_directional"
+    if target_type == "macro_curve":
+        return "macro_curve_directional"
+    if target_type in MACRO_CLAIM_LEG_ASSET_TARGET_TYPES:
+        return "macro_asset_proxy"
+    return str(parent_record.get("forecast_type") or "unknown")
+
+
+def _forecast_row_from_macro_claim_leg(
+    parent_record: Mapping[str, Any],
+    leg: Mapping[str, Any],
+) -> dict[str, Any]:
+    row = dict(parent_record)
+    extraction_quality = dict(_ensure_mapping(parent_record.get("extraction_quality")))
+    target = dict(_ensure_mapping(leg.get("target")))
+    row.update(
+        {
+            "parent_forecast_claim_id": str(
+                leg.get("parent_forecast_claim_id")
+                or parent_record.get("forecast_claim_id")
+                or ""
+            ),
+            "macro_claim_leg_id": str(leg.get("macro_claim_leg_id") or ""),
+            "macro_claim_leg_index": _int_or_none(leg.get("leg_index")),
+            "macro_claim_leg": dict(leg),
+            "forecast_type": _macro_claim_leg_forecast_type(leg, parent_record),
+            "target": target,
+            "direction": _normalize_forecast_direction(
+                leg.get("direction") or parent_record.get("direction")
+            ),
+            "horizon": dict(
+                _ensure_mapping(leg.get("claim_horizon"))
+                or _ensure_mapping(parent_record.get("horizon"))
+            ),
+            "metric_proxy_mapping": [
+                str(item).strip()
+                for item in _ensure_list(leg.get("metric_proxy_mapping"))
+                if str(item or "").strip()
+            ],
+            "target_agent_candidates": [
+                str(agent)
+                for agent in _ensure_list(leg.get("target_agent_candidates"))
+                if str(agent).strip()
+            ],
+        }
+    )
+    extraction_quality["macro_claim_leg_expanded"] = True
+    extraction_quality["parent_forecast_claim_id"] = row["parent_forecast_claim_id"]
+    extraction_quality["macro_claim_leg_id"] = row["macro_claim_leg_id"]
+    extraction_quality["macro_claim_leg_index"] = row["macro_claim_leg_index"]
+    row["extraction_quality"] = extraction_quality
+    return row
+
+
+def _forecast_rows_with_macro_claim_legs(
+    forecast_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    expanded: list[dict[str, Any]] = []
+    for row in forecast_rows:
+        if str(row.get("macro_claim_leg_id") or "").strip():
+            expanded.append(dict(row))
+            continue
+        legs = _normalize_macro_claim_legs(
+            row.get("macro_claim_legs"),
+            parent_record=row,
+        )
+        if not legs:
+            expanded.append(dict(row))
+            continue
+        expanded.extend(_forecast_row_from_macro_claim_leg(row, leg) for leg in legs)
+    return expanded
+
+
+def _macro_claim_leg_trace_fields(claim: Mapping[str, Any]) -> dict[str, Any]:
+    leg_id = str(claim.get("macro_claim_leg_id") or "").strip()
+    if not leg_id:
+        return {}
+    fields: dict[str, Any] = {
+        "parent_forecast_claim_id": str(
+            claim.get("parent_forecast_claim_id")
+            or claim.get("forecast_claim_id")
+            or ""
+        ),
+        "macro_claim_leg_id": leg_id,
+    }
+    leg_index = _int_or_none(claim.get("macro_claim_leg_index"))
+    if leg_index is not None:
+        fields["macro_claim_leg_index"] = leg_index
+    return fields
+
+
+def _macro_asset_proxy_target_agent_candidates(
+    claim: Mapping[str, Any],
+    proxy: Mapping[str, Any],
+) -> list[str]:
+    target = _ensure_mapping(claim.get("target"))
+    target_id = str(proxy.get("target_id") or target.get("target_id") or "").upper()
+    agents: list[str] = [*MACRO_AGENT_BY_ASSET_TARGET.get(target_id, ())]
+    if not agents:
+        agents.extend(
+            [
+                *_macro_agent_ids(_ensure_list(claim.get("target_agent_candidates"))),
+                *_macro_agent_ids(_ensure_list(target.get("target_agent_candidates"))),
+                *_macro_agents_for_metric_families(_claim_metric_families(claim)),
+            ]
+        )
+    return list(dict.fromkeys(agent for agent in agents if agent))
+
+
 def _forecast_mapping_gaps(record: Mapping[str, Any]) -> list[str]:
     gaps: list[str] = []
     target = _ensure_mapping(record.get("target"))
     benchmark = _ensure_mapping(record.get("benchmark"))
     horizon = _ensure_mapping(record.get("horizon"))
     direction = _normalize_forecast_direction(record.get("direction"))
-    if _target_id(target) == "unknown":
+    macro_claim_legs = _ensure_list(record.get("macro_claim_legs"))
+    leg_targets = [
+        _ensure_mapping(leg).get("target_id")
+        or _ensure_mapping(_ensure_mapping(leg).get("target")).get("target_id")
+        for leg in macro_claim_legs
+    ]
+    leg_directions = [
+        _normalize_forecast_direction(_ensure_mapping(leg).get("direction"))
+        for leg in macro_claim_legs
+    ]
+    leg_horizons = [
+        _ensure_mapping(_ensure_mapping(leg).get("claim_horizon"))
+        for leg in macro_claim_legs
+    ]
+    if _target_id(target) == "unknown" and not any(
+        str(item or "").strip() for item in leg_targets
+    ):
         gaps.append("target")
     if not benchmark:
         gaps.append("benchmark")
-    if direction in {"", "unknown", "ambiguous"}:
+    if direction in {"", "unknown", "ambiguous"} and not any(
+        item in {"positive", "negative"} for item in leg_directions
+    ):
         gaps.append("direction")
-    if _horizon_bucket(horizon) == "unknown":
+    if _horizon_bucket(horizon) == "unknown" and not any(
+        _horizon_bucket(item) != "unknown" for item in leg_horizons
+    ):
         gaps.append("horizon")
     return gaps
 
@@ -7425,6 +8224,18 @@ def _normalize_forecast_claims(
             metric_proxy_mapping=metric_proxy_mapping,
         )
         record["extraction_quality"]["claim_mechanism_roles"] = mechanism_roles
+        macro_claim_legs = _normalize_macro_claim_legs(
+            claim.get("macro_claim_legs"),
+            parent_record=record,
+        )
+        if macro_claim_legs:
+            record["macro_claim_legs"] = macro_claim_legs
+            record["extraction_quality"]["macro_claim_leg_count"] = len(
+                macro_claim_legs
+            )
+            record["extraction_quality"][
+                "macro_claim_leg_policy"
+            ] = "parent_claim_preserves_full_thesis_child_legs_drive_macro_outcomes"
         if horizon_inferred:
             if horizon.get("source") == "report_level_rating_definition":
                 record["extraction_quality"][
@@ -11227,6 +12038,8 @@ def build_outcome_labeling_readiness_report(
     industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
     stock_price_proxy_readiness: Mapping[str, Any] | None = None,
     macro_asset_proxy_readiness: Mapping[str, Any] | None = None,
+    macro_series_directional_readiness: Mapping[str, Any] | None = None,
+    macro_curve_directional_readiness: Mapping[str, Any] | None = None,
     macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     gap_counts: dict[str, int] = {}
@@ -11250,6 +12063,8 @@ def build_outcome_labeling_readiness_report(
     industry_proxy = dict(industry_etf_proxy_readiness or {})
     stock_proxy = dict(stock_price_proxy_readiness or {})
     macro_proxy = dict(macro_asset_proxy_readiness or {})
+    macro_series = dict(macro_series_directional_readiness or {})
+    macro_curve = dict(macro_curve_directional_readiness or {})
     industry_proxy_label_ready_ids = [
         str(claim_id)
         for claim_id in _ensure_list(
@@ -11284,10 +12099,36 @@ def build_outcome_labeling_readiness_report(
         for claim_id in _ensure_list(macro_proxy.get("pending_future_forecast_claim_ids"))
         if str(claim_id).strip()
     ]
+    macro_series_label_ready_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(macro_series.get("labelable_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
+    macro_series_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(
+            macro_series.get("pending_future_forecast_claim_ids")
+        )
+        if str(claim_id).strip()
+    ]
+    macro_curve_label_ready_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(macro_curve.get("labelable_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
+    macro_curve_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(
+            macro_curve.get("pending_future_forecast_claim_ids")
+        )
+        if str(claim_id).strip()
+    ]
     proxy_label_ready_ids = sorted(
         set(industry_proxy_label_ready_ids)
         | set(stock_proxy_label_ready_ids)
         | set(macro_proxy_label_ready_ids)
+        | set(macro_series_label_ready_ids)
+        | set(macro_curve_label_ready_ids)
     )
     proxy_label_ready_id_set = set(proxy_label_ready_ids)
     proxy_label_pending_ids = sorted(
@@ -11295,6 +12136,8 @@ def build_outcome_labeling_readiness_report(
             set(industry_proxy_pending_ids)
             | set(stock_proxy_pending_ids)
             | set(macro_proxy_pending_ids)
+            | set(macro_series_pending_ids)
+            | set(macro_curve_pending_ids)
         )
         - proxy_label_ready_id_set
     )
@@ -11457,11 +12300,15 @@ def build_outcome_labeling_readiness_report(
         "industry_proxy_label_ready_count": len(industry_proxy_label_ready_ids),
         "stock_proxy_label_ready_count": len(stock_proxy_label_ready_ids),
         "macro_proxy_label_ready_count": len(macro_proxy_label_ready_ids),
+        "macro_series_label_ready_count": len(macro_series_label_ready_ids),
+        "macro_curve_label_ready_count": len(macro_curve_label_ready_ids),
         "proxy_label_only_ready_count": len(proxy_label_only_ids),
         "proxy_label_pending_count": len(proxy_label_pending_ids),
         "industry_proxy_label_pending_count": len(industry_proxy_pending_ids),
         "stock_proxy_label_pending_count": len(stock_proxy_pending_ids),
         "macro_proxy_label_pending_count": len(macro_proxy_pending_ids),
+        "macro_series_label_pending_count": len(macro_series_pending_ids),
+        "macro_curve_label_pending_count": len(macro_curve_pending_ids),
         "proxy_label_pending_only_count": len(proxy_label_pending_only_ids),
         "test_status_counts": dict(sorted(test_status_counts.items())),
         "mapping_gap_counts": dict(sorted(gap_counts.items())),
@@ -11490,11 +12337,15 @@ def build_outcome_labeling_readiness_report(
         "industry_proxy_label_ready_forecast_claim_ids": industry_proxy_label_ready_ids,
         "stock_proxy_label_ready_forecast_claim_ids": stock_proxy_label_ready_ids,
         "macro_proxy_label_ready_forecast_claim_ids": macro_proxy_label_ready_ids,
+        "macro_series_label_ready_forecast_claim_ids": macro_series_label_ready_ids,
+        "macro_curve_label_ready_forecast_claim_ids": macro_curve_label_ready_ids,
         "proxy_label_only_ready_forecast_claim_ids": proxy_label_only_ids,
         "proxy_label_pending_forecast_claim_ids": proxy_label_pending_ids,
         "industry_proxy_label_pending_forecast_claim_ids": industry_proxy_pending_ids,
         "stock_proxy_label_pending_forecast_claim_ids": stock_proxy_pending_ids,
         "macro_proxy_label_pending_forecast_claim_ids": macro_proxy_pending_ids,
+        "macro_series_label_pending_forecast_claim_ids": macro_series_pending_ids,
+        "macro_curve_label_pending_forecast_claim_ids": macro_curve_pending_ids,
         "proxy_label_pending_only_forecast_claim_ids": proxy_label_pending_only_ids,
         "blocked_forecast_claim_ids": blocked_ids,
         "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
@@ -11509,7 +12360,8 @@ def build_outcome_labeling_readiness_report(
         "policy": (
             "outcome labels are generated only for source-grounded testable "
             "forecasts with target, benchmark, direction, horizon, and PIT data; "
-            "industry ETF, stock price, and macro asset proxy labels may "
+            "industry ETF, stock price, macro asset proxy, direct macro series, "
+            "and macro curve labels may "
             "additionally evaluate governed target-direction claims on fixed PIT "
             "windows without "
             "promoting them to production use"
@@ -11527,12 +12379,16 @@ def build_outcome_labeling_readiness_report(
         "industry_etf_proxy_readiness": industry_proxy,
         "stock_price_proxy_readiness": stock_proxy,
         "macro_asset_proxy_readiness": macro_proxy,
+        "macro_series_directional_readiness": macro_series,
+        "macro_curve_directional_readiness": macro_curve,
         "next_actions": [
             "improve extractor prompt to bind ts_code/title entities into target when source text supports it",
             "route unmapped claims through manual gold-set review instead of fabricating labels",
             "evaluate industry research with ETF proxy windows when sector mapping and PIT data are available",
             "evaluate stock research with qlib cn_data windows when ts_code mapping and PIT data are available",
             "evaluate macro strategy research with mapped asset ETF proxy windows when target mapping and PIT data are available",
+            "evaluate macro strategy research with direct PIT series for yield/rate/FX/volatility/commodity claims when mapped series are available",
+            "evaluate macro strategy research with direct PIT curve spreads when slope/spread targets are available",
             "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive",
         ],
     }
@@ -13128,11 +13984,161 @@ def build_default_macro_asset_proxy_map_rows() -> list[dict[str, Any]]:
     return rows
 
 
+def build_default_macro_series_directional_map_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for target_id, mapping in MACRO_SERIES_DIRECTIONAL_MAPPING.items():
+        series_id = str(mapping.get("series_id") or "")
+        rows.append(
+            {
+                "mapping_id": _stable_id(
+                    "MSER-MAP",
+                    {
+                        "target_id": target_id,
+                        "series_id": series_id,
+                        "version": MACRO_SERIES_DIRECTIONAL_MAPPING_VERSION,
+                    },
+                ),
+                "mapping_version": MACRO_SERIES_DIRECTIONAL_MAPPING_VERSION,
+                "target_id": target_id,
+                "target_aliases": [
+                    str(alias)
+                    for alias in _ensure_list(mapping.get("aliases"))
+                    if str(alias).strip()
+                ],
+                "series_id": series_id,
+                "series_family": str(mapping.get("series_family") or "unknown"),
+                "quote_convention": str(mapping.get("quote_convention") or ""),
+                "unit": str(mapping.get("unit") or ""),
+                "target_agent_candidates": [
+                    str(agent)
+                    for agent in _ensure_list(mapping.get("target_agent_candidates"))
+                    if str(agent).strip()
+                ],
+                "taxonomy": "operator_seeded_macro_direct_series",
+                "mapping_confidence": "operator_seeded_macro_series_alias",
+                "mapping_rationale": (
+                    "Operator-seeded macro target to PIT direct series mapping; "
+                    "used when ETF proxy inversion would be semantically unsafe."
+                ),
+                "effective_from": "",
+                "effective_to": "",
+                "status": "primary",
+                "review_required": False,
+            }
+        )
+    return rows
+
+
+def build_default_macro_curve_directional_map_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for target_id, mapping in MACRO_CURVE_DIRECTIONAL_MAPPING.items():
+        long_leg = str(mapping.get("long_leg_series_id") or "")
+        short_leg = str(mapping.get("short_leg_series_id") or "")
+        rows.append(
+            {
+                "mapping_id": _stable_id(
+                    "MCURVE-MAP",
+                    {
+                        "target_id": target_id,
+                        "long_leg": long_leg,
+                        "short_leg": short_leg,
+                        "version": MACRO_CURVE_DIRECTIONAL_MAPPING_VERSION,
+                    },
+                ),
+                "mapping_version": MACRO_CURVE_DIRECTIONAL_MAPPING_VERSION,
+                "target_id": target_id,
+                "target_aliases": [
+                    str(alias)
+                    for alias in _ensure_list(mapping.get("aliases"))
+                    if str(alias).strip()
+                ],
+                "long_leg_series_id": long_leg,
+                "short_leg_series_id": short_leg,
+                "curve_family": str(mapping.get("curve_family") or "unknown"),
+                "quote_convention": str(mapping.get("quote_convention") or ""),
+                "unit": str(mapping.get("unit") or ""),
+                "target_agent_candidates": [
+                    str(agent)
+                    for agent in _ensure_list(mapping.get("target_agent_candidates"))
+                    if str(agent).strip()
+                ],
+                "taxonomy": "operator_seeded_macro_curve_direct_series",
+                "mapping_confidence": "operator_seeded_macro_curve_alias",
+                "mapping_rationale": (
+                    "Operator-seeded macro curve target to PIT direct series "
+                    "legs; used for slope/spread claims."
+                ),
+                "effective_from": "",
+                "effective_to": "",
+                "status": "primary",
+                "review_required": False,
+            }
+        )
+    return rows
+
+
+def _macro_curve_directional_required_for_claim(claim: Mapping[str, Any]) -> bool:
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    target_id = str(target.get("target_id") or target.get("target_name") or "").upper()
+    if target_type == "macro_curve":
+        return True
+    if target_id in MACRO_CURVE_DIRECTIONAL_MAPPING:
+        return True
+    metric_families = {
+        str(metric).strip()
+        for metric in _ensure_list(claim.get("metric_proxy_mapping"))
+        if str(metric).strip()
+    }
+    extraction_quality = _ensure_mapping(claim.get("extraction_quality"))
+    mechanism_roles = _ensure_mapping(extraction_quality.get("claim_mechanism_roles"))
+    metric_families.update(
+        str(metric).strip()
+        for metric in _ensure_list(mechanism_roles.get("impact_variables"))
+        if str(metric).strip()
+    )
+    return target_type in {"macro_variable", "macro_series"} and bool(
+        metric_families & MACRO_CURVE_REQUIRED_METRIC_FAMILIES
+    )
+
+
+def _macro_direct_series_required_for_claim(claim: Mapping[str, Any]) -> bool:
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    target_id = str(target.get("target_id") or target.get("target_name") or "").upper()
+    if target_type == "macro_series":
+        return True
+    if target_id in MACRO_SERIES_DIRECTIONAL_MAPPING:
+        return True
+    metric_families = {
+        str(metric).strip()
+        for metric in _ensure_list(claim.get("metric_proxy_mapping"))
+        if str(metric).strip()
+    }
+    extraction_quality = _ensure_mapping(claim.get("extraction_quality"))
+    mechanism_roles = _ensure_mapping(extraction_quality.get("claim_mechanism_roles"))
+    metric_families.update(
+        str(metric).strip()
+        for metric in _ensure_list(mechanism_roles.get("impact_variables"))
+        if str(metric).strip()
+    )
+    if target_type in {"macro_variable", "macro_rate", "macro_indicator"}:
+        return bool(metric_families & MACRO_DIRECT_SERIES_REQUIRED_METRIC_FAMILIES)
+    return (
+        target_id in {"CN_BOND", "CN_POLICY_BANK_BOND"}
+        and "bond_yield_level" in metric_families
+    )
+
+
 def _macro_asset_proxy_for_claim(
     claim: Mapping[str, Any],
     metadata: Mapping[str, Any],
     mapping_rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> Mapping[str, Any] | None:
+    if _macro_direct_series_required_for_claim(
+        claim
+    ) or _macro_curve_directional_required_for_claim(claim):
+        return None
     target = _ensure_mapping(claim.get("target"))
     target_type = str(target.get("target_type") or "").strip().lower()
     if target_type in {"stock", "sector", "industry", "company"}:
@@ -13178,6 +14184,501 @@ def _macro_asset_proxy_for_claim(
         ),
         reverse=True,
     )[0][1]
+
+
+def _macro_series_directional_mapping_for_claim(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> Mapping[str, Any] | None:
+    if not _macro_direct_series_required_for_claim(claim):
+        return None
+    rows = [
+        row
+        for row in (mapping_rows or build_default_macro_series_directional_map_rows())
+        if str(row.get("status") or "primary") == "primary"
+        and _mapping_effective_for_datetime(row, str(claim.get("signal_datetime") or ""))
+    ]
+    target = _ensure_mapping(claim.get("target"))
+    target_id = str(target.get("target_id") or "").strip()
+    target_key = _macro_series_canonical_target_id(target_id)
+    target_name = str(target.get("target_name") or target.get("target_label") or "").strip()
+    for row in rows:
+        if target_key and target_key == str(row.get("target_id") or "").upper():
+            return row
+        if target_key and target_key == str(row.get("series_id") or "").upper():
+            return row
+    text = " ".join(
+        item
+        for item in (
+            target_id,
+            target_name,
+            str(claim.get("claim_text") or ""),
+            str(metadata.get("title") or ""),
+        )
+        if item
+    )
+    alias_rows: list[tuple[int, Mapping[str, Any]]] = []
+    for row in rows:
+        aliases = [
+            str(row.get("target_id") or ""),
+            str(row.get("series_id") or ""),
+            *[str(alias) for alias in _ensure_list(row.get("target_aliases"))],
+        ]
+        for alias in aliases:
+            if alias and alias in text:
+                alias_rows.append((len(alias), row))
+                break
+    if not alias_rows:
+        return None
+    return sorted(
+        alias_rows,
+        key=lambda item: (
+            item[0],
+            str(item[1].get("target_id") or ""),
+        ),
+        reverse=True,
+    )[0][1]
+
+
+def _macro_curve_directional_mapping_for_claim(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> Mapping[str, Any] | None:
+    if not _macro_curve_directional_required_for_claim(claim):
+        return None
+    rows = [
+        row
+        for row in (mapping_rows or build_default_macro_curve_directional_map_rows())
+        if str(row.get("status") or "primary") == "primary"
+        and _mapping_effective_for_datetime(row, str(claim.get("signal_datetime") or ""))
+    ]
+    target = _ensure_mapping(claim.get("target"))
+    target_id = str(target.get("target_id") or "").strip()
+    target_name = str(target.get("target_name") or target.get("target_label") or "").strip()
+    for row in rows:
+        if target_id and target_id.upper() == str(row.get("target_id") or "").upper():
+            return row
+    text = " ".join(
+        item
+        for item in (
+            target_id,
+            target_name,
+            str(claim.get("claim_text") or ""),
+            str(metadata.get("title") or ""),
+        )
+        if item
+    )
+    alias_rows: list[tuple[int, Mapping[str, Any]]] = []
+    for row in rows:
+        aliases = [
+            str(row.get("target_id") or ""),
+            *[str(alias) for alias in _ensure_list(row.get("target_aliases"))],
+        ]
+        for alias in aliases:
+            if alias and alias in text:
+                alias_rows.append((len(alias), row))
+                break
+    if not alias_rows:
+        return None
+    return sorted(
+        alias_rows,
+        key=lambda item: (
+            item[0],
+            str(item[1].get("target_id") or ""),
+        ),
+        reverse=True,
+    )[0][1]
+
+
+def _required_macro_series_ids_for_claims(
+    forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    metadata_by_source_id: Mapping[str, Mapping[str, Any]] | None = None,
+) -> tuple[str, ...]:
+    metadata_by_source_id = metadata_by_source_id or {}
+    required_ids: list[str] = []
+    for claim in forecast_rows:
+        metadata = metadata_by_source_id.get(str(claim.get("source_id") or ""), {})
+        series_mapping = _macro_series_directional_mapping_for_claim(claim, metadata)
+        if series_mapping:
+            required_ids.append(str(series_mapping.get("series_id") or "").upper())
+        curve_mapping = _macro_curve_directional_mapping_for_claim(claim, metadata)
+        if curve_mapping:
+            required_ids.extend(
+                (
+                    str(curve_mapping.get("long_leg_series_id") or "").upper(),
+                    str(curve_mapping.get("short_leg_series_id") or "").upper(),
+                )
+            )
+    return tuple(
+        sorted({series_id for series_id in required_ids if series_id.strip()})
+    )
+
+
+def _default_macro_market_catalog_series_ids() -> tuple[str, ...]:
+    series_ids = {
+        str(row.get("series_id") or "").upper()
+        for row in build_default_macro_series_directional_map_rows()
+    }
+    for row in build_default_macro_curve_directional_map_rows():
+        series_ids.add(str(row.get("long_leg_series_id") or "").upper())
+        series_ids.add(str(row.get("short_leg_series_id") or "").upper())
+    return tuple(sorted(series_id for series_id in series_ids if series_id))
+
+
+def _default_scorecard_db_path(root_path: Path) -> Path:
+    data_dir = os.getenv("MOSAIC_DATA_DIR")
+    if data_dir:
+        return Path(data_dir).expanduser() / "scorecard.db"
+    return root_path / "data" / "scorecard.db"
+
+
+def _macro_series_data_vintage_hash(row: Mapping[str, Any]) -> str:
+    payload = {
+        "as_of_date": row.get("as_of_date"),
+        "date": row.get("date"),
+        "endpoint_name": row.get("endpoint_name"),
+        "fetched_at": row.get("fetched_at"),
+        "instrument": row.get("instrument"),
+        "series_id": row.get("series_id"),
+        "source": row.get("source"),
+        "value": row.get("value"),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
+def load_scorecard_macro_series_rows(
+    *,
+    root_path: Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]] = (),
+    scorecard_db_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    metadata_by_source_id = {
+        str(row.get("source_id") or ""): row
+        for row in metadata_rows
+        if str(row.get("source_id") or "").strip()
+    }
+    required_series_ids = tuple(
+        sorted(
+            {
+                *_required_macro_series_ids_for_claims(
+                    _forecast_rows_with_macro_claim_legs(forecast_rows),
+                    metadata_by_source_id=metadata_by_source_id,
+                ),
+                *_default_macro_market_catalog_series_ids(),
+            }
+        )
+    )
+    if not required_series_ids:
+        return []
+    db_path = (
+        Path(scorecard_db_path).expanduser()
+        if scorecard_db_path is not None
+        else _default_scorecard_db_path(root_path)
+    )
+    if not db_path.exists():
+        return []
+    placeholders = ",".join("?" for _ in required_series_ids)
+    sql = f"""
+        SELECT
+            series_id, source, endpoint_name, instrument, date, value, close,
+            fetched_at, as_of_date
+        FROM macro_series
+        WHERE upper(series_id) IN ({placeholders})
+        ORDER BY upper(series_id), date, as_of_date
+    """
+    rows: list[dict[str, Any]] = []
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            for db_row in conn.execute(sql, list(required_series_ids)).fetchall():
+                value = db_row["value"]
+                if value is None:
+                    value = db_row["close"]
+                try:
+                    numeric_value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                date_key = str(db_row["date"] or "").strip()
+                as_of_date = str(db_row["as_of_date"] or date_key).strip()
+                if not date_key:
+                    continue
+                if as_of_date and as_of_date > date_key:
+                    continue
+                record = {
+                    "series_id": str(db_row["series_id"] or "").upper(),
+                    "source": str(db_row["source"] or ""),
+                    "endpoint_name": str(db_row["endpoint_name"] or ""),
+                    "instrument": str(db_row["instrument"] or ""),
+                    "date": date_key,
+                    "value": numeric_value,
+                    "as_of_date": as_of_date or date_key,
+                    "fetched_at": str(db_row["fetched_at"] or ""),
+                }
+                record["data_vintage_hash"] = _macro_series_data_vintage_hash(record)
+                rows.append(record)
+    except sqlite3.Error:
+        return []
+    return rows
+
+
+def _macro_series_rows_by_series_id(
+    macro_series_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in macro_series_rows:
+        series_id = str(row.get("series_id") or "").strip()
+        date_key = _date_key(
+            row.get("date")
+            or row.get("as_of_date")
+            or row.get("datetime")
+            or row.get("trade_date")
+        )
+        value = _float_or_none(row["value"] if "value" in row else row.get("close"))
+        if not series_id or not date_key or value is None or value != value:
+            continue
+        grouped.setdefault(series_id.upper(), {})[date_key] = {
+            "date": date_key,
+            "value": value,
+            "source": str(row.get("source") or ""),
+            "source_endpoint": str(row.get("source_endpoint") or ""),
+            "data_vintage_hash": str(row.get("data_vintage_hash") or ""),
+            "quote_convention": str(row.get("quote_convention") or ""),
+            "unit": str(row.get("unit") or ""),
+            "series_family": str(row.get("series_family") or ""),
+        }
+    return {
+        series_id: [rows[date_key] for date_key in sorted(rows)]
+        for series_id, rows in grouped.items()
+    }
+
+
+def build_macro_market_series_catalog(
+    macro_series_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    observations_by_series_id = _macro_series_rows_by_series_id(macro_series_rows)
+    rows: list[dict[str, Any]] = []
+    for mapping in build_default_macro_series_directional_map_rows():
+        series_id = str(mapping.get("series_id") or "").upper()
+        observations = observations_by_series_id.get(series_id) or []
+        latest = str(observations[-1].get("date") or "") if observations else ""
+        earliest = str(observations[0].get("date") or "") if observations else ""
+        row = {
+            "catalog_id": _stable_id(
+                "MMSC",
+                {"series_id": series_id, "version": 1},
+            ),
+            "schema_version": "macro_market_series_catalog_v1",
+            "series_id": series_id,
+            "series_family": str(mapping.get("series_family") or "unknown"),
+            "source": "scorecard_macro_series",
+            "source_endpoint": "scorecard.macro_series",
+            "instrument": str(mapping.get("target_id") or series_id),
+            "quote_convention": str(mapping.get("quote_convention") or ""),
+            "unit": str(mapping.get("unit") or ""),
+            "calendar": "observation_date",
+            "frequency": "daily_or_source_frequency",
+            "latest_observation_date": latest,
+            "earliest_observation_date": earliest,
+            "point_in_time_policy": (
+                "read as-of safe observations from scorecard macro_series; "
+                "RKE catalog stores metadata only, not raw observations"
+            ),
+            "license_boundary": "public_metadata_no_raw_licensed_observations",
+            "target_agent_candidates": [
+                str(agent)
+                for agent in _ensure_list(mapping.get("target_agent_candidates"))
+                if str(agent).strip()
+            ],
+            "implementation_status": "implemented_scorecard_read_only",
+            "readiness_status": "ready" if observations else "series_history_missing",
+            "gap_reason": "" if observations else "series_history_missing",
+            "raw_observations_included": False,
+            "private_text_included": False,
+        }
+        rows.append(row)
+    for mapping in build_default_macro_curve_directional_map_rows():
+        curve_id = str(mapping.get("target_id") or "").upper()
+        long_leg = str(mapping.get("long_leg_series_id") or "").upper()
+        short_leg = str(mapping.get("short_leg_series_id") or "").upper()
+        long_rows = observations_by_series_id.get(long_leg) or []
+        short_rows = observations_by_series_id.get(short_leg) or []
+        latest_candidates = [
+            str(items[-1].get("date") or "") for items in (long_rows, short_rows) if items
+        ]
+        earliest_candidates = [
+            str(items[0].get("date") or "") for items in (long_rows, short_rows) if items
+        ]
+        ready = bool(long_rows and short_rows)
+        rows.append(
+            {
+                "catalog_id": _stable_id(
+                    "MMSC",
+                    {"series_id": curve_id, "version": 1},
+                ),
+                "schema_version": "macro_market_series_catalog_v1",
+                "series_id": curve_id,
+                "series_family": str(mapping.get("curve_family") or "curve"),
+                "source": "scorecard_macro_series",
+                "source_endpoint": "scorecard.macro_series",
+                "instrument": f"{long_leg}-{short_leg}",
+                "quote_convention": str(mapping.get("quote_convention") or ""),
+                "unit": str(mapping.get("unit") or ""),
+                "calendar": "aligned_observation_date",
+                "frequency": "daily_or_source_frequency",
+                "latest_observation_date": min(latest_candidates)
+                if latest_candidates
+                else "",
+                "earliest_observation_date": max(earliest_candidates)
+                if earliest_candidates
+                else "",
+                "point_in_time_policy": (
+                    "derive spread from long/short scorecard macro_series "
+                    "observations with as-of safe dates"
+                ),
+                "license_boundary": "public_metadata_no_raw_licensed_observations",
+                "target_agent_candidates": [
+                    str(agent)
+                    for agent in _ensure_list(mapping.get("target_agent_candidates"))
+                    if str(agent).strip()
+                ],
+                "implementation_status": "implemented_scorecard_read_only",
+                "readiness_status": "ready" if ready else "series_history_missing",
+                "gap_reason": "" if ready else "curve_leg_series_history_missing",
+                "long_leg_series_id": long_leg,
+                "short_leg_series_id": short_leg,
+                "raw_observations_included": False,
+                "private_text_included": False,
+            }
+        )
+    return sorted(rows, key=lambda row: str(row.get("series_id") or ""))
+
+
+def _macro_series_entry_index(
+    observations: Sequence[Mapping[str, Any]],
+    signal_datetime: Any,
+    *,
+    entry_lag_observations: int,
+) -> int | None:
+    signal_date = _date_key(signal_datetime)
+    if not signal_date:
+        return None
+    first_after_signal = next(
+        (
+            index
+            for index, row in enumerate(observations)
+            if str(row.get("date") or "") > signal_date
+        ),
+        None,
+    )
+    if first_after_signal is None:
+        return None
+    entry_index = first_after_signal + max(int(entry_lag_observations) - 1, 0)
+    return entry_index if entry_index < len(observations) else None
+
+
+def _macro_series_bps_change(
+    *,
+    raw_change: float,
+    unit: str,
+) -> float | None:
+    normalized = str(unit or "").strip().lower()
+    if normalized in {"bp", "bps", "basis_point", "basis_points"}:
+        return raw_change
+    if normalized in {"percent", "pct", "%", "percentage_point"}:
+        return raw_change * 100.0
+    return None
+
+
+def _macro_series_performance_value(
+    *,
+    series_family: str,
+    unit: str,
+    entry_value: float,
+    exit_value: float,
+    direction: str,
+) -> tuple[float, str, float, float | None, float | None]:
+    raw_change = exit_value - entry_value
+    pct_change = (exit_value / entry_value - 1.0) if entry_value else None
+    direction_multiplier = 1.0 if direction == "positive" else -1.0
+    normalized_family = str(series_family or "").strip().lower()
+    if normalized_family in {"yield", "rate"}:
+        bps_change = _macro_series_bps_change(raw_change=raw_change, unit=unit)
+        performance_value = direction_multiplier * (
+            bps_change if bps_change is not None else raw_change
+        )
+        return (
+            performance_value,
+            MACRO_SERIES_DIRECTIONAL_PERFORMANCE_BASIS.get(
+                normalized_family,
+                "directional_series_change",
+            ),
+            raw_change,
+            pct_change,
+            bps_change,
+        )
+    if normalized_family == "commodity" and pct_change is not None:
+        performance_value = direction_multiplier * pct_change
+    else:
+        performance_value = direction_multiplier * raw_change
+    return (
+        performance_value,
+        MACRO_SERIES_DIRECTIONAL_PERFORMANCE_BASIS.get(
+            normalized_family,
+            "directional_series_change",
+        ),
+        raw_change,
+        pct_change,
+        None,
+    )
+
+
+def _macro_curve_observations(
+    *,
+    mapping: Mapping[str, Any],
+    observations_by_series_id: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> list[dict[str, Any]]:
+    long_leg = str(mapping.get("long_leg_series_id") or "").upper()
+    short_leg = str(mapping.get("short_leg_series_id") or "").upper()
+    long_by_date = {
+        str(row.get("date") or ""): row
+        for row in observations_by_series_id.get(long_leg, ())
+        if str(row.get("date") or "")
+    }
+    short_by_date = {
+        str(row.get("date") or ""): row
+        for row in observations_by_series_id.get(short_leg, ())
+        if str(row.get("date") or "")
+    }
+    rows: list[dict[str, Any]] = []
+    for date_key in sorted(set(long_by_date) & set(short_by_date)):
+        long_value = _float_or_none(long_by_date[date_key].get("value"))
+        short_value = _float_or_none(short_by_date[date_key].get("value"))
+        if long_value is None or short_value is None:
+            continue
+        rows.append(
+            {
+                "date": date_key,
+                "long_leg_value": long_value,
+                "short_leg_value": short_value,
+                "spread_value": long_value - short_value,
+                "data_vintage_hash": str(
+                    long_by_date[date_key].get("data_vintage_hash")
+                    or short_by_date[date_key].get("data_vintage_hash")
+                    or ""
+                ),
+                "source": str(
+                    long_by_date[date_key].get("source")
+                    or short_by_date[date_key].get("source")
+                    or ""
+                ),
+            }
+        )
+    return rows
 
 
 def _macro_asset_window_role(horizon_days: int) -> str:
@@ -14107,6 +15608,7 @@ def build_macro_asset_proxy_readiness(
     windows_days: Sequence[int] = MACRO_ASSET_PROXY_WINDOWS_DAYS,
 ) -> dict[str, Any]:
     mapping_rows = tuple(mapping_rows or build_default_macro_asset_proxy_map_rows())
+    forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     qlib_source_label = _public_qlib_source_label(qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
@@ -14127,7 +15629,14 @@ def build_macro_asset_proxy_readiness(
             continue
         direction = str(claim.get("direction") or "unknown").lower()
         if direction not in {"positive", "negative"}:
-            add_gap("direction_missing_or_unsupported")
+            add_gap(
+                "leg_direction_missing"
+                if str(claim.get("macro_claim_leg_id") or "").strip()
+                else "direction_missing_or_unsupported"
+            )
+            continue
+        if _macro_direct_series_required_for_claim(claim):
+            add_gap("direct_series_required_proxy_not_allowed")
             continue
         proxy = _macro_asset_proxy_for_claim(claim, metadata, mapping_rows)
         if proxy is None:
@@ -14216,6 +15725,242 @@ def build_macro_asset_proxy_readiness(
             "crude_oil_mapping_gap_reason": (
                 "no reviewed local cn_etf crude-oil proxy is configured"
             ),
+        },
+    }
+
+
+def build_macro_series_directional_readiness(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    macro_series_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_SERIES_DIRECTIONAL_WINDOWS_DAYS,
+) -> dict[str, Any]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_series_directional_map_rows())
+    forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
+    observations_by_series_id = _macro_series_rows_by_series_id(macro_series_rows)
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    eligible_claim_ids: list[str] = []
+    labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
+    data_gap_counts: dict[str, int] = {}
+    labelable_window_count = 0
+    pending_future_window_count = 0
+
+    def add_gap(name: str) -> None:
+        data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
+
+    for claim in forecast_rows:
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        if not _macro_direct_series_required_for_claim(claim):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            add_gap(
+                "leg_direction_missing"
+                if str(claim.get("macro_claim_leg_id") or "").strip()
+                else "direction_missing_or_unsupported"
+            )
+            continue
+        mapping = _macro_series_directional_mapping_for_claim(
+            claim,
+            metadata,
+            mapping_rows,
+        )
+        if mapping is None:
+            add_gap("series_mapping_missing")
+            continue
+        if not str(mapping.get("quote_convention") or "").strip():
+            add_gap("quote_convention_missing")
+            continue
+        forecast_claim_id = str(claim.get("forecast_claim_id") or "")
+        eligible_claim_ids.append(forecast_claim_id)
+        series_id = str(mapping.get("series_id") or "").upper()
+        observations = observations_by_series_id.get(series_id) or []
+        if not observations:
+            add_gap("series_history_missing")
+            continue
+        entry_index = _macro_series_entry_index(
+            observations,
+            claim.get("signal_datetime") or "",
+            entry_lag_observations=MACRO_SERIES_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS,
+        )
+        if entry_index is None:
+            add_gap("entry_after_latest_observation")
+            continue
+        claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
+        for horizon_days in windows_days:
+            exit_index = entry_index + int(horizon_days)
+            if exit_index >= len(observations):
+                pending_future_window_count += 1
+                claim_pending_future_window_count += 1
+                continue
+            labelable_window_count += 1
+            claim_labelable_window_count += 1
+        if claim_labelable_window_count:
+            labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
+    latest_observation_dates = [
+        str(rows[-1].get("date") or "")
+        for rows in observations_by_series_id.values()
+        if rows
+    ]
+    return {
+        "policy": (
+            "macro direct-series claims are evaluated with PIT macro series "
+            "observations on T+1 fixed windows; LLM output extracts target and "
+            "direction but cannot assign outcome labels"
+        ),
+        "outcome_label_source": MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE,
+        "llm_outcome_labeling_allowed": False,
+        "windows_days": [int(value) for value in windows_days],
+        "entry_lag_observations": MACRO_SERIES_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS,
+        "cost_model_id": MACRO_SERIES_DIRECTIONAL_COST_MODEL_ID,
+        "mapping_count": len(mapping_rows),
+        "series_count": len(observations_by_series_id),
+        "latest_observation_date": max(latest_observation_dates)
+        if latest_observation_dates
+        else "",
+        "eligible_claim_count": len(eligible_claim_ids),
+        "eligible_forecast_claim_ids": eligible_claim_ids,
+        "labelable_forecast_claim_count": len(labelable_claim_ids),
+        "labelable_forecast_claim_ids": labelable_claim_ids,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
+        "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "mapping_policy": {
+            "mapping_version": MACRO_SERIES_DIRECTIONAL_MAPPING_VERSION,
+            "direct_series_required_metric_families": sorted(
+                MACRO_DIRECT_SERIES_REQUIRED_METRIC_FAMILIES
+            ),
+            "etf_proxy_inversion_allowed": False,
+        },
+    }
+
+
+def build_macro_curve_directional_readiness(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    macro_series_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_CURVE_DIRECTIONAL_WINDOWS_DAYS,
+) -> dict[str, Any]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_curve_directional_map_rows())
+    forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
+    observations_by_series_id = _macro_series_rows_by_series_id(macro_series_rows)
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    eligible_claim_ids: list[str] = []
+    labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
+    data_gap_counts: dict[str, int] = {}
+    labelable_window_count = 0
+    pending_future_window_count = 0
+
+    def add_gap(name: str) -> None:
+        data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
+
+    for claim in forecast_rows:
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        if not _macro_curve_directional_required_for_claim(claim):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            add_gap(
+                "leg_direction_missing"
+                if str(claim.get("macro_claim_leg_id") or "").strip()
+                else "direction_missing_or_unsupported"
+            )
+            continue
+        mapping = _macro_curve_directional_mapping_for_claim(
+            claim,
+            metadata,
+            mapping_rows,
+        )
+        if mapping is None:
+            add_gap("curve_mapping_missing")
+            continue
+        if not str(mapping.get("quote_convention") or "").strip():
+            add_gap("quote_convention_missing")
+            continue
+        forecast_claim_id = str(claim.get("forecast_claim_id") or "")
+        eligible_claim_ids.append(forecast_claim_id)
+        observations = _macro_curve_observations(
+            mapping=mapping,
+            observations_by_series_id=observations_by_series_id,
+        )
+        if not observations:
+            add_gap("curve_leg_series_history_missing")
+            continue
+        entry_index = _macro_series_entry_index(
+            observations,
+            claim.get("signal_datetime") or "",
+            entry_lag_observations=MACRO_CURVE_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS,
+        )
+        if entry_index is None:
+            add_gap("entry_after_latest_observation")
+            continue
+        claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
+        for horizon_days in windows_days:
+            exit_index = entry_index + int(horizon_days)
+            if exit_index >= len(observations):
+                pending_future_window_count += 1
+                claim_pending_future_window_count += 1
+                continue
+            labelable_window_count += 1
+            claim_labelable_window_count += 1
+        if claim_labelable_window_count:
+            labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
+    latest_observation_dates = [
+        str(rows[-1].get("date") or "")
+        for rows in observations_by_series_id.values()
+        if rows
+    ]
+    return {
+        "policy": (
+            "macro curve claims are evaluated with PIT-aligned long/short "
+            "series spreads on T+1 fixed windows; LLM output extracts target and "
+            "direction but cannot assign outcome labels"
+        ),
+        "outcome_label_source": MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE,
+        "llm_outcome_labeling_allowed": False,
+        "windows_days": [int(value) for value in windows_days],
+        "entry_lag_observations": MACRO_CURVE_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS,
+        "cost_model_id": MACRO_CURVE_DIRECTIONAL_COST_MODEL_ID,
+        "mapping_count": len(mapping_rows),
+        "series_count": len(observations_by_series_id),
+        "latest_observation_date": max(latest_observation_dates)
+        if latest_observation_dates
+        else "",
+        "eligible_claim_count": len(eligible_claim_ids),
+        "eligible_forecast_claim_ids": eligible_claim_ids,
+        "labelable_forecast_claim_count": len(labelable_claim_ids),
+        "labelable_forecast_claim_ids": labelable_claim_ids,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
+        "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "mapping_policy": {
+            "mapping_version": MACRO_CURVE_DIRECTIONAL_MAPPING_VERSION,
+            "curve_required_metric_families": sorted(
+                MACRO_CURVE_REQUIRED_METRIC_FAMILIES
+            ),
+            "single_series_substitution_allowed": False,
         },
     }
 
@@ -14785,6 +16530,7 @@ def build_macro_asset_proxy_outcome_labels(
     windows_days: Sequence[int] = MACRO_ASSET_PROXY_WINDOWS_DAYS,
 ) -> list[dict[str, Any]]:
     mapping_rows = tuple(mapping_rows or build_default_macro_asset_proxy_map_rows())
+    forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     if not calendar:
@@ -14823,6 +16569,7 @@ def build_macro_asset_proxy_outcome_labels(
         )
         if entry_price is None:
             continue
+        leg_trace_fields = _macro_claim_leg_trace_fields(claim)
         ledger = ledger_by_claim.get(str(claim.get("forecast_claim_id") or "")) or {}
         forecast_family_id = str(ledger.get("forecast_family_id") or "") or _stable_id(
             "FF",
@@ -14838,6 +16585,7 @@ def build_macro_asset_proxy_outcome_labels(
                 "forecast_claim_id": claim.get("forecast_claim_id"),
                 "label_type": "macro_asset_proxy",
                 "proxy_symbol": proxy_symbol,
+                **leg_trace_fields,
             },
         )
         claim_horizon = _ensure_mapping(claim.get("horizon"))
@@ -14880,9 +16628,11 @@ def build_macro_asset_proxy_outcome_labels(
                             "label_type": "macro_asset_proxy",
                             "proxy_symbol": proxy_symbol,
                             "horizon_days": horizon_days,
+                            **leg_trace_fields,
                         },
                     ),
                     "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                    **leg_trace_fields,
                     "forecast_family_id": forecast_family_id,
                     "claim_window_set_id": claim_window_set_id,
                     "entry_datetime": f"{calendar[entry_index]}T00:00:00+08:00",
@@ -14915,6 +16665,12 @@ def build_macro_asset_proxy_outcome_labels(
                     "proxy_symbol": proxy_symbol,
                     "proxy_label": str(proxy.get("proxy_label") or ""),
                     "proxy_asset": str(proxy.get("target_id") or ""),
+                    "series_family": "macro_asset_proxy",
+                    "quote_convention": "price_return",
+                    "proxy_or_direct": "proxy",
+                    "target_agent_candidates": (
+                        _macro_asset_proxy_target_agent_candidates(claim, proxy)
+                    ),
                     "macro_asset_target_id": str(proxy.get("target_id") or ""),
                     "mapping_id": str(proxy.get("mapping_id") or ""),
                     "mapping_version": int(proxy.get("mapping_version") or 1),
@@ -14961,6 +16717,479 @@ def build_macro_asset_proxy_outcome_labels(
     return records
 
 
+def build_macro_series_directional_outcome_labels(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    macro_series_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_SERIES_DIRECTIONAL_WINDOWS_DAYS,
+) -> list[dict[str, Any]]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_series_directional_map_rows())
+    forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
+    observations_by_series_id = _macro_series_rows_by_series_id(macro_series_rows)
+    ledger_by_claim = {
+        str(row.get("forecast_claim_id") or ""): row for row in forecast_ledger_rows
+    }
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    records: list[dict[str, Any]] = []
+    for claim in forecast_rows:
+        source_id = str(claim.get("source_id") or "")
+        metadata = metadata_by_source.get(source_id) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            continue
+        mapping = _macro_series_directional_mapping_for_claim(
+            claim,
+            metadata,
+            mapping_rows,
+        )
+        if mapping is None:
+            continue
+        series_id = str(mapping.get("series_id") or "").upper()
+        observations = observations_by_series_id.get(series_id) or []
+        if not observations:
+            continue
+        entry_index = _macro_series_entry_index(
+            observations,
+            claim.get("signal_datetime") or "",
+            entry_lag_observations=MACRO_SERIES_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS,
+        )
+        if entry_index is None:
+            continue
+        entry_observation = observations[entry_index]
+        entry_value = _float_or_none(entry_observation.get("value"))
+        if entry_value is None:
+            continue
+        leg_trace_fields = _macro_claim_leg_trace_fields(claim)
+        ledger = ledger_by_claim.get(str(claim.get("forecast_claim_id") or "")) or {}
+        forecast_family_id = str(ledger.get("forecast_family_id") or "") or _stable_id(
+            "FF",
+            {
+                "forecast_type": claim.get("forecast_type") or "unknown",
+                "macro_series_target": mapping.get("target_id") or series_id,
+            },
+        )
+        claim_window_set_id = _stable_id(
+            "WSET",
+            {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                "label_type": "macro_series_directional",
+                "series_id": series_id,
+                **leg_trace_fields,
+            },
+        )
+        claim_horizon = _ensure_mapping(claim.get("horizon"))
+        source_horizon_days = _horizon_preferred_days(claim_horizon)
+        source_horizon_bucket = _horizon_bucket(claim_horizon)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
+        series_family = str(
+            mapping.get("series_family")
+            or entry_observation.get("series_family")
+            or "unknown"
+        ).lower()
+        unit = str(mapping.get("unit") or entry_observation.get("unit") or "")
+        quote_convention = str(
+            mapping.get("quote_convention")
+            or entry_observation.get("quote_convention")
+            or ""
+        )
+        claim_records: list[dict[str, Any]] = []
+        for horizon_days in windows_days:
+            horizon_days = int(horizon_days)
+            exit_index = entry_index + horizon_days
+            if exit_index >= len(observations):
+                continue
+            exit_observation = observations[exit_index]
+            exit_value = _float_or_none(exit_observation.get("value"))
+            if exit_value is None:
+                continue
+            (
+                performance_value,
+                performance_value_basis,
+                raw_change,
+                pct_change,
+                bps_change,
+            ) = _macro_series_performance_value(
+                series_family=series_family,
+                unit=unit,
+                entry_value=entry_value,
+                exit_value=exit_value,
+                direction=direction,
+            )
+            window_role = _macro_asset_window_role(horizon_days)
+            label_date_payload = {
+                "label_type": "macro_series_directional",
+                "series_id": series_id,
+                "entry_date": entry_observation["date"],
+                "horizon_days": horizon_days,
+            }
+            outcome_payload = {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                **label_date_payload,
+                **leg_trace_fields,
+            }
+            claim_records.append(
+                {
+                    "outcome_id": _stable_id("OUT", outcome_payload),
+                    "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                    **leg_trace_fields,
+                    "forecast_family_id": forecast_family_id,
+                    "claim_window_set_id": claim_window_set_id,
+                    "entry_datetime": f"{entry_observation['date']}T00:00:00+00:00",
+                    "exit_datetime": f"{exit_observation['date']}T00:00:00+00:00",
+                    "horizon_days": horizon_days,
+                    "relative_alpha": round(performance_value, 8),
+                    "directional_hit": performance_value > 0,
+                    "after_cost_alpha": round(performance_value, 8),
+                    "overlap_group_id": _stable_id("OVL", label_date_payload),
+                    "effective_n_weight": round(
+                        MACRO_SERIES_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS.get(
+                            horizon_days,
+                            0.0,
+                        ),
+                        6,
+                    ),
+                    "pit_valid": True,
+                    "survivorship_safe": True,
+                    "label_type": "macro_series_directional",
+                    "target_series_id": series_id,
+                    "series_family": series_family,
+                    "series_source": str(
+                        entry_observation.get("source")
+                        or exit_observation.get("source")
+                        or ""
+                    ),
+                    "source_endpoint": str(
+                        entry_observation.get("source_endpoint")
+                        or exit_observation.get("source_endpoint")
+                        or ""
+                    ),
+                    "macro_series_target_id": str(mapping.get("target_id") or ""),
+                    "mapping_id": str(mapping.get("mapping_id") or ""),
+                    "mapping_version": int(mapping.get("mapping_version") or 1),
+                    "mapping_confidence": str(
+                        mapping.get("mapping_confidence")
+                        or "operator_seeded_macro_series_alias"
+                    ),
+                    "benchmark_symbol": series_id,
+                    "benchmark_source": "direct_macro_series",
+                    "benchmark_family": f"DIRECT_MACRO_SERIES_{series_family.upper()}",
+                    "benchmark_return": 0.0,
+                    "cost_model_id": MACRO_SERIES_DIRECTIONAL_COST_MODEL_ID,
+                    "round_trip_cost": 0.0,
+                    "entry_value": round(entry_value, 8),
+                    "exit_value": round(exit_value, 8),
+                    "raw_change": round(raw_change, 8),
+                    "pct_change": round(pct_change, 8)
+                    if pct_change is not None
+                    else None,
+                    "bps_change": round(bps_change, 8)
+                    if bps_change is not None
+                    else None,
+                    "directional_change": round(performance_value, 8),
+                    "performance_value": round(performance_value, 8),
+                    "performance_value_basis": performance_value_basis,
+                    "quote_convention": quote_convention,
+                    "unit": unit,
+                    "direction_evaluated": direction,
+                    "orientation_rule": (
+                        "positive means series increase supports the claim; "
+                        "negative means series decrease supports the claim"
+                    ),
+                    "decision_basis": MACRO_SERIES_DIRECTIONAL_DECISION_BASIS,
+                    "outcome_label_source": (
+                        MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE
+                    ),
+                    "llm_outcome_labeling_allowed": False,
+                    "window_role": window_role,
+                    "source_horizon_days": source_horizon_days,
+                    "source_horizon_bucket": source_horizon_bucket,
+                    "claim_window_alignment": _macro_asset_claim_window_alignment(
+                        claim_horizon=claim_horizon,
+                        horizon_days=horizon_days,
+                    ),
+                    "evaluation_policy": MACRO_SERIES_DIRECTIONAL_EVALUATION_POLICY,
+                    "entry_lag_trading_days": (
+                        MACRO_SERIES_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS
+                    ),
+                    "data_vintage_hash": str(
+                        exit_observation.get("data_vintage_hash")
+                        or entry_observation.get("data_vintage_hash")
+                        or ""
+                    ),
+                    "target_resolution_source": "macro_series_mapping",
+                    "target_agent_candidates": [
+                        str(agent)
+                        for agent in _ensure_list(
+                            mapping.get("target_agent_candidates")
+                        )
+                        if str(agent).strip()
+                    ],
+                    "source_metadata_id": source_id,
+                    **market_regime_fields,
+                }
+            )
+        if claim_records:
+            temporal_summary = _macro_asset_temporal_validation_summary(claim_records)
+            temporal_summary["policy"] = (
+                "macro direct-series research is validated on fixed PIT series "
+                "windows; short, medium, and long windows are retained as "
+                "separate evidence"
+            )
+            for record in claim_records:
+                record["temporal_validation_summary"] = temporal_summary
+            records.extend(claim_records)
+    return records
+
+
+def build_macro_curve_directional_outcome_labels(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    macro_series_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_CURVE_DIRECTIONAL_WINDOWS_DAYS,
+) -> list[dict[str, Any]]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_curve_directional_map_rows())
+    forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
+    observations_by_series_id = _macro_series_rows_by_series_id(macro_series_rows)
+    ledger_by_claim = {
+        str(row.get("forecast_claim_id") or ""): row for row in forecast_ledger_rows
+    }
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    records: list[dict[str, Any]] = []
+    for claim in forecast_rows:
+        source_id = str(claim.get("source_id") or "")
+        metadata = metadata_by_source.get(source_id) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            continue
+        mapping = _macro_curve_directional_mapping_for_claim(
+            claim,
+            metadata,
+            mapping_rows,
+        )
+        if mapping is None:
+            continue
+        observations = _macro_curve_observations(
+            mapping=mapping,
+            observations_by_series_id=observations_by_series_id,
+        )
+        if not observations:
+            continue
+        entry_index = _macro_series_entry_index(
+            observations,
+            claim.get("signal_datetime") or "",
+            entry_lag_observations=MACRO_CURVE_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS,
+        )
+        if entry_index is None:
+            continue
+        entry_observation = observations[entry_index]
+        entry_spread = _float_or_none(entry_observation.get("spread_value"))
+        if entry_spread is None:
+            continue
+        leg_trace_fields = _macro_claim_leg_trace_fields(claim)
+        ledger = ledger_by_claim.get(str(claim.get("forecast_claim_id") or "")) or {}
+        forecast_family_id = str(ledger.get("forecast_family_id") or "") or _stable_id(
+            "FF",
+            {
+                "forecast_type": claim.get("forecast_type") or "unknown",
+                "macro_curve_target": mapping.get("target_id"),
+            },
+        )
+        long_leg = str(mapping.get("long_leg_series_id") or "").upper()
+        short_leg = str(mapping.get("short_leg_series_id") or "").upper()
+        curve_target = str(mapping.get("target_id") or "")
+        claim_window_set_id = _stable_id(
+            "WSET",
+            {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                "label_type": "macro_curve_directional",
+                "curve_target": curve_target,
+                **leg_trace_fields,
+            },
+        )
+        claim_horizon = _ensure_mapping(claim.get("horizon"))
+        source_horizon_days = _horizon_preferred_days(claim_horizon)
+        source_horizon_bucket = _horizon_bucket(claim_horizon)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
+        unit = str(mapping.get("unit") or "")
+        quote_convention = str(mapping.get("quote_convention") or "")
+        entry_spread_bps = _macro_series_bps_change(
+            raw_change=entry_spread,
+            unit=unit,
+        )
+        claim_records: list[dict[str, Any]] = []
+        for horizon_days in windows_days:
+            horizon_days = int(horizon_days)
+            exit_index = entry_index + horizon_days
+            if exit_index >= len(observations):
+                continue
+            exit_observation = observations[exit_index]
+            exit_spread = _float_or_none(exit_observation.get("spread_value"))
+            if exit_spread is None:
+                continue
+            spread_change = exit_spread - entry_spread
+            exit_spread_bps = _macro_series_bps_change(
+                raw_change=exit_spread,
+                unit=unit,
+            )
+            spread_change_bps = _macro_series_bps_change(
+                raw_change=spread_change,
+                unit=unit,
+            )
+            curve_performance = spread_change_bps
+            if curve_performance is None:
+                curve_performance = spread_change
+            if direction == "negative":
+                curve_performance = -curve_performance
+            window_role = _macro_asset_window_role(horizon_days)
+            label_date_payload = {
+                "label_type": "macro_curve_directional",
+                "curve_target": curve_target,
+                "entry_date": entry_observation["date"],
+                "horizon_days": horizon_days,
+            }
+            outcome_payload = {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                **label_date_payload,
+                **leg_trace_fields,
+            }
+            claim_records.append(
+                {
+                    "outcome_id": _stable_id("OUT", outcome_payload),
+                    "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                    **leg_trace_fields,
+                    "forecast_family_id": forecast_family_id,
+                    "claim_window_set_id": claim_window_set_id,
+                    "entry_datetime": f"{entry_observation['date']}T00:00:00+00:00",
+                    "exit_datetime": f"{exit_observation['date']}T00:00:00+00:00",
+                    "horizon_days": horizon_days,
+                    "relative_alpha": round(curve_performance, 8),
+                    "directional_hit": curve_performance > 0,
+                    "after_cost_alpha": round(curve_performance, 8),
+                    "overlap_group_id": _stable_id("OVL", label_date_payload),
+                    "effective_n_weight": round(
+                        MACRO_CURVE_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS.get(
+                            horizon_days,
+                            0.0,
+                        ),
+                        6,
+                    ),
+                    "pit_valid": True,
+                    "survivorship_safe": True,
+                    "label_type": "macro_curve_directional",
+                    "macro_curve_target_id": curve_target,
+                    "curve_family": str(mapping.get("curve_family") or ""),
+                    "long_leg_series_id": long_leg,
+                    "short_leg_series_id": short_leg,
+                    "entry_long_leg_value": round(
+                        float(entry_observation["long_leg_value"]),
+                        8,
+                    ),
+                    "entry_short_leg_value": round(
+                        float(entry_observation["short_leg_value"]),
+                        8,
+                    ),
+                    "exit_long_leg_value": round(
+                        float(exit_observation["long_leg_value"]),
+                        8,
+                    ),
+                    "exit_short_leg_value": round(
+                        float(exit_observation["short_leg_value"]),
+                        8,
+                    ),
+                    "entry_spread": round(entry_spread, 8),
+                    "exit_spread": round(exit_spread, 8),
+                    "entry_spread_bps": round(entry_spread_bps, 8)
+                    if entry_spread_bps is not None
+                    else None,
+                    "exit_spread_bps": round(exit_spread_bps, 8)
+                    if exit_spread_bps is not None
+                    else None,
+                    "spread_change": round(spread_change, 8),
+                    "spread_change_bps": round(spread_change_bps, 8)
+                    if spread_change_bps is not None
+                    else None,
+                    "curve_direction": "steepen_or_widen"
+                    if direction == "positive"
+                    else "flatten_or_narrow",
+                    "directional_change": round(curve_performance, 8),
+                    "performance_value": round(curve_performance, 8),
+                    "performance_value_basis": "directional_curve_bps_change",
+                    "quote_convention": quote_convention,
+                    "unit": unit,
+                    "mapping_id": str(mapping.get("mapping_id") or ""),
+                    "mapping_version": int(mapping.get("mapping_version") or 1),
+                    "mapping_confidence": str(
+                        mapping.get("mapping_confidence")
+                        or "operator_seeded_macro_curve_alias"
+                    ),
+                    "benchmark_symbol": curve_target,
+                    "benchmark_source": "direct_macro_curve",
+                    "benchmark_family": "DIRECT_MACRO_CURVE",
+                    "benchmark_return": 0.0,
+                    "cost_model_id": MACRO_CURVE_DIRECTIONAL_COST_MODEL_ID,
+                    "round_trip_cost": 0.0,
+                    "direction_evaluated": direction,
+                    "orientation_rule": (
+                        "positive means spread widens or steepens; negative "
+                        "means spread narrows or flattens"
+                    ),
+                    "decision_basis": MACRO_CURVE_DIRECTIONAL_DECISION_BASIS,
+                    "outcome_label_source": MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE,
+                    "llm_outcome_labeling_allowed": False,
+                    "window_role": window_role,
+                    "source_horizon_days": source_horizon_days,
+                    "source_horizon_bucket": source_horizon_bucket,
+                    "claim_window_alignment": _macro_asset_claim_window_alignment(
+                        claim_horizon=claim_horizon,
+                        horizon_days=horizon_days,
+                    ),
+                    "evaluation_policy": MACRO_CURVE_DIRECTIONAL_EVALUATION_POLICY,
+                    "entry_lag_trading_days": (
+                        MACRO_CURVE_DIRECTIONAL_ENTRY_LAG_OBSERVATIONS
+                    ),
+                    "data_vintage_hash": str(
+                        exit_observation.get("data_vintage_hash")
+                        or entry_observation.get("data_vintage_hash")
+                        or ""
+                    ),
+                    "target_resolution_source": "macro_curve_mapping",
+                    "target_agent_candidates": [
+                        str(agent)
+                        for agent in _ensure_list(
+                            mapping.get("target_agent_candidates")
+                        )
+                        if str(agent).strip()
+                    ],
+                    "source_metadata_id": source_id,
+                    **market_regime_fields,
+                }
+            )
+        if claim_records:
+            temporal_summary = _macro_asset_temporal_validation_summary(claim_records)
+            temporal_summary["policy"] = (
+                "macro curve research is validated on fixed PIT spread windows; "
+                "short, medium, and long windows are retained as separate evidence"
+            )
+            for record in claim_records:
+                record["temporal_validation_summary"] = temporal_summary
+            records.extend(claim_records)
+    return records
+
+
 def build_outcome_label_records(
     *,
     root_path: Path,
@@ -14971,8 +17200,9 @@ def build_outcome_label_records(
     metadata_rows: Sequence[Mapping[str, Any]],
     industry_etf_proxy_map_rows: Sequence[Mapping[str, Any]] | None = None,
     industry_etf_proxy_pit_availability: Mapping[str, Any] | None = None,
+    macro_series_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
-    """Build governed PIT outcome labels for industry, stock, and macro proxies."""
+    """Build governed PIT outcome labels for industry, stock, and macro claims."""
     return [
         *build_industry_etf_proxy_outcome_labels(
             root_path=root_path,
@@ -14997,6 +17227,18 @@ def build_outcome_label_records(
             forecast_rows=forecast_rows,
             forecast_ledger_rows=forecast_ledger_rows,
             metadata_rows=metadata_rows,
+        ),
+        *build_macro_series_directional_outcome_labels(
+            forecast_rows=forecast_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            metadata_rows=metadata_rows,
+            macro_series_rows=macro_series_rows,
+        ),
+        *build_macro_curve_directional_outcome_labels(
+            forecast_rows=forecast_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            metadata_rows=metadata_rows,
+            macro_series_rows=macro_series_rows,
         ),
     ]
 
@@ -15041,12 +17283,14 @@ def _shrunk_performance_summary(
     for label in labels:
         weight = _label_weight(label)
         try:
-            performance_value = (
-                label.get("directional_after_cost_return")
-                if label.get("performance_value_basis")
-                == "directional_after_cost_return"
-                else label.get("after_cost_alpha")
-            )
+            performance_value = label.get("performance_value")
+            if performance_value is None:
+                performance_value = (
+                    label.get("directional_after_cost_return")
+                    if label.get("performance_value_basis")
+                    == "directional_after_cost_return"
+                    else label.get("after_cost_alpha")
+                )
             alpha = float(performance_value or 0.0)
         except (TypeError, ValueError):
             alpha = 0.0
@@ -15162,6 +17406,25 @@ def _labels_by_claim(
         if claim_id and label.get("pit_valid") is True:
             labels.setdefault(claim_id, []).append(label)
     return labels
+
+
+def _labels_for_claim_context(
+    labels_by_claim: Mapping[str, Sequence[Mapping[str, Any]]],
+    claim: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    claim_labels = list(labels_by_claim.get(str(claim.get("forecast_claim_id") or ""), ()))
+    leg_id = str(claim.get("macro_claim_leg_id") or "").strip()
+    if not leg_id:
+        return [
+            label
+            for label in claim_labels
+            if not str(label.get("macro_claim_leg_id") or "").strip()
+        ] or claim_labels
+    return [
+        label
+        for label in claim_labels
+        if str(label.get("macro_claim_leg_id") or "").strip() == leg_id
+    ]
 
 
 def _viewpoint_cluster_id(claim: Mapping[str, Any]) -> tuple[str, list[str]]:
@@ -15347,7 +17610,7 @@ def build_viewpoint_performance_profiles(
                 "methodology_notes": ["awaiting_pit_outcome_labels"],
             },
         )
-        claim_labels = labels_by_claim.get(str(claim.get("forecast_claim_id") or ""))
+        claim_labels = _labels_for_claim_context(labels_by_claim, claim)
         if claim_labels:
             profile_labels.setdefault(profile_id, []).extend(claim_labels)
     for profile_id, labels in profile_labels.items():
@@ -15384,6 +17647,561 @@ def build_viewpoint_performance_profiles(
             }
         )
     return list(profiles.values())
+
+
+MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY = "public_safe_aggregate_no_source_prose"
+MACRO_REGIME_SNAPSHOT_USE_POLICY = "background_only_not_claim_validation"
+MACRO_AGENT_RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
+MACRO_AGENT_RESEARCH_PRIOR_SCHEMA_VERSION = "macro_agent_research_prior_v1"
+MACRO_REGIME_SNAPSHOT_SCHEMA_VERSION = "macro_regime_snapshot_v1"
+MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
+    "policy_rate_level": ("macro.central_bank",),
+    "money_market_rate": ("macro.central_bank",),
+    "bond_yield_level": ("macro.yield_curve", "macro.central_bank"),
+    "yield_curve_slope": ("macro.yield_curve",),
+    "cross_market_yield_spread": ("macro.yield_curve", "macro.dollar"),
+    "fx_rate": ("macro.dollar", "macro.emerging_markets"),
+    "equity_index_forward_return": ("macro.china", "macro.emerging_markets"),
+    "bond_etf_forward_return": ("macro.central_bank", "macro.yield_curve"),
+    "macro_asset_forward_return": ("macro.china", "macro.emerging_markets"),
+    "commodity_price": ("macro.commodities",),
+    "commodity_price_cycle": ("macro.commodities",),
+    "gold_etf_forward_return": ("macro.commodities", "macro.geopolitical"),
+    "volatility_index": ("macro.volatility",),
+    "risk_off_asset_path": ("macro.geopolitical", "macro.volatility"),
+    "growth_inflation_release": ("macro.china", "macro.commodities"),
+    "liquidity_credit_condition": ("macro.central_bank", "macro.yield_curve"),
+}
+MACRO_AGENT_BY_ASSET_TARGET: Mapping[str, tuple[str, ...]] = {
+    "CN_A_SHARE_BROAD": ("macro.china",),
+    "CN_A_SHARE_LARGE_CAP": ("macro.china",),
+    "CN_A_SHARE_MID_SMALL": ("macro.china",),
+    "CN_A_SHARE_GROWTH": ("macro.china",),
+    "HK_EQUITY": ("macro.china", "macro.emerging_markets"),
+    "US_EQUITY_NASDAQ": ("macro.emerging_markets",),
+    "US_EQUITY_SP500": ("macro.emerging_markets",),
+    "CN_BOND": ("macro.central_bank", "macro.yield_curve"),
+    "CN_CREDIT_BOND": ("macro.central_bank", "macro.yield_curve"),
+    "CN_POLICY_BANK_BOND": ("macro.central_bank", "macro.yield_curve"),
+    "GOLD": ("macro.commodities", "macro.geopolitical"),
+}
+MACRO_REGIME_AGENT_SOURCE_SERIES_IDS: Mapping[str, tuple[str, ...]] = {
+    "macro.central_bank": ("US10Y", "CN10Y"),
+    "macro.china": ("CN10Y", "USDCNY", "COPPER"),
+    "macro.commodities": ("GOLD_SPOT", "COPPER", "CRUDE_OIL"),
+    "macro.dollar": ("USDCNY", "US10Y", "CN10Y"),
+    "macro.emerging_markets": ("USDCNY",),
+    "macro.geopolitical": ("GOLD_SPOT", "CRUDE_OIL", "VIX"),
+    "macro.volatility": ("VIX",),
+    "macro.yield_curve": ("US10Y", "US2Y", "US3M", "CN10Y"),
+}
+
+
+def _macro_agent_ids(items: Sequence[Any]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            str(item).strip()
+            for item in items
+            if str(item).strip().startswith("macro.")
+        )
+    )
+
+
+def _macro_agents_for_metric_families(metric_families: Sequence[Any]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            agent
+            for family in metric_families
+            for agent in MACRO_AGENT_BY_METRIC_FAMILY.get(str(family), ())
+        )
+    )
+
+
+def _macro_trace_agent_context(claim: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    trace = _ensure_mapping(claim.get("claim_regime_trace"))
+    macro = _ensure_mapping(trace.get("macro"))
+    return {
+        str(agent_id): _ensure_mapping(agent_trace)
+        for agent_id, agent_trace in macro.items()
+        if str(agent_id).startswith("macro.")
+    }
+
+
+def _macro_trace_agents_with_regime_context(
+    claim: Mapping[str, Any],
+) -> tuple[str, ...]:
+    agents: list[str] = []
+    for agent_id, agent_trace in _macro_trace_agent_context(claim).items():
+        if (
+            _ensure_list(agent_trace.get("regime_types"))
+            or _ensure_list(agent_trace.get("as_of_date_regime_types"))
+            or _ensure_list(agent_trace.get("source_text_regime_types"))
+        ):
+            agents.append(agent_id)
+    return tuple(dict.fromkeys(agents))
+
+
+def _claim_macro_agent_candidates(claim: Mapping[str, Any]) -> tuple[str, ...]:
+    target = _ensure_mapping(claim.get("target"))
+    agents: list[str] = [
+        *_macro_agent_ids(_ensure_list(claim.get("target_agent_candidates"))),
+        *_macro_agent_ids(_ensure_list(target.get("target_agent_candidates"))),
+        *_macro_trace_agents_with_regime_context(claim),
+    ]
+    metric_families = [
+        *_ensure_list(claim.get("metric_proxy_mapping")),
+        *_ensure_list(target.get("metric_proxy_mapping")),
+        str(target.get("metric_family") or ""),
+    ]
+    agents.extend(_macro_agents_for_metric_families(metric_families))
+    target_id = str(target.get("target_id") or target.get("target_name") or "")
+    agents.extend(MACRO_AGENT_BY_ASSET_TARGET.get(target_id, ()))
+    series_mapping = _macro_series_directional_mapping_for_claim(claim, {})
+    if series_mapping:
+        agents.extend(
+            _macro_agent_ids(_ensure_list(series_mapping.get("target_agent_candidates")))
+        )
+    curve_mapping = _macro_curve_directional_mapping_for_claim(claim, {})
+    if curve_mapping:
+        agents.extend(
+            _macro_agent_ids(_ensure_list(curve_mapping.get("target_agent_candidates")))
+        )
+    return tuple(dict.fromkeys(agent for agent in agents if agent))
+
+
+def _claim_metric_families(claim: Mapping[str, Any]) -> tuple[str, ...]:
+    target = _ensure_mapping(claim.get("target"))
+    return tuple(
+        dict.fromkeys(
+            str(item).strip()
+            for item in (
+                *_ensure_list(claim.get("metric_proxy_mapping")),
+                *_ensure_list(target.get("metric_proxy_mapping")),
+                target.get("metric_family") or "",
+            )
+            if str(item).strip()
+        )
+    )
+
+
+def _claim_trace_as_of_date(claim: Mapping[str, Any]) -> str:
+    trace = _ensure_mapping(claim.get("claim_regime_trace"))
+    return str(trace.get("as_of_date") or "").strip() or _as_of_date_key(
+        claim.get("as_of_datetime")
+        or claim.get("publish_datetime")
+        or claim.get("publish_date")
+    )
+
+
+def build_macro_regime_snapshots(
+    forecast_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    aggregates: dict[tuple[str, str], dict[str, Any]] = {}
+    for index, claim in enumerate(forecast_rows, 1):
+        claim_marker = str(
+            claim.get("macro_claim_leg_id")
+            or claim.get("forecast_claim_id")
+            or claim.get("claim_id")
+            or f"row-{index}"
+        )
+        trace_as_of_date = _claim_trace_as_of_date(claim)
+        trace_context = _macro_trace_agent_context(claim)
+        agent_ids = tuple(
+            dict.fromkeys((*trace_context.keys(), *_claim_macro_agent_candidates(claim)))
+        )
+        for agent_id in agent_ids:
+            agent_trace = trace_context.get(agent_id, {})
+            as_of_date = str(agent_trace.get("as_of_date") or trace_as_of_date).strip()
+            if not as_of_date:
+                continue
+            key = (as_of_date, agent_id)
+            aggregate = aggregates.setdefault(
+                key,
+                {
+                    "_claim_markers": set(),
+                    "_regime_types": set(),
+                    "_as_of_date_regime_types": set(),
+                    "_source_text_regime_types": set(),
+                    "_regime_detail_ids": set(),
+                    "_trace_claim_markers": set(),
+                },
+            )
+            aggregate["_claim_markers"].add(claim_marker)
+            if agent_id in trace_context:
+                aggregate["_trace_claim_markers"].add(claim_marker)
+            aggregate["_regime_types"].update(
+                str(item).strip()
+                for item in _ensure_list(agent_trace.get("regime_types"))
+                if str(item).strip()
+            )
+            aggregate["_as_of_date_regime_types"].update(
+                str(item).strip()
+                for item in _ensure_list(agent_trace.get("as_of_date_regime_types"))
+                if str(item).strip()
+            )
+            aggregate["_source_text_regime_types"].update(
+                str(item).strip()
+                for item in _ensure_list(agent_trace.get("source_text_regime_types"))
+                if str(item).strip()
+            )
+            for detail in _ensure_list(agent_trace.get("regime_details")):
+                detail_map = _ensure_mapping(detail)
+                regime_id = str(detail_map.get("regime_id") or "").strip()
+                if regime_id:
+                    aggregate["_regime_detail_ids"].add(regime_id)
+    rows: list[dict[str, Any]] = []
+    for (as_of_date, agent_id), aggregate in sorted(aggregates.items()):
+        regime_types = tuple(sorted(aggregate["_regime_types"]))
+        as_of_date_regime_types = tuple(sorted(aggregate["_as_of_date_regime_types"]))
+        source_text_regime_types = tuple(
+            sorted(aggregate["_source_text_regime_types"])
+        )
+        regime_bucket = (
+            "|".join(regime_types) if regime_types else "no_macro_regime_type_observed"
+        )
+        source_claim_count = len(aggregate["_claim_markers"])
+        regime_family = agent_id.removeprefix("macro.")
+        source_series_ids = list(MACRO_REGIME_AGENT_SOURCE_SERIES_IDS.get(agent_id, ()))
+        missing_feature_reasons = []
+        if not source_series_ids:
+            missing_feature_reasons.append("agent_source_series_catalog_missing")
+        if not aggregate["_trace_claim_markers"]:
+            missing_feature_reasons.append("agent_regime_trace_missing")
+        if not regime_types:
+            missing_feature_reasons.append("no_macro_regime_type_observed")
+        regime_features = {
+            "regime_type_count": len(regime_types),
+            "as_of_date_regime_type_count": len(as_of_date_regime_types),
+            "source_text_regime_type_count": len(source_text_regime_types),
+            "source_claim_count": source_claim_count,
+            "trace_source_claim_count": len(aggregate["_trace_claim_markers"]),
+        }
+        record = {
+            "snapshot_id": _stable_id(
+                "MRS",
+                {
+                    "agent_id": agent_id,
+                    "as_of_date": as_of_date,
+                    "regime_bucket": regime_bucket,
+                },
+            ),
+            "schema_version": MACRO_REGIME_SNAPSHOT_SCHEMA_VERSION,
+            "as_of_date": as_of_date,
+            "agent_id": agent_id,
+            "regime_family": regime_family,
+            "regime_bucket": regime_bucket,
+            "regime_features": regime_features,
+            "feature_units": {
+                "regime_type_count": "count",
+                "as_of_date_regime_type_count": "count",
+                "source_text_regime_type_count": "count",
+                "source_claim_count": "count",
+                "trace_source_claim_count": "count",
+            },
+            "source_series_ids": source_series_ids,
+            "missing_feature_reasons": missing_feature_reasons,
+            "regime_types": list(regime_types),
+            "as_of_date_regime_types": list(as_of_date_regime_types),
+            "source_text_regime_types": list(source_text_regime_types),
+            "regime_detail_ids": sorted(aggregate["_regime_detail_ids"]),
+            "source_claim_count": source_claim_count,
+            "background_only": True,
+            "claim_validation_allowed": False,
+            "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
+            "use_policy": MACRO_REGIME_SNAPSHOT_USE_POLICY,
+            "data_vintage_hash": _stable_id(
+                "MRV",
+                {
+                    "agent_id": agent_id,
+                    "as_of_date": as_of_date,
+                    "regime_types": regime_types,
+                    "source_claim_count": source_claim_count,
+                },
+            ),
+        }
+        record["private_text_included"] = _public_payload_private_text_included(record)
+        rows.append(record)
+    return rows
+
+
+def _macro_prior_rating_bucket(profile: Mapping[str, Any]) -> str:
+    if profile.get("insufficient_data") is True:
+        return "pending_or_unrated"
+    bucket = str(profile.get("shrunk_performance_bucket") or "")
+    shrunk_alpha = _float_or_none(profile.get("shrunk_after_cost_alpha"))
+    shrunk_hit_rate = _float_or_none(profile.get("shrunk_hit_rate"))
+    if bucket.startswith("positive_") or (
+        shrunk_alpha is not None
+        and shrunk_alpha > 0
+        and shrunk_hit_rate is not None
+        and shrunk_hit_rate >= 0.53
+    ):
+        return "supportive_evidence"
+    if bucket.startswith("negative_") or (
+        shrunk_alpha is not None
+        and shrunk_alpha < 0
+        and shrunk_hit_rate is not None
+        and shrunk_hit_rate <= 0.47
+    ):
+        return "contradictory_evidence"
+    if bucket.startswith("neutral_") or shrunk_alpha is not None or shrunk_hit_rate is not None:
+        return "mixed_evidence"
+    return "pending_or_unrated"
+
+
+def _macro_prior_target_series_family(
+    *,
+    metric_families: Sequence[str],
+    profile: Mapping[str, Any],
+) -> str:
+    layer_support = _ensure_mapping(profile.get("outcome_layer_support"))
+    for layer in _ensure_list(layer_support.get("layer_keys")):
+        layer_map = _ensure_mapping(layer)
+        label_type = str(layer_map.get("label_type") or "")
+        benchmark_family = str(layer_map.get("benchmark_family") or "")
+        if label_type == "macro_series_directional" and benchmark_family.startswith(
+            "DIRECT_MACRO_SERIES_"
+        ):
+            return benchmark_family.removeprefix("DIRECT_MACRO_SERIES_").lower()
+        if label_type == "macro_curve_directional":
+            return "curve"
+        if label_type == "macro_asset_proxy":
+            return "macro_asset_proxy"
+    family_set = {str(family) for family in metric_families}
+    if family_set & {"bond_yield_level", "policy_rate_level", "money_market_rate"}:
+        return "yield_or_rate"
+    if "fx_rate" in family_set:
+        return "fx"
+    if "volatility_index" in family_set:
+        return "volatility"
+    if family_set & {"commodity_price", "commodity_price_cycle"}:
+        return "commodity"
+    if family_set & {"yield_curve_slope", "cross_market_yield_spread"}:
+        return "curve"
+    return "unknown"
+
+
+def _macro_prior_freshness_bucket(
+    *,
+    latest_completed_exit_date: str,
+    as_of_date: str,
+) -> str:
+    if not latest_completed_exit_date:
+        return "pending_no_completed_exit"
+    if as_of_date and latest_completed_exit_date >= as_of_date:
+        return "completed_exit_after_prior_as_of"
+    return "historical_completed_exit"
+
+
+def build_macro_agent_research_priors(
+    forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
+    macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    claim_context_by_profile: dict[str, dict[str, Any]] = {}
+    for claim in forecast_rows:
+        cluster_id, mechanism_chain = _viewpoint_cluster_id(claim)
+        profile_id = _stable_id("VPP", {"viewpoint_cluster_id": cluster_id})
+        context = claim_context_by_profile.setdefault(
+            profile_id,
+            {
+                "agents": set(),
+                "as_of_dates": set(),
+                "metric_families": set(),
+                "mechanism_chain": set(mechanism_chain),
+                "directions": set(),
+                "macro_claim_leg_ids": set(),
+            },
+        )
+        context["agents"].update(_claim_macro_agent_candidates(claim))
+        as_of_date = _claim_trace_as_of_date(claim)
+        if as_of_date:
+            context["as_of_dates"].add(as_of_date)
+        context["metric_families"].update(_claim_metric_families(claim))
+        direction = _normalize_forecast_direction(claim.get("direction"))
+        if direction in {"positive", "negative"}:
+            context["directions"].add(direction)
+        leg_id = str(claim.get("macro_claim_leg_id") or "").strip()
+        if leg_id:
+            context["macro_claim_leg_ids"].add(leg_id)
+
+    snapshots_by_agent_date = {
+        (
+            str(row.get("agent_id") or ""),
+            str(row.get("as_of_date") or ""),
+        ): row
+        for row in macro_regime_snapshot_rows
+        if str(row.get("agent_id") or "").startswith("macro.")
+    }
+    snapshots_by_agent: dict[str, list[Mapping[str, Any]]] = {}
+    for row in macro_regime_snapshot_rows:
+        agent_id = str(row.get("agent_id") or "")
+        if agent_id.startswith("macro."):
+            snapshots_by_agent.setdefault(agent_id, []).append(row)
+
+    priors: list[dict[str, Any]] = []
+    for profile in viewpoint_performance_profile_rows:
+        profile_id = str(profile.get("viewpoint_profile_id") or "")
+        if not profile_id:
+            continue
+        context = claim_context_by_profile.get(profile_id, {})
+        mechanism_chain = tuple(
+            str(item)
+            for item in _ensure_list(
+                profile.get("mechanism_chain") or context.get("mechanism_chain")
+            )
+            if str(item).strip()
+        )
+        agents = sorted(
+            context.get("agents") or _macro_agents_for_metric_families(mechanism_chain)
+        )
+        if not agents:
+            continue
+        as_of_dates = sorted(context.get("as_of_dates") or [])
+        as_of_date = as_of_dates[-1] if as_of_dates else ""
+        metric_families = sorted(
+            context.get("metric_families") or tuple(mechanism_chain)
+        )
+        directions = sorted(context.get("directions") or [])
+        expected_direction = directions[0] if len(directions) == 1 else (
+            "mixed" if directions else "unknown"
+        )
+        latest_completed_exit_date = _date_key(profile.get("last_revalidated_at"))
+        redacted_leg_ids = [
+            _stable_id("MCLRED", {"macro_claim_leg_id": leg_id})
+            for leg_id in sorted(context.get("macro_claim_leg_ids") or [])
+        ]
+        for agent_id in agents:
+            snapshot = snapshots_by_agent_date.get((agent_id, as_of_date))
+            if snapshot is None and snapshots_by_agent.get(agent_id):
+                snapshot = sorted(
+                    snapshots_by_agent[agent_id],
+                    key=lambda row: str(row.get("as_of_date") or ""),
+                )[-1]
+            regime_bucket = str(
+                _ensure_mapping(snapshot).get("regime_bucket") or "unknown"
+            )
+            snapshot_id = str(_ensure_mapping(snapshot).get("snapshot_id") or "")
+            record = {
+                "prior_id": _stable_id(
+                    "MAP",
+                    {
+                        "agent_id": agent_id,
+                        "viewpoint_profile_id": profile_id,
+                        "as_of_date": as_of_date,
+                        "regime_bucket": regime_bucket,
+                    },
+                ),
+                "schema_version": MACRO_AGENT_RESEARCH_PRIOR_SCHEMA_VERSION,
+                "agent_id": agent_id,
+                "as_of_date": as_of_date,
+                "viewpoint_profile_id": profile_id,
+                "viewpoint_cluster_id": str(profile.get("viewpoint_cluster_id") or ""),
+                "macro_claim_leg_ids_redacted": redacted_leg_ids,
+                "mechanism_chain": list(mechanism_chain),
+                "metric_families": metric_families,
+                "metric_family": metric_families[0] if metric_families else "unknown",
+                "target_series_family": _macro_prior_target_series_family(
+                    metric_families=metric_families,
+                    profile=profile,
+                ),
+                "expected_direction": expected_direction,
+                "regime_snapshot_id": snapshot_id,
+                "regime_bucket": regime_bucket,
+                "rating_bucket": _macro_prior_rating_bucket(profile),
+                "rating_source": "non_llm_viewpoint_performance_profile",
+                "n_effective": float(profile.get("n_effective") or 0.0),
+                "statistical_reliability_bucket": str(
+                    profile.get("statistical_reliability_bucket")
+                    or "insufficient_data"
+                ),
+                "shrunk_performance_bucket": str(
+                    profile.get("shrunk_performance_bucket") or "insufficient_data"
+                ),
+                "shrunk_hit_rate": _float_or_none(profile.get("shrunk_hit_rate")),
+                "shrunk_performance_value": _float_or_none(
+                    profile.get("shrunk_after_cost_alpha")
+                ),
+                "latest_completed_exit_date": latest_completed_exit_date,
+                "freshness_bucket": _macro_prior_freshness_bucket(
+                    latest_completed_exit_date=latest_completed_exit_date,
+                    as_of_date=as_of_date,
+                ),
+                "viewpoint_weight_multiplier": float(
+                    profile.get("viewpoint_weight_multiplier") or 1.0
+                ),
+                "outcome_layer_support": _ensure_mapping(
+                    profile.get("outcome_layer_support")
+                ),
+                "known_failure_mode_count": len(
+                    _ensure_list(profile.get("known_failure_modes"))
+                ),
+                "known_failure_mode_tags": ["known_failure_modes_present"]
+                if _ensure_list(profile.get("known_failure_modes"))
+                else [],
+                "tool_gap_ids": [],
+                "current_data_required": True,
+                "research_only": True,
+                "production_signal_allowed": False,
+                "use_policy": MACRO_AGENT_RESEARCH_PRIOR_USE_POLICY,
+                "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
+            }
+            record["private_text_included"] = _public_payload_private_text_included(
+                record
+            )
+            priors.append(record)
+    return priors
+
+
+def export_macro_agent_research_priors(
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+    as_of_date: str = "",
+    agent_id: str = "",
+    no_source_prose: bool = True,
+) -> dict[str, Any]:
+    root_path = Path(root).expanduser().resolve()
+    registry_path = Path(registry_dir)
+    if not registry_path.is_absolute():
+        registry_path = root_path / registry_path
+    path = registry_path / "macro_agent_research_priors.jsonl"
+    blockers: list[str] = []
+    rows = _read_registry_jsonl(
+        path,
+        label="macro_agent_research_priors",
+        blockers=blockers,
+    )
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        if agent_id and str(row.get("agent_id") or "") != agent_id:
+            continue
+        row_as_of_date = str(row.get("as_of_date") or "")
+        if as_of_date and row_as_of_date and row_as_of_date > as_of_date:
+            continue
+        if no_source_prose and _public_payload_private_text_included(row):
+            continue
+        filtered.append(dict(row))
+    gap_reasons: list[str] = []
+    if not path.exists():
+        gap_reasons.append("macro_agent_research_priors_missing")
+    gap_reasons.extend(blockers)
+    if agent_id and not filtered:
+        gap_reasons.append("agent_prior_missing")
+    return {
+        "accepted": not any(reason.endswith("_missing") for reason in gap_reasons),
+        "schema_version": MACRO_AGENT_RESEARCH_PRIOR_SCHEMA_VERSION,
+        "agent_id": agent_id,
+        "as_of_date": as_of_date,
+        "prior_count": len(filtered),
+        "priors": filtered,
+        "gap_reasons": gap_reasons,
+        "no_source_prose": bool(no_source_prose),
+        "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
+        "use_policy": MACRO_AGENT_RESEARCH_PRIOR_USE_POLICY,
+        "production_signal_allowed": False,
+    }
 
 
 def build_method_performance_profiles(
@@ -18807,6 +21625,266 @@ def _audit_history_dependency(
     }
 
 
+MACRO_EVOLUTION_LABEL_TYPES = frozenset(
+    {"macro_asset_proxy", "macro_series_directional", "macro_curve_directional"}
+)
+
+
+def _is_macro_evolution_forecast_row(row: Mapping[str, Any]) -> bool:
+    target = _ensure_mapping(row.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type in MACRO_CLAIM_LEG_TARGET_TYPES:
+        return True
+    if str(row.get("macro_claim_leg_id") or "").strip():
+        return True
+    if _ensure_list(row.get("macro_claim_legs")):
+        return True
+    return str(row.get("forecast_type") or "").strip().lower().startswith("macro")
+
+
+def _macro_readiness_gap_counts(readiness: Mapping[str, Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for key in (
+        "macro_asset_proxy_readiness",
+        "macro_series_directional_readiness",
+        "macro_curve_directional_readiness",
+    ):
+        nested = _ensure_mapping(_ensure_mapping(readiness).get(key))
+        for gap, count in _count_mapping_values(
+            _ensure_mapping(nested.get("data_gap_counts"))
+        ).items():
+            counts[f"{key}.{gap}"] = counts.get(f"{key}.{gap}", 0) + count
+    return counts
+
+
+def _macro_evolution_gate_checks(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    outcome_labeling_readiness: Mapping[str, Any] | None,
+    macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
+    macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    expanded_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
+    macro_forecast_rows = [
+        row for row in expanded_forecast_rows if _is_macro_evolution_forecast_row(row)
+    ]
+    macro_labels = [
+        row
+        for row in outcome_label_rows
+        if str(row.get("label_type") or "") in MACRO_EVOLUTION_LABEL_TYPES
+    ]
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    macro_context_present = bool(
+        macro_forecast_rows
+        or macro_labels
+        or macro_regime_snapshot_rows
+        or macro_agent_research_prior_rows
+    )
+    not_applicable_evidence = {
+        "macro_context_present": False,
+        "status": "not_applicable_no_macro_rows",
+    }
+    if not macro_context_present:
+        return [
+            _evolution_gate_check(
+                check_id=f"RI-MACRO-{index:02d}",
+                requirement=requirement,
+                passed=True,
+                evidence=not_applicable_evidence,
+                blockers=[],
+            )
+            for index, requirement in enumerate(
+                (
+                    "Macro claim leg contract is enforced when macro rows exist.",
+                    "Macro PIT label coverage is checked when macro rows exist.",
+                    "Macro regime snapshots stay background-only when present.",
+                    "Macro rating profiles require label evidence when present.",
+                    "Macro agent priors must be public-safe when present.",
+                    "Macro agent priors must remain shadow-only when present.",
+                    "Macro readiness gaps must be available for evolution audit.",
+                ),
+                1,
+            )
+        ]
+
+    macro_claim_leg_rows = [
+        row for row in macro_forecast_rows if str(row.get("macro_claim_leg_id") or "")
+    ]
+    labels_missing_leg_trace = [
+        str(row.get("outcome_id") or row.get("forecast_claim_id") or "")
+        for row in macro_labels
+        if not str(row.get("parent_forecast_claim_id") or "").strip()
+        or not str(row.get("macro_claim_leg_id") or "").strip()
+    ]
+    leg_contract_blockers: list[str] = []
+    if macro_forecast_rows and not macro_claim_leg_rows:
+        leg_contract_blockers.append("macro_claim_leg_contract_missing")
+    if labels_missing_leg_trace:
+        leg_contract_blockers.append("macro_outcome_label_leg_trace_missing")
+
+    macro_ready_counts = {
+        "macro_asset_proxy": int(readiness.get("macro_proxy_label_ready_count") or 0),
+        "macro_series_directional": int(
+            readiness.get("macro_series_label_ready_count") or 0
+        ),
+        "macro_curve_directional": int(
+            readiness.get("macro_curve_label_ready_count") or 0
+        ),
+    }
+    macro_pending_counts = {
+        "macro_asset_proxy": len(
+            _ensure_list(readiness.get("macro_proxy_label_pending_forecast_claim_ids"))
+        ),
+        "macro_series_directional": len(
+            _ensure_list(
+                readiness.get("macro_series_label_pending_forecast_claim_ids")
+            )
+        ),
+        "macro_curve_directional": len(
+            _ensure_list(readiness.get("macro_curve_label_pending_forecast_claim_ids"))
+        ),
+    }
+    coverage_blockers: list[str] = []
+    if not macro_labels and not any(macro_pending_counts.values()):
+        coverage_blockers.append("macro_pit_label_coverage_missing")
+
+    snapshot_blockers: list[str] = []
+    if not macro_regime_snapshot_rows:
+        snapshot_blockers.append("macro_regime_snapshot_missing")
+    snapshot_private_count = sum(
+        1
+        for row in macro_regime_snapshot_rows
+        if row.get("background_only") is not True
+        or row.get("claim_validation_allowed") is not False
+        or _public_payload_private_text_included(row)
+    )
+    if snapshot_private_count:
+        snapshot_blockers.append("macro_regime_snapshot_background_policy_violation")
+
+    rating_blockers: list[str] = []
+    if not macro_labels:
+        rating_blockers.append("macro_rating_profile_market_feedback_missing")
+
+    prior_privacy_blockers: list[str] = []
+    if not macro_agent_research_prior_rows:
+        prior_privacy_blockers.append("macro_agent_prior_missing")
+    prior_private_count = sum(
+        1
+        for row in macro_agent_research_prior_rows
+        if _public_payload_private_text_included(row)
+        or row.get("private_text_included") is not False
+    )
+    if prior_private_count:
+        prior_privacy_blockers.append("macro_agent_prior_privacy_violation")
+
+    prior_shadow_blockers: list[str] = []
+    prior_signal_count = sum(
+        1
+        for row in macro_agent_research_prior_rows
+        if row.get("research_only") is not True
+        or row.get("production_signal_allowed") is not False
+        or str(row.get("use_policy") or "") != MACRO_AGENT_RESEARCH_PRIOR_USE_POLICY
+    )
+    if prior_signal_count:
+        prior_shadow_blockers.append("macro_agent_prior_shadow_policy_violation")
+
+    macro_gap_counts = _macro_readiness_gap_counts(readiness)
+    audit_blockers: list[str] = []
+    if not any(key in readiness for key in (
+        "macro_asset_proxy_readiness",
+        "macro_series_directional_readiness",
+        "macro_curve_directional_readiness",
+    )):
+        audit_blockers.append("macro_readiness_audit_missing")
+
+    return [
+        _evolution_gate_check(
+            check_id="RI-MACRO-01",
+            requirement=(
+                "Macro parent claims must expand into child macro claim legs, "
+                "and macro outcome labels must retain parent/leg trace ids."
+            ),
+            passed=not leg_contract_blockers,
+            evidence={
+                "macro_forecast_row_count": len(macro_forecast_rows),
+                "macro_claim_leg_row_count": len(macro_claim_leg_rows),
+                "macro_label_count": len(macro_labels),
+                "labels_missing_leg_trace_count": len(labels_missing_leg_trace),
+            },
+            blockers=leg_contract_blockers,
+        ),
+        _evolution_gate_check(
+            check_id="RI-MACRO-02",
+            requirement=(
+                "Macro asset, direct-series, and curve viewpoints must have "
+                "PIT label coverage, pending windows, or explicit readiness gaps."
+            ),
+            passed=not coverage_blockers,
+            evidence={
+                "macro_label_count": len(macro_labels),
+                "macro_ready_counts": macro_ready_counts,
+                "macro_pending_counts": macro_pending_counts,
+                "macro_gap_counts": macro_gap_counts,
+            },
+            blockers=coverage_blockers,
+        ),
+        _evolution_gate_check(
+            check_id="RI-MACRO-03",
+            requirement=(
+                "Macro regime snapshots must be background-only and cannot "
+                "validate claim correctness."
+            ),
+            passed=not snapshot_blockers,
+            evidence={
+                "macro_regime_snapshot_count": len(macro_regime_snapshot_rows),
+                "snapshot_policy_violation_count": snapshot_private_count,
+            },
+            blockers=snapshot_blockers,
+        ),
+        _evolution_gate_check(
+            check_id="RI-MACRO-04",
+            requirement=(
+                "Macro rating/profile evidence must be based on non-LLM market "
+                "feedback before agent priors can be interpreted."
+            ),
+            passed=not rating_blockers,
+            evidence={"macro_market_feedback_label_count": len(macro_labels)},
+            blockers=rating_blockers,
+        ),
+        _evolution_gate_check(
+            check_id="RI-MACRO-05",
+            requirement="Macro agent priors must not contain source prose or private ids.",
+            passed=not prior_privacy_blockers,
+            evidence={
+                "macro_agent_prior_count": len(macro_agent_research_prior_rows),
+                "private_text_violation_count": prior_private_count,
+            },
+            blockers=prior_privacy_blockers,
+        ),
+        _evolution_gate_check(
+            check_id="RI-MACRO-06",
+            requirement="Macro agent priors must remain shadow-only, not production signals.",
+            passed=not prior_shadow_blockers,
+            evidence={
+                "macro_agent_prior_count": len(macro_agent_research_prior_rows),
+                "shadow_policy_violation_count": prior_signal_count,
+            },
+            blockers=prior_shadow_blockers,
+        ),
+        _evolution_gate_check(
+            check_id="RI-MACRO-07",
+            requirement=(
+                "Macro mapping, data, and quality gaps must be present in "
+                "readiness evidence so evolution candidates can be audited."
+            ),
+            passed=not audit_blockers,
+            evidence={"macro_gap_counts": macro_gap_counts},
+            blockers=audit_blockers,
+        ),
+    ]
+
+
 def build_report_intelligence_evolution_readiness_gate(
     *,
     run_id: str,
@@ -18821,6 +21899,8 @@ def build_report_intelligence_evolution_readiness_gate(
     gold_review_summary: Mapping[str, Any],
     outcome_labeling_readiness: Mapping[str, Any] | None = None,
     schema_validation_report: Mapping[str, Any] | None = None,
+    macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
+    macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
     monitor_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     audit_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     gap_distribution_history_rows: Sequence[Mapping[str, Any]] = (),
@@ -19198,6 +22278,15 @@ def build_report_intelligence_evolution_readiness_gate(
             blockers=[] if coverage_passed else markdown_blockers,
         )
     )
+    checks.extend(
+        _macro_evolution_gate_checks(
+            forecast_rows=forecast_rows,
+            outcome_label_rows=outcome_label_rows,
+            outcome_labeling_readiness=outcome_labeling_readiness,
+            macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+            macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        )
+    )
 
     blockers = [
         blocker
@@ -19430,6 +22519,17 @@ def write_report_intelligence_evolution_readiness_gate(
         label="gap_distribution_history",
         blockers=blockers,
     )
+    macro_read_blockers: list[str] = []
+    macro_regime_snapshot_rows = _read_registry_jsonl(
+        registry_path / "macro_regime_snapshots.jsonl",
+        label="macro_regime_snapshots",
+        blockers=macro_read_blockers,
+    )
+    macro_agent_research_prior_rows = _read_registry_jsonl(
+        registry_path / "macro_agent_research_priors.jsonl",
+        label="macro_agent_research_priors",
+        blockers=macro_read_blockers,
+    )
     gate = build_report_intelligence_evolution_readiness_gate(
         run_id=run_id,
         forecast_rows=forecast_rows,
@@ -19443,6 +22543,8 @@ def write_report_intelligence_evolution_readiness_gate(
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
         schema_validation_report=_read_schema_validation_report(root_path),
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         monitor_refresh_history_rows=monitor_refresh_history_rows,
         audit_refresh_history_rows=audit_refresh_history_rows,
         gap_distribution_history_rows=gap_distribution_history_rows,
@@ -23116,9 +26218,13 @@ def build_report_intelligence_extraction_provenance_audit(
     invalid_industry_proxy_labels: list[str] = []
     invalid_stock_proxy_labels: list[str] = []
     invalid_macro_proxy_labels: list[str] = []
+    invalid_macro_series_labels: list[str] = []
+    invalid_macro_curve_labels: list[str] = []
     industry_proxy_outcome_claim_ids: set[str] = set()
     stock_proxy_outcome_claim_ids: set[str] = set()
     macro_proxy_outcome_claim_ids: set[str] = set()
+    macro_series_outcome_claim_ids: set[str] = set()
+    macro_curve_outcome_claim_ids: set[str] = set()
     for index, row in enumerate(outcome_label_rows, 1):
         claim_id = str(row.get("forecast_claim_id") or "")
         if row.get("label_type") == "industry_etf_proxy":
@@ -23183,9 +26289,47 @@ def build_report_intelligence_extraction_provenance_audit(
                 invalid_macro_proxy_labels.append(
                     f"report_outcome_labels row {index}: macro asset proxy label must use {MACRO_ASSET_PROXY_DECISION_BASIS}"
                 )
+        if row.get("label_type") == "macro_series_directional":
+            if claim_id:
+                macro_series_outcome_claim_ids.add(claim_id)
+            if (
+                row.get("outcome_label_source")
+                != MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE
+            ):
+                invalid_macro_series_labels.append(
+                    f"report_outcome_labels row {index}: macro series label must use {MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE}"
+                )
+            if row.get("llm_outcome_labeling_allowed") is not False:
+                invalid_macro_series_labels.append(
+                    f"report_outcome_labels row {index}: macro series label must set llm_outcome_labeling_allowed=false"
+                )
+            if row.get("decision_basis") != MACRO_SERIES_DIRECTIONAL_DECISION_BASIS:
+                invalid_macro_series_labels.append(
+                    f"report_outcome_labels row {index}: macro series label must use {MACRO_SERIES_DIRECTIONAL_DECISION_BASIS}"
+                )
+        if row.get("label_type") == "macro_curve_directional":
+            if claim_id:
+                macro_curve_outcome_claim_ids.add(claim_id)
+            if (
+                row.get("outcome_label_source")
+                != MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE
+            ):
+                invalid_macro_curve_labels.append(
+                    f"report_outcome_labels row {index}: macro curve label must use {MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE}"
+                )
+            if row.get("llm_outcome_labeling_allowed") is not False:
+                invalid_macro_curve_labels.append(
+                    f"report_outcome_labels row {index}: macro curve label must set llm_outcome_labeling_allowed=false"
+                )
+            if row.get("decision_basis") != MACRO_CURVE_DIRECTIONAL_DECISION_BASIS:
+                invalid_macro_curve_labels.append(
+                    f"report_outcome_labels row {index}: macro curve label must use {MACRO_CURVE_DIRECTIONAL_DECISION_BASIS}"
+                )
     scoring_failures.extend(invalid_industry_proxy_labels)
     scoring_failures.extend(invalid_stock_proxy_labels)
     scoring_failures.extend(invalid_macro_proxy_labels)
+    scoring_failures.extend(invalid_macro_series_labels)
+    scoring_failures.extend(invalid_macro_curve_labels)
     ready_count = 0
     standard_blocked_count = 0
     unlabelable_count = 0
@@ -23231,6 +26375,8 @@ def build_report_intelligence_extraction_provenance_audit(
                 claim_id not in industry_proxy_outcome_claim_ids
                 and claim_id not in stock_proxy_outcome_claim_ids
                 and claim_id not in macro_proxy_outcome_claim_ids
+                and claim_id not in macro_series_outcome_claim_ids
+                and claim_id not in macro_curve_outcome_claim_ids
                 and claim_id not in proxy_pending_claim_ids
             ):
                 unlabelable_count += 1
@@ -23253,6 +26399,8 @@ def build_report_intelligence_extraction_provenance_audit(
                 "Forecasts missing target, benchmark, direction, or horizon cannot "
                 "enter standard outcome scoring; governed industry ETF, stock, "
                 "and macro asset proxy labels remain separate evidence channels."
+                " Direct macro series and curve labels are governed PIT evidence "
+                "channels as well."
             ),
             evidence={
                 "forecast_ledger_rows": len(forecast_ledger_rows),
@@ -23269,6 +26417,12 @@ def build_report_intelligence_extraction_provenance_audit(
                 ),
                 "macro_asset_proxy_outcome_claim_count": len(
                     macro_proxy_outcome_claim_ids
+                ),
+                "macro_series_directional_outcome_claim_count": len(
+                    macro_series_outcome_claim_ids
+                ),
+                "macro_curve_directional_outcome_claim_count": len(
+                    macro_curve_outcome_claim_ids
                 ),
             },
             failures=scoring_failures,
@@ -23458,7 +26612,17 @@ def build_report_intelligence_statistical_robustness_audit(
     industry_proxy_label_count = 0
     stock_proxy_label_count = 0
     macro_proxy_label_count = 0
+    macro_series_label_count = 0
+    macro_curve_label_count = 0
     label_type_counts: dict[str, int] = {}
+    market_proxy_label_types = {
+        "industry_etf_proxy",
+        "stock_price_proxy",
+        "macro_asset_proxy",
+    }
+    macro_series_performance_bases = set(
+        MACRO_SERIES_DIRECTIONAL_PERFORMANCE_BASIS.values()
+    )
     for index, label in enumerate(outcome_label_rows, 1):
         label_id = str(label.get("outcome_id") or f"row-{index}")
         label_type = str(label.get("label_type") or "standard")
@@ -23588,11 +26752,93 @@ def build_report_intelligence_statistical_robustness_audit(
                 label_failures.append(
                     f"{label_id}: macro asset proxy benchmark must be {MACRO_ASSET_PROXY_BENCHMARK_SYMBOL}"
                 )
+        if label.get("label_type") == "macro_series_directional":
+            macro_series_label_count += 1
+            for required_field in (
+                "target_series_id",
+                "mapping_id",
+                "performance_value",
+                "directional_change",
+                "decision_basis",
+                "outcome_label_source",
+                "llm_outcome_labeling_allowed",
+                "evaluation_policy",
+                "window_role",
+            ):
+                if required_field not in label:
+                    label_failures.append(
+                        f"{label_id}: macro series label missing {required_field}"
+                    )
+            if label.get("decision_basis") != MACRO_SERIES_DIRECTIONAL_DECISION_BASIS:
+                label_failures.append(
+                    f"{label_id}: decision_basis must be {MACRO_SERIES_DIRECTIONAL_DECISION_BASIS}"
+                )
+            if (
+                label.get("outcome_label_source")
+                != MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE
+            ):
+                label_failures.append(
+                    f"{label_id}: outcome_label_source must be {MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE}"
+                )
+            if (
+                label.get("evaluation_policy")
+                != MACRO_SERIES_DIRECTIONAL_EVALUATION_POLICY
+            ):
+                label_failures.append(
+                    f"{label_id}: evaluation_policy must retain direct-series horizon evidence"
+                )
+            if label.get("performance_value_basis") not in macro_series_performance_bases:
+                label_failures.append(
+                    f"{label_id}: unsupported macro series performance_value_basis"
+                )
+        if label.get("label_type") == "macro_curve_directional":
+            macro_curve_label_count += 1
+            for required_field in (
+                "macro_curve_target_id",
+                "mapping_id",
+                "performance_value",
+                "directional_change",
+                "decision_basis",
+                "outcome_label_source",
+                "llm_outcome_labeling_allowed",
+                "evaluation_policy",
+                "window_role",
+            ):
+                if required_field not in label:
+                    label_failures.append(
+                        f"{label_id}: macro curve label missing {required_field}"
+                    )
+            if label.get("decision_basis") != MACRO_CURVE_DIRECTIONAL_DECISION_BASIS:
+                label_failures.append(
+                    f"{label_id}: decision_basis must be {MACRO_CURVE_DIRECTIONAL_DECISION_BASIS}"
+                )
+            if (
+                label.get("outcome_label_source")
+                != MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE
+            ):
+                label_failures.append(
+                    f"{label_id}: outcome_label_source must be {MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE}"
+                )
+            if label.get("evaluation_policy") != MACRO_CURVE_DIRECTIONAL_EVALUATION_POLICY:
+                label_failures.append(
+                    f"{label_id}: evaluation_policy must retain macro curve horizon evidence"
+                )
+            if label.get("performance_value_basis") != "directional_curve_bps_change":
+                label_failures.append(
+                    f"{label_id}: performance_value_basis must be directional_curve_bps_change"
+                )
         if label.get("label_type") in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES:
             if label.get("llm_outcome_labeling_allowed") is not False:
                 label_failures.append(
                     f"{label_id}: LLM outcome labeling must be explicitly disabled"
                 )
+            direction = str(label.get("direction_evaluated") or "")
+            if direction not in {"positive", "negative"}:
+                label_failures.append(
+                    f"{label_id}: direction_evaluated must be positive or negative"
+                )
+                continue
+        if label.get("label_type") in market_proxy_label_types:
             if label.get("performance_value_basis") != "directional_after_cost_return":
                 label_failures.append(
                     f"{label_id}: performance_value_basis must use directional after-cost return"
@@ -23603,7 +26849,6 @@ def build_report_intelligence_statistical_robustness_audit(
                 else label.get("proxy_return")
             )
             relative_alpha = _float_or_none(label.get("relative_alpha"))
-            direction = str(label.get("direction_evaluated") or "")
             if direction == "positive" and proxy_return is not None:
                 if label.get("directional_hit") is not bool(proxy_return > 0.0):
                     label_failures.append(
@@ -23626,9 +26871,20 @@ def build_report_intelligence_statistical_robustness_audit(
                     label_failures.append(
                         f"{label_id}: negative claim relative_directional_hit must follow relative_alpha"
                     )
-            else:
+            elif proxy_return is None:
                 label_failures.append(
-                    f"{label_id}: direction_evaluated must be positive or negative"
+                    f"{label_id}: proxy return must be numeric for directional audit"
+                )
+        if label.get("label_type") in {
+            "macro_series_directional",
+            "macro_curve_directional",
+        }:
+            performance_value = _float_or_none(label.get("performance_value"))
+            if performance_value is None:
+                label_failures.append(f"{label_id}: performance_value must be numeric")
+            elif label.get("directional_hit") is not bool(performance_value > 0.0):
+                label_failures.append(
+                    f"{label_id}: directional_hit must follow direct macro performance_value"
                 )
     checks.append(
         _audit_check(
@@ -23642,11 +26898,19 @@ def build_report_intelligence_statistical_robustness_audit(
                 "industry_etf_proxy_label_rows": industry_proxy_label_count,
                 "stock_price_proxy_label_rows": stock_proxy_label_count,
                 "macro_asset_proxy_label_rows": macro_proxy_label_count,
+                "macro_series_directional_label_rows": macro_series_label_count,
+                "macro_curve_directional_label_rows": macro_curve_label_count,
                 "label_type_counts": dict(sorted(label_type_counts.items())),
                 "decision_basis": INDUSTRY_ETF_DECISION_BASIS,
                 "outcome_label_source": INDUSTRY_ETF_OUTCOME_LABEL_SOURCE,
                 "stock_outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
                 "macro_outcome_label_source": MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE,
+                "macro_series_outcome_label_source": (
+                    MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE
+                ),
+                "macro_curve_outcome_label_source": (
+                    MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE
+                ),
                 "llm_outcome_labeling_allowed": False,
             },
             failures=label_failures,
@@ -27022,12 +30286,79 @@ def _batch_output_path(input_dir: Path, filename: str) -> Path:
     return direct
 
 
+def _report_intelligence_batch_source_ids(
+    input_dirs: Sequence[Path],
+    *,
+    blockers: list[str],
+) -> set[str]:
+    source_ids: set[str] = set()
+    for filename in (
+        "processing_status.jsonl",
+        "report_metadata.jsonl",
+        "forecast_claims.jsonl",
+        "analytical_footprints.jsonl",
+        "metric_candidates.jsonl",
+        "tool_gaps.jsonl",
+    ):
+        for input_dir in input_dirs:
+            path = _batch_output_path(input_dir, filename)
+            if not path.exists():
+                continue
+            for row in _read_registry_jsonl(
+                path,
+                label=f"{input_dir.name}/{filename}",
+                blockers=blockers,
+            ):
+                source_id = str(row.get("source_id") or "").strip()
+                if source_id:
+                    source_ids.add(source_id)
+    return source_ids
+
+
+def _report_intelligence_existing_claim_ids_for_sources(
+    registry_path: Path,
+    source_ids: set[str],
+    *,
+    blockers: list[str],
+) -> set[str]:
+    if not source_ids:
+        return set()
+    path = registry_path / "forecast_claims.jsonl"
+    if not path.exists():
+        return set()
+    claim_ids: set[str] = set()
+    for row in _read_registry_jsonl(
+        path,
+        label=f"{registry_path.name}/forecast_claims.jsonl",
+        blockers=blockers,
+    ):
+        source_id = str(row.get("source_id") or "").strip()
+        claim_id = str(row.get("forecast_claim_id") or "").strip()
+        if source_id in source_ids and claim_id:
+            claim_ids.add(claim_id)
+    return claim_ids
+
+
+def _report_intelligence_merge_replaces_row(
+    row: Mapping[str, Any],
+    *,
+    source_ids: set[str],
+    forecast_claim_ids: set[str],
+) -> bool:
+    source_id = str(row.get("source_id") or "").strip()
+    if source_id and source_id in source_ids:
+        return True
+    forecast_claim_id = str(row.get("forecast_claim_id") or "").strip()
+    return bool(forecast_claim_id and forecast_claim_id in forecast_claim_ids)
+
+
 def merge_report_intelligence_batch_outputs(
     *,
     root: str | Path = ".",
     input_dirs: Sequence[str | Path],
     registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
     include_existing_registry: bool = True,
+    replace_source_ids: bool = False,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
     registry_path = (
@@ -27044,6 +30375,20 @@ def merge_report_intelligence_batch_outputs(
     row_counts: dict[str, int] = {}
     input_file_counts: dict[str, int] = {}
     existing_file_counts: dict[str, int] = {}
+    replacement_source_ids = (
+        _report_intelligence_batch_source_ids(resolved_inputs, blockers=blockers)
+        if replace_source_ids
+        else set()
+    )
+    replacement_forecast_claim_ids = (
+        _report_intelligence_existing_claim_ids_for_sources(
+            registry_path,
+            replacement_source_ids,
+            blockers=blockers,
+        )
+        if include_existing_registry and replace_source_ids
+        else set()
+    )
     for filename, key in REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS.items():
         replace_duplicates = filename in {
             "processing_status.jsonl",
@@ -27059,6 +30404,16 @@ def merge_report_intelligence_batch_outputs(
                 label=f"{registry_path.name}/{filename}",
                 blockers=blockers,
             )
+            if replace_source_ids:
+                existing_rows = [
+                    row
+                    for row in existing_rows
+                    if not _report_intelligence_merge_replaces_row(
+                        row,
+                        source_ids=replacement_source_ids,
+                        forecast_claim_ids=replacement_forecast_claim_ids,
+                    )
+                ]
             if filename == "method_patterns.jsonl":
                 _append_unique_method_patterns(
                     rows,
@@ -27108,6 +30463,9 @@ def merge_report_intelligence_batch_outputs(
         "input_dirs": [str(path) for path in resolved_inputs],
         "input_dir_count": len(resolved_inputs),
         "include_existing_registry": include_existing_registry,
+        "replace_source_ids": replace_source_ids,
+        "replacement_source_id_count": len(replacement_source_ids),
+        "replacement_forecast_claim_id_count": len(replacement_forecast_claim_ids),
         "outputs": outputs,
         "row_counts": row_counts,
         "input_file_counts": input_file_counts,
@@ -27352,6 +30710,7 @@ def run_report_intelligence_derived_refresh(
     )
 
     forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
+    macro_leg_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
     markdown_coverage_summary = build_markdown_coverage_summary(
         run_id=run_id,
         metadata_rows=metadata_rows,
@@ -27365,6 +30724,15 @@ def run_report_intelligence_derived_refresh(
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
     )
+    macro_series_rows = load_scorecard_macro_series_rows(
+        root_path=root_path,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        scorecard_db_path=cfg.scorecard_db_path,
+    )
+    macro_market_series_catalog_rows = build_macro_market_series_catalog(
+        macro_series_rows
+    )
     outcome_label_rows = build_outcome_label_records(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
@@ -27374,6 +30742,7 @@ def run_report_intelligence_derived_refresh(
         metadata_rows=metadata_rows,
         industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        macro_series_rows=macro_series_rows,
     )
     industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
         root_path=root_path,
@@ -27400,12 +30769,24 @@ def run_report_intelligence_derived_refresh(
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
     )
+    macro_series_directional_readiness = build_macro_series_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    macro_curve_directional_readiness = build_macro_curve_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
         macro_asset_proxy_readiness=macro_asset_proxy_readiness,
+        macro_series_directional_readiness=macro_series_directional_readiness,
+        macro_curve_directional_readiness=macro_curve_directional_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
@@ -27414,8 +30795,14 @@ def run_report_intelligence_derived_refresh(
         outcome_label_rows=outcome_label_rows,
     )
     viewpoint_performance_profile_rows = build_viewpoint_performance_profiles(
-        forecast_rows,
+        macro_leg_forecast_rows,
         outcome_label_rows=outcome_label_rows,
+    )
+    macro_regime_snapshot_rows = build_macro_regime_snapshots(macro_leg_forecast_rows)
+    macro_agent_research_prior_rows = build_macro_agent_research_priors(
+        macro_leg_forecast_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
     )
     method_performance_profile_rows = build_method_performance_profiles(
         method_rows,
@@ -27654,6 +31041,8 @@ def run_report_intelligence_derived_refresh(
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
         schema_validation_report=schema_validation_report,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -27751,6 +31140,24 @@ def run_report_intelligence_derived_refresh(
             _write_jsonl(
                 registry_dir / "viewpoint_performance_profiles.jsonl",
                 viewpoint_performance_profile_rows,
+            )["path"]
+        ),
+        "macro_market_series_catalog": str(
+            _write_jsonl(
+                registry_dir / "macro_market_series_catalog.jsonl",
+                macro_market_series_catalog_rows,
+            )["path"]
+        ),
+        "macro_regime_snapshots": str(
+            _write_jsonl(
+                registry_dir / "macro_regime_snapshots.jsonl",
+                macro_regime_snapshot_rows,
+            )["path"]
+        ),
+        "macro_agent_research_priors": str(
+            _write_jsonl(
+                registry_dir / "macro_agent_research_priors.jsonl",
+                macro_agent_research_prior_rows,
             )["path"]
         ),
         "method_performance_profiles": str(
@@ -27959,8 +31366,39 @@ def run_report_intelligence_derived_refresh(
         macro_asset_proxy_pending_window_rows=int(
             macro_asset_proxy_readiness["pending_future_window_count"]
         ),
+        macro_series_directional_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_series_directional"
+        ),
+        macro_series_directional_eligible_claim_rows=int(
+            macro_series_directional_readiness["eligible_claim_count"]
+        ),
+        macro_series_directional_labelable_window_rows=int(
+            macro_series_directional_readiness["labelable_window_count"]
+        ),
+        macro_series_directional_pending_window_rows=int(
+            macro_series_directional_readiness["pending_future_window_count"]
+        ),
+        macro_curve_directional_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_curve_directional"
+        ),
+        macro_curve_directional_eligible_claim_rows=int(
+            macro_curve_directional_readiness["eligible_claim_count"]
+        ),
+        macro_curve_directional_labelable_window_rows=int(
+            macro_curve_directional_readiness["labelable_window_count"]
+        ),
+        macro_curve_directional_pending_window_rows=int(
+            macro_curve_directional_readiness["pending_future_window_count"]
+        ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
+        macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
+        macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
+        macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
         tool_coverage_match_rows=len(tool_coverage_match_rows),
         data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
@@ -28401,6 +31839,7 @@ def run_report_intelligence_refresh(
         run_id=run_id,
     )
     forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
+    macro_leg_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
     markdown_coverage_summary = build_markdown_coverage_summary(
         run_id=run_id,
         metadata_rows=metadata_rows,
@@ -28414,6 +31853,15 @@ def run_report_intelligence_refresh(
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
     )
+    macro_series_rows = load_scorecard_macro_series_rows(
+        root_path=root_path,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        scorecard_db_path=cfg.scorecard_db_path,
+    )
+    macro_market_series_catalog_rows = build_macro_market_series_catalog(
+        macro_series_rows
+    )
     outcome_label_rows = build_outcome_label_records(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
@@ -28423,6 +31871,7 @@ def run_report_intelligence_refresh(
         metadata_rows=metadata_rows,
         industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        macro_series_rows=macro_series_rows,
     )
     industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
         root_path=root_path,
@@ -28449,12 +31898,24 @@ def run_report_intelligence_refresh(
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
     )
+    macro_series_directional_readiness = build_macro_series_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
+    macro_curve_directional_readiness = build_macro_curve_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=macro_series_rows,
+    )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
         macro_asset_proxy_readiness=macro_asset_proxy_readiness,
+        macro_series_directional_readiness=macro_series_directional_readiness,
+        macro_curve_directional_readiness=macro_curve_directional_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
@@ -28463,8 +31924,14 @@ def run_report_intelligence_refresh(
         outcome_label_rows=outcome_label_rows,
     )
     viewpoint_performance_profile_rows = build_viewpoint_performance_profiles(
-        forecast_rows,
+        macro_leg_forecast_rows,
         outcome_label_rows=outcome_label_rows,
+    )
+    macro_regime_snapshot_rows = build_macro_regime_snapshots(macro_leg_forecast_rows)
+    macro_agent_research_prior_rows = build_macro_agent_research_priors(
+        macro_leg_forecast_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
     )
     method_performance_profile_rows = build_method_performance_profiles(
         method_rows,
@@ -28700,6 +32167,8 @@ def run_report_intelligence_refresh(
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
         schema_validation_report=schema_validation_report,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -28796,6 +32265,24 @@ def run_report_intelligence_refresh(
             _write_jsonl(
                 registry_dir / "viewpoint_performance_profiles.jsonl",
                 viewpoint_performance_profile_rows,
+            )["path"]
+        ),
+        "macro_market_series_catalog": str(
+            _write_jsonl(
+                registry_dir / "macro_market_series_catalog.jsonl",
+                macro_market_series_catalog_rows,
+            )["path"]
+        ),
+        "macro_regime_snapshots": str(
+            _write_jsonl(
+                registry_dir / "macro_regime_snapshots.jsonl",
+                macro_regime_snapshot_rows,
+            )["path"]
+        ),
+        "macro_agent_research_priors": str(
+            _write_jsonl(
+                registry_dir / "macro_agent_research_priors.jsonl",
+                macro_agent_research_prior_rows,
             )["path"]
         ),
         "method_performance_profiles": str(
@@ -29006,8 +32493,39 @@ def run_report_intelligence_refresh(
         macro_asset_proxy_pending_window_rows=int(
             macro_asset_proxy_readiness["pending_future_window_count"]
         ),
+        macro_series_directional_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_series_directional"
+        ),
+        macro_series_directional_eligible_claim_rows=int(
+            macro_series_directional_readiness["eligible_claim_count"]
+        ),
+        macro_series_directional_labelable_window_rows=int(
+            macro_series_directional_readiness["labelable_window_count"]
+        ),
+        macro_series_directional_pending_window_rows=int(
+            macro_series_directional_readiness["pending_future_window_count"]
+        ),
+        macro_curve_directional_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_curve_directional"
+        ),
+        macro_curve_directional_eligible_claim_rows=int(
+            macro_curve_directional_readiness["eligible_claim_count"]
+        ),
+        macro_curve_directional_labelable_window_rows=int(
+            macro_curve_directional_readiness["labelable_window_count"]
+        ),
+        macro_curve_directional_pending_window_rows=int(
+            macro_curve_directional_readiness["pending_future_window_count"]
+        ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
+        macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
+        macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
+        macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
         tool_coverage_match_rows=len(tool_coverage_match_rows),
         data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),

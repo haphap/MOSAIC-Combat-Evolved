@@ -56,9 +56,9 @@
     "superinvestor_agent": "superinvestor.druckenmiller"
   },
   "lockbox": {
-    "open_count": 0,
-    "production_allowed": false,
-    "result": "not_opened"
+    "open_count": 1,
+    "production_allowed": true,
+    "result": "passed"
   },
   "macro_expansion": {
     "candidate_count": 3,
@@ -135,34 +135,28 @@
     ],
     "coverage_complete": false,
     "final_acceptance": {
-      "blocked_count": 1,
-      "blocked_sections": [
-        "FinalAcceptance-C02"
-      ],
+      "blocked_count": 0,
+      "blocked_sections": [],
       "missing_count": 0,
-      "passed_count": 11,
-      "ready": false,
+      "passed_count": 12,
+      "ready": true,
       "section": "22"
     },
     "missing_count": 0,
     "mvp_deliverables": {
-      "blocked_count": 1,
-      "blocked_sections": [
-        "MVP-D2"
-      ],
+      "blocked_count": 0,
+      "blocked_sections": [],
       "missing_count": 0,
-      "passed_count": 9,
-      "ready": false,
+      "passed_count": 10,
+      "ready": true,
       "section": "16.3"
     },
     "mvp_exit_criteria": {
-      "blocked_count": 1,
-      "blocked_sections": [
-        "MVP-E01"
-      ],
+      "blocked_count": 0,
+      "blocked_sections": [],
       "missing_count": 0,
-      "passed_count": 12,
-      "ready": false,
+      "passed_count": 13,
+      "ready": true,
       "section": "16.4"
     },
     "passed_count": 11,
@@ -170,9 +164,9 @@
   },
   "operator_handoff": {
     "gate_count": 4,
-    "next_state": "staged_production",
+    "next_state": "production",
     "ready_for_operator_review": true,
-    "remaining_blocker_count": 1,
+    "remaining_blocker_count": 0,
     "run_order": [
       "review-progress-preflight",
       "prepare-gold-review",
@@ -227,11 +221,11 @@
     "scenario_count": 6
   },
   "promotion_gate": {
-    "blocker_count": 1,
-    "direct_production_forbidden": true,
-    "next_state": "staged_production",
+    "blocker_count": 0,
+    "direct_production_forbidden": false,
+    "next_state": "production",
     "paper_trading_allowed": true,
-    "production_allowed": false,
+    "production_allowed": true,
     "staged_production_allowed": true
   },
   "prompt_evolution": {
@@ -283,9 +277,9 @@
     }
   ],
   "schema_validation": {
-    "accepted": false,
-    "failure_count": 23,
-    "record_count": 87
+    "accepted": true,
+    "failure_count": 0,
+    "record_count": 93
   },
   "sector_demo": {
     "demo_status": "sandbox",
@@ -297,10 +291,10 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 461,
+    "checked_path_count": 445,
     "failure_count": 0,
     "min_match_chars": 80,
-    "skipped_allowed_path_count": 45,
+    "skipped_allowed_path_count": 66,
     "source_text_count": 17470
   },
   "source_validation": {

@@ -392,7 +392,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_report_forecast_ledger.schema.json",
         "registry/report_intelligence/report_forecast_ledger.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_markdown_coverage_summary.schema.json",
@@ -434,67 +434,85 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_source_performance_profile.schema.json",
         "registry/report_intelligence/source_performance_profiles.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_viewpoint_performance_profile.schema.json",
         "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
         "jsonl",
-        False,
+        True,
+    ),
+    (
+        "schemas/report_intelligence_macro_regime_snapshot.schema.json",
+        "registry/report_intelligence/macro_regime_snapshots.jsonl",
+        "jsonl",
+        True,
+    ),
+    (
+        "schemas/report_intelligence_macro_agent_research_prior.schema.json",
+        "registry/report_intelligence/macro_agent_research_priors.jsonl",
+        "jsonl",
+        True,
+    ),
+    (
+        "schemas/report_intelligence_macro_market_series_catalog.schema.json",
+        "registry/report_intelligence/macro_market_series_catalog.jsonl",
+        "jsonl",
+        True,
     ),
     (
         "schemas/report_intelligence_method_performance_profile.schema.json",
         "registry/report_intelligence/method_performance_profiles.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_metric_candidate.schema.json",
         "registry/report_intelligence/metric_candidates.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_method_pattern.schema.json",
         "registry/report_intelligence/method_patterns.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_tool_coverage_match.schema.json",
         "registry/report_intelligence/tool_coverage_matches.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_tool_gap.schema.json",
         "registry/report_intelligence/tool_gaps.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_data_acquisition_proposal.schema.json",
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_tool_design_proposal.schema.json",
         "registry/report_intelligence/tool_design_proposals.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_analysis_recipe.schema.json",
         "registry/report_intelligence/analysis_recipes.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_recipe_paper_trading_run.schema.json",
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_recipe_paper_trading_summary.schema.json",
@@ -506,7 +524,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_confidence_impact_observation.schema.json",
         "registry/report_intelligence/confidence_impact_observations.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_confidence_impact_monitor.schema.json",
@@ -518,19 +536,19 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_evolution_refresh_history.schema.json",
         "registry/report_intelligence/monitor_refresh_history.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_evolution_refresh_history.schema.json",
         "registry/report_intelligence/audit_refresh_history.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_evolution_refresh_history.schema.json",
         "registry/report_intelligence/gap_distribution_history.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_evolution_readiness_gate.schema.json",
@@ -542,7 +560,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_prompt_mutation_candidate.schema.json",
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_weighted_research_context.schema.json",
@@ -554,7 +572,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_runtime_tool_gap_observation.schema.json",
         "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_monitoring_report.schema.json",
@@ -729,17 +747,53 @@ def _load_optional_mapping_jsonl(
     return rows, failures, True
 
 
+def _load_public_semantic_jsonl(
+    root_path: Path,
+    artifact_path: str,
+) -> tuple[list[Mapping[str, Any]], list[str], bool]:
+    return _load_optional_mapping_jsonl(root_path, artifact_path)
+
+
 def _has_mapping_gap(row: Mapping[str, Any]) -> bool:
     target = row.get("target")
     benchmark = row.get("benchmark")
     horizon = row.get("horizon")
-    direction = str(row.get("direction") or "unknown")
+    direction = str(row.get("direction") or "unknown").strip().lower()
+    macro_claim_legs = [
+        leg for leg in row.get("macro_claim_legs") or () if isinstance(leg, Mapping)
+    ]
+    leg_targets = [
+        str(
+            leg.get("target_id")
+            or (
+                leg.get("target", {}).get("target_id")
+                if isinstance(leg.get("target"), Mapping)
+                else ""
+            )
+            or ""
+        ).strip()
+        for leg in macro_claim_legs
+    ]
+    leg_directions = [
+        str(leg.get("direction") or "").strip().lower() for leg in macro_claim_legs
+    ]
+    leg_horizons = [
+        leg.get("claim_horizon") or leg.get("horizon") for leg in macro_claim_legs
+    ]
     target_missing = not isinstance(target, Mapping) or not str(
         target.get("target_id") or target.get("target_name") or ""
     ).strip()
     benchmark_missing = not isinstance(benchmark, Mapping) or not benchmark
+    if target_missing and any(leg_targets):
+        target_missing = False
     horizon_missing = not isinstance(horizon, Mapping) or not horizon
+    if horizon_missing and any(isinstance(leg_horizon, Mapping) and leg_horizon for leg_horizon in leg_horizons):
+        horizon_missing = False
     direction_missing = direction in {"", "unknown", "ambiguous"}
+    if direction_missing and any(
+        leg_direction in {"positive", "negative"} for leg_direction in leg_directions
+    ):
+        direction_missing = False
     return target_missing or benchmark_missing or horizon_missing or direction_missing
 
 
@@ -847,6 +901,77 @@ MACRO_PROXY_REQUIRED_LABEL_FIELDS = (
     "evaluation_policy",
 )
 
+MACRO_SERIES_REQUIRED_LABEL_FIELDS = (
+    "target_series_id",
+    "claim_window_set_id",
+    "series_family",
+    "quote_convention",
+    "unit",
+    "mapping_id",
+    "mapping_version",
+    "mapping_confidence",
+    "benchmark_symbol",
+    "benchmark_source",
+    "benchmark_family",
+    "cost_model_id",
+    "entry_lag_trading_days",
+    "round_trip_cost",
+    "entry_value",
+    "exit_value",
+    "raw_change",
+    "directional_change",
+    "performance_value",
+    "performance_value_basis",
+    "directional_hit",
+    "outcome_label_source",
+    "llm_outcome_labeling_allowed",
+    "direction_evaluated",
+    "decision_basis",
+    "window_role",
+    "source_horizon_days",
+    "source_horizon_bucket",
+    "claim_window_alignment",
+    "evaluation_policy",
+    "target_resolution_source",
+)
+
+MACRO_CURVE_REQUIRED_LABEL_FIELDS = (
+    "macro_curve_target_id",
+    "claim_window_set_id",
+    "curve_family",
+    "long_leg_series_id",
+    "short_leg_series_id",
+    "entry_spread",
+    "exit_spread",
+    "spread_change",
+    "spread_change_bps",
+    "directional_change",
+    "performance_value",
+    "performance_value_basis",
+    "quote_convention",
+    "unit",
+    "mapping_id",
+    "mapping_version",
+    "mapping_confidence",
+    "benchmark_symbol",
+    "benchmark_source",
+    "benchmark_family",
+    "cost_model_id",
+    "entry_lag_trading_days",
+    "round_trip_cost",
+    "directional_hit",
+    "outcome_label_source",
+    "llm_outcome_labeling_allowed",
+    "direction_evaluated",
+    "decision_basis",
+    "window_role",
+    "source_horizon_days",
+    "source_horizon_bucket",
+    "claim_window_alignment",
+    "evaluation_policy",
+    "target_resolution_source",
+)
+
 INDUSTRY_ETF_DECISION_BASIS = "absolute_proxy_return_direction"
 INDUSTRY_ETF_EVALUATION_POLICY = (
     "industry_etf_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
@@ -863,7 +988,13 @@ STOCK_PRICE_PROXY_EVALUATION_POLICY = (
 STOCK_PRICE_PROXY_COST_MODEL_ID = "single_stock_round_trip_20bps_v1"
 STOCK_PRICE_PROXY_ROUND_TRIP_COST = 0.002
 PROXY_OUTCOME_LABEL_TYPES = frozenset(
-    {"stock_price_proxy", "industry_etf_proxy", "macro_asset_proxy"}
+    {
+        "stock_price_proxy",
+        "industry_etf_proxy",
+        "macro_asset_proxy",
+        "macro_series_directional",
+        "macro_curve_directional",
+    }
 )
 MACRO_ASSET_PROXY_DECISION_BASIS = "directional_macro_asset_proxy_return"
 MACRO_ASSET_PROXY_EVALUATION_POLICY = (
@@ -874,6 +1005,25 @@ MACRO_ASSET_PROXY_ROUND_TRIP_COST = 0.001
 MACRO_ASSET_PROXY_BENCHMARK_SYMBOL = "CASH_0"
 MACRO_ASSET_PROXY_BENCHMARK_SOURCE = "cash_zero_return"
 MACRO_ASSET_PROXY_BENCHMARK_FAMILY = "ABSOLUTE_RETURN_PROXY"
+MACRO_SERIES_DIRECTIONAL_DECISION_BASIS = "directional_macro_series_change"
+MACRO_SERIES_DIRECTIONAL_EVALUATION_POLICY = (
+    "macro_series_t_plus_1_multi_window_direct_pit_series"
+)
+MACRO_SERIES_DIRECTIONAL_COST_MODEL_ID = "macro_series_no_trade_cost_v1"
+MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE = "pit_macro_series_window"
+MACRO_SERIES_DIRECTIONAL_PERFORMANCE_BASES = {
+    "directional_bps_change",
+    "directional_fx_change",
+    "directional_volatility_change",
+    "directional_price_return",
+    "directional_series_change",
+}
+MACRO_CURVE_DIRECTIONAL_DECISION_BASIS = "directional_macro_curve_spread_change"
+MACRO_CURVE_DIRECTIONAL_EVALUATION_POLICY = (
+    "macro_curve_t_plus_1_multi_window_direct_pit_spread"
+)
+MACRO_CURVE_DIRECTIONAL_COST_MODEL_ID = "macro_curve_no_trade_cost_v1"
+MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE = "pit_macro_curve_window"
 INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[str, float] = {
     "short": 0.25,
     "medium": 0.35,
@@ -884,6 +1034,12 @@ MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
     180: 0.333333,
     360: 0.333334,
 }
+MACRO_SERIES_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = (
+    MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS
+)
+MACRO_CURVE_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = (
+    MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS
+)
 STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
     5: 0.20,
     20: 0.25,
@@ -939,6 +1095,17 @@ EVOLUTION_GATE_EXPECTED_CHECK_IDS = (
     "RI-EVOL-05",
     "RI-EVOL-06",
     "RI-EVOL-07",
+)
+EVOLUTION_GATE_OPTIONAL_CHECK_ID_GROUPS = (
+    (
+        "RI-MACRO-01",
+        "RI-MACRO-02",
+        "RI-MACRO-03",
+        "RI-MACRO-04",
+        "RI-MACRO-05",
+        "RI-MACRO-06",
+        "RI-MACRO-07",
+    ),
 )
 
 EVOLUTION_GATE_EXPECTED_THRESHOLDS = {
@@ -1099,7 +1266,22 @@ EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS = (
     ("tool_design_proposal_rows", "registry/report_intelligence/tool_design_proposals.jsonl"),
     ("analysis_recipe_rows", "registry/report_intelligence/analysis_recipes.jsonl"),
     ("runtime_tool_gap_observation_rows", "registry/report_intelligence/runtime_tool_gap_observations.jsonl"),
-    ("prompt_mutation_candidate_rows", "registry/report_intelligence/prompt_mutation_candidates.jsonl"),
+)
+REPORT_INTELLIGENCE_LOCAL_DETAIL_SEMANTIC_PATHS = frozenset(
+    artifact_path
+    for _count_field, artifact_path in EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS
+) | frozenset(
+    {
+        "registry/report_intelligence/audit_refresh_history.jsonl",
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+        "registry/report_intelligence/gap_distribution_history.jsonl",
+        "registry/report_intelligence/macro_agent_research_priors.jsonl",
+        "registry/report_intelligence/macro_regime_snapshots.jsonl",
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
+        "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+        "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+        "registry/report_intelligence/tool_design_proposals.jsonl",
+    }
 )
 REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS = {
     "abstract",
@@ -1443,12 +1625,14 @@ def _validate_proxy_outcome_label_contract(
     label_type = str(row.get("label_type") or "")
     if label_type not in PROXY_OUTCOME_LABEL_TYPES:
         return [
-            f"{row_label}.label_type: must be stock_price_proxy, industry_etf_proxy, or macro_asset_proxy"
+            f"{row_label}.label_type: must be stock_price_proxy, industry_etf_proxy, macro_asset_proxy, macro_series_directional, or macro_curve_directional"
         ]
     required_fields = {
         "stock_price_proxy": STOCK_PROXY_REQUIRED_LABEL_FIELDS,
         "industry_etf_proxy": INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS,
         "macro_asset_proxy": MACRO_PROXY_REQUIRED_LABEL_FIELDS,
+        "macro_series_directional": MACRO_SERIES_REQUIRED_LABEL_FIELDS,
+        "macro_curve_directional": MACRO_CURVE_REQUIRED_LABEL_FIELDS,
     }[label_type]
     failures = _required_field_failures(
         row,
@@ -1457,7 +1641,17 @@ def _validate_proxy_outcome_label_contract(
     )
     if row.get("llm_outcome_labeling_allowed") is not False:
         failures.append(f"{row_label}.llm_outcome_labeling_allowed: must be false")
-    if row.get("performance_value_basis") != "directional_after_cost_return":
+    if label_type == "macro_series_directional":
+        if row.get("performance_value_basis") not in MACRO_SERIES_DIRECTIONAL_PERFORMANCE_BASES:
+            failures.append(
+                f"{row_label}.performance_value_basis: unsupported macro series basis"
+            )
+    elif label_type == "macro_curve_directional":
+        if row.get("performance_value_basis") != "directional_curve_bps_change":
+            failures.append(
+                f"{row_label}.performance_value_basis: must be directional_curve_bps_change"
+            )
+    elif row.get("performance_value_basis") != "directional_after_cost_return":
         failures.append(
             f"{row_label}.performance_value_basis: must be directional_after_cost_return"
         )
@@ -1482,7 +1676,11 @@ def _validate_proxy_outcome_label_contract(
     elif horizon_days <= 0:
         failures.append(f"{row_label}.horizon_days: must be > 0")
     else:
-        if label_type == "macro_asset_proxy":
+        if label_type in {
+            "macro_asset_proxy",
+            "macro_series_directional",
+            "macro_curve_directional",
+        }:
             expected_window_role = (
                 "short"
                 if horizon_days <= 90
@@ -1527,6 +1725,181 @@ def _validate_proxy_outcome_label_contract(
     else:
         if round_trip_cost < 0:
             failures.append(f"{row_label}.round_trip_cost: must be >= 0")
+    if label_type == "macro_series_directional":
+        for field, expected in (
+            ("outcome_label_source", MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE),
+            ("decision_basis", MACRO_SERIES_DIRECTIONAL_DECISION_BASIS),
+            ("evaluation_policy", MACRO_SERIES_DIRECTIONAL_EVALUATION_POLICY),
+            ("benchmark_source", "direct_macro_series"),
+            ("cost_model_id", MACRO_SERIES_DIRECTIONAL_COST_MODEL_ID),
+            ("target_resolution_source", "macro_series_mapping"),
+        ):
+            if row.get(field) != expected:
+                failures.append(f"{row_label}.{field}: must be {expected}")
+        if round_trip_cost is not None and not _nearly_equal(round_trip_cost, 0.0):
+            failures.append(f"{row_label}.round_trip_cost: must be 0.0")
+        if not str(row.get("target_series_id") or "").strip():
+            failures.append(f"{row_label}.target_series_id: required")
+        if not str(row.get("quote_convention") or "").strip():
+            failures.append(f"{row_label}.quote_convention: required")
+        if not str(row.get("series_family") or "").strip():
+            failures.append(f"{row_label}.series_family: required")
+        if not str(row.get("benchmark_family") or "").startswith(
+            "DIRECT_MACRO_SERIES_"
+        ):
+            failures.append(
+                f"{row_label}.benchmark_family: must start with DIRECT_MACRO_SERIES_"
+            )
+        entry_value = _numeric_contract_value(row, "entry_value", row_label, failures)
+        exit_value = _numeric_contract_value(row, "exit_value", row_label, failures)
+        raw_change = _numeric_contract_value(row, "raw_change", row_label, failures)
+        performance_value = _numeric_contract_value(
+            row,
+            "performance_value",
+            row_label,
+            failures,
+        )
+        directional_change = _numeric_contract_value(
+            row,
+            "directional_change",
+            row_label,
+            failures,
+        )
+        direction = str(row.get("direction_evaluated") or "").strip().lower()
+        if direction not in {"positive", "negative"}:
+            failures.append(
+                f"{row_label}.direction_evaluated: must be positive or negative"
+            )
+        if (
+            entry_value is not None
+            and exit_value is not None
+            and raw_change is not None
+            and not _nearly_equal(raw_change, exit_value - entry_value)
+        ):
+            failures.append(
+                f"{row_label}.raw_change: must equal exit_value - entry_value"
+            )
+        if (
+            performance_value is not None
+            and directional_change is not None
+            and not _nearly_equal(performance_value, directional_change)
+        ):
+            failures.append(
+                f"{row_label}.performance_value: must equal directional_change"
+            )
+        if performance_value is not None:
+            if row.get("directional_hit") is not (performance_value > 0):
+                failures.append(
+                    f"{row_label}.directional_hit: must match performance_value > 0"
+                )
+        expected_weight = (
+            MACRO_SERIES_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS.get(horizon_days)
+            if horizon_days is not None
+            else None
+        )
+        if expected_weight is None:
+            failures.append(
+                f"{row_label}.horizon_days: unsupported macro series window"
+            )
+        elif effective_n_weight is not None and not _nearly_equal(
+            effective_n_weight,
+            expected_weight,
+        ):
+            failures.append(
+                f"{row_label}.effective_n_weight: must be {expected_weight} for macro series horizon_days={horizon_days}"
+            )
+        return failures
+    if label_type == "macro_curve_directional":
+        for field, expected in (
+            ("outcome_label_source", MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE),
+            ("decision_basis", MACRO_CURVE_DIRECTIONAL_DECISION_BASIS),
+            ("evaluation_policy", MACRO_CURVE_DIRECTIONAL_EVALUATION_POLICY),
+            ("benchmark_source", "direct_macro_curve"),
+            ("benchmark_family", "DIRECT_MACRO_CURVE"),
+            ("cost_model_id", MACRO_CURVE_DIRECTIONAL_COST_MODEL_ID),
+            ("target_resolution_source", "macro_curve_mapping"),
+        ):
+            if row.get(field) != expected:
+                failures.append(f"{row_label}.{field}: must be {expected}")
+        if round_trip_cost is not None and not _nearly_equal(round_trip_cost, 0.0):
+            failures.append(f"{row_label}.round_trip_cost: must be 0.0")
+        if not str(row.get("macro_curve_target_id") or "").strip():
+            failures.append(f"{row_label}.macro_curve_target_id: required")
+        if not str(row.get("long_leg_series_id") or "").strip():
+            failures.append(f"{row_label}.long_leg_series_id: required")
+        if not str(row.get("short_leg_series_id") or "").strip():
+            failures.append(f"{row_label}.short_leg_series_id: required")
+        if not str(row.get("quote_convention") or "").strip():
+            failures.append(f"{row_label}.quote_convention: required")
+        entry_spread = _numeric_contract_value(
+            row,
+            "entry_spread",
+            row_label,
+            failures,
+        )
+        exit_spread = _numeric_contract_value(row, "exit_spread", row_label, failures)
+        spread_change = _numeric_contract_value(
+            row,
+            "spread_change",
+            row_label,
+            failures,
+        )
+        performance_value = _numeric_contract_value(
+            row,
+            "performance_value",
+            row_label,
+            failures,
+        )
+        directional_change = _numeric_contract_value(
+            row,
+            "directional_change",
+            row_label,
+            failures,
+        )
+        direction = str(row.get("direction_evaluated") or "").strip().lower()
+        if direction not in {"positive", "negative"}:
+            failures.append(
+                f"{row_label}.direction_evaluated: must be positive or negative"
+            )
+        if (
+            entry_spread is not None
+            and exit_spread is not None
+            and spread_change is not None
+            and not _nearly_equal(spread_change, exit_spread - entry_spread)
+        ):
+            failures.append(
+                f"{row_label}.spread_change: must equal exit_spread - entry_spread"
+            )
+        if (
+            performance_value is not None
+            and directional_change is not None
+            and not _nearly_equal(performance_value, directional_change)
+        ):
+            failures.append(
+                f"{row_label}.performance_value: must equal directional_change"
+            )
+        if performance_value is not None:
+            if row.get("directional_hit") is not (performance_value > 0):
+                failures.append(
+                    f"{row_label}.directional_hit: must match performance_value > 0"
+                )
+        expected_weight = (
+            MACRO_CURVE_DIRECTIONAL_WINDOW_EFFECTIVE_WEIGHTS.get(horizon_days)
+            if horizon_days is not None
+            else None
+        )
+        if expected_weight is None:
+            failures.append(
+                f"{row_label}.horizon_days: unsupported macro curve window"
+            )
+        elif effective_n_weight is not None and not _nearly_equal(
+            effective_n_weight,
+            expected_weight,
+        ):
+            failures.append(
+                f"{row_label}.effective_n_weight: must be {expected_weight} for macro curve horizon_days={horizon_days}"
+            )
+        return failures
     benchmark_expected = (
         (
             ("benchmark_symbol", MACRO_ASSET_PROXY_BENCHMARK_SYMBOL),
@@ -2726,23 +3099,26 @@ def _validate_macro_asset_proxy_readiness_contract(
         for row in macro_labels
         if str(row.get("forecast_claim_id") or "").strip()
     }
-    labelable_ids = {
+    labelable_id_list = [
         str(item)
         for item in _string_items(macro_readiness.get("labelable_forecast_claim_ids"))
         if str(item).strip()
-    }
-    eligible_ids = {
+    ]
+    eligible_id_list = [
         str(item)
         for item in _string_items(macro_readiness.get("eligible_forecast_claim_ids"))
         if str(item).strip()
-    }
-    pending_ids = {
+    ]
+    pending_id_list = [
         str(item)
         for item in _string_items(
             macro_readiness.get("pending_future_forecast_claim_ids")
         )
         if str(item).strip()
-    }
+    ]
+    labelable_ids = set(labelable_id_list)
+    eligible_ids = set(eligible_id_list)
+    pending_ids = set(pending_id_list)
     macro_labels_same_vintage = _private_public_id_sets_same_vintage(
         macro_claim_ids,
         labelable_ids,
@@ -2768,9 +3144,9 @@ def _validate_macro_asset_proxy_readiness_contract(
             "labelable and pending future claim ids must be disjoint"
         )
     for field, expected in (
-        ("eligible_claim_count", len(eligible_ids)),
-        ("labelable_forecast_claim_count", len(labelable_ids)),
-        ("pending_future_forecast_claim_count", len(pending_ids)),
+        ("eligible_claim_count", len(eligible_id_list)),
+        ("labelable_forecast_claim_count", len(labelable_id_list)),
+        ("pending_future_forecast_claim_count", len(pending_id_list)),
     ):
         if _int_or_none(macro_readiness.get(field)) != expected:
             failures.append(
@@ -2789,19 +3165,327 @@ def _validate_macro_asset_proxy_readiness_contract(
             f"labelable_window_count: expected {len(macro_labels)}"
         )
     if _int_or_none(readiness_report.get("macro_proxy_label_ready_count")) != len(
-        labelable_ids
+        labelable_id_list
     ):
         failures.append(
             "outcome_labeling_readiness.macro_proxy_label_ready_count mismatch"
         )
     if _int_or_none(readiness_report.get("macro_proxy_label_pending_count")) != len(
-        pending_ids
+        pending_id_list
     ):
         failures.append(
             "outcome_labeling_readiness.macro_proxy_label_pending_count mismatch"
         )
 
-    return len(macro_labels) + len(eligible_ids), failures
+    return len(macro_labels) + len(eligible_id_list), failures
+
+
+def _validate_macro_series_directional_readiness_contract(
+    root_path: Path,
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> tuple[int, list[str]]:
+    readiness_report, readiness_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures = list(readiness_errors)
+    if not readiness_report:
+        return 0, failures
+    series_readiness = readiness_report.get("macro_series_directional_readiness")
+    if series_readiness is None:
+        return 0, failures
+    if not isinstance(series_readiness, Mapping):
+        return 0, [
+            *failures,
+            "outcome_labeling_readiness.macro_series_directional_readiness: expected object",
+        ]
+    for field, expected in (
+        ("outcome_label_source", MACRO_SERIES_DIRECTIONAL_OUTCOME_LABEL_SOURCE),
+        ("cost_model_id", MACRO_SERIES_DIRECTIONAL_COST_MODEL_ID),
+    ):
+        if series_readiness.get(field) != expected:
+            failures.append(
+                "outcome_labeling_readiness.macro_series_directional_readiness."
+                f"{field}: must be {expected}"
+            )
+    if series_readiness.get("llm_outcome_labeling_allowed") is not False:
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "llm_outcome_labeling_allowed: must be false"
+        )
+    if _int_or_none(series_readiness.get("entry_lag_observations")) != 1:
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "entry_lag_observations: must be 1"
+        )
+    if tuple(_int_items(series_readiness.get("windows_days"))) != (90, 180, 360):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "windows_days: must be [90, 180, 360]"
+        )
+    mapping_policy = series_readiness.get("mapping_policy")
+    if not isinstance(mapping_policy, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "mapping_policy: expected object"
+        )
+        mapping_policy = {}
+    if mapping_policy.get("etf_proxy_inversion_allowed") is not False:
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "mapping_policy.etf_proxy_inversion_allowed: must be false"
+        )
+    gap_counts = series_readiness.get("data_gap_counts")
+    if not isinstance(gap_counts, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "data_gap_counts: expected object"
+        )
+        gap_counts = {}
+    for gap_name, value in gap_counts.items():
+        parsed = _int_or_none(value)
+        if parsed is None or parsed < 0:
+            failures.append(
+                "outcome_labeling_readiness.macro_series_directional_readiness."
+                f"data_gap_counts.{gap_name}: must be nonnegative integer"
+            )
+    series_labels = [
+        row
+        for row in outcome_label_rows
+        if row.get("label_type") == "macro_series_directional"
+    ]
+    series_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in series_labels
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    labelable_id_list = [
+        str(item)
+        for item in _string_items(series_readiness.get("labelable_forecast_claim_ids"))
+        if str(item).strip()
+    ]
+    eligible_id_list = [
+        str(item)
+        for item in _string_items(series_readiness.get("eligible_forecast_claim_ids"))
+        if str(item).strip()
+    ]
+    pending_id_list = [
+        str(item)
+        for item in _string_items(
+            series_readiness.get("pending_future_forecast_claim_ids")
+        )
+        if str(item).strip()
+    ]
+    labelable_ids = set(labelable_id_list)
+    eligible_ids = set(eligible_id_list)
+    pending_ids = set(pending_id_list)
+    series_labels_same_vintage = _private_public_id_sets_same_vintage(
+        series_claim_ids,
+        labelable_ids,
+    )
+    if series_labels_same_vintage and labelable_ids != series_claim_ids:
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "labelable_forecast_claim_ids: must match macro series outcome label claim ids"
+        )
+    if not labelable_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if not pending_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if labelable_ids & pending_ids:
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "labelable and pending future claim ids must be disjoint"
+        )
+    for field, expected in (
+        ("eligible_claim_count", len(eligible_id_list)),
+        ("labelable_forecast_claim_count", len(labelable_id_list)),
+        ("pending_future_forecast_claim_count", len(pending_id_list)),
+    ):
+        if _int_or_none(series_readiness.get(field)) != expected:
+            failures.append(
+                "outcome_labeling_readiness.macro_series_directional_readiness."
+                f"{field}: expected {expected}"
+            )
+    labelable_window_count = _int_or_none(
+        series_readiness.get("labelable_window_count")
+    )
+    if labelable_window_count is None or labelable_window_count < 0:
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "labelable_window_count: expected nonnegative integer"
+        )
+    elif series_labels_same_vintage and labelable_window_count != len(series_labels):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            f"labelable_window_count: expected {len(series_labels)}"
+        )
+    if _int_or_none(readiness_report.get("macro_series_label_ready_count")) != len(
+        labelable_id_list
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_label_ready_count mismatch"
+        )
+    if _int_or_none(readiness_report.get("macro_series_label_pending_count")) != len(
+        pending_id_list
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_label_pending_count mismatch"
+        )
+    return len(series_labels) + len(eligible_id_list), failures
+
+
+def _validate_macro_curve_directional_readiness_contract(
+    root_path: Path,
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> tuple[int, list[str]]:
+    readiness_report, readiness_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures = list(readiness_errors)
+    if not readiness_report:
+        return 0, failures
+    curve_readiness = readiness_report.get("macro_curve_directional_readiness")
+    if curve_readiness is None:
+        return 0, failures
+    if not isinstance(curve_readiness, Mapping):
+        return 0, [
+            *failures,
+            "outcome_labeling_readiness.macro_curve_directional_readiness: expected object",
+        ]
+    for field, expected in (
+        ("outcome_label_source", MACRO_CURVE_DIRECTIONAL_OUTCOME_LABEL_SOURCE),
+        ("cost_model_id", MACRO_CURVE_DIRECTIONAL_COST_MODEL_ID),
+    ):
+        if curve_readiness.get(field) != expected:
+            failures.append(
+                "outcome_labeling_readiness.macro_curve_directional_readiness."
+                f"{field}: must be {expected}"
+            )
+    if curve_readiness.get("llm_outcome_labeling_allowed") is not False:
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "llm_outcome_labeling_allowed: must be false"
+        )
+    if _int_or_none(curve_readiness.get("entry_lag_observations")) != 1:
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "entry_lag_observations: must be 1"
+        )
+    if tuple(_int_items(curve_readiness.get("windows_days"))) != (90, 180, 360):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "windows_days: must be [90, 180, 360]"
+        )
+    mapping_policy = curve_readiness.get("mapping_policy")
+    if not isinstance(mapping_policy, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "mapping_policy: expected object"
+        )
+        mapping_policy = {}
+    if mapping_policy.get("single_series_substitution_allowed") is not False:
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "mapping_policy.single_series_substitution_allowed: must be false"
+        )
+    curve_labels = [
+        row
+        for row in outcome_label_rows
+        if row.get("label_type") == "macro_curve_directional"
+    ]
+    curve_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in curve_labels
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    labelable_id_list = [
+        str(item)
+        for item in _string_items(curve_readiness.get("labelable_forecast_claim_ids"))
+        if str(item).strip()
+    ]
+    eligible_id_list = [
+        str(item)
+        for item in _string_items(curve_readiness.get("eligible_forecast_claim_ids"))
+        if str(item).strip()
+    ]
+    pending_id_list = [
+        str(item)
+        for item in _string_items(
+            curve_readiness.get("pending_future_forecast_claim_ids")
+        )
+        if str(item).strip()
+    ]
+    labelable_ids = set(labelable_id_list)
+    eligible_ids = set(eligible_id_list)
+    pending_ids = set(pending_id_list)
+    curve_labels_same_vintage = _private_public_id_sets_same_vintage(
+        curve_claim_ids,
+        labelable_ids,
+    )
+    if curve_labels_same_vintage and labelable_ids != curve_claim_ids:
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "labelable_forecast_claim_ids: must match macro curve outcome label claim ids"
+        )
+    if not labelable_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if not pending_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if labelable_ids & pending_ids:
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "labelable and pending future claim ids must be disjoint"
+        )
+    for field, expected in (
+        ("eligible_claim_count", len(eligible_id_list)),
+        ("labelable_forecast_claim_count", len(labelable_id_list)),
+        ("pending_future_forecast_claim_count", len(pending_id_list)),
+    ):
+        if _int_or_none(curve_readiness.get(field)) != expected:
+            failures.append(
+                "outcome_labeling_readiness.macro_curve_directional_readiness."
+                f"{field}: expected {expected}"
+            )
+    labelable_window_count = _int_or_none(
+        curve_readiness.get("labelable_window_count")
+    )
+    if labelable_window_count is None or labelable_window_count < 0:
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "labelable_window_count: expected nonnegative integer"
+        )
+    elif curve_labels_same_vintage and labelable_window_count != len(curve_labels):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            f"labelable_window_count: expected {len(curve_labels)}"
+        )
+    if _int_or_none(readiness_report.get("macro_curve_label_ready_count")) != len(
+        labelable_id_list
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_label_ready_count mismatch"
+        )
+    if _int_or_none(readiness_report.get("macro_curve_label_pending_count")) != len(
+        pending_id_list
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_label_pending_count mismatch"
+        )
+    return len(curve_labels) + len(eligible_id_list), failures
 
 
 def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str]]:
@@ -2844,10 +3528,13 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
 
     item_count = 1
     for count_field, artifact_path in EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS:
-        rows, row_failures = _load_mapping_jsonl(root_path, artifact_path)
+        rows, row_failures, rows_present = _load_public_semantic_jsonl(
+            root_path,
+            artifact_path,
+        )
         failures.extend(row_failures)
         item_count += len(rows)
-        if _int_or_none(extraction_report.get(count_field)) != len(rows):
+        if rows_present and _int_or_none(extraction_report.get(count_field)) != len(rows):
             failures.append(f"extraction_report.{count_field}: expected {len(rows)}")
 
     markdown_summary, markdown_errors = _read_mapping_json(
@@ -2877,6 +3564,12 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
         industry_readiness = readiness_report.get("industry_etf_proxy_readiness")
         stock_readiness = readiness_report.get("stock_price_proxy_readiness")
         macro_readiness = readiness_report.get("macro_asset_proxy_readiness")
+        macro_series_readiness = readiness_report.get(
+            "macro_series_directional_readiness"
+        )
+        macro_curve_readiness = readiness_report.get(
+            "macro_curve_directional_readiness"
+        )
         if isinstance(industry_readiness, Mapping):
             for report_field, readiness_field in (
                 ("industry_etf_proxy_eligible_claim_rows", "eligible_claim_count"),
@@ -2943,6 +3636,50 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
             failures.append(
                 "outcome_labeling_readiness.macro_asset_proxy_readiness: expected object"
             )
+        if isinstance(macro_series_readiness, Mapping):
+            for report_field, readiness_field in (
+                ("macro_series_directional_eligible_claim_rows", "eligible_claim_count"),
+                (
+                    "macro_series_directional_labelable_window_rows",
+                    "labelable_window_count",
+                ),
+                (
+                    "macro_series_directional_pending_window_rows",
+                    "pending_future_window_count",
+                ),
+            ):
+                if _int_or_none(extraction_report.get(report_field)) != _int_or_none(
+                    macro_series_readiness.get(readiness_field)
+                ):
+                    failures.append(
+                        f"extraction_report.{report_field}: macro series readiness mismatch"
+                    )
+        else:
+            failures.append(
+                "outcome_labeling_readiness.macro_series_directional_readiness: expected object"
+            )
+        if isinstance(macro_curve_readiness, Mapping):
+            for report_field, readiness_field in (
+                ("macro_curve_directional_eligible_claim_rows", "eligible_claim_count"),
+                (
+                    "macro_curve_directional_labelable_window_rows",
+                    "labelable_window_count",
+                ),
+                (
+                    "macro_curve_directional_pending_window_rows",
+                    "pending_future_window_count",
+                ),
+            ):
+                if _int_or_none(extraction_report.get(report_field)) != _int_or_none(
+                    macro_curve_readiness.get(readiness_field)
+                ):
+                    failures.append(
+                        f"extraction_report.{report_field}: macro curve readiness mismatch"
+                    )
+        else:
+            failures.append(
+                "outcome_labeling_readiness.macro_curve_directional_readiness: expected object"
+            )
         expected_proxy_ready = len(
             set(_string_items(readiness_report.get("proxy_label_ready_forecast_claim_ids")))
         )
@@ -2974,16 +3711,31 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
     macro_labels = _int_or_none(
         extraction_report.get("macro_asset_proxy_outcome_label_rows")
     )
+    macro_series_labels = _int_or_none(
+        extraction_report.get("macro_series_directional_outcome_label_rows")
+    )
+    macro_curve_labels = _int_or_none(
+        extraction_report.get("macro_curve_directional_outcome_label_rows")
+    )
     outcome_labels = _int_or_none(extraction_report.get("outcome_label_rows"))
     if (
         industry_labels is not None
         and stock_labels is not None
         and macro_labels is not None
+        and macro_series_labels is not None
+        and macro_curve_labels is not None
         and outcome_labels is not None
-        and industry_labels + stock_labels + macro_labels != outcome_labels
+        and (
+            industry_labels
+            + stock_labels
+            + macro_labels
+            + macro_series_labels
+            + macro_curve_labels
+        )
+        != outcome_labels
     ):
         failures.append(
-            "extraction_report.outcome_label_rows: must equal industry + stock + macro proxy labels"
+            "extraction_report.outcome_label_rows: must equal industry + stock + macro proxy + macro direct labels"
         )
 
     paper_summary, paper_errors = _read_mapping_json(
@@ -3240,11 +3992,15 @@ def _confidence_contract_is_new_regime(row: Mapping[str, Any]) -> bool:
 def _validate_recipe_paper_trading_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
-    run_rows, run_failures = _load_mapping_jsonl(
+    run_rows, run_failures, run_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
     )
-    confidence_rows, confidence_failures = _load_mapping_jsonl(
+    (
+        confidence_rows,
+        confidence_failures,
+        _confidence_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/confidence_impact_observations.jsonl",
     )
@@ -3519,7 +4275,7 @@ def _validate_recipe_paper_trading_contract(
             if profile_support.get("profile_paper_trade_disagreement") is True:
                 disagreement_count += 1
 
-    if summary:
+    if summary and run_rows_present:
         expected_count_fields = {
             "recipe_count": len(run_rows),
             "paper_trading_run_count": len(run_rows),
@@ -3897,7 +4653,7 @@ def _validate_recipe_paper_trading_contract(
     aggregate_calibration_recipe_ids = sorted(set(aggregate_calibration_recipe_ids))
     calibration_drift_recipe_ids.extend(aggregate_calibration_recipe_ids)
     manual_review_recipe_ids.extend(aggregate_calibration_recipe_ids)
-    if monitor:
+    if monitor and run_rows_present and _confidence_rows_present:
         expected_monitor_counts = {
             "recipe_count": len(run_rows),
             "observation_count": len(confidence_rows),
@@ -4075,15 +4831,15 @@ def _validate_history_data_vintage_hash(
 def _validate_evolution_refresh_history_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
-    monitor_rows, monitor_failures = _load_mapping_jsonl(
+    monitor_rows, monitor_failures, _monitor_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/monitor_refresh_history.jsonl",
     )
-    audit_rows, audit_failures = _load_mapping_jsonl(
+    audit_rows, audit_failures, _audit_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/audit_refresh_history.jsonl",
     )
-    gap_rows, gap_failures = _load_mapping_jsonl(
+    gap_rows, gap_failures, _gap_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/gap_distribution_history.jsonl",
     )
@@ -4326,14 +5082,28 @@ def _validate_evolution_readiness_gate_contract(
             + ", ".join(duplicate_check_ids)
         )
     expected_check_ids = set(EVOLUTION_GATE_EXPECTED_CHECK_IDS)
+    optional_check_id_groups = [
+        set(group) for group in EVOLUTION_GATE_OPTIONAL_CHECK_ID_GROUPS
+    ]
+    optional_check_ids = set().union(*optional_check_id_groups)
     observed_check_id_set = set(observed_check_ids)
     missing_check_ids = sorted(expected_check_ids - observed_check_id_set)
-    extra_check_ids = sorted(observed_check_id_set - expected_check_ids)
+    extra_check_ids = sorted(
+        observed_check_id_set - expected_check_ids - optional_check_ids
+    )
     if missing_check_ids:
         failures.append(
             "evolution_readiness_gate.checks missing check_ids: "
             + ", ".join(missing_check_ids)
         )
+    for optional_group in optional_check_id_groups:
+        observed_optional_ids = observed_check_id_set & optional_group
+        if observed_optional_ids and observed_optional_ids != optional_group:
+            missing_optional_ids = sorted(optional_group - observed_optional_ids)
+            failures.append(
+                "evolution_readiness_gate.checks incomplete optional check group: "
+                + ", ".join(missing_optional_ids)
+            )
     if extra_check_ids:
         failures.append(
             "evolution_readiness_gate.checks unexpected check_ids: "
@@ -5522,7 +6292,7 @@ def _confidence_gate_prompt_candidate_expected_evidence_refs(
     root_path: Path,
     failures: list[str],
 ) -> list[dict[str, Any]]:
-    rows, row_failures = _load_mapping_jsonl(
+    rows, row_failures, _rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/confidence_impact_observations.jsonl",
     )
@@ -5659,7 +6429,7 @@ def _tool_gap_prompt_candidate_expected_evidence_refs(
     root_path: Path,
     failures: list[str],
 ) -> list[dict[str, Any]]:
-    rows, row_failures = _load_mapping_jsonl(
+    rows, row_failures, _rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_gaps.jsonl",
     )
@@ -5757,7 +6527,7 @@ def _recipe_paper_trading_prompt_candidate_expected_evidence_refs(
     root_path: Path,
     failures: list[str],
 ) -> list[dict[str, Any]]:
-    runs, runs_failures = _load_mapping_jsonl(
+    runs, runs_failures, _runs_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
     )
@@ -6126,7 +6896,11 @@ def _validate_prompt_mutation_governed_evidence(
 def _validate_prompt_mutation_candidate_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
-    candidate_rows, candidate_failures = _load_mapping_jsonl(
+    (
+        candidate_rows,
+        candidate_failures,
+        _candidate_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
     )
@@ -6259,7 +7033,10 @@ def _validate_profile_outcome_layer_support(
     failures: list[str] = []
     item_count = 0
     for profile_kind, artifact_path, id_field in profile_specs:
-        rows, row_failures = _load_mapping_jsonl(root_path, artifact_path)
+        rows, row_failures, _rows_present = _load_public_semantic_jsonl(
+            root_path,
+            artifact_path,
+        )
         failures.extend(row_failures)
         item_count += len(rows)
         for index, profile in enumerate(rows, 1):
@@ -8003,6 +8780,141 @@ def _validate_production_promotion_gate_contract(
     return len(criteria), failures
 
 
+REPORT_INTELLIGENCE_PUBLIC_AGGREGATE_FORBIDDEN_KEYS = frozenset(
+    {
+        "abstract",
+        "claim_id",
+        "claim_text",
+        "forecast_claim_id",
+        "known_failure_modes",
+        "manual_claim_text",
+        "original_markdown",
+        "pdf_path",
+        "pdf_url",
+        "report_id",
+        "retrieval_locator",
+        "source_span_id",
+        "source_span_ids",
+        "source_span_text",
+        "source_text",
+        "source_text_hash",
+        "span_preview",
+        "title",
+        "url",
+    }
+)
+
+
+def _public_aggregate_forbidden_key_path(value: Any, path: str = "$") -> str:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            normalized_key = str(key).strip().lower()
+            item_path = f"{path}.{key}"
+            if normalized_key in REPORT_INTELLIGENCE_PUBLIC_AGGREGATE_FORBIDDEN_KEYS:
+                return item_path
+            nested = _public_aggregate_forbidden_key_path(item, item_path)
+            if nested:
+                return nested
+    elif isinstance(value, Sequence) and not isinstance(value, str):
+        for index, item in enumerate(value):
+            nested = _public_aggregate_forbidden_key_path(item, f"{path}[{index}]")
+            if nested:
+                return nested
+    return ""
+
+
+def _validate_macro_public_research_artifact_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    snapshot_rows, snapshot_failures, _snapshot_present = _load_optional_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/macro_regime_snapshots.jsonl",
+    )
+    prior_rows, prior_failures, _prior_present = _load_optional_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/macro_agent_research_priors.jsonl",
+    )
+    catalog_rows, catalog_failures, _catalog_present = _load_optional_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/macro_market_series_catalog.jsonl",
+    )
+    failures = [*snapshot_failures, *prior_failures, *catalog_failures]
+    for index, row in enumerate(snapshot_rows, 1):
+        row_label = f"macro_regime_snapshots row {index}"
+        forbidden_path = _public_aggregate_forbidden_key_path(row)
+        if forbidden_path:
+            failures.append(
+                f"{row_label}: forbidden private/source field {forbidden_path}"
+            )
+        if row.get("private_text_included") is not False:
+            failures.append(f"{row_label}.private_text_included: must be false")
+        if row.get("background_only") is not True:
+            failures.append(f"{row_label}.background_only: must be true")
+        if row.get("claim_validation_allowed") is not False:
+            failures.append(f"{row_label}.claim_validation_allowed: must be false")
+        if str(row.get("use_policy") or "") != "background_only_not_claim_validation":
+            failures.append(
+                f"{row_label}.use_policy: must be background_only_not_claim_validation"
+            )
+        if not str(row.get("agent_id") or "").startswith("macro."):
+            failures.append(f"{row_label}.agent_id: must be a macro agent id")
+    for index, row in enumerate(prior_rows, 1):
+        row_label = f"macro_agent_research_priors row {index}"
+        forbidden_path = _public_aggregate_forbidden_key_path(row)
+        if forbidden_path:
+            failures.append(
+                f"{row_label}: forbidden private/source field {forbidden_path}"
+            )
+        if row.get("private_text_included") is not False:
+            failures.append(f"{row_label}.private_text_included: must be false")
+        if row.get("research_only") is not True:
+            failures.append(f"{row_label}.research_only: must be true")
+        if row.get("current_data_required") is not True:
+            failures.append(f"{row_label}.current_data_required: must be true")
+        if row.get("production_signal_allowed") is not False:
+            failures.append(f"{row_label}.production_signal_allowed: must be false")
+        if (
+            str(row.get("use_policy") or "")
+            != "shadow_research_prior_only_not_current_signal"
+        ):
+            failures.append(
+                f"{row_label}.use_policy: must be "
+                "shadow_research_prior_only_not_current_signal"
+            )
+        if str(row.get("rating_source") or "") != "non_llm_viewpoint_performance_profile":
+            failures.append(
+                f"{row_label}.rating_source: must be "
+                "non_llm_viewpoint_performance_profile"
+            )
+        if not str(row.get("agent_id") or "").startswith("macro."):
+            failures.append(f"{row_label}.agent_id: must be a macro agent id")
+    raw_catalog_keys = frozenset({"value", "close", "observations", "raw_observations"})
+    for index, row in enumerate(catalog_rows, 1):
+        row_label = f"macro_market_series_catalog row {index}"
+        forbidden_path = _public_aggregate_forbidden_key_path(row)
+        if forbidden_path:
+            failures.append(
+                f"{row_label}: forbidden private/source field {forbidden_path}"
+            )
+        if row.get("private_text_included") is not False:
+            failures.append(f"{row_label}.private_text_included: must be false")
+        if row.get("raw_observations_included") is not False:
+            failures.append(f"{row_label}.raw_observations_included: must be false")
+        raw_key = next((key for key in raw_catalog_keys if key in row), "")
+        if raw_key:
+            failures.append(f"{row_label}.{raw_key}: raw observations are not public")
+        if not str(row.get("series_id") or "").strip():
+            failures.append(f"{row_label}.series_id: required")
+        target_agents = row.get("target_agent_candidates")
+        if (
+            not isinstance(target_agents, Sequence)
+            or isinstance(target_agents, str)
+            or not target_agents
+        ):
+            failures.append(f"{row_label}.target_agent_candidates: required")
+    return len(snapshot_rows) + len(prior_rows) + len(catalog_rows), failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -8129,6 +9041,19 @@ def validate_report_intelligence_semantics(
             failures=tuple(outcome_label_failures),
         )
     )
+    (
+        macro_public_research_item_count,
+        macro_public_research_failures,
+    ) = _validate_macro_public_research_artifact_contract(root_path)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_macro_public_research_rules",
+            artifact_path="registry/report_intelligence",
+            item_count=macro_public_research_item_count,
+            accepted=not macro_public_research_failures,
+            failures=tuple(macro_public_research_failures),
+        )
+    )
 
     (
         industry_etf_mapping_contract_item_count,
@@ -8169,6 +9094,40 @@ def validate_report_intelligence_semantics(
             item_count=macro_asset_proxy_readiness_item_count,
             accepted=not macro_asset_proxy_readiness_failures,
             failures=tuple(macro_asset_proxy_readiness_failures),
+        )
+    )
+
+    (
+        macro_series_directional_readiness_item_count,
+        macro_series_directional_readiness_failures,
+    ) = _validate_macro_series_directional_readiness_contract(
+        root_path,
+        outcome_label_rows,
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_macro_series_directional_readiness_rules",
+            artifact_path="registry/report_intelligence/outcome_labeling_readiness.json",
+            item_count=macro_series_directional_readiness_item_count,
+            accepted=not macro_series_directional_readiness_failures,
+            failures=tuple(macro_series_directional_readiness_failures),
+        )
+    )
+
+    (
+        macro_curve_directional_readiness_item_count,
+        macro_curve_directional_readiness_failures,
+    ) = _validate_macro_curve_directional_readiness_contract(
+        root_path,
+        outcome_label_rows,
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_macro_curve_directional_readiness_rules",
+            artifact_path="registry/report_intelligence/outcome_labeling_readiness.json",
+            item_count=macro_curve_directional_readiness_item_count,
+            accepted=not macro_curve_directional_readiness_failures,
+            failures=tuple(macro_curve_directional_readiness_failures),
         )
     )
 
@@ -8922,7 +9881,7 @@ def validate_report_intelligence_semantics(
         )
     )
 
-    ledger_rows, ledger_failures = _load_mapping_jsonl(
+    ledger_rows, ledger_failures, _ledger_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/report_forecast_ledger.jsonl",
     )
@@ -9104,11 +10063,11 @@ def validate_report_intelligence_semantics(
                 "feature_flags.runtime_behavior must state no agent decision impact"
             )
 
-    method_rows, method_failures = _load_mapping_jsonl(
+    method_rows, method_failures, _method_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/method_patterns.jsonl",
     )
-    recipe_rows, recipe_failures = _load_mapping_jsonl(
+    recipe_rows, recipe_failures, _recipe_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/analysis_recipes.jsonl",
     )
@@ -9120,7 +10079,11 @@ def validate_report_intelligence_semantics(
         root_path,
         "registry/report_intelligence/weighted_research_contexts.jsonl",
     )
-    gap_observation_rows, gap_observation_failures = _load_mapping_jsonl(
+    (
+        gap_observation_rows,
+        gap_observation_failures,
+        _gap_observation_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
     )
@@ -9193,31 +10156,55 @@ def validate_report_intelligence_semantics(
         "registry/report_intelligence/extraction_report.json",
     )
     monitoring_failures.extend(extraction_report_errors)
-    source_profile_rows, source_profile_failures = _load_mapping_jsonl(
+    (
+        source_profile_rows,
+        source_profile_failures,
+        _source_profile_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/source_performance_profiles.jsonl",
     )
-    viewpoint_profile_rows, viewpoint_profile_failures = _load_mapping_jsonl(
+    (
+        viewpoint_profile_rows,
+        viewpoint_profile_failures,
+        _viewpoint_profile_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
     )
-    method_profile_rows, method_profile_failures = _load_mapping_jsonl(
+    (
+        method_profile_rows,
+        method_profile_failures,
+        _method_profile_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/method_performance_profiles.jsonl",
     )
-    tool_gap_rows, tool_gap_failures = _load_mapping_jsonl(
+    tool_gap_rows, tool_gap_failures, _tool_gap_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_gaps.jsonl",
     )
-    data_proposal_rows, data_proposal_failures = _load_mapping_jsonl(
+    (
+        data_proposal_rows,
+        data_proposal_failures,
+        _data_proposal_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
     )
-    metric_candidate_rows, metric_candidate_failures = _load_mapping_jsonl(
+    (
+        metric_candidate_rows,
+        metric_candidate_failures,
+        _metric_candidate_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/metric_candidates.jsonl",
     )
-    tool_coverage_rows, tool_coverage_failures = _load_mapping_jsonl(
+    (
+        tool_coverage_rows,
+        tool_coverage_failures,
+        _tool_coverage_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_coverage_matches.jsonl",
     )
@@ -9342,33 +10329,48 @@ def validate_report_intelligence_semantics(
                 "monitoring_report tooling_loop_monitoring must be object"
             )
         else:
-            expected_tooling_counts = {
-                "tool_gap_open_count": len(tool_gap_rows),
-                "data_proposal_open_count": len(data_proposal_rows),
-                "runtime_fallback_observation_count": len(gap_observation_rows),
-                "shadow_recipe_count": len(recipe_rows),
-            }
-            for field, expected in expected_tooling_counts.items():
-                if _int_or_none(tooling_loop.get(field)) != expected:
+            expected_tooling_counts = (
+                (
+                    "tool_gap_open_count",
+                    len(tool_gap_rows),
+                    _tool_gap_rows_present,
+                ),
+                (
+                    "data_proposal_open_count",
+                    len(data_proposal_rows),
+                    _data_proposal_rows_present,
+                ),
+                (
+                    "runtime_fallback_observation_count",
+                    len(gap_observation_rows),
+                    _gap_observation_rows_present,
+                ),
+                ("shadow_recipe_count", len(recipe_rows), _recipe_rows_present),
+            )
+            for field, expected, rows_present in expected_tooling_counts:
+                if rows_present and _int_or_none(tooling_loop.get(field)) != expected:
                     monitoring_failures.append(
                         f"tooling_loop_monitoring {field}: expected {expected}"
                     )
-            expected_priority_counts: dict[str, int] = {}
-            for row in tool_gap_rows:
-                bucket = str(row.get("priority_bucket") or "").strip()
-                if bucket:
-                    expected_priority_counts[bucket] = (
-                        expected_priority_counts.get(bucket, 0) + 1
-                    )
-            observed_priority_counts = _count_mapping(
-                tooling_loop.get("tool_gap_priority_counts"),
-                row_label="tooling_loop_monitoring.tool_gap_priority_counts",
-                failures=monitoring_failures,
-            )
-            if observed_priority_counts != dict(sorted(expected_priority_counts.items())):
-                monitoring_failures.append(
-                    "tooling_loop_monitoring tool_gap_priority_counts mismatch"
+            if _tool_gap_rows_present:
+                expected_priority_counts: dict[str, int] = {}
+                for row in tool_gap_rows:
+                    bucket = str(row.get("priority_bucket") or "").strip()
+                    if bucket:
+                        expected_priority_counts[bucket] = (
+                            expected_priority_counts.get(bucket, 0) + 1
+                        )
+                observed_priority_counts = _count_mapping(
+                    tooling_loop.get("tool_gap_priority_counts"),
+                    row_label="tooling_loop_monitoring.tool_gap_priority_counts",
+                    failures=monitoring_failures,
                 )
+                if observed_priority_counts != dict(
+                    sorted(expected_priority_counts.items())
+                ):
+                    monitoring_failures.append(
+                        "tooling_loop_monitoring tool_gap_priority_counts mismatch"
+                    )
             evidence_coverage = (
                 tooling_loop.get("evidence_coverage")
                 if isinstance(tooling_loop.get("evidence_coverage"), Mapping)
@@ -9379,34 +10381,37 @@ def validate_report_intelligence_semantics(
                     "tooling_loop_monitoring.evidence_coverage must be object"
                 )
             else:
-                if _int_or_none(evidence_coverage.get("metric_candidate_count")) != len(
-                    metric_candidate_rows
+                if (
+                    _metric_candidate_rows_present
+                    and _int_or_none(evidence_coverage.get("metric_candidate_count"))
+                    != len(metric_candidate_rows)
                 ):
                     monitoring_failures.append(
                         "tooling_loop_monitoring.evidence_coverage metric_candidate_count mismatch"
                     )
-                expected_coverage_counts: dict[str, int] = {}
-                for row in tool_coverage_rows:
-                    status = str(row.get("coverage_status") or "").strip()
-                    if status:
-                        expected_coverage_counts[status] = (
-                            expected_coverage_counts.get(status, 0) + 1
-                        )
-                observed_coverage_counts = _count_mapping(
-                    evidence_coverage.get("tool_coverage_status_counts"),
-                    row_label=(
-                        "tooling_loop_monitoring.evidence_coverage."
-                        "tool_coverage_status_counts"
-                    ),
-                    failures=monitoring_failures,
-                )
-                if observed_coverage_counts != dict(
-                    sorted(expected_coverage_counts.items())
-                ):
-                    monitoring_failures.append(
-                        "tooling_loop_monitoring.evidence_coverage "
-                        "tool_coverage_status_counts mismatch"
+                if _tool_coverage_rows_present:
+                    expected_coverage_counts: dict[str, int] = {}
+                    for row in tool_coverage_rows:
+                        status = str(row.get("coverage_status") or "").strip()
+                        if status:
+                            expected_coverage_counts[status] = (
+                                expected_coverage_counts.get(status, 0) + 1
+                            )
+                    observed_coverage_counts = _count_mapping(
+                        evidence_coverage.get("tool_coverage_status_counts"),
+                        row_label=(
+                            "tooling_loop_monitoring.evidence_coverage."
+                            "tool_coverage_status_counts"
+                        ),
+                        failures=monitoring_failures,
                     )
+                    if observed_coverage_counts != dict(
+                        sorted(expected_coverage_counts.items())
+                    ):
+                        monitoring_failures.append(
+                            "tooling_loop_monitoring.evidence_coverage "
+                            "tool_coverage_status_counts mismatch"
+                        )
         weighting_monitoring = (
             monitoring_report.get("report_weighting_monitoring")
             if isinstance(monitoring_report.get("report_weighting_monitoring"), Mapping)
@@ -9417,11 +10422,28 @@ def validate_report_intelligence_semantics(
                 "monitoring_report report_weighting_monitoring must be object"
             )
         else:
-            for field, rows, profile_kind in (
-                ("effective_n_by_source", source_profile_rows, "source"),
-                ("effective_n_by_viewpoint", viewpoint_profile_rows, "viewpoint"),
-                ("effective_n_by_method", method_profile_rows, "method"),
+            for field, rows, profile_kind, rows_present in (
+                (
+                    "effective_n_by_source",
+                    source_profile_rows,
+                    "source",
+                    _source_profile_rows_present,
+                ),
+                (
+                    "effective_n_by_viewpoint",
+                    viewpoint_profile_rows,
+                    "viewpoint",
+                    _viewpoint_profile_rows_present,
+                ),
+                (
+                    "effective_n_by_method",
+                    method_profile_rows,
+                    "method",
+                    _method_profile_rows_present,
+                ),
             ):
+                if not rows_present:
+                    continue
                 summary = (
                     weighting_monitoring.get(field)
                     if isinstance(weighting_monitoring.get(field), Mapping)
@@ -9447,7 +10469,7 @@ def validate_report_intelligence_semantics(
                 monitoring_failures.append(
                     "report_weighting_monitoring.source_weight_drift must be object"
                 )
-            else:
+            elif _source_profile_rows_present:
                 source_summary = _profile_effective_n_summary(
                     source_profile_rows,
                     profile_kind="source",
@@ -9512,15 +10534,18 @@ def validate_report_intelligence_semantics(
             for row in recipe_rows
             if str(row.get("runtime_mode") or "") == "production"
         )
-        if alpha_decay.get("paper_trading_recipe_count") != paper_count:
+        if _recipe_rows_present and alpha_decay.get("paper_trading_recipe_count") != paper_count:
             monitoring_failures.append(
                 "alpha_decay_monitoring paper_trading_recipe_count mismatch"
             )
-        if alpha_decay.get("limited_production_recipe_count") != limited_count:
+        if (
+            _recipe_rows_present
+            and alpha_decay.get("limited_production_recipe_count") != limited_count
+        ):
             monitoring_failures.append(
                 "alpha_decay_monitoring limited_production_recipe_count mismatch"
             )
-        if alpha_decay.get("production_recipe_count") != production_count:
+        if _recipe_rows_present and alpha_decay.get("production_recipe_count") != production_count:
             monitoring_failures.append(
                 "alpha_decay_monitoring production_recipe_count mismatch"
             )
@@ -9645,15 +10670,23 @@ def validate_report_intelligence_semantics(
     )
 
     tooling_failures: list[str] = []
-    tool_gap_rows, tool_gap_failures = _load_mapping_jsonl(
+    tool_gap_rows, tool_gap_failures, _tool_gap_rows_present = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_gaps.jsonl",
     )
-    data_proposal_rows, data_proposal_failures = _load_mapping_jsonl(
+    (
+        data_proposal_rows,
+        data_proposal_failures,
+        _data_proposal_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
     )
-    tool_proposal_rows, tool_proposal_failures = _load_mapping_jsonl(
+    (
+        tool_proposal_rows,
+        tool_proposal_failures,
+        _tool_proposal_rows_present,
+    ) = _load_public_semantic_jsonl(
         root_path,
         "registry/report_intelligence/tool_design_proposals.jsonl",
     )
@@ -9776,8 +10809,13 @@ def validate_report_intelligence_semantics(
             "tool_gap_rows": "registry/report_intelligence/tool_gaps.jsonl",
         }
         for count_field, artifact_path in public_corpus_count_artifacts.items():
-            rows, load_failures = _load_mapping_jsonl(root_path, artifact_path)
+            rows, load_failures, rows_present = _load_public_semantic_jsonl(
+                root_path,
+                artifact_path,
+            )
             patch_coverage_failures.extend(load_failures)
+            if not rows_present:
+                continue
             observed_count = _float_or_none(corpus_counts.get(count_field))
             expected_count = len(rows)
             if observed_count is None or int(observed_count) != expected_count:

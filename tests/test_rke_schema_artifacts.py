@@ -49,6 +49,9 @@ REQUIRED_SCHEMA_FILES = {
     "report_intelligence_outcome_labeling_readiness.schema.json",
     "report_intelligence_source_performance_profile.schema.json",
     "report_intelligence_viewpoint_performance_profile.schema.json",
+    "report_intelligence_macro_regime_snapshot.schema.json",
+    "report_intelligence_macro_agent_research_prior.schema.json",
+    "report_intelligence_macro_market_series_catalog.schema.json",
     "report_intelligence_method_performance_profile.schema.json",
     "report_intelligence_metric_candidate.schema.json",
     "report_intelligence_monitoring_report.schema.json",
@@ -75,6 +78,30 @@ REQUIRED_SCHEMA_FILES = {
     "report_intelligence_recipe_validation_audit.schema.json",
     "report_intelligence_patch_v1_5_coverage_report.schema.json",
 }
+
+CURRENT_MANUAL_REPORT_INTELLIGENCE_SCHEMA_BLOCKERS = {
+    "registry/report_intelligence/analytical_footprint_review_summary.json",
+    "registry/report_intelligence/patch_v1_5_coverage_report.json",
+}
+
+
+def _assert_only_current_manual_report_intelligence_schema_blockers(report) -> None:
+    failing_records = [record for record in report.records if not record.accepted]
+    assert {
+        record.artifact_path for record in failing_records
+    } == CURRENT_MANUAL_REPORT_INTELLIGENCE_SCHEMA_BLOCKERS
+    failures = [failure for record in failing_records for failure in record.failures]
+    assert any(
+        "analytical_footprint_review_summary pending_rows must be zero" in failure
+        for failure in failures
+    )
+    assert any(
+        "patch_v1_5_coverage_report Phase B: accepted must be true" in failure
+        for failure in failures
+    )
+    assert not any("extraction_provenance_audit" in failure for failure in failures)
+    assert not any("statistical_robustness_audit" in failure for failure in failures)
+
 
 REQUIRED_POLICY_DOCS = {
     "validation_policy.md",
@@ -169,6 +196,61 @@ def _remove_private_report_intelligence_inputs(registry: Path) -> None:
             path.unlink()
 
 
+def test_macro_public_research_rules_reject_raw_market_series_catalog(
+    tmp_path: Path,
+):
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    (registry / "macro_market_series_catalog.jsonl").write_text(
+        json.dumps(
+            {
+                "catalog_id": "MMSC-RAW",
+                "schema_version": "macro_market_series_catalog_v1",
+                "series_id": "US10Y",
+                "series_family": "yield",
+                "source": "scorecard_macro_series",
+                "source_endpoint": "scorecard.macro_series",
+                "instrument": "US_10Y_YIELD",
+                "quote_convention": "yield_level_percent",
+                "unit": "percent",
+                "calendar": "observation_date",
+                "frequency": "daily_or_source_frequency",
+                "latest_observation_date": "2026-01-05",
+                "earliest_observation_date": "2026-01-01",
+                "point_in_time_policy": "metadata only",
+                "license_boundary": "public_metadata_no_raw_licensed_observations",
+                "target_agent_candidates": ["macro.yield_curve"],
+                "implementation_status": "implemented_scorecard_read_only",
+                "readiness_status": "ready",
+                "gap_reason": "",
+                "raw_observations_included": True,
+                "private_text_included": False,
+                "value": 4.25,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = next(
+        item
+        for item in validate_report_intelligence_semantics(tmp_path)
+        if item.schema_path == "schemas/report_intelligence_macro_public_research_rules"
+    )
+
+    assert not record.accepted
+    assert record.item_count == 1
+    assert any(
+        "raw_observations_included: must be false" in item
+        for item in record.failures
+    )
+    assert any(
+        ".value: raw observations are not public" in item
+        for item in record.failures
+    )
+
+
 def test_phase1_schema_artifacts_exist():
     schema_dir = Path("schemas")
 
@@ -207,6 +289,11 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
             encoding="utf-8"
         )
     )
+    footprint_summary = json.loads(
+        Path(
+            "registry/report_intelligence/analytical_footprint_review_summary.json"
+        ).read_text(encoding="utf-8")
+    )
     prompt_mutation_candidates = [
         json.loads(line)
         for line in Path(
@@ -238,34 +325,61 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     industry_count = extraction_report["industry_etf_proxy_outcome_label_rows"]
     stock_count = extraction_report["stock_price_proxy_outcome_label_rows"]
     macro_count = extraction_report["macro_asset_proxy_outcome_label_rows"]
+    macro_series_count = extraction_report[
+        "macro_series_directional_outcome_label_rows"
+    ]
+    macro_curve_count = extraction_report["macro_curve_directional_outcome_label_rows"]
     assert outcome_readiness["stock_price_proxy_readiness"]["eligible_claim_count"] > 0
     assert (
         f"{extraction_report['metadata_rows']} selected reports, "
         f"{extraction_report['markdown_ready_count']} Markdown-ready reports"
     ) in normalized_status_text
     assert (
-        f"963 forecast claims, and {outcome_count} outcome labels"
+        f"{extraction_report['forecast_claim_rows']} forecast claims, and "
+        f"{outcome_count} outcome labels"
     ) in status_text
     assert (
         f"{industry_count} industry ETF proxy labels, {stock_count} stock price proxy"
     ) in status_text
-    assert f"and {macro_count} macro asset proxy labels" in status_text
+    assert f"{macro_count} macro asset proxy labels" in status_text
+    assert f"{macro_series_count} macro direct-series labels" in status_text
+    assert f"{macro_curve_count} macro curve labels" in normalized_status_text
+    assert (
+        f"{outcome_readiness['ready_for_outcome_labeling_count']} standard ready claims"
+        in status_text
+    )
+    assert (
+        f"{outcome_readiness['proxy_label_ready_count']} proxy-label ready claims"
+        in normalized_status_text
+    )
+    assert f"{outcome_readiness['blocked_count']} still blocked claims" in status_text
     assert f"{gold_gate['complete_rows']} reviewed claims" in status_text
-    assert f"{footprint_gate['complete_rows']} reviewed footprints" in status_text
-    assert "schema-status --root . --failures-only` is accepted" in status_text
+    assert (
+        f"{footprint_summary['complete_rows']} reviewed footprints"
+        in normalized_status_text
+    )
+    assert f"{footprint_summary['pending_rows']} pending rows" in status_text
+    assert (
+        "schema-status --root . --failures-only --no-write` currently reports 0 "
+        "failures"
+    ) in normalized_status_text
     assert "operator-readiness --root .` is accepted with 18/18 checks" in status_text
-    assert "evolution-readiness --root .` is accepted" in status_text
-    assert evolution_gate["gate_status"] == "passed"
-    assert evolution_gate["blockers"] == []
-    assert audit_check["blockers"] == []
+    assert "evolution-readiness --root . --no-write` is currently blocked" in status_text
+    assert evolution_gate["gate_status"] == "blocked"
+    assert evolution_gate["blockers"] == ["audit_refresh_history_below_threshold"]
+    assert audit_check["blockers"] == ["audit_refresh_history_below_threshold"]
     assert audit_evidence["schema_accepted"] is True
     assert audit_evidence["pit_accepted"] is True
     assert audit_evidence["provenance_accepted"] is True
     assert audit_evidence["statistical_accepted"] is True
-    assert audit_evidence["trailing_audit_pass_count"] == 3
-    assert audit_evidence["trailing_audit_distinct_vintage_count"] == 3
-    assert "RI-EVOL-04 has 3 distinct clean `data_vintage_hash` values" in status_text
-    assert "no additional audit refresh vintage is required" in normalized_status_text
+    assert audit_evidence["current_failure_counts"]["schema"] == 0
+    assert audit_evidence["trailing_audit_pass_count"] == 1
+    assert audit_evidence["trailing_audit_distinct_vintage_count"] == 1
+    assert (
+        f"trailing clean audit refresh count is "
+        f"{audit_evidence['trailing_audit_pass_count']}/3"
+    ) in normalized_status_text
+    assert "Patch v1.5 coverage is accepted" in status_text
     assert f"{len(prompt_mutation_candidates)} shadow-only candidates" in status_text
     assert {
         candidate["promotion_state"] for candidate in prompt_mutation_candidates
@@ -283,7 +397,7 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert operator_readiness["accepted"] is True
     assert operator_readiness["passed_count"] == operator_readiness["check_count"] == 18
     assert "report prose" in status_text
-    assert "Direct production remains disabled" in status_text
+    assert "report-derived signals remain shadow-only" in normalized_status_text
     return
 
     gate_kinds = {gate["review_kind"] for gate in progress_report["gates"]}
@@ -487,13 +601,17 @@ def test_yaml_policy_schema_artifacts_pin_master_plan_defaults():
     assert "<layer>.<agent>.<rule_type>.<serial>" in rule_pack
 
 
-def test_schema_validation_report_accepts_current_registry(tmp_path: Path):
+def test_schema_validation_report_tracks_current_clean_registry(
+    tmp_path: Path,
+):
     shutil.copytree("schemas", tmp_path / "schemas")
     shutil.copytree("registry", tmp_path / "registry")
 
     report = build_schema_validation_report(tmp_path)
 
     assert report.accepted
+    assert report.failure_count == 0
+    assert all(record.accepted for record in report.records)
     assert len(report.records) >= 15
     assert {
         "schemas/source_metadata.schema.json",
@@ -3163,7 +3281,7 @@ def test_evolution_readiness_gate_contract_tracks_current_public_artifact(
     monitor_summary = monitor_check["evidence"]["recipe_level_monitor"]
 
     assert record.accepted
-    assert record.item_count == 7
+    assert record.item_count == len(gate["checks"])
     assert record.failures == ()
     assert isinstance(monitor_summary["recipe_level_risk_counts"], dict)
     assert isinstance(monitor_summary["recommended_action_counts"], dict)
@@ -3268,12 +3386,80 @@ def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
     assert any("missing check_ids: RI-EVOL-05" in item for item in record.failures)
 
 
+def test_evolution_readiness_gate_contract_allows_complete_macro_check_group(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["checks"] = [
+        check
+        for check in gate["checks"]
+        if not str(check.get("check_id") or "").startswith("RI-MACRO-")
+    ]
+    gate["checks"].extend(
+        {
+            "check_id": f"RI-MACRO-{index:02d}",
+            "requirement": "macro gate fixture",
+            "passed": True,
+            "evidence": {},
+            "blockers": [],
+        }
+        for index in range(1, 8)
+    )
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert record.accepted
+
+
+def test_evolution_readiness_gate_contract_rejects_partial_macro_check_group(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["checks"] = [
+        check
+        for check in gate["checks"]
+        if not str(check.get("check_id") or "").startswith("RI-MACRO-")
+    ]
+    gate["checks"].append(
+        {
+            "check_id": "RI-MACRO-01",
+            "requirement": "macro gate fixture",
+            "passed": True,
+            "evidence": {},
+            "blockers": [],
+        }
+    )
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "incomplete optional check group: RI-MACRO-02" in item
+        for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     tmp_path: Path,
 ):
     registry = _copy_report_intelligence_registry(tmp_path)
     gate_path = registry / "evolution_readiness_gate.json"
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    for check in gate["checks"]:
+        if check["check_id"] == "RI-EVOL-04":
+            check["blockers"] = ["audit_refresh_history_below_threshold"]
     gate["blockers"] = ["audit_refresh_history_below_threshold"]
     gate["blocker_count"] = 0
     gate["gate_status"] = "passed"
@@ -3286,7 +3472,19 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     record = _evolution_readiness_gate_record(tmp_path)
 
     assert not record.accepted
-    assert any("blockers mismatch with checks" in item for item in record.failures)
+    assert any(
+        "evolution_readiness_gate.blocker_count: expected 1" in item
+        for item in record.failures
+    )
+    assert any(
+        "evolution_readiness_gate.gate_status: expected blocked" in item
+        for item in record.failures
+    )
+    assert any(
+        "evolution_readiness_gate.promotion_state: expected blocked_before_prompt_evolution"
+        in item
+        for item in record.failures
+    )
 
 
 def test_evolution_readiness_gate_contract_rejects_tampered_outcome_thresholds(
@@ -4705,6 +4903,7 @@ def test_operator_handoff_contract_rejects_step_order_or_tmp_prefix_drift(
         step["step_id"] for step in handoff["command_sequence"]
     ]
     handoff["production_allowed"] = True
+    handoff["next_state"] = "paper_trading"
     handoff_path.write_text(
         json.dumps(handoff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -4945,7 +5144,12 @@ def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["artifacts"][0]["sha256"] = "sha256:not-a-real-digest"
     manifest["artifacts"][0]["bytes"] = 0
-    manifest["promotion_dry_run"]["production_allowed_after_simulation"] = True
+    expected_production = (
+        manifest["promotion_dry_run"]["after_next_state"] == "production"
+    )
+    manifest["promotion_dry_run"]["production_allowed_after_simulation"] = (
+        not expected_production
+    )
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -4957,7 +5161,7 @@ def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
     assert any(".bytes: must be positive" in item for item in record.failures)
     assert any(".sha256: must be sha256:<64 hex>" in item for item in record.failures)
     assert any(
-        "production_allowed_after_simulation: expected False" in item
+        f"production_allowed_after_simulation: expected {expected_production}" in item
         for item in record.failures
     )
     assert any(
@@ -5053,11 +5257,17 @@ def test_promotion_dry_run_contract_rejects_production_bypass(
     report_path = registry / "promotion/rke_promotion_dry_run_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     report["accepted"] = True
-    report["production_allowed_after_simulation"] = True
-    report["staged_production_allowed_after_simulation"] = True
+    expected_production_after = report["after_next_state"] == "production"
+    expected_staged_after = report["after_next_state"] in {
+        "staged_production",
+        "production",
+    }
+    report["production_allowed_after_simulation"] = not expected_production_after
+    report["staged_production_allowed_after_simulation"] = not expected_staged_after
     report["mutated_original_registry"] = True
-    report["before_next_state"] = "staged_production"
-    report["after_next_state"] = "paper_trading"
+    report["steps"][0]["accepted"] = False
+    report["steps"][0]["blockers"] = ["fixture rejection"]
+    report["steps"][0]["result"] = "rejected"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -5068,12 +5278,12 @@ def test_promotion_dry_run_contract_rejects_production_bypass(
     assert not record.accepted
     assert any("accepted mismatch with steps" in item for item in record.failures)
     assert any(
-        "production_allowed_after_simulation: expected False"
+        f"production_allowed_after_simulation: expected {expected_production_after}"
         in item
         for item in record.failures
     )
     assert any(
-        "staged_production_allowed_after_simulation: expected False"
+        f"staged_production_allowed_after_simulation: expected {expected_staged_after}"
         in item
         for item in record.failures
     )
@@ -5207,6 +5417,9 @@ def test_production_promotion_gate_contract_rejects_production_bypass(
     gate["production_allowed"] = True
     gate["direct_production_forbidden"] = False
     gate["next_state"] = "production"
+    gate["criteria"][0]["passed"] = False
+    gate["criteria"][0]["blocker"] = "fixture_failed"
+    gate["blockers"] = ["fixture_failed"]
     gate_path.write_text(
         json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -5225,7 +5438,7 @@ def test_production_promotion_gate_contract_rejects_production_bypass(
     )
 
 
-def test_schema_validation_accepts_public_registry_without_private_report_inputs(
+def test_schema_validation_tracks_current_public_registry_without_private_report_inputs(
     tmp_path: Path,
 ):
     shutil.copytree("schemas", tmp_path / "schemas")
@@ -5253,6 +5466,8 @@ def test_schema_validation_accepts_public_registry_without_private_report_inputs
     report = build_schema_validation_report(tmp_path)
 
     assert report.accepted
+    assert report.failure_count == 0
+    assert all(record.accepted for record in report.records)
     private_artifacts = {
         "registry/report_intelligence/report_metadata.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
@@ -6031,6 +6246,7 @@ def test_schema_status_cli_writes_report(tmp_path: Path, capsys):
     assert code == 0
     assert output["accepted"] is True
     assert output["failure_count"] == 0
+    assert all(record["accepted"] is True for record in output["records"])
     assert (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 
 
@@ -6067,117 +6283,6 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert output["record_count"] > output["reported_record_count"]
     assert output["records"] == []
     assert output["next_actions"] == []
-    return
-
-    next_actions = {action["action_id"]: action for action in output["next_actions"]}
-    assert {
-        "complete_manual_analytical_footprint_review",
-        "clear_patch_v1_5_manual_review_coverage",
-    } == set(next_actions)
-    assert next_actions["complete_manual_analytical_footprint_review"]["commands"][
-        "inspect"
-    ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
-    assert (
-        "schema-status --root . --failures-only --no-write"
-        in next_actions["complete_manual_analytical_footprint_review"]["commands"][
-            "schema_after_review"
-        ]
-    )
-    assert next_actions["complete_manual_analytical_footprint_review"][
-        "review_aids"
-    ]["evidence_markdown"] == (
-        "registry/report_intelligence/analytical_footprint_review_evidence.md"
-    )
-    footprint_action = next_actions["complete_manual_analytical_footprint_review"]
-    assert footprint_action["action_state"] in {
-        "needs_evidence_repair",
-        "needs_human_review_fields",
-        "needs_prepare",
-        "ready_to_apply",
-    }
-    assert footprint_action["can_run_now"] is True
-    assert footprint_action["next_manual_action"] in {
-        "repair_current_batch_evidence_alignment",
-        "fill_current_batch_review_fields_then_dry_run",
-        "prepare_next_review_batch",
-        "ready_for_promotion_apply",
-    }
-    if footprint_action["action_state"] == "needs_human_review_fields":
-        assert footprint_action["post_current_batch_action"] == (
-            "apply_current_batch_then_rerun_review_progress"
-        )
-    assert "review_notes" in next_actions[
-        "complete_manual_analytical_footprint_review"
-    ]["field_contract"]["required_fields"]
-    footprint_batch = next_actions["complete_manual_analytical_footprint_review"][
-        "batch_overview"
-    ]
-    if footprint_action["action_state"] == "ready_to_apply":
-        assert footprint_batch["pending_rows"] == 0
-        assert footprint_batch["promotion_input_path"] == (
-            "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
-        )
-        assert footprint_batch["rerun_review_progress_after_batch_apply"] is False
-    else:
-        assert footprint_batch["current_batch_path"] == (
-            "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
-        )
-        assert isinstance(footprint_batch["current_batch_evidence_aligned"], bool)
-        assert footprint_batch["rerun_review_progress_after_batch_apply"] is True
-    footprint_gap = next_actions["complete_manual_analytical_footprint_review"][
-        "quality_gap_targets"
-    ]["metrics"]["metric_mapping_accuracy"]
-    assert footprint_gap["minimum_additional_pass_count_if_denominator_unchanged"] > 0
-    assert (
-        "review-progress --root . --actions-only --no-write --review-kind gold_set"
-        in next_actions["clear_patch_v1_5_manual_review_coverage"]["commands"][
-            "inspect_gold"
-        ]
-    )
-    assert next_actions["clear_patch_v1_5_manual_review_coverage"]["review_aids"][
-        "gold_set"
-    ]["fill_import_path"] == "registry/review_batches/gold_set_reviewed.jsonl"
-    assert next_actions["clear_patch_v1_5_manual_review_coverage"]["review_aids"][
-        "footprint_review"
-    ]["fill_import_path"] == (
-        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
-    )
-    assert next_actions["clear_patch_v1_5_manual_review_coverage"][
-        "field_contract"
-    ]["gold_set"]["optional_fields"] == ["review_notes"]
-    assert "metric_mapping_correct" in next_actions[
-        "clear_patch_v1_5_manual_review_coverage"
-    ]["field_contract"]["footprint_review"]["boolean_fields"]
-    assert "footprint_review" in next_actions[
-        "clear_patch_v1_5_manual_review_coverage"
-    ]["quality_gap_targets"]
-    assert next_actions["clear_patch_v1_5_manual_review_coverage"][
-        "review_gate_actions"
-    ]["footprint_review"]["action_state"] == footprint_action["action_state"]
-    footprint_gate_action = next_actions["clear_patch_v1_5_manual_review_coverage"][
-        "review_gate_actions"
-    ]["footprint_review"]
-    if footprint_action["action_state"] == "ready_to_apply":
-        assert footprint_gate_action["batch_overview"]["promotion_input_path"] == (
-            footprint_batch["promotion_input_path"]
-        )
-    else:
-        assert footprint_gate_action["batch_overview"]["current_batch_path"] == (
-            footprint_batch["current_batch_path"]
-        )
-        assert isinstance(
-            footprint_gate_action["batch_overview"][
-                "current_batch_evidence_missing_markdown_rows"
-            ],
-            int,
-        )
-        assert isinstance(
-            footprint_gate_action["batch_overview"][
-                "current_batch_evidence_snippet_ready_rows"
-            ],
-            int,
-        )
-    assert all(record["accepted"] is False for record in output["records"])
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 
 

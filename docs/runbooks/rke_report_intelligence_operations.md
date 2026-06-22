@@ -12,6 +12,8 @@ Markdown excerpts here.
 - Local temp root: `~/tmp/mosaic-rke/`
 - MinerU CLI: `.venv/bin/mineru`
 - Required MinerU backend for report conversion: `vlm-auto-engine`
+- Required MinerU API/deployment backend env for that VLM path:
+  `MINERU_BACKEND=vlm-vllm-engine`
 - Previous `hybrid-auto-engine` smoke is useful only as environment proof; do
   not use it for the macro/strategy report batches unless the user explicitly
   asks for hybrid mode.
@@ -31,14 +33,16 @@ docker inspect rke-vllm-qwen36-27b-160k-20260610
 
 ## Local Macro Strategy Source
 
-The macro strategy source registry is built from actual PDFs under:
+The macro strategy source registry is built from actual PDFs under the local
+Yanbaoke root:
 
 ```text
-/home/hap/Downloads/yanbaoke/宏观策略
+/home/hap/Downloads/yanbaoke
 ```
 
-Do not rely on `文件清单.txt`; it is incomplete. Scan the directory recursively
-for `*.pdf`.
+Do not rely on `文件清单.txt`; it is incomplete. Scan the root recursively for
+`*.pdf` so newly added macro-adjacent folders such as `其他债券研究`, `期货研究`,
+`全球策略`, and `国际宏观评论` are included in the same private source registry.
 
 Current private source outputs:
 
@@ -49,6 +53,26 @@ registry/sources/local_macro_strategy_reports.manifest.json
 
 Both paths are gitignored and must remain private.
 
+## GitHub Registry Boundary
+
+Do not commit the full Report Intelligence runtime database to GitHub. The
+tracked `registry/report_intelligence/` surface is limited to public-safe control
+plane artifacts such as feature flags, compact catalogs, readiness gates, and
+aggregate audit summaries. Large per-claim/per-footprint/per-recipe derived
+JSONL artifacts are local generated outputs, even when they are redacted.
+
+Keep these classes local/gitignored:
+
+- extracted claim, footprint, metadata, review-aid, and outcome-label files;
+- recipe/method/tool-gap/metric-candidate detail JSONL files;
+- macro regime snapshot and macro agent research-prior detail exports;
+- audit, monitor, gap-distribution, prompt-mutation, and paper-trading history
+  JSONL files.
+
+If downstream macro agents need one of these views, consume it from the local
+registry or add a separate compact public export. Do not re-add the full detail
+JSONL files to `REQUIRED_REGISTRY_FILES`.
+
 Last source build:
 
 - Command:
@@ -56,27 +80,80 @@ Last source build:
 ```bash
 uv run mosaic-rke build-local-macro-report-sources \
   --root . \
-  --input-dir /home/hap/Downloads/yanbaoke/宏观策略
+  --input-dir /home/hap/Downloads/yanbaoke
 ```
 
-- Scanned PDF count: `788`
-- Written source rows: `788`
-- Date range: `2023-08-30` to `2026-06-09`
+- Scanned PDF count: `1898`
+- Written source rows: `1898`
+- Date range: `2017-10-15` to `2026-06-21`
 - Report type counts:
-  `宏观策略=329`, `A股=22`, `债券=7`, `商品=33`, `大类资产=20`,
-  `海外=11`, `待分类=366`
+  `宏观策略=605`, `宏观策略-A股=44`, `宏观策略-债券=233`,
+  `宏观策略-商品=83`, `宏观策略-大类资产=100`, `宏观策略-海外=44`,
+  `宏观策略-待分类=789`
+
+## Macro Series Backfill
+
+RKE report-intelligence reads macro time series from the local scorecard
+`macro_series` table; it does not commit raw market observations. The local DB
+path used in this checkout is:
+
+```text
+data/scorecard.db
+```
+
+This path is gitignored and must remain private/local. After adding or refreshing
+macro observations, rebuild derived report-intelligence artifacts with:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m mosaic.rke.cli report-intelligence \
+  --root . \
+  --refresh-derived-only \
+  --scorecard-db-path data/scorecard.db
+```
+
+Volatility/VIX status:
+
+- `2026-06-22`: AKShare/Oxford Man VIX endpoint failed with an SSL EOF both
+  inside and outside the sandbox, so it is not a sandbox permission issue.
+- VIX backfill now uses the existing `mosaic.dataflows.macro_data.get_ivx`
+  yfinance adapter with instrument `^VIX`.
+- Successful command:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m mosaic.rke.cli macro-series-backfill \
+  --root . \
+  --start-date 2025-01-01 \
+  --end-date 2026-06-18 \
+  --series-id VIX \
+  --scorecard-db-path data/scorecard.db
+```
+
+Observed result: `accepted=true`, `fetched_rows=367`, `inserted_rows=367`.
+After the derived refresh, `macro_market_series_catalog.jsonl` marks `VIX` as
+`ready` with observations through `2026-06-18`. Current public macro outcome
+labels still have no completed real volatility leg because the present claim
+pool has no clear labelable volatility claim; this is a corpus/extraction gap,
+not a VIX data gap.
 
 ## MinerU Usage
 
-User requirement: run MinerU in vLLM/VLM mode. Use `vlm-auto-engine` for PDF to
-Markdown conversion, not `pipeline`, and not `hybrid-auto-engine` for the normal
-macro/strategy batch path.
+User requirement: run MinerU in vLLM/VLM mode. For the current installed MinerU
+CLI, pass `vlm-auto-engine` as `-b/--backend` for PDF to Markdown conversion,
+not `pipeline`, and not `hybrid-auto-engine` for the normal macro/strategy batch
+path. Also set `MINERU_BACKEND=vlm-vllm-engine` in the MinerU subprocess
+environment. Recent MinerU documentation names the API/deployment backend
+`vlm-vllm-engine`; older/internal code paths may refer to the async engine as
+`vllm-async-engine`.
 
 Mode distinction:
 
-- `vlm-auto-engine` is MinerU local VLM mode. It uses local computing power
-  through MinerU's VLM engine and does not require the Docker vLLM OpenAI server
-  to be running. This mode has been smoke-tested locally.
+- `vlm-auto-engine` is the CLI backend accepted by the installed MinerU command
+  for local VLM conversion. RKE injects `MINERU_BACKEND=vlm-vllm-engine` when it
+  launches this backend so MinerU's API/deployment layer uses the local vLLM
+  engine. Do not pass `vlm-vllm-engine` directly to `mineru -b` unless
+  `.venv/bin/mineru --help` shows it as a supported CLI choice.
 - `vlm-http-client` and `hybrid-http-client` are MinerU HTTP-client modes. These
   require a compatible server URL via `--mineru-server-url` / MinerU `-u`, for
   example `http://127.0.0.1:30000`. Start and health-check the Docker vLLM
@@ -88,7 +165,8 @@ Mode distinction:
 Preferred smoke command:
 
 ```bash
-TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
+MINERU_BACKEND=vlm-vllm-engine TMPDIR=~/tmp/mosaic-rke \
+  uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -106,7 +184,8 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 Preferred batch command:
 
 ```bash
-TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
+MINERU_BACKEND=vlm-vllm-engine TMPDIR=~/tmp/mosaic-rke \
+  uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -155,6 +234,7 @@ Tuned local VLM batch pattern:
 ```bash
 PATH=/home/hap/Project/MOSAIC-RKE/.venv/bin:$PATH \
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+MINERU_BACKEND=vlm-vllm-engine \
 MINERU_API_MAX_CONCURRENT_REQUESTS=200 \
 MINERU_PROCESSING_WINDOW_SIZE=256 \
 MINERU_MIN_BATCH_INFERENCE_SIZE=256 \
@@ -455,23 +535,21 @@ Additional 2026-06-20 tuning:
   observed rate-limit behavior changes.
 - Current gate implication: `RI-EVOL-02` passed once the mature 2025 samples
   were merged. Because the merged registry is extraction-clean, do not add more
-  stock samples just to clear `RI-EVOL-04`. The active blocker is the
-  footprint/manual-review schema gate plus the required clean audit vintages, so
-  the next productive work is footprint review approval/import and derived audit
-  refresh.
-- 2026-06-21 post-merge local promotion check: after applying the completed
-  gold-set, analytical-footprint, and lockbox review imports, then refreshing
-  derived report-intelligence artifacts, `operator-readiness` passed `18/18`
-  with `next_state=production` and `schema-status --failures-only` returned
+  stock samples just to clear `RI-EVOL-04`. The active blocker is now only the
+  required distinct clean audit-vintage history.
+- 2026-06-22 post-review local promotion check: after applying the completed
+  gold-set and analytical-footprint review imports, then refreshing derived
+  report-intelligence artifacts, `operator-readiness` passed `18/18` with
+  `next_state=staged_production` and `schema-status --failures-only` returned
   `accepted=true, failure_count=0`. `evolution-readiness` then had only
   `audit_refresh_history_below_threshold`: current `1/3`, remaining `2`
   distinct clean data vintages. Do not keep rerunning `--refresh-derived-only`
   on unchanged inputs; same-`data_vintage_hash` refreshes are deduplicated and
   cannot satisfy `RI-EVOL-04`.
-- The generated registry outputs from that local promotion check were restored
-  and not committed. Re-run the review apply commands only when a local
-  promotion-state rehearsal is needed; commit code/docs/tests, not private
-  reviewed imports or bulky regenerated registry artifacts.
+- Public-safe aggregate outputs from this check may be committed with the
+  associated code/docs/tests. Private reviewed imports, review aids, source rows,
+  PDFs, Markdown, MinerU caches, local scorecard DBs, and claim/source prose
+  artifacts remain uncommitted.
 - Sandbox note: the same smoke fails inside the managed network sandbox with
   DNS resolution errors. That is an environment restriction, not a Mimo
   rate-limit signal. Use the approved non-sandbox network execution path for
@@ -780,6 +858,10 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 
 - `2026-06-15`: Added local macro source support and built private source rows
   from `/home/hap/Downloads/yanbaoke/宏观策略`; 788 PDFs found.
+- `2026-06-22`: Rebuilt the private local macro source rows from the parent
+  `/home/hap/Downloads/yanbaoke` root so macro-adjacent additions in
+  `其他债券研究`, `期货研究`, `全球策略`, and `国际宏观评论` are included; 1898 PDFs
+  found, with no source-scan blockers.
 - `2026-06-15`: Documented that MinerU/vLLM are already configured locally and
   should be reused before reinstalling.
 - `2026-06-15`: Fixed MinerU command resolution so relative commands such as
@@ -806,3 +888,25 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   MinerU `vlm-auto-engine` on 14 cached Tushare PDFs in a private staging
   registry with `--skip-llm`; all 14 were Markdown-ready and the refreshed
   private gold evidence batch now has 0 missing Markdown rows.
+- `2026-06-21`: Updated RKE's MinerU launcher so the normal local VLM path still
+  passes CLI backend `vlm-auto-engine` but explicitly injects
+  `MINERU_BACKEND=vlm-vllm-engine` for MinerU's vLLM API/deployment engine. This
+  matches recent MinerU documentation without passing an unsupported backend
+  name to the current installed CLI.
+- `2026-06-21`: Ran a one-report forced-overwrite MinerU smoke under isolated
+  cache `.mosaic/rke/report_intelligence_mineru_vllm_smoke` with
+  `MINERU_BACKEND=vlm-vllm-engine`, CLI backend `vlm-auto-engine`, and
+  `--skip-llm`; the PDF was downloaded, Markdown conversion completed, Markdown
+  quality passed, and blocker count was `0`.
+- `2026-06-21`: For macro curve extraction, title-level matches such as
+  `期限利差` or `收益率曲线` were too broad and often produced sector/asset claims
+  rather than curve claims. The useful selector is a Markdown window containing
+  forecast language plus curve/spread terms plus a direction term, for example
+  forecast/expected language near `期限利差`, `收益率曲线`, `中美利差`,
+  `走陡`, `走平`, `扩大`, or `收窄`. After prompt and normalizer updates, the
+  explicit-curve staging batch
+  `.mosaic/rke/report_intelligence_batches/macro_curve_explicit_reextract_20260621_01`
+  refreshed with 1 `macro_curve_directional` eligible claim and 3 curve outcome
+  labels on `US_2S10S`, plus direct macro-series labels. The normalizer now
+  preserves the parent `macro_curve` leg when the LLM also emits component
+  `macro_series` legs.

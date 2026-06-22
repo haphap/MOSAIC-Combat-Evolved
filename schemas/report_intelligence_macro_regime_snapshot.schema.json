@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Macro Regime Snapshot",
+  "type": "object",
+  "required": [
+    "snapshot_id",
+    "schema_version",
+    "as_of_date",
+    "agent_id",
+    "regime_bucket",
+    "regime_types",
+    "as_of_date_regime_types",
+    "source_text_regime_types",
+    "source_claim_count",
+    "background_only",
+    "claim_validation_allowed",
+    "source_policy",
+    "use_policy",
+    "data_vintage_hash",
+    "private_text_included"
+  ],
+  "properties": {
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "macro_regime_snapshot_v1"},
+    "as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "agent_id": {"type": "string", "pattern": "^macro\\."},
+    "regime_family": {"type": "string"},
+    "regime_bucket": {"type": "string", "minLength": 1},
+    "regime_features": {
+      "type": "object",
+      "additionalProperties": {"type": ["integer", "number", "string", "boolean", "null"]}
+    },
+    "feature_units": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "source_series_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "missing_feature_reasons": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "regime_types": {"type": "array", "items": {"type": "string"}},
+    "as_of_date_regime_types": {"type": "array", "items": {"type": "string"}},
+    "source_text_regime_types": {"type": "array", "items": {"type": "string"}},
+    "regime_detail_ids": {"type": "array", "items": {"type": "string"}},
+    "source_claim_count": {"type": "integer", "minimum": 1},
+    "background_only": {"const": true},
+    "claim_validation_allowed": {"const": false},
+    "source_policy": {"const": "public_safe_aggregate_no_source_prose"},
+    "use_policy": {"const": "background_only_not_claim_validation"},
+    "data_vintage_hash": {"type": "string", "minLength": 1},
+    "private_text_included": {"const": false}
+  },
+  "additionalProperties": false
+}

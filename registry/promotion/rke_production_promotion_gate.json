@@ -1,7 +1,5 @@
 {
-  "blockers": [
-    "lockbox has not been opened"
-  ],
+  "blockers": [],
   "criteria": [
     {
       "blocker": "",
@@ -68,12 +66,12 @@
       "passed": true
     },
     {
-      "blocker": "lockbox has not been opened",
+      "blocker": "",
       "criterion_id": "PG09",
       "description": "Lockbox is passed before final production.",
-      "evidence": "lockbox_state=not_ready, next_state=paper_trading, payload_errors=0",
+      "evidence": "lockbox_state=final_promotion_eligible, next_state=production, payload_errors=0",
       "evidence_path": "registry/lockbox/central_bank_lockbox_review.json",
-      "passed": false
+      "passed": true
     },
     {
       "blocker": "",
@@ -84,10 +82,10 @@
       "passed": true
     }
   ],
-  "direct_production_forbidden": true,
-  "next_state": "staged_production",
+  "direct_production_forbidden": false,
+  "next_state": "production",
   "paper_trading_allowed": true,
-  "production_allowed": false,
+  "production_allowed": true,
   "report_id": "RKE-PRODUCTION-PROMOTION-GATE-20260606",
   "staged_production_allowed": true
 }

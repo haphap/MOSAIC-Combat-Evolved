@@ -153,7 +153,7 @@
       "step_id": "promotion-status-final"
     }
   ],
-  "direct_production_forbidden": true,
+  "direct_production_forbidden": false,
   "gates": [
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
@@ -265,9 +265,9 @@
       },
       "blocker": "analytical-footprint review still required",
       "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
-      "evidence": "2446 / 2446 analytical footprints reviewed",
+      "evidence": "2717 / 2717 analytical footprints reviewed",
       "evidence_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
-      "exported_rows": 2446,
+      "exported_rows": 2717,
       "field_contract": {
         "boolean_allowed_values": [
           true,
@@ -411,9 +411,9 @@
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
       "batch_overview": {},
-      "blocker": "lockbox has not been opened",
+      "blocker": "",
       "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
-      "evidence": "lockbox_state=not_ready, next_state=paper_trading, payload_errors=0",
+      "evidence": "lockbox_state=final_promotion_eligible, next_state=production, payload_errors=0",
       "evidence_path": "registry/lockbox/central_bank_lockbox_review.json",
       "exported_rows": 1,
       "field_contract": {
@@ -460,7 +460,7 @@
       "gate_id": "PG09",
       "import_template_path": "registry/review_batches/lockbox_review_next_import_template.json",
       "operator_note": "Run prepare-lockbox-review only after gold-set, analytical-footprint, and source-license gates pass; fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.",
-      "passed": false,
+      "passed": true,
       "pending_rows": null,
       "policy_template_path": "",
       "prepare_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .",
@@ -507,14 +507,12 @@
     "registry/handoffs/rke_operator_handoff.md"
   ],
   "handoff_id": "RKE-OPERATOR-HANDOFF-20260606",
-  "next_state": "staged_production",
+  "next_state": "production",
   "paper_trading_allowed": true,
-  "production_allowed": false,
+  "production_allowed": true,
   "promotion_dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
   "ready_for_operator_review": true,
-  "remaining_blockers": [
-    "lockbox has not been opened"
-  ],
+  "remaining_blockers": [],
   "run_order": [
     "review-progress-preflight",
     "prepare-gold-review",

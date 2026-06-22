@@ -33,10 +33,30 @@ def test_required_registry_files_are_present_in_repo():
         "registry/report_intelligence/weighted_research_contexts.jsonl"
         not in REQUIRED_REGISTRY_FILES
     )
-    assert (
-        "registry/report_intelligence/runtime_tool_gap_observations.jsonl"
-        in REQUIRED_REGISTRY_FILES
-    )
+    local_report_intelligence_details = {
+        "registry/report_intelligence/analysis_recipes.jsonl",
+        "registry/report_intelligence/audit_refresh_history.jsonl",
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
+        "registry/report_intelligence/gap_distribution_history.jsonl",
+        "registry/report_intelligence/macro_agent_research_priors.jsonl",
+        "registry/report_intelligence/macro_regime_snapshots.jsonl",
+        "registry/report_intelligence/method_patterns.jsonl",
+        "registry/report_intelligence/method_performance_profiles.jsonl",
+        "registry/report_intelligence/metric_candidates.jsonl",
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
+        "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+        "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+        "registry/report_intelligence/report_forecast_ledger.jsonl",
+        "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
+        "registry/report_intelligence/source_performance_profiles.jsonl",
+        "registry/report_intelligence/tool_coverage_matches.jsonl",
+        "registry/report_intelligence/tool_design_proposals.jsonl",
+        "registry/report_intelligence/tool_gaps.jsonl",
+        "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+    }
+    assert local_report_intelligence_details <= PRIVATE_LOCAL_REGISTRY_FILES
+    assert local_report_intelligence_details.isdisjoint(REQUIRED_REGISTRY_FILES)
     assert (
         "registry/report_intelligence/outcome_labeling_readiness.json"
         in REQUIRED_REGISTRY_FILES
@@ -74,23 +94,11 @@ def test_required_registry_files_are_present_in_repo():
         in REQUIRED_REGISTRY_FILES
     )
     assert (
-        "registry/report_intelligence/recipe_paper_trading_runs.jsonl"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
         "registry/report_intelligence/recipe_paper_trading_summary.json"
         in REQUIRED_REGISTRY_FILES
     )
     assert (
-        "registry/report_intelligence/confidence_impact_observations.jsonl"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
         "registry/report_intelligence/confidence_impact_monitor.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/prompt_mutation_candidates.jsonl"
         in REQUIRED_REGISTRY_FILES
     )
     assert (

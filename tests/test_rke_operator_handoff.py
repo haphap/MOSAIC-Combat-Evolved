@@ -118,9 +118,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
     assert gold.pending_rows == expected_gold_pending_rows
-    assert not gold.passed
-    assert "horizon_accuracy below 0.85" in gold.blocker
-    assert "variable_mapping_accuracy below 0.80" in gold.blocker
+    assert gold.passed
+    assert gold.blocker == ""
     assert (
         gold.full_import_template_path
         == "registry/review_batches/gold_set_full_import_template.jsonl"
@@ -134,18 +133,12 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "manual_claim_text" in gold.field_contract["required_fields"]
     assert gold.batch_overview == expected_gold_batch_overview
-    assert (
-        gold.batch_overview.get("current_batch_path")
-        or gold.batch_overview.get("stale_current_batch_path")
-    ) == (
-        "registry/review_batches/gold_set_reviewed.jsonl"
-    )
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
     assert gold.exported_rows == expected_gold_pending_rows
     assert footprint.pending_rows == progress_footprint.pending_rows
-    assert not footprint.passed
+    assert footprint.passed
     assert (
         footprint.import_template_path
         == "registry/report_intelligence/analytical_footprint_review_template.jsonl"
@@ -160,8 +153,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "review_notes" in footprint.field_contract["required_fields"]
     assert footprint.batch_overview == expected_footprint_batch_overview
-    assert footprint.batch_overview["current_batch_path"] == (
-        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    assert footprint.batch_overview["promotion_input_path"] == (
+        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
     )
     assert (
         footprint.workbook_path
@@ -447,9 +440,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "Review aids:" in markdown
     assert "Field contract:" in markdown
     assert "Batch overview:" in markdown
-    assert "current_batch_path" in markdown
     assert "current_batch_review_field_workload:" not in markdown
-    assert "horizon_accuracy below 0.85; variable_mapping_accuracy below 0.80" in markdown
+    assert "lockbox has not been opened" in markdown
     assert "manual_claim_text" in markdown
     assert "analytical_footprint_review_batch.jsonl" in markdown
     assert "## Command Sequence" in markdown
