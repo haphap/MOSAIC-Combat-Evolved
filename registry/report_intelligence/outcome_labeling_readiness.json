@@ -1,13 +1,13 @@
 {
   "as_of_date_macro_regime_counts": {
     "china_countercyclical_policy": 401,
-    "china_monetary_easing_cycle": 606,
+    "china_monetary_easing_cycle": 619,
     "monetary_liquidity_condition": 401,
-    "rmb_fx_stability_window": 606,
-    "us_rate_cut_cycle": 1007
+    "rmb_fx_stability_window": 619,
+    "us_rate_cut_cycle": 1020
   },
   "as_of_date_macro_regime_policy": "macro regime may be supplemented from PIT as_of_datetime using predefined historical regime windows; report_text and as_of_date macro regime counts are tracked separately",
-  "blocked_count": 50,
+  "blocked_count": 53,
   "blocked_forecast_claim_ids": [
     "FC-64c65f404d0abead",
     "FC-9143b73ffa1cabfc",
@@ -58,11 +58,14 @@
     "FC-74b7d77d081d2bb8",
     "FC-b5a6aa261742ca20",
     "FC-43b542675a2920ea",
-    "FC-107585c58d9fc0ef"
+    "FC-107585c58d9fc0ef",
+    "FC-3067a85aeb197988",
+    "FC-d04723df8bc958a2",
+    "FC-29d7ee3dae148563"
   ],
   "blocked_reason": "forecast_mapping_insufficient_for_unlabelable_claims",
-  "forecast_claim_count": 1035,
-  "forecast_ledger_count": 1035,
+  "forecast_claim_count": 1048,
+  "forecast_ledger_count": 1048,
   "industry_cycle_regime_counts": {
     "business_model_shift": 28,
     "capacity_cycle": 35,
@@ -70,14 +73,14 @@
     "demand_transition": 18,
     "end_market_order_cycle": 12,
     "energy_hydrology_cycle": 33,
-    "globalization_export_cycle": 59,
-    "import_substitution_cycle": 33,
-    "industry_demand_growth": 67,
-    "industry_policy_catalyst": 20,
+    "globalization_export_cycle": 60,
+    "import_substitution_cycle": 34,
+    "industry_demand_growth": 68,
+    "industry_policy_catalyst": 21,
     "industry_valuation_cycle": 47,
-    "inventory_cycle": 31,
+    "inventory_cycle": 32,
     "price_cycle": 71,
-    "prosperity_cycle": 392,
+    "prosperity_cycle": 400,
     "raw_material_cost_pressure": 17,
     "supply_tightness": 10,
     "technology_cycle": 24
@@ -464,13 +467,13 @@
     "benchmark_symbol": "CASH_0",
     "cost_model_id": "macro_asset_etf_round_trip_10bps_v1",
     "data_gap_counts": {
-      "direct_series_required_proxy_not_allowed": 49,
+      "direct_series_required_proxy_not_allowed": 52,
       "direction_missing_or_unsupported": 6,
       "entry_date_after_latest_calendar": 3,
-      "leg_direction_missing": 14,
-      "macro_asset_proxy_mapping_missing": 38
+      "leg_direction_missing": 16,
+      "macro_asset_proxy_mapping_missing": 45
     },
-    "eligible_claim_count": 62,
+    "eligible_claim_count": 64,
     "eligible_forecast_claim_ids": [
       "FC-30a95ad9dfd036b3",
       "FC-107e8e5ebd180109",
@@ -533,7 +536,9 @@
       "FC-44d77d2ee237fdbd",
       "FC-bcb51e5fc1b35bda",
       "FC-27ada1d8cfe2e250",
-      "FC-5155a851f7c2fe75"
+      "FC-5155a851f7c2fe75",
+      "FC-002089c514c66e86",
+      "FC-002089c514c66e86"
     ],
     "entry_lag_trading_days": 1,
     "labelable_forecast_claim_count": 31,
@@ -581,7 +586,7 @@
       "mapping_version": 1
     },
     "outcome_label_source": "pit_macro_asset_etf_price_window",
-    "pending_future_forecast_claim_count": 28,
+    "pending_future_forecast_claim_count": 30,
     "pending_future_forecast_claim_ids": [
       "FC-30a95ad9dfd036b3",
       "FC-107e8e5ebd180109",
@@ -610,9 +615,11 @@
       "FC-35a4309928bd5fa8",
       "FC-4bf96e3a0f045aa5",
       "FC-44d77d2ee237fdbd",
-      "FC-bcb51e5fc1b35bda"
+      "FC-bcb51e5fc1b35bda",
+      "FC-002089c514c66e86",
+      "FC-002089c514c66e86"
     ],
-    "pending_future_window_count": 100,
+    "pending_future_window_count": 106,
     "policy": "macro strategy claims can be evaluated with mapped ETF proxy returns on T+1 fixed PIT windows; LLM output extracts target and direction but cannot assign outcome labels",
     "qlib_etf_dir_configured": "qlib://cn_etf",
     "windows_days": [
@@ -665,7 +672,7 @@
   "macro_curve_label_ready_forecast_claim_ids": [
     "FC-6b1c1713be4b2293"
   ],
-  "macro_proxy_label_pending_count": 28,
+  "macro_proxy_label_pending_count": 30,
   "macro_proxy_label_pending_forecast_claim_ids": [
     "FC-30a95ad9dfd036b3",
     "FC-107e8e5ebd180109",
@@ -694,7 +701,9 @@
     "FC-35a4309928bd5fa8",
     "FC-4bf96e3a0f045aa5",
     "FC-44d77d2ee237fdbd",
-    "FC-bcb51e5fc1b35bda"
+    "FC-bcb51e5fc1b35bda",
+    "FC-002089c514c66e86",
+    "FC-002089c514c66e86"
   ],
   "macro_proxy_label_ready_count": 31,
   "macro_proxy_label_ready_forecast_claim_ids": [
@@ -731,30 +740,30 @@
     "FC-5155a851f7c2fe75"
   ],
   "macro_regime_counts": {
-    "china_countercyclical_policy": 408,
-    "china_monetary_easing_cycle": 606,
+    "china_countercyclical_policy": 409,
+    "china_monetary_easing_cycle": 619,
     "credit_cycle": 11,
     "fiscal_policy": 40,
     "fx_usd_cycle": 67,
-    "global_growth_inflation": 76,
-    "monetary_liquidity_condition": 455,
-    "regulatory_policy": 28,
-    "rmb_fx_stability_window": 606,
-    "us_rate_cut_cycle": 1026
+    "global_growth_inflation": 81,
+    "monetary_liquidity_condition": 458,
+    "regulatory_policy": 29,
+    "rmb_fx_stability_window": 619,
+    "us_rate_cut_cycle": 1039
   },
   "macro_regime_source_counts": {
-    "as_of_date": 3021,
-    "report_text": 404
+    "as_of_date": 3060,
+    "report_text": 418
   },
   "macro_series_directional_readiness": {
     "cost_model_id": "macro_series_no_trade_cost_v1",
     "data_gap_counts": {
       "entry_after_latest_observation": 2,
-      "leg_direction_missing": 7,
+      "leg_direction_missing": 9,
       "series_history_missing": 3,
-      "series_mapping_missing": 18
+      "series_mapping_missing": 20
     },
-    "eligible_claim_count": 31,
+    "eligible_claim_count": 32,
     "eligible_forecast_claim_ids": [
       "FC-9ebad489831dea0f",
       "FC-869bb99baac3e9e3",
@@ -786,7 +795,8 @@
       "FC-7c52526f37cf64f7",
       "FC-4280160e702d7ab0",
       "FC-4280160e702d7ab0",
-      "FC-98b9557d23d9b62a"
+      "FC-98b9557d23d9b62a",
+      "FC-33ccc4330692260b"
     ],
     "entry_lag_observations": 1,
     "labelable_forecast_claim_count": 14,
@@ -823,7 +833,7 @@
       "mapping_version": 1
     },
     "outcome_label_source": "pit_macro_series_window",
-    "pending_future_forecast_claim_count": 12,
+    "pending_future_forecast_claim_count": 13,
     "pending_future_forecast_claim_ids": [
       "FC-560edc8720f997ad",
       "FC-7d201eab730eaaad",
@@ -836,9 +846,10 @@
       "FC-c6ba4f36f59016b1",
       "FC-4280160e702d7ab0",
       "FC-4280160e702d7ab0",
-      "FC-98b9557d23d9b62a"
+      "FC-98b9557d23d9b62a",
+      "FC-33ccc4330692260b"
     ],
-    "pending_future_window_count": 47,
+    "pending_future_window_count": 50,
     "policy": "macro direct-series claims are evaluated with PIT macro series observations on T+1 fixed windows; LLM output extracts target and direction but cannot assign outcome labels",
     "series_count": 8,
     "windows_days": [
@@ -847,7 +858,7 @@
       360
     ]
   },
-  "macro_series_label_pending_count": 12,
+  "macro_series_label_pending_count": 13,
   "macro_series_label_pending_forecast_claim_ids": [
     "FC-560edc8720f997ad",
     "FC-7d201eab730eaaad",
@@ -860,7 +871,8 @@
     "FC-c6ba4f36f59016b1",
     "FC-4280160e702d7ab0",
     "FC-4280160e702d7ab0",
-    "FC-98b9557d23d9b62a"
+    "FC-98b9557d23d9b62a",
+    "FC-33ccc4330692260b"
   ],
   "macro_series_label_ready_count": 14,
   "macro_series_label_ready_forecast_claim_ids": [
@@ -881,33 +893,33 @@
   ],
   "mapping_gap_counts": {
     "benchmark": 3,
-    "direction": 23,
-    "horizon": 82,
+    "direction": 24,
+    "horizon": 84,
     "target": 4,
     "unknown_mapping_gap": 4
   },
   "mechanism_action_counts": {
-    "expand_capacity_or_coverage": 358,
-    "expand_overseas_market": 185,
-    "gain_share_or_substitute": 237,
+    "expand_capacity_or_coverage": 359,
+    "expand_overseas_market": 188,
+    "gain_share_or_substitute": 238,
     "optimize_cost_or_efficiency": 155,
-    "pass_through_price_or_cost": 55,
+    "pass_through_price_or_cost": 57,
     "receive_policy_or_liquidity_impulse": 19,
     "reprice_valuation_or_rating": 402,
     "shift_business_mix": 81,
-    "upgrade_product_or_technology": 306
+    "upgrade_product_or_technology": 309
   },
   "mechanism_channel_counts": {
-    "business_mix_shift": 106,
-    "capacity_release_or_supply": 390,
-    "demand_pull": 493,
-    "margin_expansion_or_pressure": 188,
-    "market_share_or_competition": 262,
-    "overseas_expansion": 185,
-    "policy_liquidity_transmission": 303,
-    "price_cost_pass_through": 308,
+    "business_mix_shift": 108,
+    "capacity_release_or_supply": 393,
+    "demand_pull": 499,
+    "margin_expansion_or_pressure": 191,
+    "market_share_or_competition": 265,
+    "overseas_expansion": 188,
+    "policy_liquidity_transmission": 308,
+    "price_cost_pass_through": 311,
     "tax_or_subsidy_benefit": 16,
-    "technology_productivity": 365,
+    "technology_productivity": 369,
     "valuation_repricing": 411
   },
   "mechanism_gap_counts": {
@@ -943,12 +955,12 @@
     "asset_quality": 1,
     "banking_sector_profitability": 1,
     "bid_ask_spread": 1,
-    "bond_etf_forward_return": 35,
+    "bond_etf_forward_return": 36,
     "bond_issuance_rate": 1,
     "bond_price_volatility": 1,
     "bond_turnover_rate": 1,
     "bond_yield": 2,
-    "bond_yield_level": 12,
+    "bond_yield_level": 13,
     "capacity_growth": 1,
     "capacity_release": 1,
     "capacity_utilization": 2,
@@ -956,11 +968,12 @@
     "capital_flow_stability": 1,
     "cash_flow": 2,
     "cash_flow_from_operations": 1,
+    "central_bank_policy_rate": 1,
     "clinical_trial_success_probability": 1,
     "commodity_price": 1,
-    "commodity_price_cycle": 102,
+    "commodity_price_cycle": 104,
     "commodity_spot_price": 8,
-    "cpi_yoy": 2,
+    "cpi_yoy": 3,
     "credit_growth": 1,
     "credit_risk_spread": 1,
     "credit_spread": 4,
@@ -970,31 +983,36 @@
     "deal_activity_volume": 1,
     "debt_growth": 1,
     "default_risk": 1,
-    "demand_growth": 480,
+    "demand_growth": 485,
     "deposit_loan_spread": 1,
     "dividend_yield": 4,
-    "earnings_growth": 715,
+    "earnings_growth": 718,
     "earnings_per_share": 1,
     "eps": 1,
-    "equity_index_forward_return": 106,
+    "equity_index_forward_return": 109,
     "equity_index_return": 1,
     "equity_risk_premium": 1,
     "fixed_asset_investment_growth": 1,
+    "forward_return_proxy": 2,
     "fx_rate": 9,
     "gdp_deflator": 1,
+    "gdp_growth": 1,
     "gdp_growth_rate": 2,
     "gold_etf_forward_return": 23,
     "gold_price": 1,
     "holding_period_return": 1,
-    "industry_etf_forward_return": 135,
-    "industry_prosperity": 469,
+    "industry_etf_forward_return": 138,
+    "industry_prosperity": 477,
+    "inflation_expectation": 1,
     "investment_income": 1,
     "liquidity_condition": 1,
-    "liquidity_credit_condition": 103,
+    "liquidity_credit_condition": 107,
     "liquidity_premium": 1,
-    "macro_asset_forward_return": 29,
+    "macro_asset_forward_return": 30,
+    "macro_composite_sentiment_index": 1,
     "macro_leverage_ratio": 1,
-    "margin_profitability": 244,
+    "manufacturing_pmi": 1,
+    "margin_profitability": 247,
     "market_liquidity": 1,
     "market_sentiment": 1,
     "market_share": 13,
@@ -1006,6 +1024,7 @@
     "new_business_contribution": 1,
     "new_product_contribution": 1,
     "nominal_gdp_growth": 2,
+    "non_manufacturing_pmi": 1,
     "order_backlog": 1,
     "order_backlog_growth": 2,
     "order_growth": 2,
@@ -1019,20 +1038,21 @@
     "price_to_earnings_ratio": 1,
     "profitability": 1,
     "real_estate_investment_growth": 1,
-    "relative_alpha": 111,
-    "revenue_growth": 469,
+    "relative_alpha": 114,
+    "revenue_growth": 472,
     "revenue_structure": 1,
     "sector_return": 2,
-    "stock_forward_return": 585,
+    "stock_forward_return": 586,
     "supply_structure": 1,
     "term_spread": 1,
     "trade_surplus_growth": 1,
     "us_corporate_profit_margin": 1,
-    "us_gdp_growth": 1,
+    "us_gdp_growth": 2,
+    "us_pce_inflation": 1,
     "us_recession_probability": 1,
     "usd_index": 1,
     "user_growth": 1,
-    "valuation_multiple": 334,
+    "valuation_multiple": 338,
     "yield_curve_slope": 1,
     "yield_level": 1
   },
@@ -1109,8 +1129,9 @@
     "FC-761d93daf75d60b8",
     "FC-4142e24152734688"
   ],
-  "proxy_label_pending_count": 148,
+  "proxy_label_pending_count": 150,
   "proxy_label_pending_forecast_claim_ids": [
+    "FC-002089c514c66e86",
     "FC-0044a56d6ad0cb0a",
     "FC-021194c04538fca4",
     "FC-03cb9e3d0aac6a01",
@@ -1136,6 +1157,7 @@
     "FC-30a95ad9dfd036b3",
     "FC-314773b70678cc6c",
     "FC-31d1f503ce68764b",
+    "FC-33ccc4330692260b",
     "FC-344f9df7c2ffc997",
     "FC-35a4309928bd5fa8",
     "FC-35adffa712688fa1",
@@ -1986,7 +2008,7 @@
     "FC-feb7411fc1abf712"
   ],
   "readiness_id": "RKE-REPORT-OUTCOME-LABELING-READINESS",
-  "ready_for_outcome_labeling_count": 923,
+  "ready_for_outcome_labeling_count": 933,
   "ready_forecast_claim_ids": [
     "FC-1214fc2831c66258",
     "FC-ac0a0fd58c314dba",
@@ -2910,7 +2932,17 @@
     "FC-98b9557d23d9b62a",
     "FC-bcb51e5fc1b35bda",
     "FC-27ada1d8cfe2e250",
-    "FC-5155a851f7c2fe75"
+    "FC-5155a851f7c2fe75",
+    "FC-33ccc4330692260b",
+    "FC-2ad686944cdc7563",
+    "FC-cb9dbc98a15b5d55",
+    "FC-6e565d98b5b0e09b",
+    "FC-6565aaca8146bbf0",
+    "FC-0a34a9db41fea33e",
+    "FC-002089c514c66e86",
+    "FC-f7297faeefaf8e27",
+    "FC-9d22300ef0ca0e67",
+    "FC-5ce9e8203599e1bd"
   ],
   "regime_gap_counts": {
     "regime_context_unclassified": 2
@@ -2920,16 +2952,16 @@
     "FC-d0e7b26757118f84"
   ],
   "source_text_macro_regime_counts": {
-    "china_countercyclical_policy": 13,
+    "china_countercyclical_policy": 14,
     "credit_cycle": 11,
     "fiscal_policy": 40,
     "fx_usd_cycle": 67,
-    "global_growth_inflation": 76,
-    "monetary_liquidity_condition": 67,
-    "regulatory_policy": 28,
-    "us_rate_cut_cycle": 102
+    "global_growth_inflation": 81,
+    "monetary_liquidity_condition": 70,
+    "regulatory_policy": 29,
+    "us_rate_cut_cycle": 106
   },
-  "standard_blocked_count": 112,
+  "standard_blocked_count": 115,
   "standard_blocked_forecast_claim_ids": [
     "FC-16708ecc06851800",
     "FC-64c65f404d0abead",
@@ -3042,7 +3074,10 @@
     "FC-74b7d77d081d2bb8",
     "FC-b5a6aa261742ca20",
     "FC-43b542675a2920ea",
-    "FC-107585c58d9fc0ef"
+    "FC-107585c58d9fc0ef",
+    "FC-3067a85aeb197988",
+    "FC-d04723df8bc958a2",
+    "FC-29d7ee3dae148563"
   ],
   "stock_price_proxy_readiness": {
     "benchmark_family": "CSI300_ETF_PROXY",
@@ -5284,13 +5319,13 @@
     "FC-9aff991abfdec80d"
   ],
   "test_status_counts": {
-    "not_ready_insufficient_mapping": 112,
-    "ready_for_outcome_labeling": 923
+    "not_ready_insufficient_mapping": 115,
+    "ready_for_outcome_labeling": 933
   },
   "unlabelable_mapping_gap_counts": {
     "benchmark": 1,
-    "direction": 23,
-    "horizon": 26,
+    "direction": 24,
+    "horizon": 28,
     "target": 2,
     "unknown_mapping_gap": 1
   }

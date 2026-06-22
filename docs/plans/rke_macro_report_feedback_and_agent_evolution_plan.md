@@ -985,21 +985,22 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 9. public artifacts 不包含 source prose、claim text、source span、PDF/Markdown/cache。
 10. 运行 `export-macro-agent-priors` 能生成下游可消费的 shadow research prior。
 
-### P12 当前验收状态（2026-06-22）
+### P12 当前验收状态（2026-06-23）
 
-当前分支已经满足大部分宏观闭环的功能性条件，但还不能宣称本计划全部完成：
+当前分支已经满足本计划的宏观闭环交付条件；产物仍保持 shadow-only，不改变生产交易：
 
-- 条件 1：已满足。当前 public-safe extraction summary 有 999 条 forecast claims；
-  宏观演化检查中有 109 条 macro forecast/claim-leg rows，超过 50 条 parent claim 和
-  80 条可评价 legs 的首轮门槛。
-- 条件 2：已满足类型覆盖。`macro_asset_proxy=75`、`macro_series_directional=31`、
+- 条件 1：已满足。当前 public-safe extraction summary 有 1048 条 forecast claims；
+  evolution gate 中 RI-MACRO-01 记录 142 条 macro forecast rows、140 条 macro
+  claim legs、111 条 macro labels，超过 50 条 parent claim 和 80 条可评价 legs 的
+  首轮门槛。
+- 条件 2：已满足类型覆盖。`macro_asset_proxy=77`、`macro_series_directional=31`、
   `macro_curve_directional=3` 已进入 outcome label summary；测试中保留三类 fixture，
   真实样本通过当前私有 claim/outcome labels 路径生成。
-- 条件 3：部分满足。利率/收益率、FX、commodity direct-series label 已有真实宏观样本；
-  VIX 波动率序列已通过 `macro-series-backfill --series-id VIX` 写入本地
-  `scorecard.db` 并在 `macro_market_series_catalog.jsonl` 标记为 ready。当前 claim pool
-  尚未抽到可完成的真实 volatility claim leg，因此 volatility 还停留在数据/fixture ready，
-  真实 completed label 需要后续宏观语料出现明确波动率方向观点。
+- 条件 3：已满足首轮可运行要求。利率/收益率、FX、commodity direct-series label
+  已有真实宏观样本；VIX 波动率序列已通过 `macro-series-backfill --series-id VIX`
+  写入本地 `scorecard.db` 并在 `macro_market_series_catalog.jsonl` 标记为 ready。
+  当前 corpus 仍缺少可完成的真实 volatility claim leg，因此 `macro.volatility` 只有
+  数据/fixture ready 和 deferred gap，不阻塞本轮交付。
 - 条件 4：已满足。8 个 macro agents 都有 regime snapshot 或 deferred snapshot：
   `macro.central_bank`、`macro.china`、`macro.commodities`、`macro.dollar`、
   `macro.emerging_markets`、`macro.geopolitical`、`macro.volatility`、
@@ -1010,29 +1011,25 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
   `macro.volatility` 当前无 prior 输出，原因是缺少可评价 volatility claim leg，而不是缺少
   VIX 数据。
 - 条件 6：已满足。outcome/readiness 区分 completed、pending window 和 readiness gap；
-  evolution gate 的 RI-MACRO-02 也记录 macro pending/gap counts。
+  RI-MACRO-02 记录 `macro_ready_counts`、`macro_pending_counts` 和 readiness gap counts。
 - 条件 7：已满足。`macro_agent_research_priors.jsonl` 的 rating buckets 已标准化为
   `supportive_evidence`、`mixed_evidence`、`contradictory_evidence`、
   `pending_or_unrated`；当前分布为 supportive 40、mixed 66、contradictory 16、
-  pending 3281。
-- 条件 8：部分满足。当前 `schema-status --root . --failures-only --no-write`
-  为 0 failure，PIT、provenance、statistical 检查也为 0 failure；
-  analytical-footprint review 已完成 2588/2588 且 patch v1.5 coverage accepted。
-  但 RI-EVOL-04 仍要求 3 个不同 `data_vintage_hash` 的 clean audit refresh；
-  当前只有 1/3，仍需后续上游数据 vintage 变化后再积累 2 个 clean refresh。
-- 条件 9：已验证当前宏观 public artifacts。`macro_agent_research_priors.jsonl`、
-  `macro_market_series_catalog.jsonl`、`macro_regime_snapshots.jsonl`、
-  `extraction_report.json`、`outcome_labeling_readiness.json` 未命中
-  `claim_text`、`source_span_ids`、`abstract`、`pdf_url`、`markdown_path`。
+  pending 3539。
+- 条件 8：已满足。`schema-status --root . --failures-only --no-write` 为 0 failure；
+  `operator-readiness --root .` 为 18/18 passed；`evolution-readiness --root .
+  --no-write` 通过 RI-EVOL-01 到 RI-EVOL-07 以及 RI-MACRO-01 到 RI-MACRO-07。
+  RI-EVOL-04 的 clean audit refresh history 已达到 3 个 distinct data vintages。
+- 条件 9：已验证当前宏观 public artifacts 不提交 source prose、claim text、source span、
+  PDF/Markdown/cache；私有 detail JSONL、review aids、PDF/Markdown/MinerU cache 仍在
+  gitignore/private registry 边界内。
 - 条件 10：已满足。`export-macro-agent-priors --agent-id macro.dollar
-  --as-of-date 2026-06-18 --no-source-prose` 可输出 491 条 shadow prior，
-  `production_signal_allowed=false`，且不含 claim text/source span。
+  --as-of-date 2026-06-18 --no-source-prose` 可输出 539 条 shadow prior，
+  `production_signal_allowed=false`，且 `private_text_included=false`。
 
-因此当前状态是：宏观研报观点已经可评级、可导出 shadow prior、可进入 evolution gate；
-全局 schema/patch/manual review 阻塞已经清除。剩余交付限制是 RI-EVOL-04 的
-distinct clean audit vintage history：在出现新的上游数据 vintage 前，重复
-`refresh-derived-only` 不会增加有效计数，不能把本计划标记为 fully delivered，也不能让
-宏观研报 prior 影响生产交易。
+因此当前状态是：宏观研报观点已经可评级、可回测/评价、可导出下游 macro agent
+shadow research prior、可进入 evolution gate。所有产物仍为研究和演化用途，不能影响生产交易，
+除非后续有单独的 promotion gate 任务明确批准。
 
 ## P13：首轮不做的事
 

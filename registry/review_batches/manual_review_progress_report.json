@@ -248,13 +248,13 @@
       },
       "batch_plan": [],
       "blockers": [],
-      "complete_rows": 2717,
+      "complete_rows": 2768,
       "current_batch_status": {
         "already_applied": true,
-        "complete_rows": 25,
+        "complete_rows": 1,
         "evidence_status": {
           "aligned": true,
-          "covered_review_rows": 25,
+          "covered_review_rows": 1,
           "duplicate_evidence_id_count": 0,
           "duplicate_review_id_count": 0,
           "exists": true,
@@ -266,54 +266,43 @@
           "path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
           "priority_metadata_refresh_recommended": false,
           "priority_reason_counts": {
-            "complex_multi_step_patterns": 6,
-            "missing_target_agent_candidates": 25
+            "missing_target_agent_candidates": 1
           },
           "priority_reason_missing_rows": 0,
-          "priority_reason_ready_rows": 25,
+          "priority_reason_ready_rows": 1,
           "priority_score_counts": {
-            "1": 19,
-            "3": 6
+            "1": 1
           },
-          "quality_gap_focus_field_counts": {
-            "footprint_correct": 1,
-            "inferred_steps_tagged_correctly": 1,
-            "metric_mapping_correct": 1
-          },
+          "quality_gap_focus_field_counts": {},
           "review_field_workload": {},
           "review_input_exists": true,
           "review_input_malformed_rows": 0,
           "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-          "review_input_rows": 25,
-          "rows": 25,
+          "review_input_rows": 1,
+          "rows": 1,
           "same_order": true,
-          "snippet_ready_rows": 25,
+          "snippet_ready_rows": 1,
           "suggested_review_decision_counts": {
             "footprint_correct": {
-              "false": 1,
-              "true": 24
+              "true": 1
             },
             "inferred_steps_tagged_correctly": {
-              "false": 1,
-              "true": 24
+              "true": 1
             },
             "metric_mapping_correct": {
-              "false": 1,
-              "true": 24
+              "true": 1
             },
             "no_proprietary_text_leakage": {
-              "true": 25
+              "true": 1
             },
             "source_span_supports_footprint": {
-              "true": 25
+              "true": 1
             },
             "unknowns_used_when_uncertain": {
-              "true": 25
+              "true": 1
             }
           },
-          "suggested_tag_counts": {
-            "boilerplate_risk_warning_footprint": 1
-          },
+          "suggested_tag_counts": {},
           "target_row_hash_mismatch_count": 0
         },
         "exists": true,
@@ -321,7 +310,7 @@
         "missing_required_fields": {},
         "path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
         "pending_rows": 0,
-        "rows": 25,
+        "rows": 1,
         "target_status": {
           "aligned": true,
           "exists": true,
@@ -330,11 +319,11 @@
           "missing_target_rows": 0,
           "review_input_exists": true,
           "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-          "review_input_rows": 25,
+          "review_input_rows": 1,
           "target_malformed_rows": 0,
           "target_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
           "target_row_hash_mismatch_count": 0,
-          "target_rows": 2717
+          "target_rows": 2768
         }
       },
       "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
@@ -349,82 +338,82 @@
         "interpretation": "count deltas are computed over each metric denominator; metric mapping is evaluated only on footprint_correct=true rows so rejected footprints are not double-counted as mapping failures",
         "metrics": {
           "footprint_precision": {
-            "current_pass_count": 2646,
-            "current_rate": 0.973868,
-            "denominator": 2717,
+            "current_pass_count": 2694,
+            "current_rate": 0.973266,
+            "denominator": 2768,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 2174,
+            "required_pass_count": 2215,
             "threshold": 0.8
           },
           "inferred_step_tagging_accuracy": {
-            "current_pass_count": 2646,
-            "current_rate": 0.973868,
-            "denominator": 2717,
+            "current_pass_count": 2693,
+            "current_rate": 0.972905,
+            "denominator": 2768,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 2174,
+            "required_pass_count": 2215,
             "threshold": 0.8
           },
           "metric_mapping_accuracy": {
-            "current_pass_count": 2492,
-            "current_rate": 0.941799,
-            "denominator": 2646,
+            "current_pass_count": 2539,
+            "current_rate": 0.942465,
+            "denominator": 2694,
             "denominator_policy": "footprint_correct_true_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 2117,
+            "required_pass_count": 2156,
             "threshold": 0.8
           },
           "proprietary_leakage_free_rate": {
-            "current_pass_count": 2717,
+            "current_pass_count": 2768,
             "current_rate": 1.0,
-            "denominator": 2717,
+            "denominator": 2768,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 2717,
+            "required_pass_count": 2768,
             "threshold": 1.0
           },
           "span_support_precision": {
-            "current_pass_count": 2681,
-            "current_rate": 0.98675,
-            "denominator": 2717,
+            "current_pass_count": 2732,
+            "current_rate": 0.986994,
+            "denominator": 2768,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 2446,
+            "required_pass_count": 2492,
             "threshold": 0.9
           },
           "unknown_on_ambiguity_rate": {
-            "current_pass_count": 2717,
+            "current_pass_count": 2768,
             "current_rate": 1.0,
-            "denominator": 2717,
+            "denominator": 2768,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 2174,
+            "required_pass_count": 2215,
             "threshold": 0.8
           }
         },
         "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
         "sample_size_completed_rows": {
-          "current_count": 2717,
+          "current_count": 2768,
           "pending_rows_are_excluded_from_metric_denominator": true
         }
       },
       "ready_for_promotion": true,
       "review_kind": "footprint_review",
       "simulation_accepted": true,
-      "target_rows": 2717
+      "target_rows": 2768
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
@@ -455,7 +444,6 @@
       "blockers": [],
       "complete_rows": 1,
       "current_batch_status": {
-        "already_applied": true,
         "complete_rows": 1,
         "exists": true,
         "invalid_required_fields": {},

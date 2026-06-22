@@ -11,5 +11,5 @@
   "review_context_ref": "registry/evaluation/lockbox/lockbox_policy.json",
   "rule_design_after_open": false,
   "target_review_path": "registry/lockbox/central_bank_lockbox_review.json",
-  "target_row_hash": "sha256:376704ba9336b0438a4381a4a89982bc6898eff720138db7b137d9e96b10a583"
+  "target_row_hash": "sha256:0b39a20fcd0826937d42a0425a2bb9a9b50379eab8aff24d58247d8ced70f08b"
 }

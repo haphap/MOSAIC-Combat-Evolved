@@ -16,8 +16,7 @@
     "open_count required",
     "result required",
     "result must be one of not_opened, passed, failed",
-    "open_count must be integer",
-    "lockbox target has already been opened"
+    "open_count must be integer"
   ],
   "report_id": "RKE-LOCKBOX-REVIEW-IMPORT-REPORT-20260606",
   "result": "",
