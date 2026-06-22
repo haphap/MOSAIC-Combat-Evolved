@@ -364,20 +364,22 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         "failures"
     ) in normalized_status_text
     assert "operator-readiness --root .` is accepted with 18/18 checks" in status_text
-    assert "evolution-readiness --root . --no-write` is currently blocked" in status_text
-    assert evolution_gate["gate_status"] == "blocked"
-    assert evolution_gate["blockers"] == ["audit_refresh_history_below_threshold"]
-    assert audit_check["blockers"] == ["audit_refresh_history_below_threshold"]
+    assert (
+        "evolution-readiness --root . --no-write` is accepted with RI-EVOL-01 "
+        "through RI-EVOL-07 passing"
+    ) in normalized_status_text
+    assert evolution_gate["gate_status"] == "passed"
+    assert evolution_gate["blockers"] == []
+    assert audit_check["blockers"] == []
     assert audit_evidence["schema_accepted"] is True
     assert audit_evidence["pit_accepted"] is True
     assert audit_evidence["provenance_accepted"] is True
     assert audit_evidence["statistical_accepted"] is True
     assert audit_evidence["current_failure_counts"]["schema"] == 0
-    assert audit_evidence["trailing_audit_pass_count"] == 1
-    assert audit_evidence["trailing_audit_distinct_vintage_count"] == 1
+    assert audit_evidence["trailing_audit_pass_count"] == 3
+    assert audit_evidence["trailing_audit_distinct_vintage_count"] == 3
     assert (
-        f"trailing clean audit refresh count is "
-        f"{audit_evidence['trailing_audit_pass_count']}/3"
+        "RI-EVOL-04 has 3/3 distinct clean audit vintages"
     ) in normalized_status_text
     assert "Patch v1.5 coverage is accepted" in status_text
     assert f"{len(prompt_mutation_candidates)} shadow-only candidates" in status_text

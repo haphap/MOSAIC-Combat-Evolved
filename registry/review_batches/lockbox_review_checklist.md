@@ -7,10 +7,10 @@ The lockbox is a one-time final holdout gate; do not open it while other manual 
 
 - Experiment family: `FAM-CB-LIQUIDITY-2026Q2`
 - Experiment ID: `EXP-CB-20260605-0001`
-- Current result: `passed`
-- Current open count: `1`
+- Current result: `not_opened`
+- Current open count: `0`
 - Target review path: `registry/lockbox/central_bank_lockbox_review.json`
-- Target row hash: `sha256:376704ba9336b0438a4381a4a89982bc6898eff720138db7b137d9e96b10a583`
+- Target row hash: `sha256:0b39a20fcd0826937d42a0425a2bb9a9b50379eab8aff24d58247d8ced70f08b`
 
 ## Policy
 

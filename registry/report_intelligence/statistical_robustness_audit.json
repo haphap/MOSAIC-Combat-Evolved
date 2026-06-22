@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-22T15:10:38+00:00",
+  "as_of_datetime": "2026-06-22T20:24:20+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-STATISTICAL-ROBUSTNESS-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 12773,
+  "checked_item_count": 10718,
   "checks": [
     {
       "accepted": true,
@@ -49,12 +49,12 @@
       "accepted": true,
       "check_id": "RI-STAT-02",
       "evidence": {
-        "insufficient_profile_count": 2465,
-        "method_profile_rows": 6790,
+        "insufficient_profile_count": 2479,
+        "method_profile_rows": 4708,
         "minimum_non_neutral_effective_n": 3,
         "non_neutral_profile_count": 61,
-        "source_profile_rows": 1796,
-        "viewpoint_profile_rows": 774
+        "source_profile_rows": 1797,
+        "viewpoint_profile_rows": 787
       },
       "failure_count": 0,
       "failures": [],
@@ -93,10 +93,10 @@
       "accepted": true,
       "check_id": "RI-STAT-04",
       "evidence": {
-        "consensus_cluster_count": 1033,
-        "forecast_ledger_rows": 1035,
-        "multiple_testing_family_count": 921,
-        "retrieved_claim_rows": 1035
+        "consensus_cluster_count": 1046,
+        "forecast_ledger_rows": 1048,
+        "multiple_testing_family_count": 933,
+        "retrieved_claim_rows": 1048
       },
       "failure_count": 0,
       "failures": [],
@@ -106,7 +106,7 @@
       "accepted": true,
       "check_id": "RI-STAT-05",
       "evidence": {
-        "calibration_unavailable_profile_count": 2570,
+        "calibration_unavailable_profile_count": 2584,
         "outcome_label_rows": 2377,
         "production_use_of_weighted_reports": false,
         "rollout_mode": "shadow_tooling"
@@ -142,5 +142,5 @@
     }
   ],
   "policy": "report intelligence statistical evidence must be PIT, after-cost, overlap-adjusted, grouped by forecast family, deduplicated by consensus clusters, and kept shadow-only until effective-N, multiple-testing, calibration, paper-trading, and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260622T150944+0000"
+  "run_id": "RIR-DERIVED-20260622T202326+0000"
 }

@@ -1,6 +1,6 @@
 # RKE Stock Report Outcome and Evolution Status
 
-Status date: 2026-06-22
+Status date: 2026-06-23
 
 This document tracks implementation evidence for
 `docs/plans/rke_stock_report_outcome_and_evolution_plan.md`. It is public-safe:
@@ -10,26 +10,24 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
 
 ## Current State
 
-- Current public-safe extraction summary: 929 selected reports, 929 Markdown-ready
-  reports, 1033 forecast claims, and 2375 outcome labels.
+- Current public-safe extraction summary: 947 selected reports, 947 Markdown-ready
+  reports, 1048 forecast claims, and 2377 outcome labels.
 - Outcome label split: 78 industry ETF proxy labels, 2188 stock price proxy
-  labels, 75 macro asset proxy labels, 31 macro direct-series labels, and 3
+  labels, 77 macro asset proxy labels, 31 macro direct-series labels, and 3
   macro curve labels.
-- Outcome readiness currently has 921 standard ready claims, 707 proxy-label
-  ready claims, and 50 still blocked claims.
+- Outcome readiness currently has 933 standard ready claims, 709 proxy-label
+  ready claims, and 53 still blocked claims.
 - Manual gold-set review is imported: 125 reviewed claims across 71 documents;
   all gold quality gates pass.
-- Manual analytical-footprint review is complete and imported: 2710 reviewed
+- Manual analytical-footprint review is complete and imported: 2768 reviewed
   footprints, 0 pending rows, `quality_gate_passed=true`, and all measured
   quality thresholds pass.
 - `schema-status --root . --failures-only --no-write` currently reports 0
   failures. `patch_v1_5_coverage_report.json` is accepted with 0 blockers.
 - `operator-readiness --root .` is accepted with 18/18 checks passing.
-- `evolution-readiness --root . --no-write` is currently blocked only by
-  RI-EVOL-04 `audit_refresh_history_below_threshold`: current schema, PIT,
-  provenance, and statistical evidence is clean, but the trailing clean audit
-  refresh count is 1/3 distinct required vintages.
-- Prompt mutation output currently has 9 shadow-only candidates. All keep
+- `evolution-readiness --root . --no-write` is accepted with RI-EVOL-01 through
+  RI-EVOL-07 passing. RI-EVOL-04 has 3/3 distinct clean audit vintages.
+- Prompt mutation output currently has 8 shadow-only candidates. All keep
   `promotion_state=shadow_candidate_only`,
   `production_prompt_change_allowed=false`, `manual_review_required=true`, and
   `private_text_included=false`.
@@ -45,8 +43,8 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
 | --- | --- | --- |
 | P0-P3 stock outcome contract/builders/audits | Implemented | Stock proxy labels use PIT T+1 windows, `SH510300` benchmark, 20 bps cost, stock target resolution, and readiness gaps for missing/conflicting data. |
 | P4 tests | Implemented | Focused stock/macro/schema tests are maintained; current final verification commands are listed below. |
-| P5 evolution loop | Implemented for shadow evolution, clean-audit history gate still blocked | Prompt mutation candidates, paper-trading, confidence monitor, gold review, footprint review, and audit refresh history feed the evolution gate. RI-EVOL-04 now needs two additional distinct clean audit vintages; current clean count is 1/3. |
-| P8 acceptance matrix | Complete for current registry state except distinct-vintage history | Operator readiness, schema, PIT, provenance, statistical audits, footprint review, gold review, lockbox review, and patch coverage pass. |
+| P5 evolution loop | Implemented for shadow evolution; current gate passed | Prompt mutation candidates, paper-trading, confidence monitor, gold review, footprint review, and audit refresh history feed the evolution gate. RI-EVOL-04 now has 3/3 distinct clean audit vintages. |
+| P8 acceptance matrix | Complete for current registry state | Operator readiness, schema, PIT, provenance, statistical audits, footprint review, gold review, lockbox review, and patch coverage pass. |
 | P9-P12 coverage/mapping/paper-trading/monitor | Implemented for current sample pool, still shadow-only | Public aggregate artifacts exist; private PDFs, Markdown, source rows, claim text, and reviewed imports remain uncommitted. Production behavior is unchanged unless a separate promotion task explicitly changes runtime wiring. |
 
 ## Current Verification Commands
@@ -65,9 +63,8 @@ git diff --check
 
 1. Keep prompt mutation candidates shadow-only until future lockbox and
    production promotion approvals explicitly allow production changes.
-2. Collect two additional distinct clean audit refresh vintages before claiming
-   RI-EVOL-04 acceptance; repeated refreshes with the same `data_vintage_hash`
-   do not count.
+2. Continue requiring distinct `data_vintage_hash` values for future clean audit
+   history updates; repeated refreshes with the same hash must not count.
 3. Keep reviewed imports and private review aids out of commits; only commit
    public-safe aggregate artifacts and code/tests.
 4. Re-run schema, operator, evolution, privacy, and test checks before each

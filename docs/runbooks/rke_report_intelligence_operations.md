@@ -83,13 +83,13 @@ uv run mosaic-rke build-local-macro-report-sources \
   --input-dir /home/hap/Downloads/yanbaoke
 ```
 
-- Scanned PDF count: `1898`
-- Written source rows: `1898`
+- Scanned PDF count: `1967`
+- Written source rows: `1967`
 - Date range: `2017-10-15` to `2026-06-21`
 - Report type counts:
-  `宏观策略=605`, `宏观策略-A股=44`, `宏观策略-债券=233`,
-  `宏观策略-商品=83`, `宏观策略-大类资产=100`, `宏观策略-海外=44`,
-  `宏观策略-待分类=789`
+  `宏观策略=628`, `宏观策略-A股=46`, `宏观策略-债券=233`,
+  `宏观策略-商品=91`, `宏观策略-大类资产=101`, `宏观策略-海外=44`,
+  `宏观策略-待分类=824`
 
 ## Macro Series Backfill
 
@@ -862,6 +862,20 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   `/home/hap/Downloads/yanbaoke` root so macro-adjacent additions in
   `其他债券研究`, `期货研究`, `全球策略`, and `国际宏观评论` are included; 1898 PDFs
   found, with no source-scan blockers.
+- `2026-06-23`: Rebuilt the same parent Yanbaoke source registry after the
+  latest local additions; 1967 PDFs/source rows were found, with no source-scan
+  blockers. Final staged macro vintages were merged through clean batch
+  directories only, then `--refresh-derived-only --scorecard-db-path
+  data/scorecard.db` produced 947 selected/Markdown-ready reports, 1048
+  forecast claims, 2768 analytical footprints, 2377 outcome labels, 811 macro
+  regime snapshots, and 3661 macro agent research priors.
+- `2026-06-23`: Completed the new analytical-footprint manual review rows
+  introduced by the final macro batches. The footprint review summary is
+  accepted with 2768/2768 complete rows, 0 pending rows, and all quality gates
+  passing. `operator-readiness --root .` passed 18/18, `schema-status --root .
+  --failures-only --no-write` returned 0 failures, and `evolution-readiness
+  --root . --no-write` passed RI-EVOL-01 through RI-EVOL-07 and RI-MACRO-01
+  through RI-MACRO-07.
 - `2026-06-15`: Documented that MinerU/vLLM are already configured locally and
   should be reused before reinstalling.
 - `2026-06-15`: Fixed MinerU command resolution so relative commands such as
