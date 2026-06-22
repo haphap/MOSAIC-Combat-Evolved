@@ -1,6 +1,6 @@
 {
-  "blocked_count": 1,
-  "coverage_complete": false,
+  "blocked_count": 0,
+  "coverage_complete": true,
   "final_acceptance_blocked_count": 0,
   "final_acceptance_missing_count": 0,
   "final_acceptance_passed_count": 12,
@@ -376,8 +376,8 @@
       "status": "passed"
     }
   ],
-  "passed_count": 11,
-  "ready_for_broad_rollout": false,
+  "passed_count": 12,
+  "ready_for_broad_rollout": true,
   "records": [
     {
       "blocker": "",
@@ -390,7 +390,7 @@
       "status": "passed"
     },
     {
-      "blocker": "registry/report_intelligence/patch_v1_5_coverage_report.json accepted must be true; registry/report_intelligence/patch_v1_5_coverage_report.json blocker_count must be zero; registry/report_intelligence/patch_v1_5_coverage_report.json blocked phases: B, D",
+      "blocker": "",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
@@ -407,7 +407,7 @@
       ],
       "requirement": "Claim extraction reliability has 50-document / 100-claim manual gold-set gate.",
       "section_id": "Phase-1B",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
