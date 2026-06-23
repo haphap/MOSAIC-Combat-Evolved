@@ -1,7 +1,7 @@
-site_name: MOSAIC
+site_name: MOSAIC-CE
 site_description: A-share self-improving multi-agent quantitative trading framework
-repo_url: https://github.com/haphap/MOSAIC-Agents
-repo_name: haphap/MOSAIC-Agents
+repo_url: https://github.com/haphap/MOSAIC-Combat-Evolved
+repo_name: haphap/MOSAIC-Combat-Evolved
 docs_dir: docs/wiki
 
 theme:

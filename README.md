@@ -1,18 +1,18 @@
-# MOSAIC
+# MOSAIC-CE
 
 > A-share self-improving multi-agent quantitative research framework.
 > A 股自我改进型多智能体量化研究框架。
 
-[![CI](https://github.com/haphap/MOSAIC-Agents/actions/workflows/ci.yml/badge.svg)](https://github.com/haphap/MOSAIC-Agents/actions/workflows/ci.yml)
-[![Wiki](https://img.shields.io/badge/docs-wiki-0969da)](https://github.com/haphap/MOSAIC-Agents/wiki)
+[![CI](https://github.com/haphap/MOSAIC-Combat-Evolved/actions/workflows/ci.yml/badge.svg)](https://github.com/haphap/MOSAIC-Combat-Evolved/actions/workflows/ci.yml)
+[![Wiki](https://img.shields.io/badge/docs-wiki-0969da)](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki)
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776AB?logo=python&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-%E2%89%A522-339933?logo=node.js&logoColor=white)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-MOSAIC adapts the ATLAS-style four-layer multi-agent trading architecture to
-the A-share market. It combines a Python data/backtest sidecar with a
-TypeScript LangGraph front end, connected by line-delimited JSON-RPC over
-stdio.
+MOSAIC-CE (MOSAIC-Combat-Evolved) adapts the ATLAS-style four-layer
+multi-agent trading architecture to the A-share market. It combines a Python
+data/backtest sidecar with a TypeScript LangGraph front end, connected by
+line-delimited JSON-RPC over stdio.
 
 The project is designed for reproducible research loops: agents make daily
 portfolio recommendations, results are scored, prompts evolve through git, and
@@ -39,13 +39,13 @@ changes are accepted or reverted by measured lift.
 
 ## Documentation
 
-- [Wiki home](https://github.com/haphap/MOSAIC-Agents/wiki)
-- [Architecture](https://github.com/haphap/MOSAIC-Agents/wiki/Architecture)
-- [Getting Started](https://github.com/haphap/MOSAIC-Agents/wiki/Getting-Started)
-- [CLI Reference](https://github.com/haphap/MOSAIC-Agents/wiki/CLI-Reference)
-- [Data Layer](https://github.com/haphap/MOSAIC-Agents/wiki/Data-Layer)
-- [Self-Improvement](https://github.com/haphap/MOSAIC-Agents/wiki/Self-Improvement)
-- [Chinese wiki / 中文文档](https://github.com/haphap/MOSAIC-Agents/wiki/zh-Home)
+- [Wiki home](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki)
+- [Architecture](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki/Architecture)
+- [Getting Started](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki/Getting-Started)
+- [CLI Reference](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki/CLI-Reference)
+- [Data Layer](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki/Data-Layer)
+- [Self-Improvement](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki/Self-Improvement)
+- [Chinese wiki / 中文文档](https://github.com/haphap/MOSAIC-Combat-Evolved/wiki/zh-Home)
 
 ## Quick Start
 
@@ -60,8 +60,8 @@ Prerequisites:
   tests
 
 ```bash
-git clone https://github.com/haphap/MOSAIC-Agents.git
-cd MOSAIC-Agents
+git clone https://github.com/haphap/MOSAIC-Combat-Evolved.git
+cd MOSAIC-Combat-Evolved
 
 uv venv
 uv pip install -e '.[data,trading,llm]'
@@ -89,9 +89,9 @@ machine should push refreshed data back to the policy-db remote.
 
 Optional private prompt repo:
 
-By default, agents load prompts from `MOSAIC-Agents/prompts/mosaic`. To make all
-agent runs prefer an external prompt repo, clone `MOSAIC-Prompts` outside this
-checkout and configure it once in `.env`:
+By default, agents load prompts from `MOSAIC-Combat-Evolved/prompts/mosaic`.
+To make all agent runs prefer an external prompt repo, clone `MOSAIC-Prompts`
+outside this checkout and configure it once in `.env`:
 
 ```bash
 git clone https://github.com/haphap/MOSAIC-Prompts.git ../MOSAIC-Prompts
@@ -158,7 +158,7 @@ agent schemas + prompts                                      prism / janus / mir
 Repository map:
 
 ```text
-MOSAIC-Agents/
+MOSAIC-Combat-Evolved/
 ├── mosaic/                 Python sidecar, data, scoring, backtest, paper trading
 ├── mosaic-ts/              TypeScript CLI, TUI, LangGraph agents, bridge client
 ├── prompts/mosaic/         Public baseline prompts and cohort skeletons

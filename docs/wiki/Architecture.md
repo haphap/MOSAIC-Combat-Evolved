@@ -28,7 +28,7 @@ LLM clients · Scorecard views                                 persistence: SQLi
 ## Repo layout
 
 ```
-MOSAIC-Agents/
+MOSAIC-Combat-Evolved/
 ├── mosaic/                     # 🐍 Python sidecar
 │   ├── bridge/                 #   JSON-RPC server + handlers/ (one module per namespace)
 │   ├── dataflows/              #   Tushare / akshare / yfinance / FRED + qlib local reader + ingest

@@ -9,8 +9,8 @@
 ## Install
 
 ```bash
-git clone https://github.com/haphap/MOSAIC-Agents.git
-cd MOSAIC-Agents
+git clone https://github.com/haphap/MOSAIC-Combat-Evolved.git
+cd MOSAIC-Combat-Evolved
 
 # 1. Python sidecar: create .venv + install (the TS side auto-discovers <repo>/.venv/bin/python)
 uv venv

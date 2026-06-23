@@ -28,7 +28,7 @@ LLM 客户端 · Scorecard 视图                                   持久化:SQ
 ## 仓库布局
 
 ```
-MOSAIC-Agents/
+MOSAIC-Combat-Evolved/
 ├── mosaic/                     # 🐍 Python sidecar
 │   ├── bridge/                 #   JSON-RPC 服务 + handlers/(每命名空间一个模块)
 │   ├── dataflows/              #   Tushare / akshare / yfinance / FRED + qlib 本地读取 + ingest

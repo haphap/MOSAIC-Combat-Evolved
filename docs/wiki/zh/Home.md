@@ -1,8 +1,8 @@
-# MOSAIC 项目 Wiki
+# MOSAIC-CE 项目 Wiki
 
 > 🌐 **语言 / Language:** [English](../Home.md) · **中文**
 
-**MOSAIC** 是一个受 ATLAS 启发的 A 股自我改进型多智能体量化交易框架。它采用混合架构:重逻辑(numpy/pandas/git/SQLite/行情数据)留在 **Python sidecar**,编排、LLM、CLI 与 TUI 交给 **TypeScript 前端**,两端通过**行分隔 JSON-RPC over stdio** 通信。
+**MOSAIC-CE**（MOSAIC-Combat-Evolved）是一个受 ATLAS 启发的 A 股自我改进型多智能体量化交易框架。它采用混合架构:重逻辑(numpy/pandas/git/SQLite/行情数据)留在 **Python sidecar**,编排、LLM、CLI 与 TUI 交给 **TypeScript 前端**,两端通过**行分隔 JSON-RPC over stdio** 通信。
 
 > 本 wiki 由代码生成并与之逐一核对。凡涉及具体事实处均标注源文件路径,便于核验。
 
