@@ -270,16 +270,17 @@ stateDiagram-v2
   ProductionBlocked: direct production forbidden
 ```
 
-当前 rollout 的关键状态（2026-06-13）：
+当前 rollout 的关键状态（2026-06-23）：
 
 | Gate | 当前结果 |
 |---|---|
-| `report-intelligence --refresh-derived-only` | public-safe mode refuses to overwrite committed derived artifacts when required private inputs are absent; with local private snapshots it can recompute derived artifacts, but those private inputs must not be committed |
-| `schema-status` | exits 2 by design until analytical footprint review and patch v1.5 coverage semantic gates pass |
-| `review-progress` | source-license review ready; gold-set remains 0/100 complete, analytical-footprint review remains 0/1001 complete, and lockbox remains 0/1; active 50-row gold and footprint batches have aligned private evidence drafts but still require human decisions |
-| `evolution_readiness_gate` | blocked by manual forecast gold-set metrics, analytical-footprint quality gates, schema/coverage blockers downstream of manual review, and audit trailing-vintage dependency while schema is not accepted; outcome and paper-trading thresholds are currently cleared |
-| `recipe_paper_trading_summary` | committed public-safe summary has 1858 pre-registered shadow runs and 20 validated recipes; remaining recipe rows stay shadow-blocked when direct PIT binding, effective N, or shadow-tool readiness is insufficient |
-| production impact | forbidden; report-derived signals remain shadow-only until schema/audit, manual review, paper-trading, confidence-impact, and lockbox gates all pass |
+| `report-intelligence --refresh-derived-only` | public-safe mode still refuses to overwrite committed derived artifacts when required private inputs are absent; with local private snapshots it recomputes public-safe summaries, but claim text, source spans, manual-review rows, PDFs, Markdown, and local macro source registries stay ignored/private |
+| Markdown / extraction coverage | public summary shows the coverage gate passed: 947 selected reports have ready Markdown, 947 pass Markdown quality checks, and 945 have processed LLM extraction status; coverage strata are not currently missing |
+| analytical footprint review | public summary shows 2768/2768 reviewed rows and quality gate passed, with precision-style metrics above threshold; recall remains incomplete until private human negative examples are reviewed and summarized |
+| `evolution_readiness_gate` | public summary is `ready_for_shadow_evolution_candidate` with blocker count 0 across RI-EVOL and RI-MACRO checks; this does not authorize production prompt or trading impact |
+| `recipe_paper_trading_summary` | public-safe summary has 4708 pre-registered shadow runs, 43 validated recipes with positive after-cost alpha, and 4665 blocked rows; dominant blockers remain insufficient effective N, missing direct PIT binding, and unimplemented shadow tools |
+| industry ETF proxy labels | public PIT availability summary has 64 mappings, 63 PIT-available mappings, 109 eligible industry claims, 33 labelable claims, and 78 labelable windows; remaining gaps are aggregate-only sector mapping and PIT-history issues |
+| production impact | forbidden; promotion gate allows staged/paper-trading work but direct production remains blocked because the lockbox has not been opened |
 
 ## 8. CLI 运行方式
 
@@ -324,11 +325,11 @@ Report Intelligence 对 master plan 的贡献主要落在以下部分：
 
 ## 10. 后续演化方向
 
-当前 v1.5 仍处于 shadow-only evolution candidate 状态。后续如果要进入更强 runtime 使用，需要按以下顺序推进：
+当前 v1.5 仍处于 shadow-only evolution candidate 状态。后续演化继续受以下边界约束：
 
-1. 扩大 PDF 原文到 Markdown 的覆盖率，增加更多真实研报样本。
-2. 增加人工 footprint negative examples，补足 recall 评估。
-3. 扩展行业到 ETF proxy 的映射表，并记录每个映射的 PIT 可用性。
-4. 为 analysis recipe 做 paper-trading 验证，不能只依赖 profile 权重。
-5. 将 recipe 的 confidence impact 纳入 monitor，持续检查 alpha decay 和 calibration drift。
+1. Markdown 覆盖已过当前 gate，但新增本地报告后仍要重新跑 coverage 和 extraction provenance。
+2. footprint precision gate 已过；recall 必须通过私有人工 negative examples 补齐，公开 summary 只保存聚合计数和 recall estimate。
+3. 行业 ETF proxy 仍要扩展映射和 PIT 可用性，缺口以 aggregate action summary 形式暴露，不能公开源报告行或 claim text。
+4. analysis recipe 只能在 direct PIT binding、effective N、after-cost alpha、OOS、regime 分散和 shadow tool implementation 全部满足后进入 validated shadow set。
+5. confidence impact monitor 已进入 shadow 观测，但生产决策影响仍必须保持 false，直到 promotion 和 lockbox 同时通过。
 6. lockbox 未打开前，不允许任何 report-only signal 进入 production decision。
