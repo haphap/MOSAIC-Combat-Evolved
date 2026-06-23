@@ -8,6 +8,7 @@ from mosaic.rke import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
     build_production_promotion_gate_report,
+    write_manual_review_batches,
     write_production_promotion_gate_report,
 )
 from mosaic.rke.manual_review_import import (
@@ -20,6 +21,7 @@ from mosaic.rke.manual_review_import import (
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    write_manual_review_batches(dst_root)
     shutil.copytree(Path("schemas"), dst_root / "schemas")
     shutil.copytree(Path("docs"), dst_root / "docs")
 
