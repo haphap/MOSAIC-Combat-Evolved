@@ -24,7 +24,6 @@ HYPOTHESIS_PATHS = (
 SOURCE_PATHS = (
     "registry/sources/central_bank_sources.jsonl",
     "registry/sources/semiconductor_demo_sources.jsonl",
-    "registry/sources/tushare_research_reports.jsonl",
 )
 RULE_PACK_PATHS = (
     "registry/rule_packs/macro.central_bank.liquidity.v1.json",
