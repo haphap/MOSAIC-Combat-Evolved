@@ -607,12 +607,13 @@ Implementation tasks:
 - scorecard integration test：ingest -> score all 10 macro agents -> list skill ->
   autoresearch selection。
 - 回测对比：benchmark fallback vs agent-specific drawdown-aware labels。
-- feature flag：`autoresearch.macro_full_label_sources_enabled=false` 默认关闭，验证后再开。
+- feature flag：`autoresearch.macro_full_label_sources_enabled=true` 默认开启；显式设为
+  `false` 时回滚到保守 PR #73 label set。
 
 验收：
 
-- 默认行为可回滚到 PR #73。
-- 开启新 flag 后 macro selection 频率稳定，不因某个新 label 的尺度异常而垄断 selection。
+- 显式关闭 flag 时可回滚到 PR #73。
+- 默认开启新 flag 后 macro selection 频率稳定，不因某个新 label 的尺度异常而垄断 selection。
 - keep/revert 仍只由 portfolio `delta_sharpe` 决定。
 
 ## 需要新增的测试
@@ -665,6 +666,48 @@ P6: all-10-agent integration gate
 | 用好 OpenCLI 数据收集能力 | “OpenCLI 必须先持久化”与 P4 event pipeline | `macro_documents`、query bundle、dedupe/hash、event classifier、discovered_at 约束 |
 | 将 plan 写入文件 | 本文件即交付物 | `docs/plans/macro-agent-data-source-plan.md` |
 | 确保所有 agent 能使用 drawdown-aware scoring | “所有 primary label 都要 drawdown-aware”与 P3/P6 验收 | 10 个 agent 都必须有 `primary_ready=True` 的 drawdown-aware label，且 `MacroScorer` 能写入非 fallback label |
+
+## 当前交付状态（2026-06-23）
+
+本计划的第一版落地切片 P0-P6 已满足交付条件：
+
+- P0 已落地：Tushare endpoint catalog、required macro categories 和 schema/fixture tests
+  已由 `tests/test_macro_data_source_plan.py` 覆盖。
+- P1 已落地：`macro_series`、`macro_documents`、`macro_label_sources` 已进入
+  `ScorecardStore`，并有 point-in-time / discovered-at 约束测试。
+- P2 已落地：drawdown-aware path-label engine 支持 terminal return、max drawdown、
+  realized volatility 和 path metric；少于两个 forward points 不标 primary。
+- P3 已落地：10 个 Layer-1 macro agents 默认都有 primary drawdown-aware path label。
+- P4 已落地：OpenCLI/Tushare document pipeline 持久化到 `macro_documents`，再做
+  deterministic event/sentiment classification；历史 scoring 不实时回看互联网。
+- P5 已落地：macro prompts 区分当日 evidence 与后验 scorecard scoring，不要求 agent
+  计算未来收益；macro mutator context 展示 raw score、hit rate、label、primary/fallback/missing
+  比例和 influence diagnostics。
+- P6 已落地并打开默认路径：`autoresearch.macro_full_label_sources_enabled=true`。
+  显式设为 `false` 时仍可回滚到保守 PR #73 label set。
+
+当前默认 primary label：
+
+| Agent | Default primary label |
+| --- | --- |
+| `central_bank` | `rate_sensitive_path_5d` |
+| `china` | `china_growth_proxy_path_5d` |
+| `geopolitical` | `risk_off_path_5d` |
+| `dollar` | `cny_pressure_path_5d` |
+| `yield_curve` | `curve_sensitive_path_5d` |
+| `commodities` | `commodity_basket_path_5d` |
+| `volatility` | `volatility_shock_path_5d` |
+| `emerging_markets` | `em_hk_relative_path_5d` |
+| `news_sentiment` | `sentiment_followthrough_path_5d` |
+| `institutional_flow` | `flow_followthrough_path_5d` |
+
+当前验证命令：
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m pytest tests/test_macro_data_source_plan.py tests/test_macro_signals.py tests/test_bridge_scorecard_handlers.py -q \
+  --basetemp .mosaic/tmp/pytest-macro-rollout
+```
 
 ## 参考来源
 

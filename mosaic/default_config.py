@@ -211,9 +211,10 @@ DEFAULT_CONFIG = {
         "min_macro_interval_days": 5,
         "macro_neutral_band": 0.005,
         "macro_agent_specific_labels_enabled": True,
-        # P6 rollout gate: keep the new proxy/relative/basket path labels OFF by
-        # default so scoring stays on the validated PR #73 set until backtested.
-        "macro_full_label_sources_enabled": False,
+        # P6 rollout gate opened: use the validated proxy/relative/basket path
+        # labels by default. Set false to roll back to the conservative PR #73
+        # label set.
+        "macro_full_label_sources_enabled": True,
         "recent_revert_penalty_days": 14,
         # Mirror kept (merged-to-main) prompt mutations to a self-hosted git
         # server. OPT-IN; default OFF keeps autoresearch 100% local. When push

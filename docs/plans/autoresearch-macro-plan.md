@@ -1316,11 +1316,10 @@ P6 integration/provenance:
 
 P7 agent-specific labels:
   新增 macro label inventory。
-  volatility / geopolitical 的 max_drawdown_5d 已使用 benchmark close series 作为 primary。
-  其他 agent-specific labels 暂无已确认 source parser，明确走 benchmark_fallback_5d。
-  macro_agent_specific_labels_enabled 默认 true 是有意设置：这让已确认数据源的
-  volatility/geopolitical 立即进入更贴近职责的 drawdown-aware 评分；需要完全复现
-  MVP benchmark scoring 时可显式设为 false。
+  10 个 Layer-1 macro agents 都已有可用 primary path label，默认
+  macro_full_label_sources_enabled=true 后会进入 drawdown-aware scoring。
+  需要完全复现保守 PR #73 scoring 时可显式设为
+  macro_full_label_sources_enabled=false。
   institutional_flow / news_sentiment 的 deferred source 指向主力资金流 / 行业资金流或 sentiment series，
   不使用 northbound-flow fallback。
 
@@ -1338,6 +1337,31 @@ P9 unified Darwinian weights:
   macro rows 使用 raw_macro_score_5d，recommendation rows 使用 alpha_5d_mean_30d。
   小样本 scope 写 skipped 并保持 previous weight；无 previous 则从 1.0 起步。
   Layer 1 aggregator 默认等权；打开 flag 后通过 darwinian.get_weights 读取 macro weights。
+```
+
+## Delivery Status（2026-06-23）
+
+本计划当前满足 MVP 与 P6-P9 follow-up 交付条件：
+
+- macro 不写入 `recommendations`；Layer-1 输出进入独立 `macro_signals`。
+- `MacroScorer` 默认启用 full macro path labels，10 个 macro agents 都使用
+  drawdown-aware primary scoring；显式关闭 `macro_full_label_sources_enabled` 可回滚。
+- `_select_agent` 使用 layer-aware selection：macro agent 在 macro 层内按
+  `mean_raw_macro_score_5d` 排序，不和 ticker recommendation alpha 直接混排。
+- static quota 已落地：`macro_quota=0.2`、`min_macro_interval_days=5`、
+  `recent_revert_penalty_days=14`。
+- TS mutator context 会展示 macro skill、primary/fallback/missing 比例和 influence
+  diagnostics；cold start 有保守文案。
+- keep/revert 仍只由 portfolio `delta_sharpe` 决定，不读取 macro hit rate。
+- unified `darwinian_weights` 为默认路径，仍保留
+  `darwinian.weight_rewrite_enabled=false` 回滚开关。
+
+当前验证命令：
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m pytest tests/test_macro_data_source_plan.py tests/test_macro_signals.py tests/test_bridge_scorecard_handlers.py -q \
+  --basetemp .mosaic/tmp/pytest-macro-rollout
 ```
 
 已验证命令：

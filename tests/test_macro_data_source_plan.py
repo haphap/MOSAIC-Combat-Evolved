@@ -392,9 +392,8 @@ def test_full_label_sources_gate_controls_primary_labels():
     )
 
 
-def test_scorer_default_gate_off_keeps_proxy_agent_off_path_label(tmp_path):
-    # dollar's primary is a proxy path label → gated off by default → must NOT be
-    # recorded as cny_pressure_path_5d.
+def test_scorer_default_gate_on_uses_proxy_agent_path_label(tmp_path):
+    # P6 rollout is open by default: dollar should use its proxy path label.
     store = ScorecardStore(db_path=os.path.join(tmp_path, "t.db"))
     d0 = "2024-01-02"
     store.append_macro_signals_from_state(
@@ -405,10 +404,32 @@ def test_scorer_default_gate_off_keeps_proxy_agent_off_path_label(tmp_path):
          patch("mosaic.scorecard.scorer._fetch_close", lambda ts, date: {d0: 100.0, t5: 102.0}.get(date)), \
          patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]), \
          patch("mosaic.scorecard.scorer._fetch_instrument_series", lambda *a: [100, 101, 102]):
-        MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")  # default flag
+        MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")
     with store._connect() as conn:
         row = conn.execute("SELECT label_type FROM macro_signals").fetchone()
-    assert row["label_type"] != "cny_pressure_path_5d"  # rolled back to PR #73 behavior
+    assert row["label_type"] == "cny_pressure_path_5d"
+
+
+def test_scorer_explicit_gate_off_keeps_proxy_agent_off_path_label(tmp_path):
+    # Explicit rollback still restores the conservative PR #73 behavior.
+    store = ScorecardStore(db_path=os.path.join(tmp_path, "t.db"))
+    d0 = "2024-01-02"
+    store.append_macro_signals_from_state(
+        _macro_state({"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}}, d0)
+    )
+    t5 = _ntd(d0, 5)
+    with _cal(), \
+         patch("mosaic.scorecard.scorer._fetch_close", lambda ts, date: {d0: 100.0, t5: 102.0}.get(date)), \
+         patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]), \
+         patch("mosaic.scorecard.scorer._fetch_instrument_series", lambda *a: [100, 101, 102]):
+        MacroScorer(
+            store,
+            benchmark="000300.SH",
+            full_label_sources_enabled=False,
+        ).score_pending("cohort_default", "2024-02-01")
+    with store._connect() as conn:
+        row = conn.execute("SELECT label_type FROM macro_signals").fetchone()
+    assert row["label_type"] != "cny_pressure_path_5d"
 
 
 def test_scorer_relative_label_falls_back_when_dates_do_not_overlap(tmp_path):

@@ -299,19 +299,21 @@ def _macro_agent_specific_labels_enabled() -> bool:
 
 
 def _macro_full_label_sources_enabled() -> bool:
-    """P6 rollout gate. When False (default), the new proxy/relative/basket path
-    labels are NOT used — scoring rolls back to the PR #73 set (benchmark-derived
-    labels), so unvalidated data sources stay out of primary scoring."""
+    """P6 rollout gate for full macro path labels.
+
+    The default path uses the validated proxy/relative/basket labels. Explicit
+    False rolls back to the conservative PR #73 label set.
+    """
     try:
         from mosaic.default_config import DEFAULT_CONFIG
 
         return bool(
             DEFAULT_CONFIG.get("autoresearch", {}).get(
-                "macro_full_label_sources_enabled", False
+                "macro_full_label_sources_enabled", True
             )
         )
     except Exception:  # noqa: BLE001
-        return False
+        return True
 
 
 def _normalise_series_date(value: Any) -> Optional[str]:
@@ -602,8 +604,8 @@ class MacroScorer:
             if agent_specific_labels_enabled is not None
             else _macro_agent_specific_labels_enabled()
         )
-        # P6 rollout gate: when False, restrict primary labels to the validated
-        # PR #73 set (the new proxy/path labels stay out of primary scoring).
+        # P6 rollout gate: defaults to full macro path labels; explicit False
+        # rolls back to the conservative PR #73 label set.
         self.full_label_sources_enabled = (
             bool(full_label_sources_enabled)
             if full_label_sources_enabled is not None
