@@ -7368,40 +7368,148 @@ def test_report_intelligence_patch_coverage_uses_public_counts_without_private_i
 ):
     registry_dir = tmp_path / "registry/report_intelligence"
     registry_dir.mkdir(parents=True, exist_ok=True)
-    source_registry = Path("registry/report_intelligence")
+
+    def write_json(path: Path, payload: dict) -> None:
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    write_json(
+        registry_dir / "extraction_report.json",
+        {
+            "metadata_rows": 1,
+            "forecast_claim_rows": 1,
+            "analytical_footprint_rows": 1,
+            "outcome_label_rows": 1,
+        },
+    )
+    write_json(
+        registry_dir / "feature_flags.json",
+        {
+            "flags": {
+                "report_weighting_enabled": True,
+                "analytical_footprint_enabled": True,
+                "weighted_research_retriever_enabled": True,
+                "method_pattern_registry_enabled": True,
+                "tool_design_loop_enabled": True,
+                "shadow_tool_runtime_enabled": True,
+                "production_use_of_weighted_reports": False,
+            },
+            "rollout_mode": "shadow_tooling",
+            "runtime_behavior": "shadow tooling only; no agent decision impact",
+        },
+    )
+    _write_jsonl(
+        registry_dir / "metric_candidates.jsonl",
+        [{"metric_id": "METRIC-1", "canonical_metric": "market_test_proxy"}],
+    )
+    _write_jsonl(
+        registry_dir / "method_patterns.jsonl",
+        [{"method_pattern_id": "METHOD-1", "name": "market_test_proxy"}],
+    )
+    _write_jsonl(
+        registry_dir / "tool_coverage_matches.jsonl",
+        [{"metric_id": "METRIC-1", "coverage_status": "missing"}],
+    )
+    _write_jsonl(
+        registry_dir / "tool_gaps.jsonl",
+        [{"tool_gap_id": "GAP-1", "status": "open"}],
+    )
+    _write_jsonl(
+        registry_dir / "data_acquisition_proposals.jsonl",
+        [{"tool_gap_id": "GAP-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "tool_design_proposals.jsonl",
+        [{"tool_gap_id": "GAP-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "report_forecast_ledger.jsonl",
+        [{"forecast_claim_id": "COUNT-ONLY-forecast_claims-000001"}],
+    )
+    write_json(registry_dir / "outcome_labeling_readiness.json", {})
+    _write_jsonl(
+        registry_dir / "source_performance_profiles.jsonl",
+        [{"source_id": "SOURCE-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "viewpoint_performance_profiles.jsonl",
+        [{"viewpoint_id": "VIEWPOINT-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "method_performance_profiles.jsonl",
+        [{"method_pattern_id": "METHOD-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "analysis_recipes.jsonl",
+        [
+            {
+                "analysis_recipe_id": "RECIPE-1",
+                "method_pattern_id": "METHOD-1",
+                "runtime_mode": "shadow_only",
+                "required_tools": ["tool.requested.market_test_proxy"],
+            }
+        ],
+    )
+    _write_jsonl(
+        registry_dir / "weighted_research_contexts.jsonl",
+        [{"context_id": "CONTEXT-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "runtime_tool_gap_observations.jsonl",
+        [{"tool_gap_id": "GAP-1", "fallback_used": True}],
+    )
+    write_json(
+        registry_dir / "monitoring_report.json",
+        {
+            "alpha_decay_monitoring": {
+                "monitoring_spec_ready": True,
+                "alpha_decay_monitor_ready": True,
+                "required_rollback_modes": [
+                    "soft_rollback",
+                    "hard_rollback",
+                    "compliance_rollback",
+                ],
+            }
+        },
+    )
+    accepted_audit = {"accepted": True, "blocker_count": 0, "blockers": []}
     for filename in (
-        "feature_flags.json",
-        "extraction_report.json",
-        "metric_candidates.jsonl",
-        "method_patterns.jsonl",
-        "tool_coverage_matches.jsonl",
-        "tool_gaps.jsonl",
-        "data_acquisition_proposals.jsonl",
-        "tool_design_proposals.jsonl",
-        "report_forecast_ledger.jsonl",
-        "outcome_labeling_readiness.json",
-        "source_performance_profiles.jsonl",
-        "viewpoint_performance_profiles.jsonl",
-        "method_performance_profiles.jsonl",
-        "analysis_recipes.jsonl",
-        "weighted_research_contexts.jsonl",
-        "runtime_tool_gap_observations.jsonl",
-        "monitoring_report.json",
         "runtime_safety_audit.json",
         "pit_leakage_audit.json",
         "extraction_provenance_audit.json",
         "statistical_robustness_audit.json",
         "tool_feasibility_audit.json",
         "recipe_validation_audit.json",
-        "analytical_footprint_review_summary.json",
-        "analytical_footprint_error_taxonomy.json",
     ):
-        shutil.copy2(source_registry / filename, registry_dir / filename)
+        write_json(registry_dir / filename, accepted_audit)
+    write_json(
+        registry_dir / "analytical_footprint_review_summary.json",
+        {
+            "accepted": True,
+            "quality_gate_passed": True,
+        },
+    )
+    write_json(
+        registry_dir / "analytical_footprint_error_taxonomy.json",
+        {"error_tags": [{"tag": "metric_mapping_error"}]},
+    )
+
     gold_dir = tmp_path / "registry/gold_sets"
     gold_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(
-        Path("registry/gold_sets/tushare_research_reports.review_summary.json"),
+    write_json(
         gold_dir / "tushare_research_reports.review_summary.json",
+        {
+            "passed": True,
+            "review_complete": True,
+            "reviewed_claims": 50,
+            "total_documents": 50,
+            "metrics": {
+                "claim_precision": 0.9,
+                "source_span_support_precision": 0.9,
+            },
+        },
     )
 
     write_report_intelligence_patch_v1_5_coverage_report(
