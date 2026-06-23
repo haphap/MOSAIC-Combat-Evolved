@@ -168,10 +168,20 @@ def _ensure_footprint_review_template(root: Path) -> None:
     )
     if template_path.exists():
         return
+    footprint_rows = _load_jsonl(
+        root / "registry/report_intelligence/analytical_footprints.jsonl"
+    )
+    if footprint_rows and len(footprint_rows) < 80:
+        seed_rows = list(footprint_rows)
+        seed_count = len(seed_rows)
+        for index in range(seed_count + 1, 81):
+            seed = dict(seed_rows[(index - 1) % seed_count])
+            seed["footprint_id"] = f"RIFP-SYNTH-REVIEW-{index:03d}"
+            footprint_rows.append(seed)
     _write_jsonl(
         template_path,
         build_analytical_footprint_review_rows(
-            _load_jsonl(root / "registry/report_intelligence/analytical_footprints.jsonl"),
+            footprint_rows,
             existing_template_path=template_path,
         ),
     )
