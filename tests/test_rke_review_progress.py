@@ -57,6 +57,7 @@ from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     apply_analytical_footprint_review_import,
+    build_analytical_footprint_review_rows,
 )
 from mosaic.rke.review_progress import (
     build_manual_review_action_queue,
@@ -95,15 +96,15 @@ def _copy_registry(dst_root: Path) -> None:
     footprint_template = (
         dst_root / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
     )
-    if footprint_template.exists():
-        footprint_rows = _load_jsonl(footprint_template)
-        for row in footprint_rows:
-            for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
-                row[field] = None
-            row["reviewer"] = ""
-            row["review_date"] = ""
-            row["review_notes"] = ""
-        _write_jsonl(footprint_template, footprint_rows)
+    _ensure_footprint_review_template(dst_root)
+    footprint_rows = _load_jsonl(footprint_template)
+    for row in footprint_rows:
+        for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+            row[field] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    _write_jsonl(footprint_template, footprint_rows)
     footprint_batch = (
         dst_root / "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
@@ -158,6 +159,22 @@ def _copy_registry(dst_root: Path) -> None:
 
 def _copy_registry_without_license_reset(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    _ensure_footprint_review_template(dst_root)
+
+
+def _ensure_footprint_review_template(root: Path) -> None:
+    template_path = (
+        root / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    if template_path.exists():
+        return
+    _write_jsonl(
+        template_path,
+        build_analytical_footprint_review_rows(
+            _load_jsonl(root / "registry/report_intelligence/analytical_footprints.jsonl"),
+            existing_template_path=template_path,
+        ),
+    )
 
 
 def _load_jsonl(path: Path) -> list[dict]:
