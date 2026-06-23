@@ -308,6 +308,8 @@ class TestPublicAPI:
     def test_backfill_stock_symbols_fetches_batches_and_rebuilds_only_targets(
         self, tmp_path: Path, monkeypatch
     ):
+        pytest.importorskip("qlib", reason="qlib not installed (.[backtest] extra)")
+        pytest.importorskip("loguru", reason="ingest extra not installed")
         from mosaic.dataflows.collectors.data_collector.tushare import collector
 
         qlib_dir = tmp_path / "qlib"
