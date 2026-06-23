@@ -17,6 +17,7 @@ from mosaic.rke.manual_review_import import (
     TARGET_ROW_HASH_FIELD,
     review_row_fingerprint,
 )
+from mosaic.rke.report_intelligence import build_analytical_footprint_review_rows
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -27,6 +28,19 @@ def _copy_registry(dst_root: Path) -> None:
         dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     )
     write_manual_review_batches(dst_root)
+    footprint_template = (
+        dst_root
+        / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    _write_jsonl(
+        footprint_template,
+        build_analytical_footprint_review_rows(
+            _load_jsonl(
+                dst_root / "registry/report_intelligence/analytical_footprints.jsonl"
+            ),
+            existing_template_path=footprint_template,
+        ),
+    )
 
 
 def _load_jsonl(path: Path) -> list[dict]:
