@@ -722,7 +722,7 @@ def _ensure_synthetic_private_tushare_registry(
     write_license_review_packet(root_path)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def _ensure_private_tushare_test_fixture(tmp_path_factory):
     root_path = Path.cwd()
     backup_root = tmp_path_factory.mktemp("rke-private-tushare-backup")

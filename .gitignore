@@ -74,6 +74,7 @@ registry/report_intelligence/markdown/
 registry/report_intelligence/mineru/
 registry/report_intelligence/analytical_footprint_review_evidence.jsonl
 registry/report_intelligence/analytical_footprint_review_evidence.md
+registry/report_intelligence/analytical_footprint_negative_examples.jsonl
 
 # RKE Tushare research-report corpus and source-derived review artifacts are
 # private/local data. Keep them in the local registry or cache, not in Git.
@@ -101,6 +102,7 @@ registry/report_intelligence/analytical_footprint_review_workbook.md
 registry/report_intelligence/analytical_footprint_review_batch.jsonl
 registry/report_intelligence/analytical_footprint_review_import_report.json
 registry/report_intelligence/analytical_footprint_reviewed.jsonl
+registry/report_intelligence/analytical_footprint_negative_examples.jsonl
 registry/report_intelligence/analytical_footprints.jsonl
 registry/report_intelligence/analysis_recipes.jsonl
 registry/report_intelligence/audit_refresh_history.jsonl

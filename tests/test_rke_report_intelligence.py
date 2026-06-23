@@ -83,6 +83,7 @@ from mosaic.rke.report_intelligence import (
     _entry_calendar_index,
     _evolution_gate_cli_summary,
     _forecast_rows_with_macro_claim_legs,
+    _industry_etf_proxy_for_sector,
     _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
     _normalize_indicator_mentions,
@@ -7065,6 +7066,56 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "tool.requested.market_unimplemented_proxy"
     ]
 
+    implemented_tool_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[tool_blocked_recipe],
+        outcome_label_rows=tool_blocked_labels,
+        method_performance_profile_rows=[],
+        shadow_implemented_requested_tools=[
+            "tool.requested.market_unimplemented_proxy"
+        ],
+    )
+    implemented_tool_summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=implemented_tool_runs,
+        tool_gap_rows=[
+            {
+                "tool_gap_id": "TG-TOOL-BLOCKED",
+                "metric_name": "market_unimplemented_proxy",
+                "method_pattern_ids": ["METHOD-TOOL-BLOCKED"],
+                "status": "shadow_implemented",
+            }
+        ],
+        tool_design_proposal_rows=[
+            {
+                "tool_proposal_id": "TDP-TOOL-BLOCKED",
+                "tool_gap_id": "TG-TOOL-BLOCKED",
+                "requested_tools": ["tool.requested.market_unimplemented_proxy"],
+                "status": "shadow_implemented",
+            }
+        ],
+    )
+
+    assert implemented_tool_runs[0]["paper_trading_status"] == "passed"
+    assert implemented_tool_runs[0]["blocked_reasons"] == []
+    assert implemented_tool_runs[0]["shadow_implemented_requested_tools"] == [
+        "tool.requested.market_unimplemented_proxy"
+    ]
+    assert implemented_tool_summary["validation_pass_count"] == 1
+    assert (
+        "required_tools_not_shadow_implemented"
+        not in implemented_tool_summary["blocker_counts"]
+    )
+    implementation_queue = implemented_tool_summary["tool_implementation_queue"]
+    assert implementation_queue["blocked_recipe_count"] == 0
+    assert implementation_queue["requested_tools"] == []
+    assert implementation_queue["shadow_implemented_requested_tools"] == [
+        "tool.requested.market_unimplemented_proxy"
+    ]
+    assert implementation_queue["shadow_implemented_tool_gap_ids"] == [
+        "TG-TOOL-BLOCKED"
+    ]
+
     multi_blocked_recipe = dict(tool_blocked_recipe)
     multi_blocked_recipe["analysis_recipe_id"] = "RECIPE-MULTI-BLOCKED"
     multi_blocked_recipe["recipe_id"] = "RECIPE-MULTI-BLOCKED"
@@ -7317,40 +7368,148 @@ def test_report_intelligence_patch_coverage_uses_public_counts_without_private_i
 ):
     registry_dir = tmp_path / "registry/report_intelligence"
     registry_dir.mkdir(parents=True, exist_ok=True)
-    source_registry = Path("registry/report_intelligence")
+
+    def write_json(path: Path, payload: dict) -> None:
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    write_json(
+        registry_dir / "extraction_report.json",
+        {
+            "metadata_rows": 1,
+            "forecast_claim_rows": 1,
+            "analytical_footprint_rows": 1,
+            "outcome_label_rows": 1,
+        },
+    )
+    write_json(
+        registry_dir / "feature_flags.json",
+        {
+            "flags": {
+                "report_weighting_enabled": True,
+                "analytical_footprint_enabled": True,
+                "weighted_research_retriever_enabled": True,
+                "method_pattern_registry_enabled": True,
+                "tool_design_loop_enabled": True,
+                "shadow_tool_runtime_enabled": True,
+                "production_use_of_weighted_reports": False,
+            },
+            "rollout_mode": "shadow_tooling",
+            "runtime_behavior": "shadow tooling only; no agent decision impact",
+        },
+    )
+    _write_jsonl(
+        registry_dir / "metric_candidates.jsonl",
+        [{"metric_id": "METRIC-1", "canonical_metric": "market_test_proxy"}],
+    )
+    _write_jsonl(
+        registry_dir / "method_patterns.jsonl",
+        [{"method_pattern_id": "METHOD-1", "name": "market_test_proxy"}],
+    )
+    _write_jsonl(
+        registry_dir / "tool_coverage_matches.jsonl",
+        [{"metric_id": "METRIC-1", "coverage_status": "missing"}],
+    )
+    _write_jsonl(
+        registry_dir / "tool_gaps.jsonl",
+        [{"tool_gap_id": "GAP-1", "status": "open"}],
+    )
+    _write_jsonl(
+        registry_dir / "data_acquisition_proposals.jsonl",
+        [{"tool_gap_id": "GAP-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "tool_design_proposals.jsonl",
+        [{"tool_gap_id": "GAP-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "report_forecast_ledger.jsonl",
+        [{"forecast_claim_id": "COUNT-ONLY-forecast_claims-000001"}],
+    )
+    write_json(registry_dir / "outcome_labeling_readiness.json", {})
+    _write_jsonl(
+        registry_dir / "source_performance_profiles.jsonl",
+        [{"source_id": "SOURCE-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "viewpoint_performance_profiles.jsonl",
+        [{"viewpoint_id": "VIEWPOINT-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "method_performance_profiles.jsonl",
+        [{"method_pattern_id": "METHOD-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "analysis_recipes.jsonl",
+        [
+            {
+                "analysis_recipe_id": "RECIPE-1",
+                "method_pattern_id": "METHOD-1",
+                "runtime_mode": "shadow_only",
+                "required_tools": ["tool.requested.market_test_proxy"],
+            }
+        ],
+    )
+    _write_jsonl(
+        registry_dir / "weighted_research_contexts.jsonl",
+        [{"context_id": "CONTEXT-1"}],
+    )
+    _write_jsonl(
+        registry_dir / "runtime_tool_gap_observations.jsonl",
+        [{"tool_gap_id": "GAP-1", "fallback_used": True}],
+    )
+    write_json(
+        registry_dir / "monitoring_report.json",
+        {
+            "alpha_decay_monitoring": {
+                "monitoring_spec_ready": True,
+                "alpha_decay_monitor_ready": True,
+                "required_rollback_modes": [
+                    "soft_rollback",
+                    "hard_rollback",
+                    "compliance_rollback",
+                ],
+            }
+        },
+    )
+    accepted_audit = {"accepted": True, "blocker_count": 0, "blockers": []}
     for filename in (
-        "feature_flags.json",
-        "extraction_report.json",
-        "metric_candidates.jsonl",
-        "method_patterns.jsonl",
-        "tool_coverage_matches.jsonl",
-        "tool_gaps.jsonl",
-        "data_acquisition_proposals.jsonl",
-        "tool_design_proposals.jsonl",
-        "report_forecast_ledger.jsonl",
-        "outcome_labeling_readiness.json",
-        "source_performance_profiles.jsonl",
-        "viewpoint_performance_profiles.jsonl",
-        "method_performance_profiles.jsonl",
-        "analysis_recipes.jsonl",
-        "weighted_research_contexts.jsonl",
-        "runtime_tool_gap_observations.jsonl",
-        "monitoring_report.json",
         "runtime_safety_audit.json",
         "pit_leakage_audit.json",
         "extraction_provenance_audit.json",
         "statistical_robustness_audit.json",
         "tool_feasibility_audit.json",
         "recipe_validation_audit.json",
-        "analytical_footprint_review_summary.json",
-        "analytical_footprint_error_taxonomy.json",
     ):
-        shutil.copy2(source_registry / filename, registry_dir / filename)
+        write_json(registry_dir / filename, accepted_audit)
+    write_json(
+        registry_dir / "analytical_footprint_review_summary.json",
+        {
+            "accepted": True,
+            "quality_gate_passed": True,
+        },
+    )
+    write_json(
+        registry_dir / "analytical_footprint_error_taxonomy.json",
+        {"error_tags": [{"tag": "metric_mapping_error"}]},
+    )
+
     gold_dir = tmp_path / "registry/gold_sets"
     gold_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(
-        Path("registry/gold_sets/tushare_research_reports.review_summary.json"),
+    write_json(
         gold_dir / "tushare_research_reports.review_summary.json",
+        {
+            "passed": True,
+            "review_complete": True,
+            "reviewed_claims": 50,
+            "total_documents": 50,
+            "metrics": {
+                "claim_precision": 0.9,
+                "source_span_support_precision": 0.9,
+            },
+        },
     )
 
     write_report_intelligence_patch_v1_5_coverage_report(
@@ -10306,6 +10465,23 @@ def test_report_intelligence_merges_default_industry_etf_mapping_fallbacks(
     assert by_sector["IT服务Ⅱ"]["etf_symbol"] == "SH515230"
     assert by_sector["旅游及景区"]["etf_symbol"] == "SZ159766"
     assert sum(1 for row in mapping_rows if row["sector_name"] == "工业金属") == 1
+
+
+def test_industry_etf_proxy_matches_normalized_sector_aliases():
+    proxy = _industry_etf_proxy_for_sector(
+        "IT 服务 Ⅱ",
+        [
+            {
+                "sector_name": "IT服务Ⅱ",
+                "sector_aliases": ["IT服务Ⅱ"],
+                "etf_symbol": "SH515230",
+                "status": "primary",
+            }
+        ],
+    )
+
+    assert proxy is not None
+    assert proxy["etf_symbol"] == "SH515230"
 
 
 def test_report_intelligence_industry_pit_availability_records_missing_benchmark(
@@ -15762,6 +15938,52 @@ def test_analytical_footprint_review_summary_maps_only_accepted_footprints():
     assert summary["precision_recall_report"]["metric_mapping_accuracy"] == 1.0
     assert metric["denominator"] == 1
     assert metric["denominator_policy"] == "footprint_correct_true_rows"
+
+
+def test_analytical_footprint_review_summary_computes_negative_example_recall():
+    base = {
+        "footprint_correct": True,
+        "source_span_supports_footprint": True,
+        "metric_mapping_correct": True,
+        "inferred_steps_tagged_correctly": True,
+        "unknowns_used_when_uncertain": True,
+        "no_proprietary_text_leakage": True,
+        "reviewer": "footprint-reviewer",
+        "review_date": "2026-06-19",
+        "review_notes": "fixture",
+    }
+    summary = build_analytical_footprint_review_summary(
+        [base],
+        negative_example_rows=[
+            {
+                "negative_example_id": "NEG-1",
+                "expected_footprint_present": True,
+                "extracted_footprint_found": True,
+            },
+            {
+                "negative_example_id": "NEG-2",
+                "expected_footprint_present": True,
+                "extracted_footprint_found": False,
+            },
+            {
+                "negative_example_id": "NEG-3",
+                "expected_footprint_present": False,
+                "extracted_footprint_found": False,
+            },
+            {
+                "negative_example_id": "NEG-4",
+                "expected_footprint_present": True,
+                "extracted_footprint_found": "yes",
+            },
+        ],
+    )
+
+    recall = summary["precision_recall_report"]
+    assert recall["recall_status"] == "computed_from_human_negative_examples"
+    assert recall["recall_estimate"] == 0.666667
+    assert recall["negative_example_sample_count"] == 4
+    assert recall["negative_example_positive_count"] == 3
+    assert recall["negative_example_false_negative_count"] == 1
 
 
 def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(

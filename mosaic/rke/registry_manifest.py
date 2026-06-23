@@ -45,6 +45,7 @@ PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
         "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
         "registry/report_intelligence/analytical_footprint_review_import_report.json",
         "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        "registry/report_intelligence/analytical_footprint_negative_examples.jsonl",
         "registry/report_intelligence/analytical_footprints.jsonl",
         "registry/report_intelligence/analysis_recipes.jsonl",
         "registry/report_intelligence/audit_refresh_history.jsonl",

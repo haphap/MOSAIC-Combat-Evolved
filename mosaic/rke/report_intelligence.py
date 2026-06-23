@@ -82,6 +82,9 @@ ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH = (
 ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH = (
     "registry/report_intelligence/analytical_footprint_review_evidence.md"
 )
+ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH = (
+    "registry/report_intelligence/analytical_footprint_negative_examples.jsonl"
+)
 ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH = (
     "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
 )
@@ -150,6 +153,7 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+        ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
@@ -9053,8 +9057,110 @@ def _analytical_footprint_quality_gap_targets(
     }
 
 
+def _review_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "y", "1", "pass", "passed"}:
+            return True
+        if normalized in {"false", "no", "n", "0", "fail", "failed"}:
+            return False
+    return None
+
+
+def _negative_example_bool(
+    row: Mapping[str, Any],
+    keys: Sequence[str],
+) -> bool | None:
+    for key in keys:
+        if key in row:
+            parsed = _review_bool(row.get(key))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _analytical_footprint_negative_recall_report(
+    negative_example_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    completed_rows = []
+    positive_rows = []
+    recovered_rows = []
+    for row in negative_example_rows:
+        expected = _negative_example_bool(
+            row,
+            (
+                "expected_footprint_present",
+                "should_have_footprint",
+                "reusable_footprint_present",
+                "human_expected_footprint",
+            ),
+        )
+        recovered = _negative_example_bool(
+            row,
+            (
+                "extracted_footprint_found",
+                "matched_existing_footprint",
+                "covered_by_extraction",
+                "extractor_found_footprint",
+            ),
+        )
+        if expected is None or recovered is None:
+            continue
+        completed_rows.append(row)
+        if expected:
+            positive_rows.append(row)
+            if recovered:
+                recovered_rows.append(row)
+
+    if not negative_example_rows:
+        recall_estimate = None
+        recall_status = "requires_human_negative_examples"
+    elif not completed_rows:
+        recall_estimate = None
+        recall_status = "negative_examples_incomplete"
+    elif not positive_rows:
+        recall_estimate = None
+        recall_status = "no_positive_negative_examples"
+    else:
+        recall_estimate = round(len(recovered_rows) / len(positive_rows), 6)
+        recall_status = "computed_from_human_negative_examples"
+    return {
+        "recall_estimate": recall_estimate,
+        "recall_status": recall_status,
+        "negative_example_sample_count": len(negative_example_rows),
+        "negative_example_completed_count": len(completed_rows),
+        "negative_example_positive_count": len(positive_rows),
+        "negative_example_true_positive_count": len(recovered_rows),
+        "negative_example_false_negative_count": max(
+            0,
+            len(positive_rows) - len(recovered_rows),
+        ),
+        "negative_example_policy": (
+            "recall uses private human-reviewed negative examples; public "
+            "summary stores aggregate counts only"
+        ),
+    }
+
+
+def _read_analytical_footprint_negative_examples(
+    registry_dir: Path,
+) -> list[Mapping[str, Any]]:
+    path = registry_dir / "analytical_footprint_negative_examples.jsonl"
+    if not path.exists():
+        return []
+    rows, _errors = load_jsonl_with_errors(
+        path,
+        label="analytical_footprint_negative_examples",
+    )
+    return [row for row in rows if isinstance(row, Mapping)]
+
+
 def build_analytical_footprint_review_summary(
     review_rows: Sequence[Mapping[str, Any]],
+    *,
+    negative_example_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     complete_rows = [row for row in review_rows if _footprint_review_row_complete(row)]
     pending_rows = len(review_rows) - len(complete_rows)
@@ -9099,8 +9205,7 @@ def build_analytical_footprint_review_summary(
         "proprietary_leakage_free_rate": rate(
             "no_proprietary_text_leakage"
         ),
-        "recall_estimate": None,
-        "recall_status": "requires_human_negative_examples",
+        **_analytical_footprint_negative_recall_report(negative_example_rows),
     }
     quality_gap_targets = _analytical_footprint_quality_gap_targets(
         complete_rows,
@@ -9196,7 +9301,12 @@ def write_analytical_footprint_review_artifacts(
         footprint_rows,
         existing_template_path=template_path,
     )
-    summary = build_analytical_footprint_review_summary(review_rows)
+    summary = build_analytical_footprint_review_summary(
+        review_rows,
+        negative_example_rows=_read_analytical_footprint_negative_examples(
+            registry_dir
+        ),
+    )
     taxonomy = build_analytical_footprint_error_taxonomy()
     preserve_summary = preserve_existing_summary and summary_path.exists() and not review_rows
     if preserve_summary:
@@ -11178,7 +11288,15 @@ def apply_analytical_footprint_review_import(
                 applied_rows += 1
             merged.append(row)
         _write_jsonl(target_path, merged)
-        _write_json(summary_path, build_analytical_footprint_review_summary(merged))
+        _write_json(
+            summary_path,
+            build_analytical_footprint_review_summary(
+                merged,
+                negative_example_rows=_read_analytical_footprint_negative_examples(
+                    root_path / REPORT_INTELLIGENCE_REGISTRY_DIR
+                ),
+            ),
+        )
 
     report = AnalyticalFootprintReviewImportReport(
         report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-IMPORT-REPORT",
@@ -13862,6 +13980,11 @@ def _read_industry_etf_proxy_map_rows(registry_dir: Path) -> list[Mapping[str, A
     return [*refreshed_rows, *fallback_rows]
 
 
+def _normalize_industry_sector_key(value: Any) -> str:
+    text = str(value or "").strip().casefold()
+    return re.sub(r"[\s/_\\\-|｜·,，:：;；()（）\[\]【】]+", "", text)
+
+
 def _industry_etf_proxy_for_sector(
     sector: str,
     mapping_rows: Sequence[Mapping[str, Any]] | None = None,
@@ -13870,6 +13993,7 @@ def _industry_etf_proxy_for_sector(
 ) -> Mapping[str, Any] | None:
     rows = list(mapping_rows or build_default_industry_etf_proxy_map_rows())
     normalized = str(sector or "").strip()
+    normalized_key = _normalize_industry_sector_key(normalized)
     primary_rows = [
         row
         for row in rows
@@ -13884,7 +14008,13 @@ def _industry_etf_proxy_for_sector(
         for name in names:
             if not name:
                 continue
-            if normalized == name or name in normalized:
+            name_key = _normalize_industry_sector_key(name)
+            if (
+                normalized == name
+                or name in normalized
+                or (name_key and normalized_key == name_key)
+                or (name_key and name_key in normalized_key)
+            ):
                 return row
     return None
 
@@ -18420,6 +18550,7 @@ def build_tool_design_proposals(
                 "tool_gap_id": gap_id,
                 "owner": owner,
                 "tool_name_candidate": _tool_name_for_metric(metric_name),
+                "requested_tools": [_requested_tool_name_for_metric(metric_name)],
                 "target_agents": _ensure_list(gap.get("target_agents")),
                 "source_tool_gap_priority": str(gap.get("priority_bucket") or "low"),
                 "license_status": _tool_gap_license_status(gap),
@@ -18529,6 +18660,11 @@ def _analysis_recipe_output_signal_name(name: str) -> str:
     return f"{_canonical_metric_name(name)}_score"
 
 
+def _requested_tool_name_for_metric(metric: str) -> str:
+    canonical = _canonical_metric_name(metric) or str(metric or "unknown_metric")
+    return f"tool.requested.{canonical}"
+
+
 def _analysis_recipe_step_tool(
     *,
     metric: str,
@@ -18541,7 +18677,7 @@ def _analysis_recipe_step_tool(
         keyword in metric for keyword in ANALYSIS_RECIPE_REASONING_STEP_KEYWORDS
     ):
         return ANALYSIS_RECIPE_REASONING_STEP_TOOL, False
-    return f"tool.requested.{metric}", True
+    return _requested_tool_name_for_metric(metric), True
 
 
 def build_analysis_recipes(
@@ -19408,6 +19544,103 @@ def _method_profile_by_method_id(
     }
 
 
+SHADOW_IMPLEMENTED_TOOL_GAP_STATUSES = frozenset(
+    {
+        "implemented",
+        "validated",
+        "shadow_implemented",
+        "shadow_validated",
+    }
+)
+SHADOW_IMPLEMENTATION_VALIDATION_STATUSES = frozenset(
+    {
+        "passed",
+        "validated",
+        "shadow_validated",
+    }
+)
+
+
+def _tool_gap_shadow_implemented(row: Mapping[str, Any]) -> bool:
+    statuses = (
+        row.get("shadow_implementation_status"),
+        row.get("implementation_status"),
+        row.get("status"),
+    )
+    if any(
+        str(status or "").strip() in SHADOW_IMPLEMENTED_TOOL_GAP_STATUSES
+        for status in statuses
+    ):
+        return True
+    implementation = _ensure_mapping(row.get("shadow_implementation"))
+    if implementation.get("shadow_validated") is True:
+        return True
+    if implementation.get("implemented") is not True:
+        return False
+    validation_status = str(
+        implementation.get("validation_status")
+        or implementation.get("status")
+        or ""
+    ).strip()
+    return validation_status in SHADOW_IMPLEMENTATION_VALIDATION_STATUSES
+
+
+def _requested_tools_from_tool_record(row: Mapping[str, Any]) -> list[str]:
+    tools: list[str] = []
+    for field in (
+        "requested_tools",
+        "required_tools",
+        "shadow_requested_tools",
+    ):
+        tools.extend(str(item) for item in _ensure_list(row.get(field)))
+    for field in ("requested_tool", "required_tool"):
+        value = str(row.get(field) or "").strip()
+        if value:
+            tools.append(value)
+    metric_name = str(row.get("metric_name") or "").strip()
+    if metric_name:
+        tools.append(_requested_tool_name_for_metric(metric_name))
+    return sorted(
+        {
+            tool.strip()
+            for tool in tools
+            if tool.strip().startswith("tool.requested.")
+        }
+    )
+
+
+def _proposal_rows_by_gap_id(
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[Mapping[str, Any]]]:
+    rows_by_gap_id: dict[str, list[Mapping[str, Any]]] = {}
+    for proposal in tool_design_proposal_rows:
+        gap_id = str(proposal.get("tool_gap_id") or "").strip()
+        if gap_id:
+            rows_by_gap_id.setdefault(gap_id, []).append(proposal)
+    return rows_by_gap_id
+
+
+def _shadow_implemented_requested_tools(
+    *,
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[str]:
+    proposal_rows_by_gap_id = _proposal_rows_by_gap_id(tool_design_proposal_rows)
+    implemented_tools: set[str] = set()
+    for gap in tool_gap_rows:
+        gap_id = str(gap.get("tool_gap_id") or "").strip()
+        proposals = proposal_rows_by_gap_id.get(gap_id, ())
+        if not (
+            _tool_gap_shadow_implemented(gap)
+            or any(_tool_gap_shadow_implemented(proposal) for proposal in proposals)
+        ):
+            continue
+        implemented_tools.update(_requested_tools_from_tool_record(gap))
+        for proposal in proposals:
+            implemented_tools.update(_requested_tools_from_tool_record(proposal))
+    return sorted(implemented_tools)
+
+
 def build_recipe_paper_trading_runs(
     *,
     run_id: str,
@@ -19417,6 +19650,7 @@ def build_recipe_paper_trading_runs(
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     footprint_rows: Sequence[Mapping[str, Any]] = (),
     method_rows: Sequence[Mapping[str, Any]] = (),
+    shadow_implemented_requested_tools: Sequence[Any] = (),
 ) -> list[dict[str, Any]]:
     method_profiles = _method_profile_by_method_id(method_performance_profile_rows)
     inferred_labels_by_method_id = _inferred_outcome_labels_by_method_id(
@@ -19425,6 +19659,11 @@ def build_recipe_paper_trading_runs(
         footprint_rows=footprint_rows,
         method_rows=method_rows,
     )
+    implemented_requested_tools = {
+        str(tool or "").strip()
+        for tool in shadow_implemented_requested_tools
+        if str(tool or "").strip().startswith("tool.requested.")
+    }
     runs: list[dict[str, Any]] = []
     for index, recipe in enumerate(analysis_recipe_rows, 1):
         recipe_id = _recipe_id(recipe, index)
@@ -19461,10 +19700,17 @@ def build_recipe_paper_trading_runs(
             blockers.append("no_direct_recipe_outcome_binding")
         if float(metrics.get("effective_n") or 0.0) < RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N:
             blockers.append("insufficient_effective_n")
-        if any(
-            str(tool).startswith("tool.requested.")
+        requested_tool_placeholders = [
+            str(tool or "").strip()
             for tool in _ensure_list(recipe.get("required_tools"))
-        ):
+            if str(tool or "").strip().startswith("tool.requested.")
+        ]
+        unimplemented_requested_tools = [
+            tool
+            for tool in requested_tool_placeholders
+            if tool not in implemented_requested_tools
+        ]
+        if unimplemented_requested_tools:
             blockers.append("required_tools_not_shadow_implemented")
         required_data = _normalize_required_data_items(recipe.get("required_data"))
         if not required_data:
@@ -19612,6 +19858,12 @@ def build_recipe_paper_trading_runs(
                 "pre_registered_protocol": pre_registered_protocol,
                 "metrics": metrics,
                 "blocked_reasons": sorted(set(blockers)),
+                "shadow_implemented_requested_tools": sorted(
+                    set(requested_tool_placeholders) & implemented_requested_tools
+                ),
+                "unimplemented_requested_tools": sorted(
+                    set(unimplemented_requested_tools)
+                ),
                 "profile_weight_support": {
                     "method_profile_id": method_profile.get("method_profile_id") or "",
                     "n_effective_reports": profile_n,
@@ -19622,7 +19874,7 @@ def build_recipe_paper_trading_runs(
                 "policy": (
                     "analysis recipes cannot promote from profile weights alone; "
                     "paper-trading requires direct PIT outcome binding, pre-registered "
-                    "T+1 protocol, after-cost alpha, effective N, and no requested-tool placeholders"
+                    "T+1 protocol, after-cost alpha, effective N, and no unimplemented requested-tool placeholders"
                 ),
             }
         )
@@ -19649,21 +19901,37 @@ def build_recipe_paper_trading_summary(
     direct_pit_bound_blocker_counts: dict[str, int] = {}
     validation_candidate_ids: list[str] = []
     tool_only_blocked_ids: list[str] = []
-    tool_gap_ids_by_method_id: dict[str, list[str]] = {}
-    tool_gap_ids: set[str] = set()
+    unimplemented_tool_gap_ids_by_method_id: dict[str, list[str]] = {}
+    unimplemented_tool_gap_ids: set[str] = set()
+    shadow_implemented_tool_gap_ids: set[str] = set()
     queued_tool_gap_ids: set[str] = set()
     queued_tool_proposal_ids: set[str] = set()
     queued_requested_tools: set[str] = set()
+    shadow_implemented_requested_tools = set(
+        _shadow_implemented_requested_tools(
+            tool_gap_rows=tool_gap_rows,
+            tool_design_proposal_rows=tool_design_proposal_rows,
+        )
+    )
     queued_recipe_ids: set[str] = set()
     for gap in tool_gap_rows:
         gap_id = str(gap.get("tool_gap_id") or "").strip()
         if not gap_id or str(gap.get("status") or "") == "retired":
             continue
-        tool_gap_ids.add(gap_id)
+        gap_implemented = _tool_gap_shadow_implemented(gap)
+        if gap_implemented:
+            shadow_implemented_tool_gap_ids.add(gap_id)
+        else:
+            unimplemented_tool_gap_ids.add(gap_id)
         for method_id in _ensure_list(gap.get("method_pattern_ids")):
             method_key = str(method_id or "").strip()
             if method_key:
-                tool_gap_ids_by_method_id.setdefault(method_key, []).append(gap_id)
+                if not gap_implemented:
+                    unimplemented_tool_gap_ids_by_method_id.setdefault(
+                        method_key,
+                        [],
+                    ).append(gap_id)
+    proposal_rows_by_gap_id = _proposal_rows_by_gap_id(tool_design_proposal_rows)
     proposal_ids_by_gap_id: dict[str, list[str]] = {}
     for proposal in tool_design_proposal_rows:
         gap_id = str(proposal.get("tool_gap_id") or "").strip()
@@ -19689,17 +19957,30 @@ def build_recipe_paper_trading_summary(
         if blocked_reasons == ["required_tools_not_shadow_implemented"]:
             tool_only_blocked_ids.append(recipe_id)
             for method_id in _ensure_list(run.get("source_method_pattern_ids")):
-                for gap_id in tool_gap_ids_by_method_id.get(str(method_id or ""), ()):
+                method_key = str(method_id or "")
+                for gap_id in unimplemented_tool_gap_ids_by_method_id.get(
+                    method_key,
+                    (),
+                ):
                     tool_only_gap_ids.add(gap_id)
-                    tool_only_proposal_ids.update(proposal_ids_by_gap_id.get(gap_id, ()))
+                    tool_only_proposal_ids.update(
+                        proposal_ids_by_gap_id.get(gap_id, ())
+                    )
         if "required_tools_not_shadow_implemented" in blocked_reasons:
             queued_recipe_ids.add(recipe_id)
             for tool in _ensure_list(run.get("required_tools")):
                 tool_name = str(tool or "").strip()
-                if tool_name.startswith("tool.requested."):
+                if (
+                    tool_name.startswith("tool.requested.")
+                    and tool_name not in shadow_implemented_requested_tools
+                ):
                     queued_requested_tools.add(tool_name)
             for method_id in _ensure_list(run.get("source_method_pattern_ids")):
-                for gap_id in tool_gap_ids_by_method_id.get(str(method_id or ""), ()):
+                method_key = str(method_id or "")
+                for gap_id in unimplemented_tool_gap_ids_by_method_id.get(
+                    method_key,
+                    (),
+                ):
                     queued_tool_gap_ids.add(gap_id)
                     queued_tool_proposal_ids.update(
                         proposal_ids_by_gap_id.get(gap_id, ())
@@ -19822,6 +20103,15 @@ def build_recipe_paper_trading_summary(
         direct_pit_binding_diagnostics["binding_gap_details"] = dict(
             direct_pit_binding_gap_details
         )
+    queued_gap_requested_tools: set[str] = set()
+    for gap in tool_gap_rows:
+        gap_id = str(gap.get("tool_gap_id") or "").strip()
+        if gap_id not in queued_tool_gap_ids:
+            continue
+        queued_gap_requested_tools.update(_requested_tools_from_tool_record(gap))
+        for proposal in proposal_rows_by_gap_id.get(gap_id, ()):
+            queued_gap_requested_tools.update(_requested_tools_from_tool_record(proposal))
+    unlinked_requested_tools = queued_requested_tools - queued_gap_requested_tools
     return {
         "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
         "run_id": run_id,
@@ -19860,18 +20150,29 @@ def build_recipe_paper_trading_summary(
             "blocked_recipe_ids": sorted(queued_recipe_ids),
             "requested_tool_count": len(queued_requested_tools),
             "requested_tools": sorted(queued_requested_tools),
+            "shadow_implemented_requested_tool_count": len(
+                shadow_implemented_requested_tools
+            ),
+            "shadow_implemented_requested_tools": sorted(
+                shadow_implemented_requested_tools
+            ),
             "tool_gap_count": len(queued_tool_gap_ids),
             "tool_gap_ids": sorted(queued_tool_gap_ids),
             "tool_proposal_count": len(queued_tool_proposal_ids),
             "tool_proposal_ids": sorted(queued_tool_proposal_ids),
+            "shadow_implemented_tool_gap_count": len(
+                shadow_implemented_tool_gap_ids
+            ),
+            "shadow_implemented_tool_gap_ids": sorted(shadow_implemented_tool_gap_ids),
             "unlinked_tool_gap_registry_count": max(
                 0,
-                len(tool_gap_ids - queued_tool_gap_ids),
+                len(unimplemented_tool_gap_ids - queued_tool_gap_ids),
             ),
             "unlinked_requested_tool_count": max(
                 0,
-                len(queued_requested_tools) - len(queued_tool_gap_ids),
+                len(unlinked_requested_tools),
             ),
+            "unlinked_requested_tools": sorted(unlinked_requested_tools),
         },
         "profile_paper_trade_disagreement_count": disagreement_count,
         "recipe_instability_gap_count": instability_gap_count,
@@ -20383,6 +20684,10 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
             label="report_outcome_labels",
             blockers=blockers,
         )
+    shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+    )
     recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
         run_id=run_id,
         analysis_recipe_rows=analysis_recipe_rows,
@@ -20391,6 +20696,7 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         forecast_rows=forecast_rows,
         footprint_rows=footprint_rows,
         method_rows=method_rows,
+        shadow_implemented_requested_tools=shadow_implemented_requested_tools,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
@@ -27611,6 +27917,10 @@ def build_report_intelligence_tool_feasibility_audit(
         if str(gap.get("status") or "") not in {
             "proposal_pending",
             "blocked_pending_review",
+            "shadow_implemented",
+            "shadow_validated",
+            "implemented",
+            "validated",
             "retired",
             "closed",
         }:
@@ -27742,6 +28052,10 @@ def build_report_intelligence_tool_feasibility_audit(
         if proposal.get("status") not in {
             "shadow_build_requested",
             "blocked_pending_review",
+            "shadow_implemented",
+            "shadow_validated",
+            "implemented",
+            "validated",
         }:
             design_failures.append(
                 f"{proposal_id}: status must remain shadow or blocked"
@@ -30814,6 +31128,10 @@ def run_report_intelligence_derived_refresh(
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
+    shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+    )
     recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
         run_id=run_id,
         analysis_recipe_rows=analysis_recipe_rows,
@@ -30822,6 +31140,7 @@ def run_report_intelligence_derived_refresh(
         forecast_rows=forecast_rows,
         footprint_rows=footprint_rows,
         method_rows=method_rows,
+        shadow_implemented_requested_tools=shadow_implemented_requested_tools,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
@@ -31943,6 +32262,10 @@ def run_report_intelligence_refresh(
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
+    shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+    )
     recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
         run_id=run_id,
         analysis_recipe_rows=analysis_recipe_rows,
@@ -31951,6 +32274,7 @@ def run_report_intelligence_refresh(
         forecast_rows=forecast_rows,
         footprint_rows=footprint_rows,
         method_rows=method_rows,
+        shadow_implemented_requested_tools=shadow_implemented_requested_tools,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,

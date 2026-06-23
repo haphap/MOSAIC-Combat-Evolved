@@ -44,10 +44,8 @@ def _resolve_python() -> str:
 
       1. ``$MOSAIC_PYTHON`` env var (explicit override; matches the TS client).
       2. ``<repo>/.venv/bin/python`` on POSIX, ``Scripts\\python.exe`` on Win.
-      3. ``shutil.which("python3")`` — works on CI runners that don't have a
-         project-local venv but do have ``python3`` on PATH.
-      4. Fall back to ``sys.executable`` so the test always has *something*
-         to run; logs the resolution to stderr for debuggability.
+      3. ``sys.executable`` — matches the active pytest/``uv run`` environment.
+      4. ``shutil.which("python3")`` — last-resort fallback for ad hoc runs.
 
     The mosaic package itself must be importable from the chosen interpreter
     — CI configs should ``pip install -e ".[data,test]"`` ahead of running
@@ -63,11 +61,14 @@ def _resolve_python() -> str:
         if candidate.is_file():
             return str(candidate)
 
+    if sys.executable:
+        return sys.executable
+
     which = shutil.which("python3") or shutil.which("python")
     if which:
         return which
 
-    return sys.executable
+    raise RuntimeError("No Python interpreter available for bridge subprocess tests")
 
 
 PYTHON = _resolve_python()
