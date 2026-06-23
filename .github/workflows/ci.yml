@@ -22,10 +22,10 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Install deps (data + trading + test; not the heavy qlib backtest extra)
+      - name: Install deps (data + trading + ingest + test; not the heavy qlib backtest extra)
         run: |
           uv venv
-          uv pip install -e '.[data,trading,test]'
+          uv pip install -e '.[data,trading,ingest,test]'
       - name: Lint (ruff, pinned to match local)
         run: uvx ruff@0.15.15 check mosaic tests
       - name: Prompt leak guard
