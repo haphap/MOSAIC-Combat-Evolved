@@ -5,6 +5,8 @@ import shutil
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
+
 from mosaic.rke import (
     build_schema_validation_report,
     validate_json_schema_artifact,
@@ -142,6 +144,85 @@ EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES = {
         "metric_mapping_accuracy 0.558824 below threshold 0.80"
     ),
 }
+
+PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES = {
+    "registry/report_intelligence/source_performance_profiles.jsonl",
+    "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+    "registry/report_intelligence/method_performance_profiles.jsonl",
+    "registry/report_intelligence/confidence_impact_observations.jsonl",
+    "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+    "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+    "registry/report_intelligence/audit_refresh_history.jsonl",
+    "registry/report_intelligence/gap_distribution_history.jsonl",
+}
+PRIVATE_GENERATED_REPORT_INTELLIGENCE_TEST_NAMES = {
+    "test_stock_report_outcome_status_doc_matches_public_artifacts",
+    "test_profile_outcome_layer_contract_accepts_current_public_artifacts",
+    "test_profile_outcome_layer_contract_rejects_layer_drift",
+    "test_extraction_report_contract_accepts_current_public_artifact",
+    "test_confidence_impact_observation_rejects_unknown_drift_status",
+    "test_confidence_impact_observation_schema_requires_plan_fields",
+    "test_confidence_impact_observation_schema_requires_regime_monitor_fields",
+    "test_recipe_paper_trading_contract_accepts_current_public_artifacts",
+    "test_recipe_paper_trading_contract_rejects_confidence_bypass",
+    "test_recipe_paper_trading_contract_rejects_missing_confidence_monitor_field",
+    "test_recipe_paper_trading_contract_rejects_regime_monitor_mismatch",
+    "test_recipe_paper_trading_contract_rejects_confidence_observation_id_drift",
+    "test_recipe_paper_trading_contract_rejects_monitor_action_mismatch",
+    "test_recipe_paper_trading_contract_rejects_monitor_derived_field_mismatch",
+    "test_recipe_paper_trading_contract_rejects_run_summary_mismatch",
+    "test_recipe_paper_trading_contract_rejects_validated_count_alias_mismatch",
+    "test_recipe_paper_trading_contract_rejects_summary_protocol_mismatch",
+    "test_recipe_paper_trading_contract_rejects_preregistration_payload_mismatch",
+    "test_recipe_paper_trading_contract_rejects_experiment_id_drift",
+    "test_recipe_paper_trading_contract_rejects_raw_required_data_persistence",
+    "test_recipe_paper_trading_run_schema_requires_plan_metrics",
+    "test_recipe_paper_trading_contract_rejects_missing_plan_metric",
+    "test_recipe_paper_trading_contract_rejects_passed_run_without_oos_alpha",
+    "test_recipe_paper_trading_contract_rejects_instability_without_gap",
+    "test_patch_coverage_rules_reject_stale_public_corpus_counts",
+    "test_evolution_refresh_history_rejects_accepted_aggregate_calibration_drift",
+    "test_evolution_refresh_history_rejects_stale_gap_distribution_state",
+    "test_evolution_refresh_history_requires_data_vintage_hash",
+    "test_prompt_mutation_candidate_contract_accepts_current_public_artifact",
+    "test_prompt_mutation_candidate_contract_rejects_production_prompt_bypass",
+    "test_prompt_mutation_candidate_contract_rejects_private_source_text",
+    "test_prompt_mutation_candidate_contract_requires_manual_blocked_shadow_review",
+    "test_prompt_mutation_candidate_contract_requires_full_validation_matrix",
+    "test_prompt_mutation_candidate_contract_requires_existing_public_evidence",
+    "test_prompt_mutation_candidate_contract_rejects_private_evidence_paths",
+    "test_prompt_mutation_candidate_contract_rejects_gold_quality_evidence_drift",
+    "test_prompt_mutation_candidate_contract_rejects_footprint_quality_evidence_drift",
+    "test_prompt_mutation_candidate_contract_rejects_refresh_stability_evidence_drift",
+    "test_prompt_mutation_candidate_contract_rejects_industry_mapping_evidence_drift",
+    "test_prompt_mutation_candidate_contract_rejects_calibration_evidence_drift",
+    "test_prompt_mutation_candidate_contract_rejects_mapping_markdown_confidence_drift",
+    "test_prompt_mutation_candidate_contract_rejects_remaining_public_evidence_drift",
+    "test_report_intelligence_monitoring_rejects_corpus_or_tooling_drift",
+    "test_report_intelligence_monitoring_rejects_weighting_summary_drift",
+}
+
+
+def _missing_private_generated_report_intelligence_fixtures() -> list[str]:
+    return [
+        path
+        for path in sorted(PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES)
+        if not Path(path).exists()
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _skip_private_generated_report_intelligence_contracts(request) -> None:
+    if request.node.name not in PRIVATE_GENERATED_REPORT_INTELLIGENCE_TEST_NAMES:
+        return
+    missing = _missing_private_generated_report_intelligence_fixtures()
+    if missing:
+        pytest.skip(
+            "full private/generated report-intelligence fixture is absent in this "
+            f"checkout; first missing artifact: {missing[0]}"
+        )
+
+
 def _expected_schema_failure_count() -> int:
     return (
         len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
