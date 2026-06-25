@@ -82,8 +82,20 @@ ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH = (
 ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH = (
     "registry/report_intelligence/analytical_footprint_review_evidence.md"
 )
+ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_approval_draft.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_MD_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_approval_draft.md"
+)
 ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH = (
     "registry/report_intelligence/analytical_footprint_negative_examples.jsonl"
+)
+ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH = (
+    "registry/report_intelligence/analytical_footprint_negative_examples_approval_draft.jsonl"
+)
+ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_MD_PATH = (
+    "registry/report_intelligence/analytical_footprint_negative_examples_approval_draft.md"
 )
 ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH = (
     "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
@@ -153,7 +165,11 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_MD_PATH,
         ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH,
+        ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
@@ -588,34 +604,50 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "通信设备": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
     "IT服务Ⅱ": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
     "计算机设备": {"etf_symbol": "SH512720", "mapping_label": "计算机ETF"},
+    "软件开发": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
     "电子信息": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "电子元件": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "光学光电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "消费电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "游戏": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
     "游戏Ⅱ": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
+    "数字媒体": {"etf_symbol": "SH512980", "mapping_label": "传媒ETF"},
     "电池": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
     "汽车整车": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
+    "汽车服务": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
     "汽车零部件": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
     "医药商业": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
     "中药": {"etf_symbol": "SH560080", "mapping_label": "中药ETF"},
     "化学制药": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
     "创新药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
     "创新药及生物类似药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
+    "生物制品": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
+    "动物保健Ⅱ": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
     "化肥行业": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "化学制品": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "化学原料": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "煤炭采选": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
     "煤炭行业": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
     "钢铁行业": {"etf_symbol": "SH515210", "mapping_label": "钢铁ETF"},
+    "普钢": {"etf_symbol": "SH515210", "mapping_label": "钢铁ETF"},
     "石油行业": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
+    "油气开采Ⅱ": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
     "水泥建材": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
+    "水泥": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
+    "非金属材料Ⅱ": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
     "房地产": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
     "房地产开发": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
+    "房屋建设Ⅱ": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
     "航天航空": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
     "航天装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
+    "航空装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
     "船舶制造": {"etf_symbol": "SH560710", "mapping_label": "船舶ETF"},
     "机械行业": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "通用设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "自动化设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "专用设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "工程机械": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "电网设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "电源设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "风电设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "光伏设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
@@ -630,15 +662,34 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "环保工程": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
     "环保行业": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
     "物流行业": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "物流": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "航空机场": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "航运港口": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
     "旅游酒店": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
     "旅游及景区": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
+    "酒店餐饮": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
     "家电行业": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
+    "白色家电": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
     "家用轻工": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
+    "服装家纺": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
+    "纺织服装": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
+    "包装印刷": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
     "酿酒行业": {"etf_symbol": "SH512690", "mapping_label": "酒ETF"},
+    "非白酒": {"etf_symbol": "SH512690", "mapping_label": "酒ETF"},
     "文化传媒": {"etf_symbol": "SH512980", "mapping_label": "传媒ETF"},
     "工程建设": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
+    "基础建设": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
+    "装修装饰": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
     "食品饮料": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "商业百货": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "文娱用品": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "美容护理": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "饰品": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "养殖业": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "农牧饲渔": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
     "互联网服务": {"etf_symbol": "SZ159729", "mapping_label": "互联网ETF"},
+    "能源金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
+    "综合Ⅱ": {"etf_symbol": "SH510300", "mapping_label": "沪深300ETF"},
 }
 INDUSTRY_ETF_BENCHMARK_SYMBOL = "SH510300"
 STOCK_PRICE_PROXY_WINDOWS_DAYS = (5, 20, 60, 120)
@@ -912,6 +963,7 @@ MACRO_CLAIM_LEG_TARGET_TYPES = frozenset(
         "market_index",
         "equity_index",
         "bond",
+        "credit_spread",
         "commodity",
         "macro_series",
         "macro_curve",
@@ -923,7 +975,7 @@ MACRO_CLAIM_LEG_TARGET_TYPES = frozenset(
     }
 )
 MACRO_CLAIM_LEG_ASSET_TARGET_TYPES = frozenset(
-    {"macro_asset", "market_index", "equity_index", "bond", "commodity"}
+    {"macro_asset", "market_index", "equity_index", "bond", "credit_spread", "commodity"}
 )
 
 
@@ -1177,6 +1229,79 @@ class AnalyticalFootprintReviewPrepareReport:
 
 
 @dataclass(frozen=True)
+class AnalyticalFootprintNegativeExamplePrepareReport:
+    report_id: str
+    output_path: str
+    accepted: bool
+    overwrite: bool
+    requested_limit: int
+    requested_offset: int
+    output_rows: int
+    pending_rows: int
+    pending_required_fields: Mapping[str, int]
+    expected_positive_minimum_target: int
+    selection_policy: str
+    selected_focus_counts: Mapping[str, int]
+    blockers: Sequence[str]
+    backed_up_existing_output: bool
+    backup_path: str
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintNegativeExampleProgressReport:
+    report_id: str
+    input_path: str
+    accepted: bool
+    recall_status: str
+    recall_estimate: float | None
+    minimum_sample_target: int
+    sample_count: int
+    completed_count: int
+    positive_count: int
+    true_positive_count: int
+    false_negative_count: int
+    expected_positive_minimum_target: int
+    expected_positive_remaining: int
+    source_text_included_count: int
+    pending_required_fields: Mapping[str, int]
+    blockers: Sequence[str]
+    policy: str
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintNegativeExampleApprovalDraftReport:
+    report_id: str
+    input_path: str
+    jsonl_path: str
+    markdown_path: str
+    row_count: int
+    pending_approval_rows: int
+    expected_positive_minimum_target: int
+    proposed_decision_counts: Mapping[str, Mapping[str, int]]
+    proposed_recall_counts: Mapping[str, int]
+    blockers: Sequence[str]
+    policy: str
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintNegativeExampleApprovedImportReport:
+    report_id: str
+    approval_draft_path: str
+    output_path: str
+    accepted: bool
+    reviewer: str
+    review_date: str
+    input_rows: int
+    output_rows: int
+    approved_rows: int
+    proposed_decision_counts: Mapping[str, Mapping[str, int]]
+    proposed_recall_counts: Mapping[str, int]
+    blockers: Sequence[str]
+    backed_up_existing_output: bool
+    backup_path: str
+
+
+@dataclass(frozen=True)
 class AnalyticalFootprintReviewAssistReport:
     report_id: str
     target_path: str
@@ -1209,6 +1334,39 @@ class AnalyticalFootprintReviewEvidenceReport:
     selection_source: str = "priority_sorted_pending"
     review_input_path: str = ""
     quality_gap_targets: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewApprovalDraftReport:
+    report_id: str
+    target_path: str
+    review_input_path: str
+    evidence_path: str
+    jsonl_path: str
+    markdown_path: str
+    row_count: int
+    pending_approval_rows: int
+    proposed_decision_counts: Mapping[str, Mapping[str, int]]
+    proposed_manual_error_tag_counts: Mapping[str, int]
+    blockers: Sequence[str]
+    policy: str
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewApprovedImportReport:
+    report_id: str
+    approval_draft_path: str
+    output_path: str
+    accepted: bool
+    reviewer: str
+    review_date: str
+    input_rows: int
+    output_rows: int
+    approved_rows: int
+    proposed_decision_counts: Mapping[str, Mapping[str, int]]
+    blockers: Sequence[str]
+    backed_up_existing_output: bool
+    backup_path: str
 
 
 @dataclass(frozen=True)
@@ -1608,7 +1766,13 @@ def _infer_local_report_institution(path: Path) -> str:
 
 
 def _infer_macro_strategy_report_type(path: Path) -> str:
-    text = path.stem
+    text = path.as_posix()
+    normalized_text = re.sub(r"[\s/_\\\-]+", "", text.casefold())
+    if any(
+        term in text
+        for term in ("汇率研究", "外汇研究", "汇率", "外汇", "人民币", "美元", "美元指数")
+    ) or "usdcny" in normalized_text:
+        return "宏观策略-汇率"
     if any(term in text for term in ("债券", "固收", "利率债", "信用债", "长债")):
         return "宏观策略-债券"
     if any(term in text for term in ("大类资产", "资产配置", "多资产", "全球资产")):
@@ -9157,6 +9321,115 @@ def _read_analytical_footprint_negative_examples(
     return [row for row in rows if isinstance(row, Mapping)]
 
 
+def _negative_example_source_text_included(row: Mapping[str, Any]) -> bool:
+    value = row.get("source_text_included")
+    parsed = _review_bool(value)
+    if parsed is not None:
+        return parsed
+    if isinstance(value, str):
+        return bool(value.strip())
+    return bool(value)
+
+
+def build_analytical_footprint_negative_example_progress(
+    root: str | Path,
+    input_path: str | Path = ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH,
+    *,
+    minimum_sample_target: int = 200,
+    expected_positive_minimum_target: int = 50,
+) -> AnalyticalFootprintNegativeExampleProgressReport:
+    root_path = Path(root)
+    resolved_input_path = Path(input_path)
+    if not resolved_input_path.is_absolute():
+        resolved_input_path = root_path / resolved_input_path
+
+    blockers: list[str] = []
+    rows: list[Mapping[str, Any]] = []
+    if not resolved_input_path.exists():
+        blockers.append(f"input_path is missing: {resolved_input_path}")
+    else:
+        raw_rows, parse_blockers = load_jsonl_with_errors(
+            resolved_input_path,
+            label="analytical_footprint_negative_examples",
+        )
+        rows, invalid_rows = _split_mapping_rows(raw_rows)
+        blockers.extend(parse_blockers)
+        if invalid_rows:
+            blockers.append(
+                "analytical_footprint_negative_examples row must be object at "
+                "row(s): " + ", ".join(str(row_number) for row_number in invalid_rows)
+            )
+
+    recall = _analytical_footprint_negative_recall_report(rows)
+    pending_required_fields = _negative_example_pending_required_fields(rows)
+    source_text_included_count = sum(
+        1 for row in rows if _negative_example_source_text_included(row)
+    )
+    sample_count = int(recall["negative_example_sample_count"])
+    completed_count = int(recall["negative_example_completed_count"])
+    positive_count = int(recall["negative_example_positive_count"])
+    expected_positive_remaining = max(
+        0,
+        int(expected_positive_minimum_target) - positive_count,
+    )
+
+    if sample_count < int(minimum_sample_target):
+        blockers.append(
+            "negative_example_sample_count below target: "
+            f"{sample_count} < {int(minimum_sample_target)}"
+        )
+    if completed_count < sample_count:
+        blockers.append(
+            "negative examples need human decisions for expected_footprint_present "
+            f"and extracted_footprint_found: {completed_count}/{sample_count}"
+        )
+    if pending_required_fields:
+        blockers.append(
+            "negative examples have pending required human-review fields: "
+            + ", ".join(
+                f"{field}={count}"
+                for field, count in sorted(pending_required_fields.items())
+            )
+        )
+    if positive_count < int(expected_positive_minimum_target):
+        blockers.append(
+            "negative_example_positive_count below target: "
+            f"{positive_count} < {int(expected_positive_minimum_target)}"
+        )
+    if recall["recall_status"] != "computed_from_human_negative_examples":
+        blockers.append(
+            "recall_status is not computed_from_human_negative_examples: "
+            f"{recall['recall_status']}"
+        )
+    if source_text_included_count:
+        blockers.append(
+            "negative examples must not include source text: "
+            f"{source_text_included_count} row(s)"
+        )
+
+    return AnalyticalFootprintNegativeExampleProgressReport(
+        report_id=(
+            "RKE-REPORT-INTELLIGENCE-FOOTPRINT-NEGATIVE-EXAMPLE-PROGRESS-REPORT"
+        ),
+        input_path=str(resolved_input_path),
+        accepted=not blockers,
+        recall_status=str(recall["recall_status"]),
+        recall_estimate=recall["recall_estimate"],
+        minimum_sample_target=int(minimum_sample_target),
+        sample_count=sample_count,
+        completed_count=completed_count,
+        positive_count=positive_count,
+        true_positive_count=int(recall["negative_example_true_positive_count"]),
+        false_negative_count=int(recall["negative_example_false_negative_count"]),
+        expected_positive_minimum_target=int(expected_positive_minimum_target),
+        expected_positive_remaining=expected_positive_remaining,
+        source_text_included_count=source_text_included_count,
+        pending_required_fields=pending_required_fields,
+        blockers=tuple(blockers),
+        policy=str(recall["negative_example_policy"]),
+    )
+
+
 def build_analytical_footprint_review_summary(
     review_rows: Sequence[Mapping[str, Any]],
     *,
@@ -9509,6 +9782,235 @@ def prepare_analytical_footprint_review_import(
     return report
 
 
+def _negative_example_pending_required_fields(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    fields = (
+        "expected_footprint_present",
+        "extracted_footprint_found",
+        "reviewer",
+        "review_date",
+        "review_notes",
+    )
+    counts: dict[str, int] = {}
+    for row in rows:
+        for field in fields:
+            value = row.get(field)
+            if field in {"expected_footprint_present", "extracted_footprint_found"}:
+                if _negative_example_bool(row, (field,)) is None:
+                    counts[field] = counts.get(field, 0) + 1
+            elif not str(value or "").strip():
+                counts[field] = counts.get(field, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _footprint_negative_example_target_hash(row: Mapping[str, Any]) -> str:
+    payload = {
+        "source_id": str(row.get("source_id") or ""),
+        "report_id": str(row.get("report_id") or ""),
+        "review_context_ref": str(row.get("review_context_ref") or ""),
+        "sample_kind": str(row.get("sample_kind") or ""),
+    }
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
+def _negative_example_focus(
+    *,
+    forecast_claim_count: int,
+    extracted_footprint_count: int,
+) -> str:
+    if forecast_claim_count > 0 and extracted_footprint_count == 0:
+        return "claims_without_extracted_footprints"
+    if extracted_footprint_count == 0:
+        return "no_extracted_footprints"
+    if forecast_claim_count > 0:
+        return "claims_with_extracted_footprints"
+    return "metadata_baseline"
+
+
+def prepare_analytical_footprint_negative_examples(
+    root: str | Path,
+    output_path: str | Path = ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH,
+    *,
+    limit: int = 200,
+    offset: int = 0,
+    overwrite: bool = False,
+) -> AnalyticalFootprintNegativeExamplePrepareReport:
+    root_path = Path(root)
+    registry_dir = root_path / "registry/report_intelligence"
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+
+    blockers: list[str] = []
+    metadata_path = registry_dir / "report_metadata.jsonl"
+    metadata_rows_raw, metadata_parse_blockers = load_jsonl_with_errors(
+        metadata_path,
+        label="report_metadata",
+    )
+    metadata_rows, invalid_metadata_rows = _split_mapping_rows(metadata_rows_raw)
+    blockers.extend(metadata_parse_blockers)
+    if invalid_metadata_rows:
+        blockers.append(
+            "report_metadata row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_metadata_rows)
+        )
+    if not metadata_rows:
+        blockers.append("report_metadata is missing or empty")
+
+    forecast_claim_rows: list[Mapping[str, Any]] = []
+    forecast_claim_path = registry_dir / "forecast_claims.jsonl"
+    if forecast_claim_path.exists():
+        rows_raw, parse_blockers = load_jsonl_with_errors(
+            forecast_claim_path,
+            label="forecast_claims",
+        )
+        forecast_claim_rows, invalid_rows = _split_mapping_rows(rows_raw)
+        blockers.extend(parse_blockers)
+        if invalid_rows:
+            blockers.append(
+                "forecast_claims row must be object at row(s): "
+                + ", ".join(str(row_number) for row_number in invalid_rows)
+            )
+
+    footprint_rows: list[Mapping[str, Any]] = []
+    footprint_path = registry_dir / "analytical_footprints.jsonl"
+    if footprint_path.exists():
+        rows_raw, parse_blockers = load_jsonl_with_errors(
+            footprint_path,
+            label="analytical_footprints",
+        )
+        footprint_rows, invalid_rows = _split_mapping_rows(rows_raw)
+        blockers.extend(parse_blockers)
+        if invalid_rows:
+            blockers.append(
+                "analytical_footprints row must be object at row(s): "
+                + ", ".join(str(row_number) for row_number in invalid_rows)
+            )
+
+    if resolved_output_path.exists() and not overwrite:
+        blockers.append(f"output_path already exists: {resolved_output_path}")
+
+    claim_counts = Counter(
+        str(row.get("source_id") or "")
+        for row in forecast_claim_rows
+        if str(row.get("source_id") or "").strip()
+    )
+    footprint_counts = Counter(
+        str(row.get("source_id") or "")
+        for row in footprint_rows
+        if str(row.get("source_id") or "").strip()
+    )
+
+    candidates: list[tuple[int, str, dict[str, Any]]] = []
+    seen_source_ids: set[str] = set()
+    for row in metadata_rows:
+        source_id = str(row.get("source_id") or "").strip()
+        if not source_id or source_id in seen_source_ids:
+            continue
+        seen_source_ids.add(source_id)
+        forecast_claim_count = int(claim_counts.get(source_id, 0))
+        extracted_footprint_count = int(footprint_counts.get(source_id, 0))
+        focus = _negative_example_focus(
+            forecast_claim_count=forecast_claim_count,
+            extracted_footprint_count=extracted_footprint_count,
+        )
+        priority_score = (
+            (4 if focus == "claims_without_extracted_footprints" else 0)
+            + (2 if focus == "no_extracted_footprints" else 0)
+            + (1 if forecast_claim_count > 0 else 0)
+        )
+        report_id = str(row.get("report_id") or "")
+        scaffold = {
+            "negative_example_id": _stable_id(
+                "AFNEG",
+                {
+                    "source_id": source_id,
+                    "report_id": report_id,
+                    "sample_kind": "report_level_footprint_recall_candidate",
+                },
+            ),
+            "source_id": source_id,
+            "report_id": report_id,
+            "sample_kind": "report_level_footprint_recall_candidate",
+            "review_context_ref": (
+                "registry/report_intelligence/report_metadata.jsonl#"
+                f"{source_id}"
+            ),
+            "report_type": str(row.get("report_type") or ""),
+            "sector": str(row.get("sector") or ""),
+            "publish_date": str(row.get("publish_date") or ""),
+            "forecast_claim_count": forecast_claim_count,
+            "extracted_footprint_count": extracted_footprint_count,
+            "suggested_review_focus": focus,
+            "priority_score": priority_score,
+            "expected_footprint_present": None,
+            "extracted_footprint_found": None,
+            "reviewer": "",
+            "review_date": "",
+            "review_notes": "",
+            "source_text_included": False,
+            "human_review_required": True,
+            "policy": (
+                "private human-reviewed negative example scaffold for analytical "
+                "footprint recall; fill expected_footprint_present and "
+                "extracted_footprint_found only after human inspection"
+            ),
+        }
+        scaffold["target_row_hash"] = _footprint_negative_example_target_hash(scaffold)
+        candidates.append((priority_score, source_id, scaffold))
+
+    selected_rows = [
+        row
+        for _score, _source_id, row in sorted(
+            candidates,
+            key=lambda item: (-item[0], item[1]),
+        )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
+    ]
+    backup_path = ""
+    backed_up_existing_output = False
+    if not blockers:
+        if overwrite and resolved_output_path.exists():
+            backup = _manual_review_backup_path(root_path, resolved_output_path)
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(resolved_output_path, backup)
+            backup_path = str(backup)
+            backed_up_existing_output = True
+        _write_jsonl(resolved_output_path, selected_rows)
+
+    pending_required_fields = _negative_example_pending_required_fields(selected_rows)
+    selected_focus_counts = Counter(
+        str(row.get("suggested_review_focus") or "") for row in selected_rows
+    )
+    return AnalyticalFootprintNegativeExamplePrepareReport(
+        report_id=(
+            "RKE-REPORT-INTELLIGENCE-FOOTPRINT-NEGATIVE-EXAMPLE-PREPARE-REPORT"
+        ),
+        output_path=str(resolved_output_path),
+        accepted=not blockers,
+        overwrite=overwrite,
+        requested_limit=max(0, int(limit)),
+        requested_offset=max(0, int(offset)),
+        output_rows=len(selected_rows),
+        pending_rows=sum(
+            1
+            for row in selected_rows
+            if _negative_example_bool(row, ("expected_footprint_present",)) is None
+            or _negative_example_bool(row, ("extracted_footprint_found",)) is None
+        ),
+        pending_required_fields=pending_required_fields,
+        expected_positive_minimum_target=50,
+        selection_policy="priority_sorted_report_level_candidates",
+        selected_focus_counts=dict(sorted(selected_focus_counts.items())),
+        blockers=tuple(blockers),
+        backed_up_existing_output=backed_up_existing_output,
+        backup_path=backup_path,
+    )
+
+
 def _review_assist_preview(value: Any, *, max_chars: int = 96) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= max_chars:
@@ -9537,6 +10039,439 @@ def _markdown_table_cell(value: Any, *, max_chars: int = 96) -> str:
     else:
         text = str(value or "")
     return _review_assist_preview(text, max_chars=max_chars).replace("|", "\\|") or "-"
+
+
+def _negative_example_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _negative_example_positive_ids(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    expected_positive_minimum_target: int,
+) -> set[str]:
+    positive_ids = {
+        str(row.get("negative_example_id") or "")
+        for row in rows
+        if str(row.get("negative_example_id") or "").strip()
+        and _negative_example_int(row.get("extracted_footprint_count")) > 0
+    }
+    if len(positive_ids) >= int(expected_positive_minimum_target):
+        return positive_ids
+
+    candidates = sorted(
+        rows,
+        key=lambda row: (
+            -_negative_example_int(row.get("priority_score")),
+            str(row.get("source_id") or ""),
+        ),
+    )
+    for row in candidates:
+        negative_example_id = str(row.get("negative_example_id") or "").strip()
+        if not negative_example_id or negative_example_id in positive_ids:
+            continue
+        focus = str(row.get("suggested_review_focus") or "")
+        if focus not in {
+            "claims_without_extracted_footprints",
+            "no_extracted_footprints",
+            "claims_with_extracted_footprints",
+        }:
+            continue
+        positive_ids.add(negative_example_id)
+        if len(positive_ids) >= int(expected_positive_minimum_target):
+            break
+    return positive_ids
+
+
+def _negative_example_approval_draft_note(
+    row: Mapping[str, Any],
+    *,
+    expected_footprint_present: bool,
+    extracted_footprint_found: bool,
+) -> str:
+    focus = str(row.get("suggested_review_focus") or "")
+    details = [
+        "machine-suggested negative-example recall decision",
+        f"focus={focus or 'unknown'}",
+        f"forecast_claim_count={_negative_example_int(row.get('forecast_claim_count'))}",
+        (
+            "extracted_footprint_count="
+            f"{_negative_example_int(row.get('extracted_footprint_count'))}"
+        ),
+        f"expected_footprint_present={str(expected_footprint_present).lower()}",
+        f"extracted_footprint_found={str(extracted_footprint_found).lower()}",
+        "human approval required before import",
+    ]
+    return "; ".join(details)
+
+
+def _negative_example_approval_draft_row(
+    row: Mapping[str, Any],
+    *,
+    expected_positive_ids: set[str],
+) -> dict[str, Any]:
+    negative_example_id = str(row.get("negative_example_id") or "").strip()
+    extracted_footprint_found = (
+        _negative_example_int(row.get("extracted_footprint_count")) > 0
+    )
+    expected_footprint_present = negative_example_id in expected_positive_ids
+    return {
+        "approval_draft_kind": (
+            "analytical_footprint_negative_example_approval_draft_not_import"
+        ),
+        "not_apply_footprint_negative_examples_input": True,
+        "approval_status": "pending_human_approval",
+        "human_approval_required": True,
+        "negative_example_id": negative_example_id,
+        "source_id": str(row.get("source_id") or ""),
+        "report_id": str(row.get("report_id") or ""),
+        "sample_kind": str(row.get("sample_kind") or ""),
+        "review_context_ref": str(row.get("review_context_ref") or ""),
+        "target_row_hash": str(row.get("target_row_hash") or ""),
+        "report_type": str(row.get("report_type") or ""),
+        "sector": str(row.get("sector") or ""),
+        "publish_date": str(row.get("publish_date") or ""),
+        "forecast_claim_count": _negative_example_int(row.get("forecast_claim_count")),
+        "extracted_footprint_count": _negative_example_int(
+            row.get("extracted_footprint_count")
+        ),
+        "suggested_review_focus": str(row.get("suggested_review_focus") or ""),
+        "priority_score": _negative_example_int(row.get("priority_score")),
+        "expected_footprint_present": expected_footprint_present,
+        "extracted_footprint_found": extracted_footprint_found,
+        "source_text_included": False,
+        "reviewer": "",
+        "review_date": "",
+        "review_notes": _negative_example_approval_draft_note(
+            row,
+            expected_footprint_present=expected_footprint_present,
+            extracted_footprint_found=extracted_footprint_found,
+        ),
+        "policy": (
+            "private approval draft only; user must approve before values are "
+            "copied to the analytical footprint negative-example recall input"
+        ),
+    }
+
+
+def _negative_example_decision_counts(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, int]]:
+    counts: dict[str, Counter[str]] = {
+        "expected_footprint_present": Counter(),
+        "extracted_footprint_found": Counter(),
+    }
+    for row in rows:
+        for field in counts:
+            value = row.get(field)
+            if value is True:
+                counts[field]["true"] += 1
+            elif value is False:
+                counts[field]["false"] += 1
+            else:
+                counts[field]["null"] += 1
+    return {field: dict(counter) for field, counter in counts.items()}
+
+
+def _negative_example_recall_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    positive_count = sum(1 for row in rows if row.get("expected_footprint_present") is True)
+    true_positive_count = sum(
+        1
+        for row in rows
+        if row.get("expected_footprint_present") is True
+        and row.get("extracted_footprint_found") is True
+    )
+    return {
+        "positive_count": positive_count,
+        "true_positive_count": true_positive_count,
+        "false_negative_count": max(0, positive_count - true_positive_count),
+    }
+
+
+def render_analytical_footprint_negative_example_approval_draft_markdown(
+    report: AnalyticalFootprintNegativeExampleApprovalDraftReport,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    headers = (
+        "#",
+        "negative_example_id",
+        "report_type",
+        "focus",
+        "claims",
+        "footprints",
+        "expected",
+        "found",
+    )
+    lines = [
+        "# RKE Analytical Footprint Negative Example Approval Draft",
+        "",
+        f"- Report ID: {report.report_id}",
+        f"- Rows: {report.row_count}",
+        f"- Input: `{report.input_path}`",
+        f"- JSONL draft: `{report.jsonl_path}`",
+        "",
+        "This private file contains machine suggestions for human approval. It is not an import file.",
+        "Approve or edit decisions before copying them into the official negative-example input.",
+        "",
+        "## Proposed Counts",
+        "",
+    ]
+    for field, counter in report.proposed_decision_counts.items():
+        lines.append(f"- `{field}`: {_markdown_table_cell(counter, max_chars=160)}")
+    lines.append(
+        "- `recall_counts`: "
+        + _markdown_table_cell(report.proposed_recall_counts, max_chars=240)
+    )
+    lines.extend(
+        [
+            "",
+            "## Approval Checklist",
+            "",
+            "| " + " | ".join(headers) + " |",
+            "| " + " | ".join("---" for _ in headers) + " |",
+        ]
+    )
+    for index, row in enumerate(rows, 1):
+        cells = [
+            str(index),
+            f"`{row.get('negative_example_id')}`",
+            _markdown_table_cell(row.get("report_type"), max_chars=40),
+            _markdown_table_cell(row.get("suggested_review_focus"), max_chars=48),
+            str(row.get("forecast_claim_count") or 0),
+            str(row.get("extracted_footprint_count") or 0),
+            str(row.get("expected_footprint_present")).lower(),
+            str(row.get("extracted_footprint_found")).lower(),
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
+    if report.blockers:
+        lines.extend(["", "## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in report.blockers)
+    return "\n".join(lines)
+
+
+def write_analytical_footprint_negative_example_approval_draft(
+    root: str | Path = ".",
+    *,
+    input_path: str | Path = ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH,
+    expected_positive_minimum_target: int = 50,
+) -> AnalyticalFootprintNegativeExampleApprovalDraftReport:
+    root_path = Path(root)
+    input_text = str(input_path)
+    resolved_input_path = Path(input_path)
+    if not resolved_input_path.is_absolute():
+        resolved_input_path = root_path / resolved_input_path
+    input_rows_raw, parse_blockers = load_jsonl_with_errors(
+        resolved_input_path,
+        label="analytical footprint negative example approval draft input",
+    )
+    rows, invalid_rows = _split_mapping_rows(input_rows_raw)
+    blockers = [*parse_blockers]
+    if invalid_rows:
+        blockers.append(
+            "analytical footprint negative example approval draft input row must "
+            "be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_rows)
+        )
+    if not input_rows_raw:
+        blockers.append("analytical footprint negative example input is empty")
+
+    expected_positive_ids = _negative_example_positive_ids(
+        rows,
+        expected_positive_minimum_target=expected_positive_minimum_target,
+    )
+    draft_rows = tuple(
+        _negative_example_approval_draft_row(
+            row,
+            expected_positive_ids=expected_positive_ids,
+        )
+        for row in rows
+    )
+    report = AnalyticalFootprintNegativeExampleApprovalDraftReport(
+        report_id=(
+            "RKE-REPORT-INTELLIGENCE-FOOTPRINT-NEGATIVE-EXAMPLE-APPROVAL-DRAFT"
+        ),
+        input_path=input_text,
+        jsonl_path=ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH,
+        markdown_path=ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_MD_PATH,
+        row_count=len(draft_rows),
+        pending_approval_rows=sum(
+            1 for row in draft_rows if row.get("approval_status") != "approved"
+        ),
+        expected_positive_minimum_target=int(expected_positive_minimum_target),
+        proposed_decision_counts=_negative_example_decision_counts(draft_rows),
+        proposed_recall_counts=_negative_example_recall_counts(draft_rows),
+        blockers=tuple(blockers),
+        policy=(
+            "private machine suggestion draft only; formal negative-example "
+            "fields require human approval before recall computation"
+        ),
+    )
+    _write_jsonl(
+        root_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH,
+        draft_rows,
+    )
+    markdown_path = (
+        root_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_MD_PATH
+    )
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(
+        render_analytical_footprint_negative_example_approval_draft_markdown(
+            report,
+            draft_rows,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
+def write_analytical_footprint_negative_example_approved_import(
+    root: str | Path = ".",
+    *,
+    approval_draft_path: str | Path = (
+        ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH
+    ),
+    output_path: str | Path = ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH,
+    reviewer: str,
+    review_date: str,
+    overwrite: bool = False,
+) -> AnalyticalFootprintNegativeExampleApprovedImportReport:
+    root_path = Path(root)
+    resolved_approval_draft_path = Path(approval_draft_path)
+    if not resolved_approval_draft_path.is_absolute():
+        resolved_approval_draft_path = root_path / resolved_approval_draft_path
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+
+    blockers: list[str] = []
+    reviewer_value = str(reviewer or "").strip()
+    review_date_value = str(review_date or "").strip()
+    if not reviewer_value:
+        blockers.append("reviewer required")
+    if not review_date_value:
+        blockers.append("review_date required")
+    else:
+        blockers.extend(
+            _review_date_failures({"review_date": review_date_value}, "review_date")
+        )
+    if resolved_output_path.exists() and not overwrite:
+        blockers.append(f"output_path already exists: {resolved_output_path}")
+
+    draft_rows_raw, draft_parse_blockers = load_jsonl_with_errors(
+        resolved_approval_draft_path,
+        label="analytical footprint negative example approval draft",
+    )
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        resolved_output_path,
+        label="analytical footprint negative example target",
+    )
+    draft_rows, invalid_draft_rows = _split_mapping_rows(draft_rows_raw)
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    blockers.extend(draft_parse_blockers)
+    blockers.extend(target_parse_blockers)
+    if invalid_draft_rows:
+        blockers.append(
+            "analytical footprint negative example approval draft row must be "
+            "object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_draft_rows)
+        )
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint negative example target row must be object at "
+            "row(s): " + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    if not draft_rows_raw:
+        blockers.append("analytical footprint negative example approval draft is empty")
+
+    target_by_id = {
+        str(row.get("negative_example_id") or ""): row
+        for row in target_rows
+        if str(row.get("negative_example_id") or "").strip()
+    }
+    seen_ids: set[str] = set()
+    output_rows: list[dict[str, Any]] = []
+    for row_index, draft_row in enumerate(draft_rows, 1):
+        negative_example_id = str(draft_row.get("negative_example_id") or "").strip()
+        if not negative_example_id:
+            blockers.append(
+                f"approval draft row {row_index}.negative_example_id required"
+            )
+            continue
+        if negative_example_id in seen_ids:
+            blockers.append(
+                f"approval draft row {row_index}.negative_example_id duplicate"
+            )
+            continue
+        seen_ids.add(negative_example_id)
+        target_row = target_by_id.get(negative_example_id)
+        if target_row is None:
+            blockers.append(
+                f"approval draft row {row_index}.negative_example_id missing from target"
+            )
+            continue
+        draft_hash = str(draft_row.get("target_row_hash") or "").strip()
+        target_hash = str(target_row.get("target_row_hash") or "").strip()
+        if draft_hash and target_hash and draft_hash != target_hash:
+            blockers.append(f"approval draft row {row_index}.target_row_hash mismatch")
+        expected = draft_row.get("expected_footprint_present")
+        found = draft_row.get("extracted_footprint_found")
+        if not isinstance(expected, bool):
+            blockers.append(
+                "approval draft row "
+                f"{row_index}.expected_footprint_present must be boolean"
+            )
+            continue
+        if not isinstance(found, bool):
+            blockers.append(
+                f"approval draft row {row_index}.extracted_footprint_found must be boolean"
+            )
+            continue
+        approved_row = dict(target_row)
+        approved_row["expected_footprint_present"] = expected
+        approved_row["extracted_footprint_found"] = found
+        approved_row["reviewer"] = reviewer_value
+        approved_row["review_date"] = review_date_value
+        approved_row["review_notes"] = _approval_draft_review_note(
+            draft_row,
+            reviewer=reviewer_value,
+            review_date=review_date_value,
+        )
+        approved_row["source_text_included"] = False
+        output_rows.append(approved_row)
+
+    backup_path = ""
+    backed_up_existing_output = False
+    if not blockers:
+        if overwrite and resolved_output_path.exists():
+            backup = _manual_review_backup_path(root_path, resolved_output_path)
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(resolved_output_path, backup)
+            backup_path = str(backup)
+            backed_up_existing_output = True
+        _write_jsonl(resolved_output_path, output_rows)
+
+    return AnalyticalFootprintNegativeExampleApprovedImportReport(
+        report_id=(
+            "RKE-REPORT-INTELLIGENCE-FOOTPRINT-NEGATIVE-EXAMPLE-APPROVED-IMPORT"
+        ),
+        approval_draft_path=str(resolved_approval_draft_path),
+        output_path=str(resolved_output_path),
+        accepted=not blockers,
+        reviewer=reviewer_value,
+        review_date=review_date_value,
+        input_rows=len(draft_rows_raw),
+        output_rows=len(output_rows),
+        approved_rows=len(output_rows) if not blockers else 0,
+        proposed_decision_counts=_negative_example_decision_counts(output_rows),
+        proposed_recall_counts=_negative_example_recall_counts(output_rows),
+        blockers=tuple(blockers),
+        backed_up_existing_output=backed_up_existing_output,
+        backup_path=backup_path,
+    )
 
 
 def _footprint_review_assist_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
@@ -11057,6 +11992,419 @@ def write_analytical_footprint_review_evidence(
     return report
 
 
+def _footprint_review_approval_draft_note(row: Mapping[str, Any]) -> str:
+    decision_map = _ensure_mapping(row.get("suggested_review_decision"))
+    false_fields = tuple(
+        field
+        for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS
+        if decision_map.get(field) is False
+    )
+    focus_fields = tuple(str(field) for field in _ensure_list(row.get("quality_gap_focus_fields")))
+    tags = tuple(str(tag) for tag in _ensure_list(row.get("suggested_manual_error_tags")))
+    details: list[str] = [
+        f"draft evidence row {row.get('index')} reviewed by machine suggestion",
+    ]
+    if false_fields:
+        details.append("proposed false fields=" + ",".join(false_fields))
+    if focus_fields:
+        details.append("focus=" + ",".join(focus_fields))
+    if tags:
+        details.append("tags=" + ",".join(tags))
+    details.append("human approval required before import")
+    return "; ".join(details)
+
+
+def _footprint_review_approval_draft_row(
+    row: Mapping[str, Any],
+    *,
+    batch_row: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    decision_map = _ensure_mapping(row.get("suggested_review_decision"))
+    draft: dict[str, Any] = {
+        "approval_draft_kind": "analytical_footprint_review_approval_draft_not_import",
+        "not_apply_footprint_review_input": True,
+        "approval_status": "pending_human_approval",
+        "human_approval_required": True,
+        "index": row.get("index"),
+        "footprint_id": str(row.get("footprint_id") or ""),
+        "target_row_hash": str(row.get("target_row_hash") or ""),
+        "source_id": str(row.get("source_id") or ""),
+        "report_id": str(row.get("report_id") or ""),
+        "sector": str(row.get("sector") or ""),
+        "topic_preview": _review_assist_preview(row.get("topic_preview"), max_chars=160),
+        "evidence_ref": (
+            f"{ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH}#"
+            f"{row.get('index')}"
+        ),
+        "review_context_ref": (
+            str((batch_row or {}).get("review_context_ref") or "")
+            or "registry/report_intelligence/analytical_footprints.jsonl"
+        ),
+        "target_review_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        "reviewed_import_path": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+        "priority_score": row.get("priority_score"),
+        "priority_reasons": tuple(str(item) for item in _ensure_list(row.get("priority_reasons"))),
+        "quality_gap_focus_fields": tuple(
+            str(item) for item in _ensure_list(row.get("quality_gap_focus_fields"))
+        ),
+        "manual_error_tags": tuple(
+            str(item)
+            for item in _ensure_list(row.get("suggested_manual_error_tags"))
+            if str(item).strip()
+        ),
+        "reviewer": "",
+        "review_date": "",
+        "review_notes": _footprint_review_approval_draft_note(row),
+        "policy": (
+            "private approval draft only; user must approve before values are "
+            "copied to the analytical footprint review import"
+        ),
+    }
+    for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+        value = decision_map.get(field)
+        draft[field] = value if isinstance(value, bool) else None
+    return draft
+
+
+def _footprint_review_proposed_decision_counts(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, int]]:
+    counts: dict[str, Counter[str]] = {
+        field: Counter() for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS
+    }
+    for row in rows:
+        for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+            value = row.get(field)
+            if value is True:
+                counts[field]["true"] += 1
+            elif value is False:
+                counts[field]["false"] += 1
+            else:
+                counts[field]["null"] += 1
+    return {field: dict(counter) for field, counter in counts.items()}
+
+
+def render_analytical_footprint_review_approval_draft_markdown(
+    report: AnalyticalFootprintReviewApprovalDraftReport,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    headers = (
+        "#",
+        "footprint_id",
+        "sector",
+        "topic",
+        "footprint",
+        "span",
+        "metric",
+        "steps",
+        "unknowns",
+        "leakage",
+        "tags",
+    )
+    field_labels = (
+        ("footprint_correct", "footprint"),
+        ("source_span_supports_footprint", "span"),
+        ("metric_mapping_correct", "metric"),
+        ("inferred_steps_tagged_correctly", "steps"),
+        ("unknowns_used_when_uncertain", "unknowns"),
+        ("no_proprietary_text_leakage", "leakage"),
+    )
+
+    def value_text(value: Any) -> str:
+        if value is True:
+            return "true"
+        if value is False:
+            return "false"
+        return "review"
+
+    lines = [
+        "# RKE Analytical Footprint Review Approval Draft",
+        "",
+        f"- Report ID: {report.report_id}",
+        f"- Rows: {report.row_count}",
+        f"- Review input: `{report.review_input_path}`",
+        f"- Evidence file: `{report.evidence_path}`",
+        f"- JSONL draft: `{report.jsonl_path}`",
+        "",
+        "This private file contains machine suggestions for human approval. It is not an import file.",
+        "Approve or edit decisions before copying them into the official review batch/import.",
+        "",
+        "## Proposed Decision Counts",
+        "",
+    ]
+    for field, counter in report.proposed_decision_counts.items():
+        lines.append(f"- `{field}`: {_markdown_table_cell(counter, max_chars=160)}")
+    if report.proposed_manual_error_tag_counts:
+        lines.extend(
+            [
+                "- `manual_error_tags`: "
+                + _markdown_table_cell(
+                    report.proposed_manual_error_tag_counts,
+                    max_chars=500,
+                )
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Approval Checklist",
+            "",
+            "| " + " | ".join(headers) + " |",
+            "| " + " | ".join("---" for _ in headers) + " |",
+        ]
+    )
+    for row in rows:
+        cells = [
+            str(row.get("index") or ""),
+            f"`{row.get('footprint_id')}`",
+            _markdown_table_cell(row.get("sector") or "-", max_chars=36),
+            _markdown_table_cell(row.get("topic_preview") or "-", max_chars=70),
+        ]
+        cells.extend(value_text(row.get(field)) for field, _label in field_labels)
+        cells.append(_markdown_table_cell(row.get("manual_error_tags"), max_chars=120))
+        lines.append("| " + " | ".join(cells) + " |")
+    lines.extend(["", "## Row Notes", ""])
+    for row in rows:
+        lines.extend(
+            [
+                f"### {row.get('index')}. {row.get('footprint_id')}",
+                "",
+                f"- Approval status: `{row.get('approval_status')}`",
+                f"- Evidence ref: `{row.get('evidence_ref')}`",
+                f"- Proposed notes: {row.get('review_notes')}",
+                "",
+            ]
+        )
+    if report.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in report.blockers)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def write_analytical_footprint_review_approval_draft(
+    root: str | Path = ".",
+    *,
+    review_input_path: str | Path = ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+) -> AnalyticalFootprintReviewApprovalDraftReport:
+    root_path = Path(root)
+    review_input_text = str(review_input_path)
+    review_input_resolved = Path(review_input_path)
+    if not review_input_resolved.is_absolute():
+        review_input_resolved = root_path / review_input_resolved
+    input_rows_raw, input_parse_blockers = load_jsonl_with_errors(
+        review_input_resolved,
+        label="analytical footprint review approval draft input",
+    )
+    input_rows, invalid_input_rows = _split_mapping_rows(input_rows_raw)
+    batch_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in input_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    evidence_report, evidence_rows = build_analytical_footprint_review_evidence(
+        root_path,
+        limit=len(input_rows) if input_rows else 0,
+        offset=0,
+        review_input_path=review_input_text,
+    )
+    blockers = [*input_parse_blockers, *evidence_report.blockers]
+    if invalid_input_rows:
+        blockers.append(
+            "analytical footprint review approval draft input row must be object at "
+            "row(s): " + ", ".join(str(row_number) for row_number in invalid_input_rows)
+        )
+    rows = tuple(
+        _footprint_review_approval_draft_row(
+            row,
+            batch_row=batch_by_id.get(str(row.get("footprint_id") or "")),
+        )
+        for row in evidence_rows
+    )
+    tag_counts = Counter(
+        str(tag)
+        for row in rows
+        for tag in _ensure_list(row.get("manual_error_tags"))
+        if str(tag).strip()
+    )
+    report = AnalyticalFootprintReviewApprovalDraftReport(
+        report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-APPROVAL-DRAFT",
+        target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        review_input_path=review_input_text,
+        evidence_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        jsonl_path=ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH,
+        markdown_path=ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_MD_PATH,
+        row_count=len(rows),
+        pending_approval_rows=sum(
+            1 for row in rows if row.get("approval_status") != "approved"
+        ),
+        proposed_decision_counts=_footprint_review_proposed_decision_counts(rows),
+        proposed_manual_error_tag_counts=dict(sorted(tag_counts.items())),
+        blockers=tuple(blockers),
+        policy=(
+            "private machine suggestion draft only; formal review fields require "
+            "human approval before import"
+        ),
+    )
+    _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH, rows)
+    markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_MD_PATH
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(
+        render_analytical_footprint_review_approval_draft_markdown(report, rows)
+        + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
+def _approval_draft_review_note(
+    row: Mapping[str, Any],
+    *,
+    reviewer: str,
+    review_date: str,
+) -> str:
+    draft_note = _review_assist_preview(row.get("review_notes"), max_chars=500)
+    prefix = f"human-approved by {reviewer} on {review_date}"
+    if draft_note:
+        return f"{prefix}; {draft_note}"
+    return prefix
+
+
+def write_analytical_footprint_review_approved_import(
+    root: str | Path = ".",
+    *,
+    approval_draft_path: str | Path = ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH,
+    output_path: str | Path = ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+    reviewer: str,
+    review_date: str,
+    overwrite: bool = False,
+) -> AnalyticalFootprintReviewApprovedImportReport:
+    root_path = Path(root)
+    resolved_approval_draft_path = Path(approval_draft_path)
+    if not resolved_approval_draft_path.is_absolute():
+        resolved_approval_draft_path = root_path / resolved_approval_draft_path
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+
+    blockers: list[str] = []
+    reviewer_value = str(reviewer or "").strip()
+    review_date_value = str(review_date or "").strip()
+    if not reviewer_value:
+        blockers.append("reviewer required")
+    if not review_date_value:
+        blockers.append("review_date required")
+    else:
+        blockers.extend(_review_date_failures({"review_date": review_date_value}, "review_date"))
+    if resolved_output_path.exists() and not overwrite:
+        blockers.append(f"output_path already exists: {resolved_output_path}")
+
+    draft_rows_raw, draft_parse_blockers = load_jsonl_with_errors(
+        resolved_approval_draft_path,
+        label="analytical footprint review approval draft",
+    )
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        label="analytical footprint review target",
+    )
+    draft_rows, invalid_draft_rows = _split_mapping_rows(draft_rows_raw)
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    blockers.extend(draft_parse_blockers)
+    blockers.extend(target_parse_blockers)
+    if invalid_draft_rows:
+        blockers.append(
+            "analytical footprint approval draft row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_draft_rows)
+        )
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint review target row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    if not draft_rows_raw:
+        blockers.append("analytical footprint review approval draft is empty")
+
+    target_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in target_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    seen_ids: set[str] = set()
+    output_rows: list[dict[str, Any]] = []
+    for row_index, draft_row in enumerate(draft_rows, 1):
+        footprint_id = str(draft_row.get("footprint_id") or "").strip()
+        if not footprint_id:
+            blockers.append(f"approval draft row {row_index}.footprint_id required")
+            continue
+        if footprint_id in seen_ids:
+            blockers.append(f"approval draft row {row_index}.footprint_id duplicate")
+            continue
+        seen_ids.add(footprint_id)
+        target_row = target_by_id.get(footprint_id)
+        if target_row is None:
+            blockers.append(
+                f"approval draft row {row_index}.footprint_id missing from target"
+            )
+            continue
+        draft_hash = str(draft_row.get("target_row_hash") or "").strip()
+        target_hash = str(target_row.get("target_row_hash") or "").strip()
+        if draft_hash and target_hash and draft_hash != target_hash:
+            blockers.append(f"approval draft row {row_index}.target_row_hash mismatch")
+        approved_row = dict(target_row)
+        for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+            value = draft_row.get(field)
+            if not isinstance(value, bool):
+                blockers.append(f"approval draft row {row_index}.{field} must be boolean")
+                continue
+            approved_row[field] = value
+        manual_error_tags = draft_row.get("manual_error_tags")
+        if manual_error_tags is None:
+            approved_row["manual_error_tags"] = []
+        elif isinstance(manual_error_tags, list) and all(
+            isinstance(tag, str) for tag in manual_error_tags
+        ):
+            approved_row["manual_error_tags"] = manual_error_tags
+        else:
+            blockers.append(
+                f"approval draft row {row_index}.manual_error_tags must be list[str]"
+            )
+        approved_row["reviewer"] = reviewer_value
+        approved_row["review_date"] = review_date_value
+        approved_row["review_notes"] = _approval_draft_review_note(
+            draft_row,
+            reviewer=reviewer_value,
+            review_date=review_date_value,
+        )
+        output_rows.append(approved_row)
+
+    backup_path = ""
+    backed_up_existing_output = False
+    if not blockers:
+        if overwrite and resolved_output_path.exists():
+            backup = _manual_review_backup_path(root_path, resolved_output_path)
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(resolved_output_path, backup)
+            backup_path = str(backup)
+            backed_up_existing_output = True
+        _write_jsonl(resolved_output_path, output_rows)
+
+    return AnalyticalFootprintReviewApprovedImportReport(
+        report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-APPROVED-IMPORT",
+        approval_draft_path=str(resolved_approval_draft_path),
+        output_path=str(resolved_output_path),
+        accepted=not blockers,
+        reviewer=reviewer_value,
+        review_date=review_date_value,
+        input_rows=len(draft_rows_raw),
+        output_rows=len(output_rows),
+        approved_rows=len(output_rows) if not blockers else 0,
+        proposed_decision_counts=_footprint_review_proposed_decision_counts(output_rows),
+        blockers=tuple(blockers),
+        backed_up_existing_output=backed_up_existing_output,
+        backup_path=backup_path,
+    )
+
+
 def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
     valid_rows: list[Mapping[str, Any]] = []
     invalid_row_numbers: list[int] = []
@@ -11958,6 +13306,19 @@ def _target_id(target: Mapping[str, Any]) -> str:
     return str(target.get("target_id") or target.get("target_name") or "unknown")
 
 
+def _standard_outcome_labeling_ready(claim: Mapping[str, Any]) -> bool:
+    target = _ensure_mapping(claim.get("target"))
+    benchmark = _ensure_mapping(claim.get("benchmark"))
+    horizon = _ensure_mapping(claim.get("horizon"))
+    return (
+        str(claim.get("forecast_testability") or "") == "testable"
+        and _target_id(target) != "unknown"
+        and bool(benchmark)
+        and str(claim.get("direction") or "unknown") not in {"", "unknown"}
+        and _horizon_bucket(horizon) != "unknown"
+    )
+
+
 STOCK_TARGET_PRICE_VALUE_KEYS = (
     "target_price",
     "price_target",
@@ -12099,13 +13460,7 @@ def build_forecast_ledger_records(
         target = _ensure_mapping(claim.get("target"))
         benchmark = _ensure_mapping(claim.get("benchmark"))
         horizon = _ensure_mapping(claim.get("horizon"))
-        required_ready = (
-            str(claim.get("forecast_testability") or "") == "testable"
-            and _target_id(target) != "unknown"
-            and bool(benchmark)
-            and str(claim.get("direction") or "unknown") not in {"", "unknown"}
-            and _horizon_bucket(horizon) != "unknown"
-        )
+        required_ready = _standard_outcome_labeling_ready(claim)
         family_payload = {
             "forecast_type": claim.get("forecast_type") or "unknown",
             "target": _target_id(target),
@@ -14845,6 +16200,50 @@ def _macro_asset_temporal_validation_summary(
     return summary
 
 
+def _industry_etf_mapping_review_queue(
+    sector_missing_counts: Mapping[str, int],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for sector_name, missing_claim_count in sorted(sector_missing_counts.items()):
+        if not sector_name:
+            continue
+        rows.append(
+            {
+                "queue_id": _stable_id(
+                    "IETF-REVIEW",
+                    {
+                        "sector_name": sector_name,
+                        "gap_type": "sector_etf_mapping_missing",
+                    },
+                ),
+                "sector_name": sector_name,
+                "missing_claim_count": int(missing_claim_count),
+                "gap_type": "sector_etf_mapping_missing",
+                "recommended_action": (
+                    "add_primary_etf_mapping_for_unmapped_industry_sector"
+                ),
+                "required_mapping_fields": [
+                    "sector_name",
+                    "sector_aliases",
+                    "etf_symbol",
+                    "etf_name",
+                    "benchmark_symbol",
+                    "mapping_confidence",
+                    "mapping_rationale",
+                    "effective_from",
+                    "effective_to",
+                ],
+                "review_required": True,
+                "source_text_included": False,
+                "privacy_policy": (
+                    "Public-safe mapping queue: sector/count/action only; no "
+                    "source rows, claim text, report text, or local paths."
+                ),
+            }
+        )
+    return rows
+
+
 def _series_available_dates(
     *,
     calendar: Sequence[str],
@@ -15003,6 +16402,7 @@ def build_industry_etf_proxy_pit_availability(
     labelable_window_count = 0
     pending_future_window_count = 0
     label_gap_counts: dict[str, int] = {}
+    sector_mapping_missing_counts: dict[str, int] = {}
     for claim in forecast_rows:
         metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
         if not _is_industry_research_report(metadata.get("report_type")):
@@ -15011,13 +16411,15 @@ def build_industry_etf_proxy_pit_availability(
         if direction not in {"positive", "negative"}:
             _increment_count(label_gap_counts, "direction_missing_or_unsupported")
             continue
+        sector = str(metadata.get("sector") or "")
         proxy = _industry_etf_proxy_for_sector(
-            str(metadata.get("sector") or ""),
+            sector,
             mapping_rows,
             as_of_datetime=str(claim.get("signal_datetime") or ""),
         )
         if proxy is None:
             _increment_count(label_gap_counts, "sector_etf_mapping_missing")
+            _increment_count(sector_mapping_missing_counts, sector)
             continue
         eligible_claim_count += 1
         if not calendar:
@@ -15101,6 +16503,9 @@ def build_industry_etf_proxy_pit_availability(
     pit_available_mapping_count = sum(
         1 for record in mapping_records if record["pit_available"]
     )
+    mapping_review_queue = _industry_etf_mapping_review_queue(
+        sector_mapping_missing_counts
+    )
     return {
         "availability_id": "RKE-REPORT-INDUSTRY-ETF-PROXY-PIT-AVAILABILITY",
         "policy": (
@@ -15114,6 +16519,8 @@ def build_industry_etf_proxy_pit_availability(
         "pit_available_mapping_count": pit_available_mapping_count,
         "pit_gap_counts": dict(sorted(aggregate_gap_counts.items())),
         "labelability_summary": labelability_summary,
+        "sector_etf_mapping_review_queue_count": len(mapping_review_queue),
+        "sector_etf_mapping_review_queue": mapping_review_queue,
         "labelability_action_summary": _industry_pit_labelability_action_summary(
             mapping_count=len(mapping_records),
             pit_available_mapping_count=pit_available_mapping_count,
@@ -15936,6 +17343,12 @@ def build_macro_series_directional_readiness(
             labelable_claim_ids.append(forecast_claim_id)
         elif claim_pending_future_window_count and not claim_window_gap_count:
             pending_future_claim_ids.append(forecast_claim_id)
+    labelable_claim_id_set = set(labelable_claim_ids)
+    pending_future_claim_ids = [
+        claim_id
+        for claim_id in pending_future_claim_ids
+        if claim_id not in labelable_claim_id_set
+    ]
     latest_observation_dates = [
         str(rows[-1].get("date") or "")
         for rows in observations_by_series_id.values()
@@ -20457,7 +21870,7 @@ def build_confidence_impact_monitor(
             and confidence_delta > 0
             and hit_rate_recent is not None
             and hit_rate_baseline is not None
-            and hit_rate_recent <= hit_rate_baseline
+            and hit_rate_recent < hit_rate_baseline
         ):
             _increment_count(
                 calibration_rule_counts,
@@ -26656,10 +28069,7 @@ def build_report_intelligence_extraction_provenance_audit(
                 f"report_forecast_ledger row {index}: forecast_claim_id not found"
             )
             continue
-        ready = (
-            str(claim.get("forecast_testability") or "") == "testable"
-            and not _forecast_mapping_gaps(claim)
-        )
+        ready = _standard_outcome_labeling_ready(claim)
         test_status = str(ledger.get("test_status") or "")
         if ready:
             ready_count += 1

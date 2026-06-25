@@ -26,41 +26,41 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-22T20:24:20+00:00",
+  "as_of_datetime": "2026-06-24T23:03:16+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
-    "alpha_decay_fail_count": 122,
-    "alpha_decay_watch_count": 14,
-    "calibration_drift_count": 13,
-    "confidence_alpha_correlation": 0.34229542,
+    "alpha_decay_fail_count": 421,
+    "alpha_decay_watch_count": 64,
+    "calibration_drift_count": 95,
+    "confidence_alpha_correlation": 0.01132152,
     "confidence_alpha_correlation_status": "non_negative",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
-    "observation_count": 4708,
-    "paper_trading_validated_recipe_count": 43,
+    "observation_count": 16738,
+    "paper_trading_validated_recipe_count": 228,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "freeze_recipe": 122,
-      "keep_shadow": 4559,
-      "reduce_confidence_impact": 14,
-      "send_to_manual_review": 13
+      "freeze_recipe": 421,
+      "keep_shadow": 16137,
+      "reduce_confidence_impact": 64,
+      "send_to_manual_review": 116
     },
-    "regime_fragile_alpha_count": 0,
+    "regime_fragile_alpha_count": 21,
     "unvalidated_confidence_impact_count": 0
   },
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {
-    "forecast_claim_rows": 1048,
-    "metadata_rows": 947,
-    "outcome_label_rows": 2377
+    "forecast_claim_rows": 3594,
+    "metadata_rows": 3492,
+    "outcome_label_rows": 7468
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
     "effective_n_by_method": {
       "max_effective_n": 0.0,
       "nonzero_effective_n_count": 0,
-      "profile_count": 4708,
+      "profile_count": 16738,
       "top_profiles": [
         {
           "bucket": "",
@@ -125,172 +125,172 @@
       ]
     },
     "effective_n_by_source": {
-      "max_effective_n": 11.333332,
-      "nonzero_effective_n_count": 1241,
-      "profile_count": 1797,
+      "max_effective_n": 124.666644,
+      "nonzero_effective_n_count": 3122,
+      "profile_count": 4535,
       "top_profiles": [
         {
-          "bucket": "positive_medium_effective_n",
-          "id": "SPP-6924fe41732ecf2e",
+          "bucket": "positive_high_effective_n",
+          "id": "SPP-d41c7bc3b4439e99",
           "insufficient_data": false,
-          "n_effective": 11.333332
+          "n_effective": 124.666644
+        },
+        {
+          "bucket": "negative_high_effective_n",
+          "id": "SPP-41f2b1f73e60f77d",
+          "insufficient_data": false,
+          "n_effective": 83.666643
         },
         {
           "bucket": "positive_medium_effective_n",
           "id": "SPP-4db7f22514e9a718",
           "insufficient_data": false,
-          "n_effective": 11.0
+          "n_effective": 19.0
         },
         {
           "bucket": "positive_medium_effective_n",
           "id": "SPP-d038b18e1f8e32fc",
           "insufficient_data": false,
-          "n_effective": 11.0
+          "n_effective": 19.0
         },
         {
-          "bucket": "positive_low_effective_n",
+          "bucket": "positive_medium_effective_n",
+          "id": "SPP-abbef049288efa36",
+          "insufficient_data": false,
+          "n_effective": 18.0
+        },
+        {
+          "bucket": "positive_medium_effective_n",
+          "id": "SPP-05e6763f1e04ab5c",
+          "insufficient_data": false,
+          "n_effective": 18.0
+        },
+        {
+          "bucket": "positive_medium_effective_n",
           "id": "SPP-f8894079a57c2c94",
           "insufficient_data": false,
-          "n_effective": 9.7
+          "n_effective": 16.7
         },
         {
-          "bucket": "positive_low_effective_n",
-          "id": "SPP-dde3e2bc54228b60",
-          "insufficient_data": false,
-          "n_effective": 9.0
-        },
-        {
-          "bucket": "negative_low_effective_n",
-          "id": "SPP-f6dddfb535976156",
-          "insufficient_data": false,
-          "n_effective": 8.999998
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-71ffba60d65670b3",
-          "insufficient_data": false,
-          "n_effective": 8.5
-        },
-        {
-          "bucket": "positive_low_effective_n",
+          "bucket": "positive_medium_effective_n",
           "id": "SPP-fc95f35af8435937",
           "insufficient_data": false,
-          "n_effective": 7.0
+          "n_effective": 16.0
         },
         {
-          "bucket": "positive_low_effective_n",
+          "bucket": "positive_medium_effective_n",
           "id": "SPP-af0ca1ab855a7cc2",
           "insufficient_data": false,
-          "n_effective": 7.0
+          "n_effective": 16.0
         },
         {
-          "bucket": "positive_low_effective_n",
-          "id": "SPP-3fb43728ccc87e96",
+          "bucket": "neutral_medium_effective_n",
+          "id": "SPP-f6dddfb535976156",
           "insufficient_data": false,
-          "n_effective": 6.333332
+          "n_effective": 15.666664
         }
       ]
     },
     "effective_n_by_viewpoint": {
-      "max_effective_n": 10.0,
-      "nonzero_effective_n_count": 517,
-      "profile_count": 787,
+      "max_effective_n": 25.15,
+      "nonzero_effective_n_count": 1422,
+      "profile_count": 2328,
       "top_profiles": [
         {
-          "bucket": "negative_medium_effective_n",
+          "bucket": "neutral_medium_effective_n",
           "id": "VPP-ac809c492c73816d",
           "insufficient_data": false,
-          "n_effective": 10.0
+          "n_effective": 25.15
         },
         {
-          "bucket": "positive_low_effective_n",
-          "id": "VPP-28546479b272ff75",
-          "insufficient_data": false,
-          "n_effective": 9.4
-        },
-        {
-          "bucket": "positive_low_effective_n",
+          "bucket": "positive_medium_effective_n",
           "id": "VPP-28dc5bfbcd4fca92",
           "insufficient_data": false,
-          "n_effective": 8.4
+          "n_effective": 19.45
         },
         {
-          "bucket": "positive_low_effective_n",
-          "id": "VPP-00c20e76075fdfd2",
-          "insufficient_data": false,
-          "n_effective": 8.4
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "VPP-e8d018b135608da2",
-          "insufficient_data": false,
-          "n_effective": 7.5
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "VPP-da2dab26a00b58f8",
-          "insufficient_data": false,
-          "n_effective": 6.5
-        },
-        {
-          "bucket": "positive_low_effective_n",
+          "bucket": "neutral_medium_effective_n",
           "id": "VPP-25f154faea198d63",
           "insufficient_data": false,
-          "n_effective": 5.75
+          "n_effective": 19.2
         },
         {
-          "bucket": "negative_low_effective_n",
-          "id": "VPP-7aa5b0f99f5ea28c",
+          "bucket": "neutral_medium_effective_n",
+          "id": "VPP-28546479b272ff75",
           "insufficient_data": false,
-          "n_effective": 5.7
+          "n_effective": 17.2
         },
         {
-          "bucket": "positive_low_effective_n",
+          "bucket": "positive_medium_effective_n",
+          "id": "VPP-00c20e76075fdfd2",
+          "insufficient_data": false,
+          "n_effective": 15.85
+        },
+        {
+          "bucket": "neutral_medium_effective_n",
+          "id": "VPP-e8d018b135608da2",
+          "insufficient_data": false,
+          "n_effective": 14.3
+        },
+        {
+          "bucket": "negative_medium_effective_n",
+          "id": "VPP-79769c548d00385b",
+          "insufficient_data": false,
+          "n_effective": 11.3
+        },
+        {
+          "bucket": "positive_medium_effective_n",
+          "id": "VPP-e50534a5f61d6e4e",
+          "insufficient_data": false,
+          "n_effective": 10.999998
+        },
+        {
+          "bucket": "positive_medium_effective_n",
           "id": "VPP-0bda2b04c681c52e",
           "insufficient_data": false,
-          "n_effective": 5.1
+          "n_effective": 10.9
         },
         {
-          "bucket": "negative_low_effective_n",
-          "id": "VPP-97d9ec831a5de7d6",
+          "bucket": "positive_medium_effective_n",
+          "id": "VPP-da2dab26a00b58f8",
           "insufficient_data": false,
-          "n_effective": 4.4
+          "n_effective": 10.5
         }
       ]
     },
     "high_weight_source_decay_count": 0,
     "low_weight_source_false_negative_rate": null,
     "source_weight_drift": {
-      "max_effective_n": 11.333332,
-      "non_neutral_profile_count": 50
+      "max_effective_n": 124.666644,
+      "non_neutral_profile_count": 306
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.193702
+    "weighted_vs_unweighted_retrieval_difference": 0.415971
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260622T202326+0000",
+  "run_id": "RIR-DERIVED-20260624T225905+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 1994,
+    "data_proposal_open_count": 37448,
     "evidence_coverage": {
-      "exact_or_partial_coverage_rate": 0.060496,
-      "metric_candidate_count": 1934,
+      "exact_or_partial_coverage_rate": 0.087064,
+      "metric_candidate_count": 13381,
       "tool_coverage_status_counts": {
-        "exact_match": 102,
-        "missing": 1817,
-        "partial_match": 15
+        "exact_match": 1085,
+        "missing": 12216,
+        "partial_match": 80
       }
     },
     "high_priority_gap_aging_count": 0,
     "missing_data_reduction": null,
     "recipe_validation_pass_rate": 0.0,
-    "runtime_fallback_observation_count": 2004,
-    "shadow_recipe_count": 4708,
+    "runtime_fallback_observation_count": 38088,
+    "shadow_recipe_count": 16738,
     "shadow_tool_correctness_failure_rate": null,
-    "tool_gap_open_count": 2004,
+    "tool_gap_open_count": 38088,
     "tool_gap_priority_counts": {
-      "low": 8,
-      "medium": 1986,
-      "resolved": 10
+      "low": 1624,
+      "medium": 35824,
+      "resolved": 640
     },
     "tool_proposal_acceptance_rate": 0.0
   }

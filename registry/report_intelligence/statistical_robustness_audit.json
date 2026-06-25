@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-22T20:24:20+00:00",
+  "as_of_datetime": "2026-06-24T23:03:17+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-STATISTICAL-ROBUSTNESS-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 10718,
+  "checked_item_count": 34664,
   "checks": [
     {
       "accepted": true,
@@ -21,25 +21,25 @@
       "check_id": "RI-STAT-01",
       "evidence": {
         "decision_basis": "absolute_proxy_return_direction",
-        "industry_etf_proxy_label_rows": 78,
+        "industry_etf_proxy_label_rows": 830,
         "label_type_counts": {
-          "industry_etf_proxy": 78,
-          "macro_asset_proxy": 77,
-          "macro_curve_directional": 3,
-          "macro_series_directional": 31,
-          "stock_price_proxy": 2188
+          "industry_etf_proxy": 830,
+          "macro_asset_proxy": 409,
+          "macro_curve_directional": 4,
+          "macro_series_directional": 460,
+          "stock_price_proxy": 5765
         },
         "llm_outcome_labeling_allowed": false,
-        "macro_asset_proxy_label_rows": 77,
-        "macro_curve_directional_label_rows": 3,
+        "macro_asset_proxy_label_rows": 409,
+        "macro_curve_directional_label_rows": 4,
         "macro_curve_outcome_label_source": "pit_macro_curve_window",
         "macro_outcome_label_source": "pit_macro_asset_etf_price_window",
-        "macro_series_directional_label_rows": 31,
+        "macro_series_directional_label_rows": 460,
         "macro_series_outcome_label_source": "pit_macro_series_window",
-        "outcome_label_rows": 2377,
+        "outcome_label_rows": 7468,
         "outcome_label_source": "pit_industry_etf_price_window",
         "stock_outcome_label_source": "pit_stock_price_window",
-        "stock_price_proxy_label_rows": 2188
+        "stock_price_proxy_label_rows": 5765
       },
       "failure_count": 0,
       "failures": [],
@@ -49,12 +49,12 @@
       "accepted": true,
       "check_id": "RI-STAT-02",
       "evidence": {
-        "insufficient_profile_count": 2479,
-        "method_profile_rows": 4708,
+        "insufficient_profile_count": 6254,
+        "method_profile_rows": 16738,
         "minimum_non_neutral_effective_n": 3,
-        "non_neutral_profile_count": 61,
-        "source_profile_rows": 1797,
-        "viewpoint_profile_rows": 787
+        "non_neutral_profile_count": 374,
+        "source_profile_rows": 4535,
+        "viewpoint_profile_rows": 2328
       },
       "failure_count": 0,
       "failures": [],
@@ -64,15 +64,15 @@
       "accepted": true,
       "check_id": "RI-STAT-03",
       "evidence": {
-        "complete_industry_etf_window_set_count": 12,
-        "complete_macro_asset_window_set_count": 21,
-        "complete_stock_price_window_set_count": 333,
+        "complete_industry_etf_window_set_count": 246,
+        "complete_macro_asset_window_set_count": 120,
+        "complete_stock_price_window_set_count": 1116,
         "macro_window_effective_weights": {
           "180": 0.333333,
           "360": 0.333334,
           "90": 0.333333
         },
-        "outcome_window_set_count": 726,
+        "outcome_window_set_count": 2454,
         "stock_window_effective_weights": {
           "120": 0.3,
           "20": 0.25,
@@ -93,10 +93,10 @@
       "accepted": true,
       "check_id": "RI-STAT-04",
       "evidence": {
-        "consensus_cluster_count": 1046,
-        "forecast_ledger_rows": 1048,
-        "multiple_testing_family_count": 933,
-        "retrieved_claim_rows": 1048
+        "consensus_cluster_count": 3592,
+        "forecast_ledger_rows": 3594,
+        "multiple_testing_family_count": 2914,
+        "retrieved_claim_rows": 3594
       },
       "failure_count": 0,
       "failures": [],
@@ -106,8 +106,8 @@
       "accepted": true,
       "check_id": "RI-STAT-05",
       "evidence": {
-        "calibration_unavailable_profile_count": 2584,
-        "outcome_label_rows": 2377,
+        "calibration_unavailable_profile_count": 6863,
+        "outcome_label_rows": 7468,
         "production_use_of_weighted_reports": false,
         "rollout_mode": "shadow_tooling"
       },
@@ -119,10 +119,10 @@
       "accepted": true,
       "check_id": "RI-STAT-06",
       "evidence": {
-        "industry_etf_window_set_count": 33,
-        "short_miss_long_hit_window_set_count": 170,
-        "stock_price_window_set_count": 647,
-        "temporal_summary_count": 2377
+        "industry_etf_window_set_count": 294,
+        "short_miss_long_hit_window_set_count": 679,
+        "stock_price_window_set_count": 1820,
+        "temporal_summary_count": 7468
       },
       "failure_count": 0,
       "failures": [],
@@ -133,7 +133,7 @@
       "check_id": "RI-STAT-07",
       "evidence": {
         "fdr_or_reality_check_status": "deferred_until_paper_trading_or_production_candidate",
-        "non_neutral_retrieved_claim_count": 203,
+        "non_neutral_retrieved_claim_count": 1495,
         "rollout_mode": "shadow_tooling"
       },
       "failure_count": 0,
@@ -142,5 +142,5 @@
     }
   ],
   "policy": "report intelligence statistical evidence must be PIT, after-cost, overlap-adjusted, grouped by forecast family, deduplicated by consensus clusters, and kept shadow-only until effective-N, multiple-testing, calibration, paper-trading, and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260622T202326+0000"
+  "run_id": "RIR-DERIVED-20260624T225905+0000"
 }

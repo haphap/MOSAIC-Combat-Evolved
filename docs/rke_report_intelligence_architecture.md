@@ -149,8 +149,9 @@ flowchart LR
   覆盖率时再打开 MinerU/vLLM。
 - 宏观策略本地 PDF source 以 `/home/hap/Downloads/yanbaoke` 父目录内的 PDF
   为准，递归扫描 `*.pdf`，不要依赖不完整的文件清单；`宏观策略`、`其他债券研究`、
-  `期货研究`、`全球策略`、`国际宏观评论` 等宏观相邻目录进入同一 private source
-  corpus。
+  `汇率研究`/`外汇研究`、`全球策略`、`国际宏观评论` 等宏观相邻目录进入同一
+  private source corpus。汇率、外汇、人民币、美元、USD/CNY、USDCNY、美元指数
+  信号归入 `宏观策略-汇率`，不归入商品/期货桶。
 
 ## 4. Artifact 架构
 

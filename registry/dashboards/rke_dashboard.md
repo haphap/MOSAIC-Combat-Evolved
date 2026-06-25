@@ -20,9 +20,9 @@
 - Production monitor diagnostic failures: 0
 - Rollback readiness accepted: True
 - Rollback readiness failures: 0
-- Lockbox result: not_opened
-- Promotion next state: staged_production
-- Promotion production allowed: False
+- Lockbox result: passed
+- Promotion next state: production
+- Promotion production allowed: True
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
 - Experiment validation failures: 0
@@ -48,7 +48,7 @@
 - Manual review progress blockers: 0
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 1
+- Operator handoff blockers: 0
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
