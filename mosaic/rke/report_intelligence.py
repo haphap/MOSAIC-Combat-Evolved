@@ -31864,13 +31864,23 @@ def _append_unique_records(
     key: str,
     replace_existing: bool = False,
 ) -> None:
+    def merge_key(record: Mapping[str, Any]) -> str:
+        value = str(record.get(key) or "")
+        if value:
+            return value
+        if key == "outcome_id":
+            return str(record.get("outcome_label_id") or "")
+        if key == "weighted_context_id":
+            return str(record.get("context_id") or "")
+        return ""
+
     seen = {
-        str(record.get(key) or ""): index
+        merge_key(record): index
         for index, record in enumerate(target)
-        if str(record.get(key) or "")
+        if merge_key(record)
     }
     for record in records:
-        value = str(record.get(key) or "")
+        value = merge_key(record)
         if not value:
             continue
         if value in seen:
