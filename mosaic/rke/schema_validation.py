@@ -797,6 +797,41 @@ def _has_mapping_gap(row: Mapping[str, Any]) -> bool:
     return target_missing or benchmark_missing or horizon_missing or direction_missing
 
 
+def _forecast_horizon_bucket(horizon: Mapping[str, Any]) -> str:
+    preferred = horizon.get("preferred_days") or horizon.get("max_days") or horizon.get("min_days")
+    try:
+        days = int(preferred)
+    except (TypeError, ValueError):
+        return "unknown"
+    if days <= 5:
+        return "5d"
+    if days <= 20:
+        return "20d"
+    if days <= 60:
+        return "60d"
+    return "long_horizon"
+
+
+def _forecast_target_id(target: Mapping[str, Any]) -> str:
+    return str(target.get("target_id") or target.get("target_name") or "unknown")
+
+
+def _standard_outcome_labeling_ready(row: Mapping[str, Any]) -> bool:
+    target = row.get("target")
+    benchmark = row.get("benchmark")
+    horizon = row.get("horizon")
+    return (
+        str(row.get("forecast_testability") or "") == "testable"
+        and isinstance(target, Mapping)
+        and _forecast_target_id(target) != "unknown"
+        and isinstance(benchmark, Mapping)
+        and bool(benchmark)
+        and str(row.get("direction") or "unknown") not in {"", "unknown"}
+        and isinstance(horizon, Mapping)
+        and _forecast_horizon_bucket(horizon) != "unknown"
+    )
+
+
 STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
     "proxy_symbol",
     "claim_window_set_id",
@@ -2543,6 +2578,9 @@ def _validate_industry_etf_mapping_contract(
             failures.append(
                 "industry_etf_proxy_pit_availability.pit_available_mapping_count mismatch"
             )
+        sector_missing_count = _int_or_none(
+            labelability_summary.get("sector_etf_mapping_missing_count")
+        ) or 0
         action_summary = availability.get("labelability_action_summary")
         if not isinstance(action_summary, Mapping):
             failures.append(
@@ -2558,9 +2596,6 @@ def _validate_industry_etf_mapping_contract(
             ) or 0
             labelable_count = _int_or_none(
                 labelability_summary.get("labelable_claim_count")
-            ) or 0
-            sector_missing_count = _int_or_none(
-                labelability_summary.get("sector_etf_mapping_missing_count")
             ) or 0
             mapping_count = _int_or_none(availability.get("mapping_count")) or 0
             pit_unavailable_count = max(mapping_count - pit_available_count, 0)
@@ -2654,6 +2689,79 @@ def _validate_industry_etf_mapping_contract(
             ):
                 failures.append(
                     f"{action_label}.next_actions: missing PIT availability action"
+                )
+        review_queue = availability.get("sector_etf_mapping_review_queue")
+        review_queue_count_value = availability.get(
+            "sector_etf_mapping_review_queue_count"
+        )
+        if review_queue is not None or review_queue_count_value is not None:
+            queue_label = (
+                "industry_etf_proxy_pit_availability."
+                "sector_etf_mapping_review_queue"
+            )
+            if not isinstance(review_queue, Sequence) or isinstance(
+                review_queue,
+                str,
+            ):
+                failures.append(f"{queue_label}: expected array")
+                review_queue_rows = []
+            else:
+                review_queue_rows = [
+                    row for row in review_queue if isinstance(row, Mapping)
+                ]
+                if len(review_queue_rows) != len(review_queue):
+                    failures.append(f"{queue_label}: all rows must be objects")
+            if _int_or_none(review_queue_count_value) != len(review_queue_rows):
+                failures.append(f"{queue_label}_count: count mismatch")
+            queue_claim_count = 0
+            queue_ids: set[str] = set()
+            for index, row in enumerate(review_queue_rows, 1):
+                row_label = f"{queue_label}[{index}]"
+                queue_id = str(row.get("queue_id") or "").strip()
+                if not queue_id:
+                    failures.append(f"{row_label}.queue_id: required")
+                elif queue_id in queue_ids:
+                    failures.append(f"{row_label}.queue_id: duplicate {queue_id}")
+                else:
+                    queue_ids.add(queue_id)
+                if not str(row.get("sector_name") or "").strip():
+                    failures.append(f"{row_label}.sector_name: required")
+                missing_claim_count = _int_or_none(row.get("missing_claim_count"))
+                if missing_claim_count is None or missing_claim_count <= 0:
+                    failures.append(
+                        f"{row_label}.missing_claim_count: must be positive integer"
+                    )
+                else:
+                    queue_claim_count += missing_claim_count
+                if row.get("gap_type") != "sector_etf_mapping_missing":
+                    failures.append(
+                        f"{row_label}.gap_type: expected sector_etf_mapping_missing"
+                    )
+                if (
+                    row.get("recommended_action")
+                    != "add_primary_etf_mapping_for_unmapped_industry_sector"
+                ):
+                    failures.append(
+                        f"{row_label}.recommended_action: unexpected action"
+                    )
+                if row.get("review_required") is not True:
+                    failures.append(f"{row_label}.review_required: must be true")
+                if row.get("source_text_included") is not False:
+                    failures.append(
+                        f"{row_label}.source_text_included: must be false"
+                    )
+                required_mapping_fields = _string_items(
+                    row.get("required_mapping_fields")
+                )
+                for field in ("sector_name", "etf_symbol", "benchmark_symbol"):
+                    if field not in required_mapping_fields:
+                        failures.append(
+                            f"{row_label}.required_mapping_fields: missing {field}"
+                        )
+            if queue_claim_count != sector_missing_count:
+                failures.append(
+                    f"{queue_label}.missing_claim_count: expected total "
+                    f"{sector_missing_count}"
                 )
         missing_availability_ids = sorted(
             set(mappings_by_id) - set(availability_by_id)
@@ -4461,7 +4569,7 @@ def _validate_recipe_paper_trading_contract(
             and confidence_delta > 0
             and hit_rate_recent is not None
             and hit_rate_baseline is not None
-            and hit_rate_recent <= hit_rate_baseline
+            and hit_rate_recent < hit_rate_baseline
         ):
             calibration_rule_counts["positive_confidence_hit_nonimprovement"] = (
                 calibration_rule_counts.get(
@@ -9939,10 +10047,7 @@ def validate_report_intelligence_semantics(
             readiness_failures.append(f"{row_label}: forecast_claim_id not found")
             continue
         test_status = str(row.get("test_status") or "")
-        ready = (
-            str(claim.get("forecast_testability") or "") == "testable"
-            and not _has_mapping_gap(claim)
-        )
+        ready = _standard_outcome_labeling_ready(claim)
         if ready:
             ready_count += 1
         else:

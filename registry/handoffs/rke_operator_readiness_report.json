@@ -11,7 +11,7 @@
     {
       "blocker": "",
       "check_id": "handoff_ready_for_operator",
-      "evidence": "gates=['footprint_review', 'gold_set', 'lockbox', 'source_license'], next_state=staged_production",
+      "evidence": "gates=['footprint_review', 'gold_set', 'lockbox', 'source_license'], next_state=production",
       "passed": true
     },
     {
@@ -65,7 +65,7 @@
     {
       "blocker": "",
       "check_id": "blank_lockbox_import_is_rejected",
-      "evidence": "accepted=False, applied=False, next_state=paper_trading, rejections=6",
+      "evidence": "accepted=False, applied=False, next_state=paper_trading, rejections=7",
       "passed": true
     },
     {
@@ -89,19 +89,19 @@
     {
       "blocker": "",
       "check_id": "blank_bundle_dry_run_does_not_promote",
-      "evidence": "accepted=False, before_next_state=staged_production, after_next_state=staged_production",
+      "evidence": "accepted=False, before_next_state=production, after_next_state=production",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_review_bundle_manifest_current",
-      "evidence": "artifact_count=11, blockers=0, dry_run_accepted=False",
+      "evidence": "artifact_count=11, blockers=0, dry_run_accepted=True",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "promotion_gate_state_consistent",
-      "evidence": "next_state=staged_production, expected_next_state=staged_production, staged=True/True, production=False/False, direct_forbidden=True/True, blockers=1, missing=0",
+      "evidence": "next_state=production, expected_next_state=production, staged=True/True, production=True/True, direct_forbidden=False/False, blockers=0, missing=0",
       "passed": true
     },
     {

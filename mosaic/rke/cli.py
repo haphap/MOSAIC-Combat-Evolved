@@ -109,6 +109,8 @@ from .registry_manifest import (
     write_registry_manifest,
 )
 from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     DEFAULT_MINERU_BACKEND,
@@ -117,11 +119,17 @@ from .report_intelligence import (
     _footprint_review_quality_gap_targets_from_summary,
     _gold_review_quality_gap_targets_from_summary,
     apply_analytical_footprint_review_import,
+    build_analytical_footprint_negative_example_progress,
     build_local_macro_strategy_report_sources,
     export_macro_agent_research_priors,
     merge_report_intelligence_batch_outputs,
+    prepare_analytical_footprint_negative_examples,
     prepare_analytical_footprint_review_import,
+    write_analytical_footprint_negative_example_approved_import,
+    write_analytical_footprint_negative_example_approval_draft,
     run_report_intelligence_refresh,
+    write_analytical_footprint_review_approved_import,
+    write_analytical_footprint_review_approval_draft,
     write_analytical_footprint_review_assist,
     write_analytical_footprint_review_evidence,
     write_report_intelligence_evolution_readiness_gate,
@@ -2094,6 +2102,133 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite an existing output scaffold.",
     )
 
+    prepare_footprint_negative_examples = subparsers.add_parser(
+        "prepare-footprint-negative-examples",
+        help=(
+            "Prepare a gitignored analytical-footprint negative-example recall "
+            "scaffold for human review."
+        ),
+    )
+    prepare_footprint_negative_examples.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    prepare_footprint_negative_examples.add_argument(
+        "--output",
+        help=(
+            "Output JSONL scaffold. Defaults to the private analytical footprint "
+            "negative examples path."
+        ),
+    )
+    prepare_footprint_negative_examples.add_argument(
+        "--limit",
+        type=int,
+        default=200,
+        help="Maximum rows to scaffold. Defaults to 200.",
+    )
+    prepare_footprint_negative_examples.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Candidate-row offset before applying --limit. Defaults to 0.",
+    )
+    prepare_footprint_negative_examples.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite an existing output scaffold.",
+    )
+
+    footprint_negative_progress = subparsers.add_parser(
+        "footprint-negative-progress",
+        help=(
+            "Summarize private analytical-footprint negative-example recall "
+            "review progress."
+        ),
+    )
+    footprint_negative_progress.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    footprint_negative_progress.add_argument(
+        "--input",
+        help=(
+            "Input JSONL file. Defaults to the private analytical footprint "
+            "negative examples path."
+        ),
+    )
+    footprint_negative_progress.add_argument(
+        "--minimum-sample-target",
+        type=int,
+        default=200,
+        help="Minimum human negative-example rows required. Defaults to 200.",
+    )
+    footprint_negative_progress.add_argument(
+        "--expected-positive-minimum-target",
+        type=int,
+        default=50,
+        help="Minimum expected-positive human examples required. Defaults to 50.",
+    )
+
+    write_footprint_negative_approval_draft = subparsers.add_parser(
+        "write-footprint-negative-approval-draft",
+        help=(
+            "Write a private machine-suggestion draft for human approval of "
+            "analytical-footprint negative-example recall rows."
+        ),
+    )
+    write_footprint_negative_approval_draft.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    write_footprint_negative_approval_draft.add_argument(
+        "--input",
+        help=(
+            "Negative-example JSONL input to draft from. Defaults to the private "
+            "analytical footprint negative examples path."
+        ),
+    )
+    write_footprint_negative_approval_draft.add_argument(
+        "--expected-positive-minimum-target",
+        type=int,
+        default=50,
+        help="Minimum expected-positive examples to propose. Defaults to 50.",
+    )
+
+    approve_footprint_negative_draft = subparsers.add_parser(
+        "approve-footprint-negative-draft",
+        help=(
+            "Convert a private analytical-footprint negative-example approval "
+            "draft into the formal negative-example recall input after human approval."
+        ),
+    )
+    approve_footprint_negative_draft.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    approve_footprint_negative_draft.add_argument(
+        "--approval-draft",
+        default=ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH,
+        help="Negative-example approval draft JSONL to convert.",
+    )
+    approve_footprint_negative_draft.add_argument(
+        "--output",
+        help=(
+            "Formal negative-example JSONL output. Defaults to the private "
+            "analytical footprint negative examples path."
+        ),
+    )
+    approve_footprint_negative_draft.add_argument(
+        "--reviewer",
+        required=True,
+        help="Human reviewer identifier to write into approved rows.",
+    )
+    approve_footprint_negative_draft.add_argument(
+        "--review-date",
+        required=True,
+        help="Human review date in YYYY-MM-DD format.",
+    )
+    approve_footprint_negative_draft.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite an existing formal negative-example input output.",
+    )
+
     write_footprint_review_assist = subparsers.add_parser(
         "write-footprint-review-assist",
         help="Write private analytical-footprint review assist JSONL and workbook files.",
@@ -2137,6 +2272,61 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional reviewed JSONL scratch file. When set, evidence rows follow "
             "this input order and are matched back to the full footprint review template."
         ),
+    )
+
+    write_footprint_review_approval_draft = subparsers.add_parser(
+        "write-footprint-review-approval-draft",
+        help=(
+            "Write a private machine-suggestion draft for human approval of the "
+            "current analytical-footprint review batch."
+        ),
+    )
+    write_footprint_review_approval_draft.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    write_footprint_review_approval_draft.add_argument(
+        "--review-input",
+        default=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        help=(
+            "Review JSONL input to align suggestions with. Defaults to the "
+            "current footprint review batch."
+        ),
+    )
+
+    approve_footprint_review_draft = subparsers.add_parser(
+        "approve-footprint-review-draft",
+        help=(
+            "Convert a private analytical-footprint approval draft into a formal "
+            "review import after human approval."
+        ),
+    )
+    approve_footprint_review_draft.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    approve_footprint_review_draft.add_argument(
+        "--approval-draft",
+        default=ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH,
+        help="Approval draft JSONL to convert.",
+    )
+    approve_footprint_review_draft.add_argument(
+        "--output",
+        default=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        help="Formal review import JSONL output.",
+    )
+    approve_footprint_review_draft.add_argument(
+        "--reviewer",
+        required=True,
+        help="Human reviewer identifier to write into approved rows.",
+    )
+    approve_footprint_review_draft.add_argument(
+        "--review-date",
+        required=True,
+        help="Human review date in YYYY-MM-DD format.",
+    )
+    approve_footprint_review_draft.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite an existing formal review import output.",
     )
 
     validate = subparsers.add_parser(
@@ -2838,6 +3028,82 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(report))
         return 0 if report.accepted else 2
+    if args.command == "prepare-footprint-negative-examples":
+        if args.output:
+            report = prepare_analytical_footprint_negative_examples(
+                root,
+                output_path=args.output,
+                limit=args.limit,
+                offset=args.offset,
+                overwrite=args.overwrite,
+            )
+        else:
+            report = prepare_analytical_footprint_negative_examples(
+                root,
+                limit=args.limit,
+                offset=args.offset,
+                overwrite=args.overwrite,
+            )
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
+    if args.command == "footprint-negative-progress":
+        if args.input:
+            report = build_analytical_footprint_negative_example_progress(
+                root,
+                input_path=args.input,
+                minimum_sample_target=args.minimum_sample_target,
+                expected_positive_minimum_target=(
+                    args.expected_positive_minimum_target
+                ),
+            )
+        else:
+            report = build_analytical_footprint_negative_example_progress(
+                root,
+                minimum_sample_target=args.minimum_sample_target,
+                expected_positive_minimum_target=(
+                    args.expected_positive_minimum_target
+                ),
+            )
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
+    if args.command == "write-footprint-negative-approval-draft":
+        if args.input:
+            report = write_analytical_footprint_negative_example_approval_draft(
+                root,
+                input_path=args.input,
+                expected_positive_minimum_target=(
+                    args.expected_positive_minimum_target
+                ),
+            )
+        else:
+            report = write_analytical_footprint_negative_example_approval_draft(
+                root,
+                expected_positive_minimum_target=(
+                    args.expected_positive_minimum_target
+                ),
+            )
+        _print_json(asdict(report))
+        return 0 if not report.blockers else 2
+    if args.command == "approve-footprint-negative-draft":
+        if args.output:
+            report = write_analytical_footprint_negative_example_approved_import(
+                root,
+                approval_draft_path=args.approval_draft,
+                output_path=args.output,
+                reviewer=args.reviewer,
+                review_date=args.review_date,
+                overwrite=args.overwrite,
+            )
+        else:
+            report = write_analytical_footprint_negative_example_approved_import(
+                root,
+                approval_draft_path=args.approval_draft,
+                reviewer=args.reviewer,
+                review_date=args.review_date,
+                overwrite=args.overwrite,
+            )
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
     if args.command == "write-footprint-review-assist":
         report = write_analytical_footprint_review_assist(
             root,
@@ -2854,6 +3120,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(report))
         return 0 if not report.blockers else 2
+    if args.command == "write-footprint-review-approval-draft":
+        report = write_analytical_footprint_review_approval_draft(
+            root,
+            review_input_path=args.review_input,
+        )
+        _print_json(asdict(report))
+        return 0 if not report.blockers else 2
+    if args.command == "approve-footprint-review-draft":
+        report = write_analytical_footprint_review_approved_import(
+            root,
+            approval_draft_path=args.approval_draft,
+            output_path=args.output,
+            reviewer=args.reviewer,
+            review_date=args.review_date,
+            overwrite=args.overwrite,
+        )
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
     if args.command == "validate-required":
         missing, empty = validate_required_registry(root)
         invalid = validate_required_registry_content(root)

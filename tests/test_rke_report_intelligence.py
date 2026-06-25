@@ -16,6 +16,11 @@ from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 from mosaic.scorecard.macro_series_backfill import backfill_macro_series
 from mosaic.rke.report_intelligence import (
+    ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_MD_PATH,
+    ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
@@ -37,6 +42,8 @@ from mosaic.rke.report_intelligence import (
     build_confidence_impact_observations,
     build_analytical_footprint_review_evidence,
     build_analytical_footprint_review_summary,
+    build_analytical_footprint_negative_example_progress,
+    build_forecast_ledger_records,
     build_local_macro_strategy_report_sources,
     build_macro_agent_research_priors,
     build_markdown_coverage_summary,
@@ -45,6 +52,7 @@ from mosaic.rke.report_intelligence import (
     build_macro_asset_proxy_readiness,
     build_macro_curve_directional_outcome_labels,
     build_macro_curve_directional_readiness,
+    build_industry_etf_proxy_pit_availability,
     build_macro_market_series_catalog,
     build_macro_regime_snapshots,
     build_macro_series_directional_outcome_labels,
@@ -68,9 +76,14 @@ from mosaic.rke.report_intelligence import (
     convert_pdfs_with_mineru_batch,
     load_scorecard_macro_series_rows,
     merge_report_intelligence_batch_outputs,
+    prepare_analytical_footprint_negative_examples,
     prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
+    write_analytical_footprint_negative_example_approved_import,
+    write_analytical_footprint_negative_example_approval_draft,
+    write_analytical_footprint_review_approved_import,
+    write_analytical_footprint_review_approval_draft,
     write_analytical_footprint_review_assist,
     write_analytical_footprint_review_evidence,
     write_report_intelligence_evolution_readiness_gate,
@@ -2883,6 +2896,46 @@ def test_local_macro_strategy_sources_scan_pdf_folder_not_file_list(tmp_path: Pa
     assert manifest["privacy_policy"]
 
 
+def test_local_macro_strategy_sources_classify_fx_reports(tmp_path: Path):
+    input_dir = tmp_path / "yanbaoke"
+    pdfs = [
+        input_dir / "汇率研究/2026-06/20260621_BrokerA_周报.pdf",
+        input_dir / "外汇研究/2026-06/20260621_BrokerA_周报.pdf",
+        input_dir / "待分类/20260621_BrokerB_人民币汇率展望.pdf",
+        input_dir / "待分类/20260621_BrokerC_外汇周报.pdf",
+        input_dir / "待分类/20260621_BrokerD_USDCNY策略.pdf",
+        input_dir / "待分类/20260621_BrokerE_USD-CNY策略.pdf",
+        input_dir / "待分类/20260621_BrokerF_美元指数周报.pdf",
+        input_dir / "待分类/USD/CNY/20260621_BrokerH_策略.pdf",
+        input_dir / "商品研究/20260621_BrokerG_黄金原油商品策略.pdf",
+    ]
+    for index, pdf in enumerate(pdfs, 1):
+        pdf.parent.mkdir(parents=True, exist_ok=True)
+        pdf.write_bytes(f"%PDF-1.4 fixture {index}".encode("utf-8"))
+
+    result = build_local_macro_strategy_report_sources(
+        root=tmp_path,
+        input_dir=input_dir,
+    )
+
+    assert result.scanned_pdf_count == len(pdfs)
+    rows = _read_jsonl(tmp_path / "registry/sources/local_macro_strategy_reports.jsonl")
+    by_path = {
+        Path(row["local_pdf_path"]).relative_to(input_dir): row["report_type"]
+        for row in rows
+    }
+    assert by_path[Path("汇率研究/2026-06/20260621_BrokerA_周报.pdf")] == "宏观策略-汇率"
+    assert by_path[Path("外汇研究/2026-06/20260621_BrokerA_周报.pdf")] == "宏观策略-汇率"
+    for pdf in pdfs[2:8]:
+        assert by_path[pdf.relative_to(input_dir)] == "宏观策略-汇率"
+    assert (
+        by_path[Path("商品研究/20260621_BrokerG_黄金原油商品策略.pdf")]
+        == "宏观策略-商品"
+    )
+    assert result.report_type_counts["宏观策略-汇率"] == 8
+    assert result.report_type_counts["宏观策略-商品"] == 1
+
+
 def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windows(
     tmp_path: Path,
 ):
@@ -3200,6 +3253,24 @@ def test_report_intelligence_expands_macro_claim_legs_for_direct_series_labels()
     assert {
         tuple(profile["mechanism_chain"]) for profile in profiles
     } == {("bond_yield_level",), ("volatility_index",)}
+
+    short_vix_rows = [
+        row
+        for row in macro_series_rows
+        if row["series_id"] == "US10Y"
+        or (row["series_id"] == "VIX" and row["date"] <= "2026-02-15")
+    ]
+    mixed_readiness = build_macro_series_directional_readiness(
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        macro_series_rows=short_vix_rows,
+    )
+    assert "FC-MACRO-MULTI-LEG" in mixed_readiness["labelable_forecast_claim_ids"]
+    assert (
+        "FC-MACRO-MULTI-LEG"
+        not in mixed_readiness["pending_future_forecast_claim_ids"]
+    )
+    assert mixed_readiness["pending_future_window_count"] == 3
 
 
 def test_report_intelligence_preserves_parent_macro_curve_leg_with_series_components():
@@ -4072,6 +4143,62 @@ def test_report_intelligence_keeps_macro_asset_proxy_when_rate_is_mechanism(
     assert readiness["data_gap_counts"] == {}
     assert [row["horizon_days"] for row in labels] == [90, 180, 360]
     assert {row["proxy_symbol"] for row in labels} == {"SH513500"}
+
+
+def test_report_intelligence_adds_leg_trace_for_legacy_credit_spread_macro_claim(
+    tmp_path: Path,
+) -> None:
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir, long_calendar=True)
+    dates = (qlib_etf_dir / "calendars/day.txt").read_text(encoding="utf-8").splitlines()
+    _write_qlib_series(
+        qlib_etf_dir,
+        "SH511220",
+        [1.00 + index * 0.001 for index in range(len(dates))],
+    )
+    source_id = "SRC-MACRO-CREDIT-SPREAD"
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-CREDIT-SPREAD",
+            "source_id": source_id,
+            "report_id": "RPT-MACRO-CREDIT-SPREAD",
+            "signal_datetime": "2026-01-01",
+            "forecast_type": "credit_spread_directional",
+            "target": {
+                "target_type": "credit_spread",
+                "target_id": "CN_CREDIT_SPREAD",
+                "target_name": "信用利差",
+            },
+            "direction": "positive",
+            "horizon": {"max_days": 360, "unit": "calendar_day"},
+            "metric_proxy_mapping": ["bond_etf_forward_return"],
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": source_id,
+            "report_type": "宏观策略",
+            "publish_date": "2026-01-01",
+            "title": "信用债与信用利差策略",
+        }
+    ]
+
+    labels = build_macro_asset_proxy_outcome_labels(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[],
+        metadata_rows=metadata_rows,
+    )
+
+    assert [row["horizon_days"] for row in labels] == [90, 180, 360]
+    assert {row["proxy_symbol"] for row in labels} == {"SH511220"}
+    assert {row["macro_asset_target_id"] for row in labels} == {"CN_CREDIT_BOND"}
+    assert {row["parent_forecast_claim_id"] for row in labels} == {
+        "FC-MACRO-CREDIT-SPREAD"
+    }
+    assert {row["macro_claim_leg_index"] for row in labels} == {1}
+    assert all(str(row["macro_claim_leg_id"]).startswith("MCL-") for row in labels)
 
 
 def _fake_llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
@@ -8113,6 +8240,38 @@ def test_report_intelligence_confidence_monitor_tracks_aggregate_calibration_dri
     assert monitor["production_decision_impact_allowed"] is False
 
 
+def test_report_intelligence_confidence_monitor_does_not_count_equal_hit_rate_positive_alpha_as_drift():
+    monitor = build_confidence_impact_monitor(
+        run_id="RIR-TEST-EQUAL-HIT-POSITIVE-ALPHA",
+        confidence_observation_rows=[
+            {
+                "recipe_id": "RECIPE-EQUAL-HIT-POSITIVE-ALPHA",
+                "agent_id": "report_intelligence.shadow",
+                "confidence_delta": 0.02,
+                "paper_trading_status": "passed",
+                "drift_status": "stable_shadow",
+                "recommended_action": "keep_shadow",
+                "after_cost_realized_alpha": 0.01,
+                "hit_rate_recent": 0.50,
+                "hit_rate_baseline": 0.50,
+                "calibration_error": 0.0,
+                "regime": "base",
+                "blocker_reasons": [],
+            }
+        ],
+        recipe_paper_trading_summary={
+            "recipe_count": 1,
+            "validation_pass_count": 1,
+            "blocked_count": 0,
+        },
+    )
+
+    assert monitor["calibration_drift_rule_counts"] == {}
+    assert monitor["aggregate_calibration_drift_count"] == 0
+    assert monitor["aggregate_calibration_drift_recipe_ids"] == []
+    assert monitor["recommended_action_counts"] == {"keep_shadow": 1}
+
+
 def test_report_intelligence_evolution_gate_blocks_aggregate_calibration_drift():
     forecast_rows, outcome_rows = _full_evolution_outcome_fixture()
     clean_monitor = {
@@ -10463,6 +10622,10 @@ def test_report_intelligence_merges_default_industry_etf_mapping_fallbacks(
     assert by_sector["有色金属"]["mapping_confidence"] == "operator_override"
     assert by_sector["通信设备"]["etf_symbol"] == "SH515880"
     assert by_sector["IT服务Ⅱ"]["etf_symbol"] == "SH515230"
+    assert by_sector["软件开发"]["etf_symbol"] == "SH515230"
+    assert by_sector["专用设备"]["etf_symbol"] == "SH516960"
+    assert by_sector["汽车服务"]["etf_symbol"] == "SZ159512"
+    assert by_sector["商业百货"]["etf_symbol"] == "SH515170"
     assert by_sector["旅游及景区"]["etf_symbol"] == "SZ159766"
     assert sum(1 for row in mapping_rows if row["sector_name"] == "工业金属") == 1
 
@@ -10975,6 +11138,81 @@ def test_report_intelligence_industry_mapping_effective_from_blocks_early_claim(
     assert "add_primary_etf_mapping_for_unmapped_industry_sectors" in action_summary[
         "next_actions"
     ]
+
+
+def test_industry_pit_availability_builds_mapping_review_queue(tmp_path: Path):
+    metadata_rows = [
+        {
+            "source_id": "SRC-IND-A1",
+            "report_type": "行业研究",
+            "sector": "未覆盖行业A",
+        },
+        {
+            "source_id": "SRC-IND-A2",
+            "report_type": "行业研究",
+            "sector": "未覆盖行业A",
+        },
+        {
+            "source_id": "SRC-IND-B1",
+            "report_type": "行业研究",
+            "sector": "未覆盖行业B",
+        },
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-IND-A1",
+            "source_id": "SRC-IND-A1",
+            "direction": "positive",
+            "signal_datetime": "2026-01-02T00:00:00+08:00",
+        },
+        {
+            "forecast_claim_id": "FC-IND-A2",
+            "source_id": "SRC-IND-A2",
+            "direction": "negative",
+            "signal_datetime": "2026-01-03T00:00:00+08:00",
+        },
+        {
+            "forecast_claim_id": "FC-IND-B1",
+            "source_id": "SRC-IND-B1",
+            "direction": "positive",
+            "signal_datetime": "2026-01-04T00:00:00+08:00",
+        },
+    ]
+
+    availability = build_industry_etf_proxy_pit_availability(
+        root_path=tmp_path,
+        qlib_etf_dir=tmp_path / "qlib_etf",
+        mapping_rows=[],
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+
+    assert availability["labelability_summary"][
+        "sector_etf_mapping_missing_count"
+    ] == 3
+    assert availability["sector_etf_mapping_review_queue_count"] == 2
+    queue_by_sector = {
+        row["sector_name"]: row
+        for row in availability["sector_etf_mapping_review_queue"]
+    }
+    assert queue_by_sector["未覆盖行业A"]["missing_claim_count"] == 2
+    assert queue_by_sector["未覆盖行业B"]["missing_claim_count"] == 1
+    assert {
+        row["recommended_action"]
+        for row in availability["sector_etf_mapping_review_queue"]
+    } == {"add_primary_etf_mapping_for_unmapped_industry_sector"}
+    queue_dump = json.dumps(
+        availability["sector_etf_mapping_review_queue"],
+        ensure_ascii=False,
+    )
+    for forbidden in (
+        "forecast_claim_id",
+        "source_id",
+        "claim_text",
+        "source_span",
+        "local_pdf_path",
+    ):
+        assert forbidden not in queue_dump
 
 
 def test_report_intelligence_pit_audit_rejects_t0_industry_etf_entry():
@@ -13628,6 +13866,62 @@ def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(
     assert by_id["RI-PROV-04"]["evidence"]["unlabelable_forecast_count"] == 0
 
 
+def test_provenance_audit_uses_standard_ledger_readiness_for_unknown_targets():
+    forecast = {
+        "forecast_claim_id": "FC-MACRO-COMMODITY-UNKNOWN",
+        "claim_provenance": "source_grounded",
+        "source_span_ids": ["SRC-1:original_markdown:chunk-001"],
+        "forecast_testability": "testable",
+        "forecast_type": "asset_directional",
+        "target": {
+            "target_type": "commodity",
+            "target_id": "unknown",
+            "target_label": "有色金属及贵金属",
+        },
+        "benchmark": {"benchmark_type": "broad_market"},
+        "direction": "positive",
+        "horizon": {"preferred_days": 120},
+        "macro_claim_legs": [
+            {
+                "target_type": "commodity",
+                "target_id": "unknown",
+                "direction": "positive",
+                "claim_horizon": {"preferred_days": 120},
+            }
+        ],
+    }
+    forecast_ledger_rows = build_forecast_ledger_records([forecast])
+    readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=[forecast],
+        forecast_ledger_rows=forecast_ledger_rows,
+    )
+
+    assert forecast_ledger_rows[0]["test_status"] == "not_ready_insufficient_mapping"
+    assert readiness["ready_for_outcome_labeling_count"] == 0
+    assert readiness["standard_blocked_count"] == 1
+    assert readiness["blocked_count"] == 1
+
+    audit = build_report_intelligence_extraction_provenance_audit(
+        run_id="TEST-RUN",
+        forecast_rows=[forecast],
+        footprint_rows=[],
+        metric_rows=[],
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=[],
+        outcome_labeling_readiness=readiness,
+    )
+
+    by_id = {row["check_id"]: row for row in audit["checks"]}
+    assert audit["accepted"] is True
+    assert by_id["RI-PROV-04"]["accepted"] is True
+    assert by_id["RI-PROV-04"]["evidence"][
+        "ready_for_outcome_labeling_count"
+    ] == 0
+    assert by_id["RI-PROV-04"]["evidence"][
+        "standard_blocked_forecast_count"
+    ] == 1
+
+
 def test_report_intelligence_infers_explicit_horizon_from_claim_text(
     tmp_path: Path,
 ):
@@ -14896,6 +15190,373 @@ def test_prepare_analytical_footprint_review_import_scaffold(tmp_path: Path):
     assert apply_report.applied_rows == 1
 
 
+def test_prepare_analytical_footprint_negative_examples_scaffold(tmp_path: Path):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    _write_jsonl(
+        registry_dir / "report_metadata.jsonl",
+        [
+            {
+                "source_id": "SRC-WITH-CLAIM-NO-FOOTPRINT",
+                "report_id": "RPT-WITH-CLAIM-NO-FOOTPRINT",
+                "report_type": "宏观策略",
+                "publish_date": "2026-01-02",
+            },
+            {
+                "source_id": "SRC-WITH-FOOTPRINT",
+                "report_id": "RPT-WITH-FOOTPRINT",
+                "report_type": "行业研报",
+                "sector": "半导体",
+                "publish_date": "2026-01-03",
+            },
+        ],
+    )
+    _write_jsonl(
+        registry_dir / "forecast_claims.jsonl",
+        [
+            {
+                "forecast_claim_id": "FC-WITH-CLAIM-NO-FOOTPRINT",
+                "source_id": "SRC-WITH-CLAIM-NO-FOOTPRINT",
+            },
+            {
+                "forecast_claim_id": "FC-WITH-FOOTPRINT",
+                "source_id": "SRC-WITH-FOOTPRINT",
+            },
+        ],
+    )
+    _write_jsonl(
+        registry_dir / "analytical_footprints.jsonl",
+        [
+            {
+                "footprint_id": "AFP-WITH-FOOTPRINT",
+                "source_id": "SRC-WITH-FOOTPRINT",
+            }
+        ],
+    )
+    output_path = tmp_path / "negative_examples.jsonl"
+
+    report = prepare_analytical_footprint_negative_examples(
+        tmp_path,
+        output_path=output_path,
+        limit=2,
+    )
+    rows = _read_jsonl(output_path)
+
+    assert report.accepted
+    assert report.output_rows == 2
+    assert report.pending_rows == 2
+    assert report.expected_positive_minimum_target == 50
+    assert report.pending_required_fields == {
+        "expected_footprint_present": 2,
+        "extracted_footprint_found": 2,
+        "review_date": 2,
+        "review_notes": 2,
+        "reviewer": 2,
+    }
+    assert rows[0]["source_id"] == "SRC-WITH-CLAIM-NO-FOOTPRINT"
+    assert rows[0]["suggested_review_focus"] == "claims_without_extracted_footprints"
+    assert rows[0]["expected_footprint_present"] is None
+    assert rows[0]["extracted_footprint_found"] is None
+    assert rows[0]["source_text_included"] is False
+    assert rows[0]["target_row_hash"].startswith("sha256:")
+    assert "claim_text" not in rows[0]
+
+
+def test_prepare_footprint_negative_examples_cli_defaults_to_private_path(
+    tmp_path: Path,
+    capsys,
+):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    _write_jsonl(
+        registry_dir / "report_metadata.jsonl",
+        [
+            {
+                "source_id": "SRC-NEG-CLI",
+                "report_id": "RPT-NEG-CLI",
+                "report_type": "宏观策略",
+            }
+        ],
+    )
+
+    code = main(
+        (
+            "prepare-footprint-negative-examples",
+            "--root",
+            str(tmp_path),
+            "--limit",
+            "1",
+            "--overwrite",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+    output_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH
+
+    assert code == 0
+    assert output["output_path"] == str(output_path)
+    assert output["output_rows"] == 1
+    assert output_path.exists()
+    assert ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH in PRIVATE_LOCAL_REGISTRY_FILES
+    assert ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
+
+
+def test_analytical_footprint_negative_example_progress_reports_pending_fields(
+    tmp_path: Path,
+):
+    input_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH
+    _write_jsonl(
+        input_path,
+        [
+            {
+                "negative_example_id": "NEG-PENDING",
+                "expected_footprint_present": None,
+                "extracted_footprint_found": None,
+                "reviewer": "",
+                "review_date": "",
+                "review_notes": "",
+                "source_text_included": False,
+            }
+        ],
+    )
+
+    report = build_analytical_footprint_negative_example_progress(
+        tmp_path,
+        minimum_sample_target=1,
+        expected_positive_minimum_target=1,
+    )
+
+    assert not report.accepted
+    assert report.recall_status == "negative_examples_incomplete"
+    assert report.sample_count == 1
+    assert report.completed_count == 0
+    assert report.expected_positive_remaining == 1
+    assert report.pending_required_fields == {
+        "expected_footprint_present": 1,
+        "extracted_footprint_found": 1,
+        "review_date": 1,
+        "review_notes": 1,
+        "reviewer": 1,
+    }
+    assert any("pending required human-review fields" in item for item in report.blockers)
+
+
+def test_footprint_negative_progress_cli_accepts_completed_private_examples(
+    tmp_path: Path,
+    capsys,
+):
+    input_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH
+    _write_jsonl(
+        input_path,
+        [
+            {
+                "negative_example_id": "NEG-1",
+                "expected_footprint_present": True,
+                "extracted_footprint_found": True,
+                "reviewer": "footprint-reviewer",
+                "review_date": "2026-06-24",
+                "review_notes": "fixture positive recovered",
+                "source_text_included": False,
+            },
+            {
+                "negative_example_id": "NEG-2",
+                "expected_footprint_present": True,
+                "extracted_footprint_found": False,
+                "reviewer": "footprint-reviewer",
+                "review_date": "2026-06-24",
+                "review_notes": "fixture positive missed",
+                "source_text_included": False,
+            },
+            {
+                "negative_example_id": "NEG-3",
+                "expected_footprint_present": False,
+                "extracted_footprint_found": False,
+                "reviewer": "footprint-reviewer",
+                "review_date": "2026-06-24",
+                "review_notes": "fixture negative",
+                "source_text_included": False,
+            },
+        ],
+    )
+
+    code = main(
+        (
+            "footprint-negative-progress",
+            "--root",
+            str(tmp_path),
+            "--minimum-sample-target",
+            "3",
+            "--expected-positive-minimum-target",
+            "2",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["input_path"] == str(input_path)
+    assert output["accepted"] is True
+    assert output["recall_status"] == "computed_from_human_negative_examples"
+    assert output["recall_estimate"] == 0.5
+    assert output["sample_count"] == 3
+    assert output["completed_count"] == 3
+    assert output["positive_count"] == 2
+    assert output["false_negative_count"] == 1
+    assert output["expected_positive_remaining"] == 0
+    assert output["source_text_included_count"] == 0
+    assert output["blockers"] == []
+
+
+def test_write_footprint_negative_approval_draft_is_private_not_import(
+    tmp_path: Path,
+):
+    input_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH
+    _write_jsonl(
+        input_path,
+        [
+            {
+                "negative_example_id": "NEG-FOUND",
+                "source_id": "SRC-FOUND",
+                "report_id": "RPT-FOUND",
+                "sample_kind": "report_level_footprint_recall_candidate",
+                "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-FOUND",
+                "target_row_hash": "sha256:found",
+                "report_type": "宏观策略",
+                "forecast_claim_count": 1,
+                "extracted_footprint_count": 2,
+                "suggested_review_focus": "claims_with_extracted_footprints",
+                "priority_score": 1,
+                "expected_footprint_present": None,
+                "extracted_footprint_found": None,
+                "reviewer": "",
+                "review_date": "",
+                "review_notes": "",
+                "source_text_included": False,
+            },
+            {
+                "negative_example_id": "NEG-MISSED",
+                "source_id": "SRC-MISSED",
+                "report_id": "RPT-MISSED",
+                "sample_kind": "report_level_footprint_recall_candidate",
+                "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-MISSED",
+                "target_row_hash": "sha256:missed",
+                "report_type": "行业研报",
+                "forecast_claim_count": 0,
+                "extracted_footprint_count": 0,
+                "suggested_review_focus": "no_extracted_footprints",
+                "priority_score": 2,
+                "expected_footprint_present": None,
+                "extracted_footprint_found": None,
+                "reviewer": "",
+                "review_date": "",
+                "review_notes": "",
+                "source_text_included": False,
+            },
+        ],
+    )
+
+    report = write_analytical_footprint_negative_example_approval_draft(
+        tmp_path,
+        expected_positive_minimum_target=2,
+    )
+    draft_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH
+    markdown_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_MD_PATH
+    draft_rows = _read_jsonl(draft_path)
+
+    assert report.row_count == 2
+    assert report.proposed_decision_counts["expected_footprint_present"]["true"] == 2
+    assert report.proposed_decision_counts["extracted_footprint_found"]["true"] == 1
+    assert draft_rows[0]["approval_draft_kind"].endswith("_not_import")
+    assert draft_rows[0]["not_apply_footprint_negative_examples_input"] is True
+    assert draft_rows[0]["source_text_included"] is False
+    assert "claim_text" not in draft_rows[0]
+    assert markdown_path.exists()
+    assert (
+        ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH
+        in PRIVATE_LOCAL_REGISTRY_FILES
+    )
+    assert (
+        ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH
+        in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
+    )
+
+    progress = build_analytical_footprint_negative_example_progress(
+        tmp_path,
+        minimum_sample_target=2,
+        expected_positive_minimum_target=2,
+    )
+    assert not progress.accepted
+    assert progress.completed_count == 0
+
+
+def test_approve_footprint_negative_draft_writes_progress_input(
+    tmp_path: Path,
+):
+    input_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH
+    _write_jsonl(
+        input_path,
+        [
+            {
+                "negative_example_id": "NEG-FOUND",
+                "source_id": "SRC-FOUND",
+                "report_id": "RPT-FOUND",
+                "sample_kind": "report_level_footprint_recall_candidate",
+                "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-FOUND",
+                "target_row_hash": "sha256:found",
+                "extracted_footprint_count": 1,
+                "suggested_review_focus": "claims_with_extracted_footprints",
+                "expected_footprint_present": None,
+                "extracted_footprint_found": None,
+                "reviewer": "",
+                "review_date": "",
+                "review_notes": "",
+                "source_text_included": False,
+            },
+            {
+                "negative_example_id": "NEG-MISSED",
+                "source_id": "SRC-MISSED",
+                "report_id": "RPT-MISSED",
+                "sample_kind": "report_level_footprint_recall_candidate",
+                "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-MISSED",
+                "target_row_hash": "sha256:missed",
+                "extracted_footprint_count": 0,
+                "suggested_review_focus": "no_extracted_footprints",
+                "expected_footprint_present": None,
+                "extracted_footprint_found": None,
+                "reviewer": "",
+                "review_date": "",
+                "review_notes": "",
+                "source_text_included": False,
+            },
+        ],
+    )
+    write_analytical_footprint_negative_example_approval_draft(
+        tmp_path,
+        expected_positive_minimum_target=2,
+    )
+
+    report = write_analytical_footprint_negative_example_approved_import(
+        tmp_path,
+        reviewer="negative-reviewer",
+        review_date="2026-06-24",
+        overwrite=True,
+    )
+    progress = build_analytical_footprint_negative_example_progress(
+        tmp_path,
+        minimum_sample_target=2,
+        expected_positive_minimum_target=2,
+    )
+
+    assert report.accepted
+    assert report.approved_rows == 2
+    assert report.backed_up_existing_output
+    assert progress.accepted
+    assert progress.recall_status == "computed_from_human_negative_examples"
+    assert progress.completed_count == 2
+    assert progress.positive_count == 2
+    assert progress.true_positive_count == 1
+    rows = _read_jsonl(input_path)
+    assert rows[0]["reviewer"] == "negative-reviewer"
+    assert rows[0]["review_date"] == "2026-06-24"
+    assert rows[0]["source_text_included"] is False
+
+
 def test_prepare_analytical_footprint_review_import_supports_offset_batches(
     tmp_path: Path,
 ):
@@ -15391,6 +16052,99 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "Suggested decision rationales" in markdown
     assert "not an import file" in markdown
     assert "Confirm each field against the evidence snippets" in markdown
+
+
+def test_write_analytical_footprint_review_approval_draft_is_private_not_import(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    prepare_analytical_footprint_review_import(
+        tmp_path,
+        tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        limit=1,
+        priority=True,
+    )
+
+    report = write_analytical_footprint_review_approval_draft(tmp_path)
+    draft_rows = _read_jsonl(tmp_path / report.jsonl_path)
+
+    assert report.row_count == 1
+    assert report.pending_approval_rows == 1
+    assert report.blockers == ()
+    assert report.jsonl_path == ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH
+    assert report.markdown_path == ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_MD_PATH
+    assert report.jsonl_path in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
+    assert report.markdown_path in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
+    assert report.jsonl_path in PRIVATE_LOCAL_REGISTRY_FILES
+    assert report.markdown_path in PRIVATE_LOCAL_REGISTRY_FILES
+    assert draft_rows[0]["approval_status"] == "pending_human_approval"
+    assert draft_rows[0]["not_apply_footprint_review_input"] is True
+    assert draft_rows[0]["human_approval_required"] is True
+    assert draft_rows[0]["reviewer"] == ""
+    assert draft_rows[0]["review_date"] == ""
+    assert draft_rows[0]["review_notes"]
+    assert isinstance(draft_rows[0]["footprint_correct"], bool)
+    assert isinstance(draft_rows[0]["metric_mapping_correct"], bool)
+    assert "evidence_snippets" not in draft_rows[0]
+    assert "markdown_path" not in draft_rows[0]
+    assert "source_span_ids" not in draft_rows[0]
+    markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
+    assert "RKE Analytical Footprint Review Approval Draft" in markdown
+    assert "Approval Checklist" in markdown
+
+
+def test_approve_analytical_footprint_review_draft_writes_valid_import(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    prepare_analytical_footprint_review_import(
+        tmp_path,
+        tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        limit=1,
+        priority=True,
+    )
+    write_analytical_footprint_review_approval_draft(tmp_path)
+
+    report = write_analytical_footprint_review_approved_import(
+        tmp_path,
+        reviewer="user_approved",
+        review_date="2026-06-24",
+        overwrite=True,
+    )
+    approved_rows = _read_jsonl(tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH)
+    dry_run = apply_analytical_footprint_review_import(
+        tmp_path,
+        ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        dry_run=True,
+    )
+
+    assert report.accepted
+    assert report.input_rows == 1
+    assert report.output_rows == 1
+    assert report.approved_rows == 1
+    assert report.backed_up_existing_output
+    assert approved_rows[0]["reviewer"] == "user_approved"
+    assert approved_rows[0]["review_date"] == "2026-06-24"
+    assert approved_rows[0]["review_notes"].startswith(
+        "human-approved by user_approved on 2026-06-24"
+    )
+    assert isinstance(approved_rows[0]["footprint_correct"], bool)
+    assert isinstance(approved_rows[0]["metric_mapping_correct"], bool)
+    assert dry_run.accepted
+    assert dry_run.input_rows == 1
+    assert dry_run.rejected_rows == 0
 
 
 def test_analytical_footprint_review_evidence_falls_back_to_cached_markdown(

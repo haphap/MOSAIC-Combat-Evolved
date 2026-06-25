@@ -29,7 +29,7 @@
     "mosaic-ts/src/**/*.ts",
     "mosaic-ts/src/**/*.tsx"
   ],
-  "skipped_allowed_path_count": 66,
+  "skipped_allowed_path_count": 69,
   "source_path": "registry/sources/tushare_research_reports.jsonl",
   "source_text_count": 17470
 }

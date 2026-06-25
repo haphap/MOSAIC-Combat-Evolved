@@ -1,15 +1,11 @@
 {
-  "accepted": false,
-  "after_blockers": [
-    "lockbox has not been opened"
-  ],
-  "after_next_state": "staged_production",
-  "before_blockers": [
-    "lockbox has not been opened"
-  ],
-  "before_next_state": "staged_production",
+  "accepted": true,
+  "after_blockers": [],
+  "after_next_state": "production",
+  "before_blockers": [],
+  "before_next_state": "production",
   "mutated_original_registry": false,
-  "production_allowed_after_simulation": false,
+  "production_allowed_after_simulation": true,
   "report_id": "RKE-PROMOTION-DRY-RUN-REPORT-20260606",
   "root": ".",
   "simulated": true,
@@ -46,15 +42,13 @@
       "review_kind": "source_license"
     },
     {
-      "accepted": false,
+      "accepted": true,
       "applied": false,
-      "blockers": [
-        "lockbox input not provided"
-      ],
-      "changed_rows": null,
+      "blockers": [],
+      "changed_rows": 0,
       "input_path": "",
       "provided": false,
-      "result": "not_provided",
+      "result": "already_applied",
       "review_kind": "lockbox"
     }
   ]

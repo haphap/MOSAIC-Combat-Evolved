@@ -41,8 +41,11 @@ Yanbaoke root:
 ```
 
 Do not rely on `文件清单.txt`; it is incomplete. Scan the root recursively for
-`*.pdf` so newly added macro-adjacent folders such as `其他债券研究`, `期货研究`,
-`全球策略`, and `国际宏观评论` are included in the same private source registry.
+`*.pdf` so newly added macro-adjacent folders such as `其他债券研究`,
+`汇率研究`/`外汇研究`, `全球策略`, and `国际宏观评论` are included in the same
+private source registry. FX directory or filename signals (`汇率`, `外汇`, `人民币`,
+`美元`, `USD/CNY`, `USDCNY`, `美元指数`) classify as `宏观策略-汇率`, not as the
+commodity/futures bucket.
 
 Current private source outputs:
 
@@ -87,9 +90,9 @@ uv run mosaic-rke build-local-macro-report-sources \
 - Written source rows: `1967`
 - Date range: `2017-10-15` to `2026-06-21`
 - Report type counts:
-  `宏观策略=628`, `宏观策略-A股=46`, `宏观策略-债券=233`,
-  `宏观策略-商品=91`, `宏观策略-大类资产=101`, `宏观策略-海外=44`,
-  `宏观策略-待分类=824`
+  `宏观策略=1014`, `宏观策略-A股=27`, `宏观策略-债券=274`,
+  `宏观策略-商品=68`, `宏观策略-大类资产=94`, `宏观策略-汇率=218`,
+  `宏观策略-海外=233`, `宏观策略-待分类=39`
 
 ## Macro Series Backfill
 
@@ -246,13 +249,17 @@ MINERU_MIN_BATCH_INFERENCE_SIZE=256 \
   --registry-dir .mosaic/rke/report_intelligence_batches/<vlm_batch_registry> \
   --selection-order oldest \
   --limit <N> \
-  --skip-download \
   --mineru-command .venv/bin/mineru \
   --mineru-backend vlm-auto-engine \
   --mineru-timeout-seconds 3600 \
   --mineru-batch-size 80 \
   --mineru-batch-max-bytes 200000000
 ```
+
+Use this no-`--skip-download` pattern for fresh local source batches so
+`local_pdf_path` is materialized into the cache before MinerU conversion. Use
+`--skip-download --skip-convert --require-cached-markdown` only for the
+subsequent LLM-only shard pass after Markdown is already cached.
 
 ## Forecast Claim Pre-Review Rule
 
@@ -860,7 +867,7 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   from `/home/hap/Downloads/yanbaoke/宏观策略`; 788 PDFs found.
 - `2026-06-22`: Rebuilt the private local macro source rows from the parent
   `/home/hap/Downloads/yanbaoke` root so macro-adjacent additions in
-  `其他债券研究`, `期货研究`, `全球策略`, and `国际宏观评论` are included; 1898 PDFs
+  `其他债券研究`, `汇率研究`, `全球策略`, and `国际宏观评论` are included; 1898 PDFs
   found, with no source-scan blockers.
 - `2026-06-23`: Rebuilt the same parent Yanbaoke source registry after the
   latest local additions; 1967 PDFs/source rows were found, with no source-scan
@@ -869,6 +876,10 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   data/scorecard.db` produced 947 selected/Markdown-ready reports, 1048
   forecast claims, 2768 analytical footprints, 2377 outcome labels, 811 macro
   regime snapshots, and 3661 macro agent research priors.
+- `2026-06-23`: Rebuilt the local macro source registry after adding the FX
+  classifier. The scan still found 1967 PDFs/source rows with no blockers; 218
+  rows now classify as `宏观策略-汇率`, and FX futures reports no longer inflate
+  the commodity bucket.
 - `2026-06-23`: Completed the new analytical-footprint manual review rows
   introduced by the final macro batches. The footprint review summary is
   accepted with 2768/2768 complete rows, 0 pending rows, and all quality gates
@@ -876,6 +887,24 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --failures-only --no-write` returned 0 failures, and `evolution-readiness
   --root . --no-write` passed RI-EVOL-01 through RI-EVOL-07 and RI-MACRO-01
   through RI-MACRO-07.
+- `2026-06-23`: Merged the next 80-report macro expansion tranche after
+  VLM conversion and cached-Markdown LLM extraction, including a one-row retry
+  for an FX report that hit a transient vLLM SSL EOF. The registry now has 1106
+  selected reports, 1104 LLM-processed reports, 306 processed local macro
+  reports, 1181 forecast claims, and 2621 outcome labels. This reopened the
+  analytical-footprint manual-review gate: 369 footprint rows are pending human
+  review, so `schema-status --root . --no-write` is expected to fail until those
+  rows and the required human negative examples are completed.
+- `2026-06-24`: Expanded report intelligence to 2492 selected/Markdown-ready
+  reports, 2490 LLM-processed reports, 2611 forecast claims, and 6529 outcome
+  labels. The analytical-footprint review is complete at 7312/7312 rows, and
+  the private negative-example approval import produced 200 human-reviewed rows
+  with 50 expected positives, `recall_status=computed_from_human_negative_examples`,
+  `recall_estimate=0.22`, and zero source-text rows. After
+  `--refresh-derived-only`, `schema-status --failures-only --no-write` returned
+  0 failures, `evolution-readiness --no-write` passed, `promotion-status
+  --no-write` allowed production, and `operator-readiness --root .` passed
+  18/18 checks.
 - `2026-06-15`: Documented that MinerU/vLLM are already configured locally and
   should be reused before reinstalling.
 - `2026-06-15`: Fixed MinerU command resolution so relative commands such as

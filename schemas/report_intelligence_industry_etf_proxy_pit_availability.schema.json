@@ -84,6 +84,42 @@
       "type": "object",
       "additionalProperties": {"type": "integer", "minimum": 0}
     },
+    "sector_etf_mapping_review_queue_count": {"type": "integer", "minimum": 0},
+    "sector_etf_mapping_review_queue": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "queue_id",
+          "sector_name",
+          "missing_claim_count",
+          "gap_type",
+          "recommended_action",
+          "required_mapping_fields",
+          "review_required",
+          "source_text_included",
+          "privacy_policy"
+        ],
+        "properties": {
+          "queue_id": {"type": "string", "minLength": 1},
+          "sector_name": {"type": "string", "minLength": 1},
+          "missing_claim_count": {"type": "integer", "minimum": 1},
+          "gap_type": {"const": "sector_etf_mapping_missing"},
+          "recommended_action": {
+            "const": "add_primary_etf_mapping_for_unmapped_industry_sector"
+          },
+          "required_mapping_fields": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "minItems": 1
+          },
+          "review_required": {"const": true},
+          "source_text_included": {"const": false},
+          "privacy_policy": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": true
+      }
+    },
     "labelability_summary": {
       "type": "object",
       "required": [
