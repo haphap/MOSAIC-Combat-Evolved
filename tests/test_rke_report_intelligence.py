@@ -17276,6 +17276,39 @@ def test_merge_report_intelligence_batch_outputs_dedupes_batch_jsonl(
         + "\n",
         encoding="utf-8",
     )
+    (direct_batch / "report_outcome_labels.jsonl").write_text(
+        json.dumps({"outcome_id": "OUT-1", "forecast_claim_id": "FC-1"}) + "\n",
+        encoding="utf-8",
+    )
+    (nested_batch / "report_outcome_labels.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"outcome_id": "OUT-1", "forecast_claim_id": "FC-1-DUP"}),
+                json.dumps({"outcome_id": "OUT-2", "forecast_claim_id": "FC-2"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (direct_batch / "weighted_research_contexts.jsonl").write_text(
+        json.dumps({"weighted_context_id": "WRC-1", "retrieved_claims": []}) + "\n",
+        encoding="utf-8",
+    )
+    (nested_batch / "weighted_research_contexts.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "weighted_context_id": "WRC-1",
+                        "retrieved_claims": [{"forecast_claim_id": "FC-1-DUP"}],
+                    }
+                ),
+                json.dumps({"weighted_context_id": "WRC-2", "retrieved_claims": []}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     result = merge_report_intelligence_batch_outputs(
         root=tmp_path,
@@ -17285,14 +17318,24 @@ def test_merge_report_intelligence_batch_outputs_dedupes_batch_jsonl(
     assert result["blocker_count"] == 0
     assert result["row_counts"]["report_metadata.jsonl"] == 3
     assert result["row_counts"]["forecast_claims.jsonl"] == 2
+    assert result["row_counts"]["report_outcome_labels.jsonl"] == 2
+    assert result["row_counts"]["weighted_research_contexts.jsonl"] == 2
     metadata = _read_jsonl(
         tmp_path / "registry/report_intelligence/report_metadata.jsonl"
     )
     forecasts = _read_jsonl(
         tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
     )
+    labels = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    )
+    contexts = _read_jsonl(
+        tmp_path / "registry/report_intelligence/weighted_research_contexts.jsonl"
+    )
     assert [row["report_id"] for row in metadata] == ["RPT-1", "RPT-2", "RPT-3"]
     assert [row["forecast_claim_id"] for row in forecasts] == ["FC-1", "FC-2"]
+    assert [row["outcome_id"] for row in labels] == ["OUT-1", "OUT-2"]
+    assert [row["weighted_context_id"] for row in contexts] == ["WRC-1", "WRC-2"]
 
 
 def test_merge_report_intelligence_batch_outputs_preserves_existing_registry(

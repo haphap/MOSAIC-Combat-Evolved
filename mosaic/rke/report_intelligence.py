@@ -31994,9 +31994,9 @@ REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS: Mapping[str, str] = {
     "method_patterns.jsonl": "method_pattern_id",
     "processing_status.jsonl": "source_id",
     "report_metadata.jsonl": "report_id",
-    "report_outcome_labels.jsonl": "outcome_label_id",
+    "report_outcome_labels.jsonl": "outcome_id",
     "tool_gaps.jsonl": "tool_gap_id",
-    "weighted_research_contexts.jsonl": "context_id",
+    "weighted_research_contexts.jsonl": "weighted_context_id",
 }
 
 
