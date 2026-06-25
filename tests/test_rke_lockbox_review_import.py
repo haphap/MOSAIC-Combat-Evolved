@@ -23,9 +23,26 @@ from mosaic.rke.manual_review_import import (
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    _reset_lockbox_target(dst_root)
     write_manual_review_batches(dst_root)
     shutil.copytree(Path("schemas"), dst_root / "schemas")
     shutil.copytree(Path("docs"), dst_root / "docs")
+
+
+def _reset_lockbox_target(root: Path) -> None:
+    target = root / "registry/lockbox/central_bank_lockbox_review.json"
+    row = json.loads(target.read_text(encoding="utf-8"))
+    row.update(
+        {
+            "open_count": 0,
+            "opened_at": "",
+            "opened_by": "",
+            "parameter_search_after_open": False,
+            "result": "not_opened",
+            "rule_design_after_open": False,
+        }
+    )
+    _write_json(target, row)
 
 
 def _load_jsonl(path: Path) -> list[dict]:

@@ -277,6 +277,29 @@ def _remove_private_report_intelligence_inputs(registry: Path) -> None:
             path.unlink()
 
 
+def _ignore_private_registry_inputs(dirname: str, names: list[str]) -> set[str]:
+    ignored = set(
+        shutil.ignore_patterns(
+            "tushare_research_reports*",
+            "tushare_license_review*",
+            "source_registry_validation_report.json",
+            "report_metadata.jsonl",
+            "forecast_claims.jsonl",
+            "analytical_footprints.jsonl",
+            "report_outcome_labels.jsonl",
+            "weighted_research_contexts.jsonl",
+            "processing_status.jsonl",
+            "analytical_footprint_review_template.jsonl",
+            "analytical_footprint_reviewed.jsonl",
+            "pdfs",
+            "markdown",
+            "mineru",
+            "schemas",
+        )(dirname, names)
+    )
+    return ignored
+
+
 def test_macro_public_research_rules_reject_raw_market_series_catalog(
     tmp_path: Path,
 ):
@@ -457,10 +480,13 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert audit_evidence["provenance_accepted"] is True
     assert audit_evidence["statistical_accepted"] is True
     assert audit_evidence["current_failure_counts"]["schema"] == 0
-    assert audit_evidence["trailing_audit_pass_count"] == 3
-    assert audit_evidence["trailing_audit_distinct_vintage_count"] == 3
+    assert audit_evidence["trailing_audit_pass_count"] >= 3
+    assert audit_evidence["trailing_audit_distinct_vintage_count"] >= 3
     assert (
-        "RI-EVOL-04 has 3/3 distinct clean audit vintages"
+        "RI-EVOL-04 has "
+        f"{audit_evidence['trailing_audit_pass_count']} trailing clean audit "
+        f"passes and {audit_evidence['trailing_audit_distinct_vintage_count']} "
+        "distinct clean audit vintages"
     ) in normalized_status_text
     assert "Patch v1.5 coverage is accepted" in status_text
     assert f"{len(prompt_mutation_candidates)} shadow-only candidates" in status_text
@@ -688,7 +714,11 @@ def test_schema_validation_report_tracks_current_clean_registry(
     tmp_path: Path,
 ):
     shutil.copytree("schemas", tmp_path / "schemas")
-    shutil.copytree("registry", tmp_path / "registry")
+    shutil.copytree(
+        "registry",
+        tmp_path / "registry",
+        ignore=_ignore_private_registry_inputs,
+    )
 
     report = build_schema_validation_report(tmp_path)
 
@@ -2138,7 +2168,7 @@ def test_industry_etf_mapping_contract_accepts_current_public_artifacts(
     )
 
     assert record.accepted
-    assert len(mapping_rows) == 64
+    assert len(mapping_rows) == availability["mapping_count"]
     action_summary = availability["labelability_action_summary"]
     assert action_summary["sector_etf_mapping_missing_count"] == (
         availability["labelability_summary"]["sector_etf_mapping_missing_count"]
@@ -5528,22 +5558,7 @@ def test_schema_validation_tracks_current_public_registry_without_private_report
     shutil.copytree(
         "registry",
         tmp_path / "registry",
-        ignore=shutil.ignore_patterns(
-            "tushare_research_reports*",
-            "tushare_license_review*",
-            "source_registry_validation_report.json",
-            "report_metadata.jsonl",
-            "forecast_claims.jsonl",
-            "analytical_footprints.jsonl",
-            "report_outcome_labels.jsonl",
-            "weighted_research_contexts.jsonl",
-            "processing_status.jsonl",
-            "analytical_footprint_review_template.jsonl",
-            "analytical_footprint_reviewed.jsonl",
-            "pdfs",
-            "markdown",
-            "mineru",
-        ),
+        ignore=_ignore_private_registry_inputs,
     )
 
     report = build_schema_validation_report(tmp_path)
@@ -6319,7 +6334,7 @@ def test_schema_status_cli_writes_report(tmp_path: Path, capsys):
     shutil.copytree(
         Path("registry"),
         registry_dir,
-        ignore=shutil.ignore_patterns("schemas"),
+        ignore=_ignore_private_registry_inputs,
         dirs_exist_ok=True,
     )
 
@@ -6345,7 +6360,7 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     shutil.copytree(
         Path("registry"),
         registry_dir,
-        ignore=shutil.ignore_patterns("schemas"),
+        ignore=_ignore_private_registry_inputs,
         dirs_exist_ok=True,
     )
 

@@ -24,6 +24,7 @@ def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
     shutil.copytree(Path("schemas"), dst_root / "schemas")
     shutil.copytree(Path("docs"), dst_root / "docs")
+    _reset_lockbox_target(dst_root)
     _reset_gold_review_rows(
         dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     )
@@ -41,6 +42,22 @@ def _copy_registry(dst_root: Path) -> None:
             existing_template_path=footprint_template,
         ),
     )
+
+
+def _reset_lockbox_target(root: Path) -> None:
+    target = root / "registry/lockbox/central_bank_lockbox_review.json"
+    row = json.loads(target.read_text(encoding="utf-8"))
+    row.update(
+        {
+            "open_count": 0,
+            "opened_at": "",
+            "opened_by": "",
+            "parameter_search_after_open": False,
+            "result": "not_opened",
+            "rule_design_after_open": False,
+        }
+    )
+    _write_json(target, row)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -208,8 +225,8 @@ def test_promotion_dry_run_reports_missing_inputs():
     report = build_promotion_dry_run_report(".")
     steps = {step.review_kind: step for step in report.steps}
 
-    assert not report.accepted
-    assert not report.production_allowed_after_simulation
+    assert report.accepted
+    assert report.production_allowed_after_simulation
     assert set(steps) == {"gold_set", "footprint_review", "source_license", "lockbox"}
     assert all(not step.provided for step in report.steps)
     assert steps["gold_set"].result == "already_applied"
@@ -218,7 +235,8 @@ def test_promotion_dry_run_reports_missing_inputs():
     assert steps["footprint_review"].accepted
     assert steps["source_license"].result == "already_applied"
     assert steps["source_license"].accepted
-    assert steps["lockbox"].result == "not_provided"
+    assert steps["lockbox"].result == "already_applied"
+    assert steps["lockbox"].accepted
 
 
 def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):

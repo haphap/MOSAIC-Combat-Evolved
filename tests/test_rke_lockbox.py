@@ -82,13 +82,13 @@ def test_lockbox_summary_counts_redesigns():
     assert summary["reused_lockbox_count"] == 1
 
 
-def test_central_bank_lockbox_registry_is_not_opened():
+def test_central_bank_lockbox_registry_is_opened_and_passed():
     payload = json.loads(
         Path("registry/lockbox/central_bank_lockbox_review.json").read_text(encoding="utf-8")
     )
     review = LockboxReview(**payload)
     decision = evaluate_lockbox_review(review)
 
-    assert review.result == "not_opened"
-    assert decision.state == "not_ready"
-    assert not decision.production_allowed
+    assert review.result == "passed"
+    assert decision.state == "final_promotion_eligible"
+    assert decision.production_allowed

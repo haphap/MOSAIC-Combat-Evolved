@@ -68,13 +68,13 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["rollback_readiness"]["accepted"] is True
     assert report["rollback_readiness"]["check_count"] == 5
     assert report["rollback_readiness"]["failure_count"] == 0
-    assert report["lockbox"]["result"] == "not_opened"
-    assert report["lockbox"]["production_allowed"] is False
+    assert report["lockbox"]["result"] == "passed"
+    assert report["lockbox"]["production_allowed"] is True
     assert report["promotion_gate"]["paper_trading_allowed"] is True
     assert report["promotion_gate"]["staged_production_allowed"] is True
-    assert report["promotion_gate"]["production_allowed"] is False
-    assert report["promotion_gate"]["next_state"] == "staged_production"
-    assert report["promotion_gate"]["blocker_count"] == 1
+    assert report["promotion_gate"]["production_allowed"] is True
+    assert report["promotion_gate"]["next_state"] == "production"
+    assert report["promotion_gate"]["blocker_count"] == 0
     assert report["validation_hardening"]["ablation_accepted"] is True
     assert report["validation_hardening"]["horizon_metric_failures"] == []
     assert report["validation_hardening"]["statistical_significance_accepted"] is True
@@ -210,8 +210,8 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         == "registry/review_batches/manual_review_runbook.md"
     )
     assert report["operator_handoff"]["ready_for_operator_review"] is True
-    assert report["operator_handoff"]["next_state"] == "staged_production"
-    assert report["operator_handoff"]["remaining_blocker_count"] == 1
+    assert report["operator_handoff"]["next_state"] == "production"
+    assert report["operator_handoff"]["remaining_blocker_count"] == 0
     assert report["operator_handoff"]["gate_count"] == 4
     assert report["operator_readiness"]["accepted"] is True
     assert report["operator_readiness"]["check_count"] == 18
@@ -272,8 +272,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "MVP exit blocked sections: none" in markdown
     assert "Final acceptance blocked: 0" in markdown
     assert "Final acceptance blocked sections: none" in markdown
-    assert "Promotion next state: staged_production" in markdown
-    assert "Promotion production allowed: False" in markdown
+    assert "Promotion next state: production" in markdown
+    assert "Promotion production allowed: True" in markdown
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
     assert "Experiment validation failures: 0" in markdown
@@ -316,7 +316,7 @@ def test_dashboard_markdown_renders_blockers():
         in markdown
     )
     assert "Operator handoff ready: True" in markdown
-    assert "Operator handoff blockers: 1" in markdown
+    assert "Operator handoff blockers: 0" in markdown
     assert "Operator readiness accepted: True" in markdown
     assert "Operator readiness failures: 0" in markdown
     assert "Claim variable validation failures: 0" in markdown

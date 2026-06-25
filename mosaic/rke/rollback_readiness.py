@@ -316,6 +316,8 @@ def build_rollback_readiness_report(root: str | Path = ".") -> RollbackReadiness
     )
 
     promotion_errors: tuple[str, ...] = ()
+    promotion_trigger = "manual or compliance rollback blockers remain active"
+    promotion_action = "keep rule in paper_trading"
     try:
         promotion = build_production_promotion_gate_report(root_path)
         blockers = " ".join(promotion.blockers)
@@ -330,11 +332,16 @@ def build_rollback_readiness_report(root: str | Path = ".") -> RollbackReadiness
                 "lockbox",
             )
         )
-        promotion_passed = (
-            not promotion.production_allowed
-            and promotion.direct_production_forbidden
-            and rollback_blocker_present
-        )
+        if promotion.production_allowed:
+            promotion_trigger = "manual and compliance rollback blockers cleared"
+            promotion_action = "allow production after rollback gates clear"
+            promotion_passed = (
+                not promotion.direct_production_forbidden and not promotion.blockers
+            )
+        else:
+            promotion_passed = (
+                promotion.direct_production_forbidden and rollback_blocker_present
+            )
     except Exception as exc:  # noqa: BLE001 - rollback readiness should report bad inputs, not crash
         blockers = ""
         promotion_errors = (f"promotion gate resolution failed: {exc}",)
@@ -344,8 +351,8 @@ def build_rollback_readiness_report(root: str | Path = ".") -> RollbackReadiness
             check_id="promotion_gate_respects_rollback_blocks",
             rollback_type="promotion",
             passed=promotion_passed,
-            trigger="manual or compliance rollback blockers remain active",
-            action="keep rule in paper_trading",
+            trigger=promotion_trigger,
+            action=promotion_action,
             evidence_path="registry/promotion/rke_production_promotion_gate.json",
             blocker=_payload_blocker(
                 promotion_errors,

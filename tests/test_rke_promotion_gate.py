@@ -21,9 +21,29 @@ from mosaic.rke.manual_review_import import (
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    _reset_lockbox_target(dst_root)
     write_manual_review_batches(dst_root)
     shutil.copytree(Path("schemas"), dst_root / "schemas")
     shutil.copytree(Path("docs"), dst_root / "docs")
+
+
+def _reset_lockbox_target(root: Path) -> None:
+    target = root / "registry/lockbox/central_bank_lockbox_review.json"
+    row = json.loads(target.read_text(encoding="utf-8"))
+    row.update(
+        {
+            "open_count": 0,
+            "opened_at": "",
+            "opened_by": "",
+            "parameter_search_after_open": False,
+            "result": "not_opened",
+            "rule_design_after_open": False,
+        }
+    )
+    target.write_text(
+        json.dumps(row, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -89,18 +109,18 @@ def _license_import_rows(root: Path) -> list[dict]:
     ]
 
 
-def test_production_promotion_gate_blocks_current_registry():
+def test_production_promotion_gate_allows_current_registry():
     report = build_production_promotion_gate_report(".")
     blockers = " ".join(report.blockers)
 
     assert report.paper_trading_allowed
     assert report.staged_production_allowed
-    assert not report.production_allowed
-    assert report.next_state == "staged_production"
-    assert report.direct_production_forbidden
+    assert report.production_allowed
+    assert report.next_state == "production"
+    assert not report.direct_production_forbidden
     assert "manual gold-set review" not in blockers
     assert "source license review" not in blockers
-    assert "lockbox" in blockers
+    assert "lockbox" not in blockers
 
 
 def test_production_promotion_gate_rejects_malformed_lockbox_payload(tmp_path: Path):

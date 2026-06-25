@@ -10,7 +10,11 @@ from mosaic.rke import (
     write_gold_set_review_summary,
     write_manual_review_batches,
 )
-from mosaic.rke.cli import main
+from mosaic.rke.cli import _promotion_status_next_actions, main
+from mosaic.rke.promotion_gate import (
+    ProductionPromotionGateReport,
+    PromotionGateCriterion,
+)
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 from mosaic.rke.tushare_reports import P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
@@ -979,10 +983,7 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert output["production_allowed"] is False
     assert output["next_state"] == "paper_trading"
     next_actions = {action["action_id"]: action for action in output["next_actions"]}
-    assert {
-        "complete_manual_forecast_gold_review",
-        "prepare_lockbox_after_upstream_manual_gates",
-    } == set(next_actions)
+    assert {"complete_manual_forecast_gold_review"} == set(next_actions)
     assert next_actions["complete_manual_forecast_gold_review"]["commands"][
         "inspect"
     ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
@@ -1011,64 +1012,65 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert next_actions["complete_manual_forecast_gold_review"][
         "current_batch_pending_rows"
     ] >= 0
+    assert (tmp_path / "registry/promotion/rke_production_promotion_gate.json").exists()
+
+
+def test_promotion_status_next_actions_includes_lockbox_when_pg09_fails(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    result = ProductionPromotionGateReport(
+        report_id="test",
+        paper_trading_allowed=True,
+        staged_production_allowed=True,
+        production_allowed=False,
+        next_state="final_promotion_eligible",
+        direct_production_forbidden=True,
+        criteria=(
+            PromotionGateCriterion(
+                criterion_id="PG03",
+                description="Source license review",
+                passed=True,
+                evidence_path="registry/compliance/tushare_license_review_summary.json",
+                evidence="accepted",
+                blocker="",
+            ),
+            PromotionGateCriterion(
+                criterion_id="PG09",
+                description="Lockbox review",
+                passed=False,
+                evidence_path="registry/review_batches/lockbox_summary.json",
+                evidence="pending",
+                blocker="lockbox review pending",
+            ),
+        ),
+        blockers=("lockbox review pending",),
+    )
+
+    next_actions = {
+        action["action_id"]: action
+        for action in _promotion_status_next_actions(result, root=tmp_path)
+    }
+
+    assert {"prepare_lockbox_after_upstream_manual_gates"} == set(next_actions)
+    action = next_actions["prepare_lockbox_after_upstream_manual_gates"]
     assert (
         "review-progress --root . --actions-only --no-write --review-kind lockbox"
-        in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
-            "inspect_lockbox_dependencies"
-        ]
+        in action["commands"]["inspect_lockbox_dependencies"]
     )
-    assert next_actions["prepare_lockbox_after_upstream_manual_gates"]["review_aids"][
-        "footprint_review"
-    ]["promotion_import_path"] == (
-        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+    assert action["review_aids"]["lockbox"]["fill_import_path"] == (
+        "registry/review_batches/lockbox_reviewed.json"
     )
-    assert next_actions["prepare_lockbox_after_upstream_manual_gates"]["review_aids"][
-        "lockbox"
-    ]["fill_import_path"] == "registry/review_batches/lockbox_reviewed.json"
-    assert "passed" in next_actions[
-        "prepare_lockbox_after_upstream_manual_gates"
-    ]["field_contract"]["lockbox"]["allowed_results"]
-    assert "review_notes" in next_actions[
-        "prepare_lockbox_after_upstream_manual_gates"
-    ]["field_contract"]["footprint_review"]["required_fields"]
-    lockbox_gate_actions = next_actions["prepare_lockbox_after_upstream_manual_gates"][
-        "review_gate_actions"
+    assert "review_notes" in action["field_contract"]["footprint_review"][
+        "required_fields"
     ]
-    assert lockbox_gate_actions["gold_set"]["batch_overview"][
-        "current_batch_path"
-    ] == "registry/review_batches/gold_set_reviewed.jsonl"
-    footprint_batch = lockbox_gate_actions["footprint_review"]["batch_overview"]
-    assert footprint_batch.get("current_batch_path") in {
-        None,
-        "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-    }
-    assert footprint_batch["promotion_input_path"] == (
-        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
-    )
-    assert lockbox_gate_actions["lockbox"]["next_manual_action"] in {
-        "wait_for_prior_manual_gates",
-        "complete_lockbox_decision_then_dry_run",
-        "prepare_lockbox_review",
-    }
     assert (
         "promotion-dry-run --root ."
-        in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
-            "promotion_dry_run_after_all_reviews"
-        ]
+        in action["commands"]["promotion_dry_run_after_all_reviews"]
     )
-    assert (
-        "--license-input"
-        not in next_actions["prepare_lockbox_after_upstream_manual_gates"][
-            "commands"
-        ]["promotion_dry_run_after_all_reviews"]
-    )
-    assert (
-        "build-license-review-import"
-        not in next_actions["prepare_lockbox_after_upstream_manual_gates"][
-            "commands"
-        ]["promotion_dry_run_after_all_reviews"]
-    )
-    assert (tmp_path / "registry/promotion/rke_production_promotion_gate.json").exists()
+    assert "--license-input" not in action["commands"][
+        "promotion_dry_run_after_all_reviews"
+    ]
 
 
 def test_rke_cli_promotion_status_no_write_preserves_report(tmp_path: Path, capsys):

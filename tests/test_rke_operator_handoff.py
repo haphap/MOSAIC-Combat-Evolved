@@ -21,6 +21,26 @@ from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    _reset_lockbox_target(dst_root)
+
+
+def _reset_lockbox_target(root: Path) -> None:
+    target = root / "registry/lockbox/central_bank_lockbox_review.json"
+    row = json.loads(target.read_text(encoding="utf-8"))
+    row.update(
+        {
+            "open_count": 0,
+            "opened_at": "",
+            "opened_by": "",
+            "parameter_search_after_open": False,
+            "result": "not_opened",
+            "rule_design_after_open": False,
+        }
+    )
+    target.write_text(
+        json.dumps(row, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_operator_handoff_summarizes_remaining_manual_gates():
@@ -48,8 +68,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
 
     assert handoff.handoff_id == "RKE-OPERATOR-HANDOFF-20260606"
     assert handoff.paper_trading_allowed is True
-    assert handoff.production_allowed is False
-    assert handoff.direct_production_forbidden is True
+    assert handoff.production_allowed is True
+    assert handoff.direct_production_forbidden is False
     assert handoff.ready_for_operator_review is True
     assert handoff.run_order == tuple(step.step_id for step in handoff.command_sequence)
     assert handoff.run_order[:5] == (
