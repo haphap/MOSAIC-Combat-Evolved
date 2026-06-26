@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-26T03:02:11+00:00",
+  "as_of_datetime": "2026-06-26T08:34:49+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-RECIPE-VALIDATION-AUDIT",
   "blocker_count": 0,
   "blockers": [],
@@ -108,5 +108,5 @@
     }
   ],
   "policy": "report-intelligence analysis recipes must move through candidate, shadow_only, validation_candidate, paper_trading, limited_production, and production gates without skipping evidence; report-derived recipes remain research-only until current data, tool correctness, PIT validation, paper trading, monitoring, and rollback are proven",
-  "run_id": "RIR-DERIVED-20260626T025850+0000"
+  "run_id": "RIR-DERIVED-20260626T083126+0000"
 }

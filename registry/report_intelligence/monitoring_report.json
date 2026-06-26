@@ -26,26 +26,26 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-26T03:02:08+00:00",
+  "as_of_datetime": "2026-06-26T08:34:46+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
-    "alpha_decay_fail_count": 602,
-    "alpha_decay_watch_count": 73,
-    "calibration_drift_count": 116,
-    "confidence_alpha_correlation": 0.01005654,
+    "alpha_decay_fail_count": 615,
+    "alpha_decay_watch_count": 78,
+    "calibration_drift_count": 127,
+    "confidence_alpha_correlation": 0.01011691,
     "confidence_alpha_correlation_status": "non_negative",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
     "observation_count": 23044,
-    "paper_trading_validated_recipe_count": 278,
+    "paper_trading_validated_recipe_count": 298,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "freeze_recipe": 602,
-      "keep_shadow": 22235,
-      "reduce_confidence_impact": 73,
-      "send_to_manual_review": 134
+      "freeze_recipe": 615,
+      "keep_shadow": 22205,
+      "reduce_confidence_impact": 78,
+      "send_to_manual_review": 146
     },
-    "regime_fragile_alpha_count": 18,
+    "regime_fragile_alpha_count": 19,
     "unvalidated_confidence_impact_count": 0
   },
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
@@ -53,7 +53,7 @@
   "report_corpus": {
     "forecast_claim_rows": 5100,
     "metadata_rows": 5454,
-    "outcome_label_rows": 12360
+    "outcome_label_rows": 12699
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
@@ -126,7 +126,7 @@
     },
     "effective_n_by_source": {
       "max_effective_n": 124.666644,
-      "nonzero_effective_n_count": 4618,
+      "nonzero_effective_n_count": 4824,
       "profile_count": 7228,
       "top_profiles": [
         {
@@ -193,7 +193,7 @@
     },
     "effective_n_by_viewpoint": {
       "max_effective_n": 48.8,
-      "nonzero_effective_n_count": 2081,
+      "nonzero_effective_n_count": 2159,
       "profile_count": 3065,
       "top_profiles": [
         {
@@ -246,15 +246,15 @@
         },
         {
           "bucket": "positive_medium_effective_n",
-          "id": "VPP-2f629c5ddb27257e",
+          "id": "VPP-ed69f99e4a48a20d",
           "insufficient_data": false,
-          "n_effective": 20.5
+          "n_effective": 21.25
         },
         {
           "bucket": "positive_medium_effective_n",
-          "id": "VPP-0bda2b04c681c52e",
+          "id": "VPP-2f629c5ddb27257e",
           "insufficient_data": false,
-          "n_effective": 16.8
+          "n_effective": 20.5
         }
       ]
     },
@@ -262,13 +262,13 @@
     "low_weight_source_false_negative_rate": null,
     "source_weight_drift": {
       "max_effective_n": 124.666644,
-      "non_neutral_profile_count": 563
+      "non_neutral_profile_count": 578
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.483333
+    "weighted_vs_unweighted_retrieval_difference": 0.489804
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260626T025850+0000",
+  "run_id": "RIR-DERIVED-20260626T083126+0000",
   "tooling_loop_monitoring": {
     "data_proposal_open_count": 64712,
     "evidence_coverage": {

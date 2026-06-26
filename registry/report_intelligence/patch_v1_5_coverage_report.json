@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-26T03:02:12+00:00",
+  "as_of_datetime": "2026-06-26T08:34:51+00:00",
   "blocked_phase_ids": [],
   "blocker_count": 0,
   "blockers": [],
@@ -10,7 +10,7 @@
     "metadata_rows": 5454,
     "method_pattern_rows": 23044,
     "metric_candidate_rows": 21002,
-    "outcome_label_rows": 12360,
+    "outcome_label_rows": 12699,
     "runtime_tool_gap_observation_rows": 65829,
     "tool_gap_rows": 65829,
     "weighted_research_context_rows": 1
@@ -116,8 +116,8 @@
       "evidence_counts": {
         "forecast_ledger_rows": 5100,
         "method_profile_rows": 23044,
-        "outcome_label_rows": 12360,
-        "proxy_label_ready_count": 3685,
+        "outcome_label_rows": 12699,
+        "proxy_label_ready_count": 3803,
         "source_profile_rows": 7228,
         "statistical_audit_accepted": true,
         "viewpoint_profile_rows": 3065
@@ -221,12 +221,12 @@
         "registry/report_intelligence/recipe_paper_trading_summary.json"
       ],
       "evidence_counts": {
-        "after_cost_positive_recipe_count": 278,
+        "after_cost_positive_recipe_count": 298,
         "after_cost_summary_status": "computed",
         "alpha_decay_monitor_ready": true,
-        "paper_trading_blocked_count": 22766,
+        "paper_trading_blocked_count": 22746,
         "paper_trading_recipe_count": 0,
-        "paper_trading_validation_pass_count": 278,
+        "paper_trading_validation_pass_count": 298,
         "recipe_validation_audit_accepted": true,
         "rollout_mode": "shadow_tooling",
         "shadow_paper_trading_run_count": 23044,
@@ -374,7 +374,7 @@
       "evidence_counts": {
         "forecast_ledger_rows": 5100,
         "method_profile_rows": 23044,
-        "outcome_label_rows": 12360,
+        "outcome_label_rows": 12699,
         "source_profile_rows": 7228,
         "statistical_audit_accepted": true,
         "viewpoint_profile_rows": 3065
@@ -463,9 +463,9 @@
       "evidence_counts": {
         "after_cost_summary_status": "computed",
         "alpha_decay_monitor_ready": true,
-        "paper_trading_blocked_count": 22766,
+        "paper_trading_blocked_count": 22746,
         "paper_trading_recipe_count": 0,
-        "paper_trading_validation_pass_count": 278,
+        "paper_trading_validation_pass_count": 298,
         "rollout_mode": "shadow_tooling",
         "shadow_paper_trading_run_count": 23044
       },
@@ -500,6 +500,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-DERIVED-20260626T025850+0000",
+  "run_id": "RIR-DERIVED-20260626T083126+0000",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }

@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-26T03:02:10+00:00",
+  "as_of_datetime": "2026-06-26T08:34:48+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-EXTRACTION-PROVENANCE-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 58274,
+  "checked_item_count": 58613,
   "checks": [
     {
       "accepted": true,
@@ -59,16 +59,16 @@
       "check_id": "RI-PROV-04",
       "evidence": {
         "forecast_ledger_rows": 5100,
-        "industry_etf_proxy_outcome_claim_count": 672,
+        "industry_etf_proxy_outcome_claim_count": 791,
         "macro_asset_proxy_outcome_claim_count": 129,
         "macro_curve_directional_outcome_claim_count": 2,
         "macro_series_directional_outcome_claim_count": 135,
-        "outcome_label_rows": 12360,
-        "proxy_label_pending_only_count": 55,
+        "outcome_label_rows": 12699,
+        "proxy_label_pending_only_count": 62,
         "ready_for_outcome_labeling_count": 4511,
         "standard_blocked_forecast_count": 589,
         "stock_price_proxy_outcome_claim_count": 2802,
-        "unlabelable_forecast_count": 242
+        "unlabelable_forecast_count": 203
       },
       "failure_count": 0,
       "failures": [],
@@ -88,5 +88,5 @@
     }
   ],
   "policy": "source-grounded forecast claims and analytical footprints must cite spans; inferred fields must stay tagged as hypotheses; unmapped forecasts and unknown-source metrics cannot be scored or promoted",
-  "run_id": "RIR-DERIVED-20260626T025850+0000"
+  "run_id": "RIR-DERIVED-20260626T083126+0000"
 }
