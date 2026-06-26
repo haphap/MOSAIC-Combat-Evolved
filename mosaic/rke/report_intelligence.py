@@ -599,41 +599,93 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "证券": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "证券Ⅱ": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "多元金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "非银金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "券商": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "头部券商": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "保险": {"etf_symbol": "SH512070", "mapping_label": "证券保险ETF"},
     "半导体": {"etf_symbol": "SH512480", "mapping_label": "半导体ETF"},
+    "先进封装": {"etf_symbol": "SH512480", "mapping_label": "半导体ETF"},
+    "电磁屏蔽膜行业": {"etf_symbol": "SH516710", "mapping_label": "新材料ETF华夏"},
+    "enterprise_AI": {"etf_symbol": "SH515070", "mapping_label": "人工智能AIETF"},
+    "电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "电子行业": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "通信设备": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
+    "通信": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
+    "通信服务": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
+    "光模块": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
+    "液冷": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
     "IT服务Ⅱ": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
+    "计算机": {"etf_symbol": "SH512720", "mapping_label": "计算机ETF"},
     "计算机设备": {"etf_symbol": "SH512720", "mapping_label": "计算机ETF"},
     "软件开发": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
+    "关系型数据库": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
     "电子信息": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "电子元件": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "元件": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "其他电子Ⅱ": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "光学光电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "消费电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "游戏": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
     "游戏Ⅱ": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
+    "mobile_gaming": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
     "数字媒体": {"etf_symbol": "SH512980", "mapping_label": "传媒ETF"},
     "电池": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "锂电设备": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "储能锂电设备": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "锂电行业": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "电池环节": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "固态电池": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "固态电池产业链": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "复合铝箔": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "新能源汽车": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "汽车": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
+    "汽车行业": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
     "汽车整车": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
+    "乘用车": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
+    "商用车": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
+    "摩托车及其他": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
     "汽车服务": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
     "汽车零部件": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "汽车智能化": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "汽车离合器": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
     "医药商业": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "医药生物": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "医疗设备": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "医疗美容": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
     "中药": {"etf_symbol": "SH560080", "mapping_label": "中药ETF"},
     "化学制药": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
     "创新药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
     "创新药及生物类似药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
     "生物制品": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
     "动物保健Ⅱ": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "基础化工": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "化工行业": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "磷化工": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "氟化工": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "氟化工行业": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "化肥行业": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "化学制品": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "化学原料": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "化学纤维": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "化纤行业": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "农化制品": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "农药兽药": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "橡胶制品": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "工业气体": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "生物柴油": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "煤炭采选": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
     "煤炭行业": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
+    "煤炭开采": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
     "钢铁行业": {"etf_symbol": "SH515210", "mapping_label": "钢铁ETF"},
     "普钢": {"etf_symbol": "SH515210", "mapping_label": "钢铁ETF"},
     "石油行业": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
     "油气开采Ⅱ": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
+    "炼化及贸易": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
+    "石油加工行业": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
     "水泥建材": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
     "水泥": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
+    "装修建材": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
+    "玻璃玻纤": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
     "非金属材料Ⅱ": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
     "房地产": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
     "房地产开发": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
@@ -642,53 +694,91 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "航天装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
     "航空装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
     "船舶制造": {"etf_symbol": "SH560710", "mapping_label": "船舶ETF"},
+    "航海装备Ⅱ": {"etf_symbol": "SH560710", "mapping_label": "船舶ETF"},
+    "机械设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "机械行业": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "装备制造": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "通用设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "自动化设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "专用设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "工程机械": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "人形机器人": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "仪器仪表": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "电网设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "电源设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "风电设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
+    "光伏": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "光伏设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "其他电源设备Ⅱ": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "公用事业": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "电力及公用事业": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "燃气": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "火电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "水电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "核电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "新能源发电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "电力": {"etf_symbol": "SZ159611", "mapping_label": "电力ETF"},
     "电力行业": {"etf_symbol": "SZ159611", "mapping_label": "电力ETF"},
     "环保工程": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
     "环保行业": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
+    "环境治理": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
     "物流行业": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
     "物流": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "铁路公路": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "交运设备": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "轨交设备": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "油运": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "航空": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "SW_TRANSPORT": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
     "航空机场": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
     "航运港口": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
     "旅游酒店": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
     "旅游及景区": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
+    "酒店行业": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
     "酒店餐饮": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
     "家电行业": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
     "白色家电": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
+    "黑色家电": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
+    "其他家电Ⅱ": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
     "家用轻工": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
+    "家用电器": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
+    "家居用品": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
     "服装家纺": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
-    "纺织服装": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
-    "包装印刷": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
+    "纺织服装": {"etf_symbol": "SZ159929", "mapping_label": "消费红利ETF"},
+    "纺织制造": {"etf_symbol": "SZ159929", "mapping_label": "消费红利ETF"},
+    "包装印刷": {"etf_symbol": "SZ159929", "mapping_label": "消费红利ETF"},
+    "造纸行业": {"etf_symbol": "SZ159929", "mapping_label": "消费红利ETF"},
+    "造纸印刷": {"etf_symbol": "SZ159929", "mapping_label": "消费红利ETF"},
     "酿酒行业": {"etf_symbol": "SH512690", "mapping_label": "酒ETF"},
     "非白酒": {"etf_symbol": "SH512690", "mapping_label": "酒ETF"},
+    "白酒Ⅱ": {"etf_symbol": "SH512690", "mapping_label": "酒ETF"},
+    "传媒": {"etf_symbol": "SH512980", "mapping_label": "传媒ETF"},
     "文化传媒": {"etf_symbol": "SH512980", "mapping_label": "传媒ETF"},
     "工程建设": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
     "基础建设": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
     "装修装饰": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
     "食品饮料": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "中国消费行业": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "一般零售": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
     "商业百货": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "专业连锁Ⅱ": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "旅游零售Ⅱ": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "饮料乳品": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
     "文娱用品": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "教育": {"etf_symbol": "SH513360", "mapping_label": "教育ETF"},
     "美容护理": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "美妆": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
     "饰品": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
     "养殖业": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
     "农牧饲渔": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "农林牧渔": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "白羽肉鸡板块": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
     "互联网服务": {"etf_symbol": "SZ159729", "mapping_label": "互联网ETF"},
+    "B2B_e-commerce": {"etf_symbol": "SZ159729", "mapping_label": "互联网ETF"},
+    "互联网电商": {"etf_symbol": "SZ159729", "mapping_label": "互联网ETF"},
     "能源金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
+    "小金属": {"etf_symbol": "SH560860", "mapping_label": "工业有色ETF"},
+    "稀土": {"etf_symbol": "SH560860", "mapping_label": "工业有色ETF"},
     "综合Ⅱ": {"etf_symbol": "SH510300", "mapping_label": "沪深300ETF"},
 }
 INDUSTRY_ETF_BENCHMARK_SYMBOL = "SH510300"
@@ -14564,6 +14654,42 @@ def _looks_like_stock_code(value: Any) -> bool:
     return bool(re.fullmatch(r"\d{6}(\.(SH|SZ|BJ))?", text))
 
 
+UNKNOWN_INDUSTRY_SECTOR_VALUES = frozenset(
+    {"", "unknown", "unknown_sector", "nan", "none", "null"}
+)
+MAX_FALLBACK_INDUSTRY_TARGET_ID_LENGTH = 32
+
+
+def _clean_industry_sector_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.casefold() in UNKNOWN_INDUSTRY_SECTOR_VALUES:
+        return ""
+    return text
+
+
+def _industry_claim_sector(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> str:
+    for field in ("sector", "industry", "ind_name"):
+        sector = _clean_industry_sector_value(metadata.get(field))
+        if sector and not _looks_like_stock_code(sector):
+            return sector
+
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "").strip().casefold()
+    if target_type not in {"sector", "industry"}:
+        return ""
+    target_id = _clean_industry_sector_value(target.get("target_id"))
+    if (
+        not target_id
+        or len(target_id) > MAX_FALLBACK_INDUSTRY_TARGET_ID_LENGTH
+        or _looks_like_stock_code(target_id)
+    ):
+        return ""
+    return target_id
+
+
 def _report_sector_bucket(row: Mapping[str, Any]) -> str:
     for field in ("sector", "industry", "ind_name"):
         value = _clean_bucket_text(row.get(field))
@@ -15381,6 +15507,15 @@ def build_default_industry_etf_proxy_map_rows() -> list[dict[str, Any]]:
     return rows
 
 
+def _is_operator_seeded_default_industry_mapping(row: Mapping[str, Any]) -> bool:
+    return (
+        str(row.get("taxonomy") or "") == "operator_seeded_tushare_industry"
+        and str(row.get("mapping_confidence") or "") == "operator_seeded_exact_sector"
+        and str(row.get("status") or "primary") == "primary"
+        and not bool(row.get("review_required"))
+    )
+
+
 def _read_industry_etf_proxy_map_rows(registry_dir: Path) -> list[Mapping[str, Any]]:
     map_path = registry_dir / "industry_etf_proxy_map.jsonl"
     if not map_path.exists():
@@ -15399,15 +15534,9 @@ def _read_industry_etf_proxy_map_rows(registry_dir: Path) -> list[Mapping[str, A
     for row in mapping_rows:
         sector = str(row.get("sector_name") or "").strip()
         default_row = default_by_sector.get(sector)
-        if (
-            default_row is not None
-            and str(row.get("taxonomy") or "") == "operator_seeded_tushare_industry"
-            and str(row.get("mapping_confidence") or "")
-            == "operator_seeded_exact_sector"
-            and str(row.get("status") or "primary") == "primary"
-            and not bool(row.get("review_required"))
-        ):
-            refreshed_rows.append(default_row)
+        if _is_operator_seeded_default_industry_mapping(row):
+            if default_row is not None:
+                refreshed_rows.append(default_row)
         else:
             refreshed_rows.append(row)
     configured_sectors = {
@@ -16499,7 +16628,7 @@ def build_industry_etf_proxy_pit_availability(
         if direction not in {"positive", "negative"}:
             _increment_count(label_gap_counts, "direction_missing_or_unsupported")
             continue
-        sector = str(metadata.get("sector") or "")
+        sector = _industry_claim_sector(claim, metadata)
         proxy = _industry_etf_proxy_for_sector(
             sector,
             mapping_rows,
@@ -16785,7 +16914,7 @@ def build_industry_etf_proxy_readiness(
         if direction not in {"positive", "negative"}:
             add_gap("direction_missing_or_unsupported")
             continue
-        sector = str(metadata.get("sector") or "")
+        sector = _industry_claim_sector(claim, metadata)
         proxy = _industry_etf_proxy_for_sector(
             sector,
             mapping_rows,
@@ -17639,7 +17768,7 @@ def build_industry_etf_proxy_outcome_labels(
         metadata = metadata_by_source.get(source_id) or {}
         if not _is_industry_research_report(metadata.get("report_type")):
             continue
-        sector = str(metadata.get("sector") or "")
+        sector = _industry_claim_sector(claim, metadata)
         proxy = _industry_etf_proxy_for_sector(
             sector,
             mapping_rows,

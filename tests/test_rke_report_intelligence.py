@@ -10617,11 +10617,32 @@ def test_report_intelligence_merges_default_industry_etf_mapping_fallbacks(
         "status": "primary",
         "review_required": False,
     }
+    stale_default_mapping_to_refresh = {
+        "mapping_id": "IETF-MAP-REMOVED-DEFAULT",
+        "mapping_version": 1,
+        "sector_name": "包装印刷",
+        "sector_aliases": ["包装印刷"],
+        "taxonomy": "operator_seeded_tushare_industry",
+        "etf_symbol": "SH515730",
+        "etf_name": "家居家电ETF",
+        "mapping_label": "家居家电ETF",
+        "benchmark_symbol": "SH510300",
+        "benchmark_source": "cn_etf",
+        "benchmark_family": "CSI300_ETF_PROXY",
+        "cost_model_id": "industry_etf_round_trip_10bps_v1",
+        "mapping_confidence": "operator_seeded_exact_sector",
+        "mapping_rationale": "stale default should be refreshed",
+        "effective_from": "",
+        "effective_to": "",
+        "status": "primary",
+        "review_required": False,
+    }
     (registry_dir / "industry_etf_proxy_map.jsonl").write_text(
         "\n".join(
             [
                 json.dumps(stale_default_mapping, ensure_ascii=False),
                 json.dumps(existing_mapping, ensure_ascii=False),
+                json.dumps(stale_default_mapping_to_refresh, ensure_ascii=False),
             ]
         )
         + "\n",
@@ -10642,6 +10663,7 @@ def test_report_intelligence_merges_default_industry_etf_mapping_fallbacks(
     assert by_sector["商业百货"]["etf_symbol"] == "SH515170"
     assert by_sector["旅游及景区"]["etf_symbol"] == "SZ159766"
     assert sum(1 for row in mapping_rows if row["sector_name"] == "工业金属") == 1
+    assert by_sector["包装印刷"]["etf_symbol"] == "SZ159929"
 
 
 def test_industry_etf_proxy_matches_normalized_sector_aliases():
@@ -10659,6 +10681,231 @@ def test_industry_etf_proxy_matches_normalized_sector_aliases():
 
     assert proxy is not None
     assert proxy["etf_symbol"] == "SH515230"
+    default_proxy = _industry_etf_proxy_for_sector("煤炭开采")
+    assert default_proxy is not None
+    assert default_proxy["etf_symbol"] == "SH515220"
+    retail_proxy = _industry_etf_proxy_for_sector("一般零售")
+    assert retail_proxy is not None
+    assert retail_proxy["etf_symbol"] == "SH515170"
+    power_proxy = _industry_etf_proxy_for_sector("电力")
+    assert power_proxy is not None
+    assert power_proxy["etf_symbol"] == "SZ159611"
+    ai_proxy = _industry_etf_proxy_for_sector("enterprise_AI")
+    assert ai_proxy is not None
+    assert ai_proxy["etf_symbol"] == "SH515070"
+    emi_proxy = _industry_etf_proxy_for_sector("电磁屏蔽膜行业")
+    assert emi_proxy is not None
+    assert emi_proxy["etf_symbol"] == "SH516710"
+    liquid_cooling_proxy = _industry_etf_proxy_for_sector("液冷")
+    assert liquid_cooling_proxy is not None
+    assert liquid_cooling_proxy["etf_symbol"] == "SH515880"
+    minor_metals_proxy = _industry_etf_proxy_for_sector("小金属")
+    assert minor_metals_proxy is not None
+    assert minor_metals_proxy["etf_symbol"] == "SH560860"
+    rare_earth_proxy = _industry_etf_proxy_for_sector("稀土")
+    assert rare_earth_proxy is not None
+    assert rare_earth_proxy["etf_symbol"] == "SH560860"
+    photovoltaic_proxy = _industry_etf_proxy_for_sector("光伏")
+    assert photovoltaic_proxy is not None
+    assert photovoltaic_proxy["etf_symbol"] == "SH516160"
+    mobile_gaming_proxy = _industry_etf_proxy_for_sector("mobile_gaming")
+    assert mobile_gaming_proxy is not None
+    assert mobile_gaming_proxy["etf_symbol"] == "SZ159869"
+    ecommerce_proxy = _industry_etf_proxy_for_sector("B2B_e-commerce")
+    assert ecommerce_proxy is not None
+    assert ecommerce_proxy["etf_symbol"] == "SZ159729"
+    hotel_proxy = _industry_etf_proxy_for_sector("酒店行业")
+    assert hotel_proxy is not None
+    assert hotel_proxy["etf_symbol"] == "SZ159766"
+    packaging_proxy = _industry_etf_proxy_for_sector("包装印刷")
+    assert packaging_proxy is not None
+    assert packaging_proxy["etf_symbol"] == "SZ159929"
+    paper_proxy = _industry_etf_proxy_for_sector("造纸行业")
+    assert paper_proxy is not None
+    assert paper_proxy["etf_symbol"] == "SZ159929"
+    paper_printing_proxy = _industry_etf_proxy_for_sector("造纸印刷")
+    assert paper_printing_proxy is not None
+    assert paper_printing_proxy["etf_symbol"] == "SZ159929"
+    textile_proxy = _industry_etf_proxy_for_sector("纺织制造")
+    assert textile_proxy is not None
+    assert textile_proxy["etf_symbol"] == "SZ159929"
+    apparel_textile_proxy = _industry_etf_proxy_for_sector("纺织服装")
+    assert apparel_textile_proxy is not None
+    assert apparel_textile_proxy["etf_symbol"] == "SZ159929"
+    education_proxy = _industry_etf_proxy_for_sector("教育")
+    assert education_proxy is not None
+    assert education_proxy["etf_symbol"] == "SH513360"
+    assert _industry_etf_proxy_for_sector("专业服务") is None
+
+
+def test_industry_etf_proxy_uses_sector_target_when_metadata_sector_unknown(
+    tmp_path: Path,
+):
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir)
+    mapping_rows = [
+        {
+            "mapping_id": "IETF-MAP-COAL-FALLBACK",
+            "mapping_version": 1,
+            "sector_name": "煤炭开采",
+            "sector_aliases": ["煤炭开采"],
+            "taxonomy": "test_taxonomy",
+            "etf_symbol": "SH512400",
+            "etf_name": "有色ETF",
+            "mapping_label": "有色ETF",
+            "benchmark_symbol": "SH510300",
+            "benchmark_source": "cn_etf",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "industry_etf_round_trip_10bps_v1",
+            "mapping_confidence": "test_sector_target_fallback",
+            "mapping_rationale": "unknown metadata can use structured sector target_id",
+            "effective_from": "",
+            "effective_to": "",
+            "status": "primary",
+            "review_required": False,
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": "SRC-UNKNOWN-SECTOR",
+            "report_type": "行业研究",
+            "sector": "unknown_sector",
+            "industry": "nan",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-SECTOR-FALLBACK",
+            "source_id": "SRC-UNKNOWN-SECTOR",
+            "signal_datetime": "2026-01-02T00:00:00+08:00",
+            "direction": "positive",
+            "target": {"target_type": "sector", "target_id": "煤炭开采"},
+            "horizon": {"preferred_days": 120},
+        }
+    ]
+
+    pit_availability = build_industry_etf_proxy_pit_availability(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        mapping_rows=mapping_rows,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    readiness = build_industry_etf_proxy_readiness(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        mapping_rows=mapping_rows,
+        pit_availability=pit_availability,
+    )
+    labels = build_industry_etf_proxy_outcome_labels(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-SECTOR-FALLBACK",
+                "forecast_family_id": "FF-SECTOR-FALLBACK",
+            }
+        ],
+        metadata_rows=metadata_rows,
+        mapping_rows=mapping_rows,
+        pit_availability=pit_availability,
+    )
+
+    assert pit_availability["labelability_summary"]["eligible_claim_count"] == 1
+    assert pit_availability["labelability_summary"]["labelable_claim_count"] == 1
+    assert readiness["eligible_claim_count"] == 1
+    assert readiness["labelable_forecast_claim_count"] == 1
+    assert readiness["data_gap_counts"] == {}
+    assert len(labels) == 3
+    assert {row["proxy_symbol"] for row in labels} == {"SH512400"}
+
+
+def test_industry_etf_proxy_does_not_use_stock_target_when_metadata_sector_unknown(
+    tmp_path: Path,
+):
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir)
+    mapping_rows = [
+        {
+            "mapping_id": "IETF-MAP-COAL-FALLBACK",
+            "mapping_version": 1,
+            "sector_name": "煤炭开采",
+            "sector_aliases": ["煤炭开采"],
+            "taxonomy": "test_taxonomy",
+            "etf_symbol": "SH512400",
+            "etf_name": "有色ETF",
+            "mapping_label": "有色ETF",
+            "benchmark_symbol": "SH510300",
+            "benchmark_source": "cn_etf",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "industry_etf_round_trip_10bps_v1",
+            "mapping_confidence": "test_sector_target_fallback",
+            "mapping_rationale": "stock targets must not be used as sector fallbacks",
+            "effective_from": "",
+            "effective_to": "",
+            "status": "primary",
+            "review_required": False,
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": "SRC-UNKNOWN-SECTOR",
+            "report_type": "行业研究",
+            "sector": "unknown_sector",
+            "industry": "nan",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-STOCK-TARGET",
+            "source_id": "SRC-UNKNOWN-SECTOR",
+            "signal_datetime": "2026-01-02T00:00:00+08:00",
+            "direction": "positive",
+            "target": {"target_type": "stock", "target_id": "600000.SH"},
+            "horizon": {"preferred_days": 120},
+        }
+    ]
+
+    pit_availability = build_industry_etf_proxy_pit_availability(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        mapping_rows=mapping_rows,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    readiness = build_industry_etf_proxy_readiness(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        mapping_rows=mapping_rows,
+        pit_availability=pit_availability,
+    )
+    labels = build_industry_etf_proxy_outcome_labels(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-TARGET",
+                "forecast_family_id": "FF-STOCK-TARGET",
+            }
+        ],
+        metadata_rows=metadata_rows,
+        mapping_rows=mapping_rows,
+        pit_availability=pit_availability,
+    )
+
+    assert pit_availability["labelability_summary"]["eligible_claim_count"] == 0
+    assert pit_availability["labelability_summary"]["data_gap_counts"] == {
+        "sector_etf_mapping_missing": 1
+    }
+    assert readiness["eligible_claim_count"] == 0
+    assert readiness["data_gap_counts"] == {"sector_etf_mapping_missing": 1}
+    assert labels == []
 
 
 def test_report_intelligence_industry_pit_availability_records_missing_benchmark(

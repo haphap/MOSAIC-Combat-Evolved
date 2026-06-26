@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-26T03:02:10+00:00",
+  "as_of_datetime": "2026-06-26T08:34:48+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-TOOL-FEASIBILITY-AUDIT",
   "blocker_count": 0,
   "blockers": [],
@@ -115,5 +115,5 @@
     }
   ],
   "policy": "report-intelligence tool feasibility requires deterministic coverage records, explicit PIT and license requirements, gap-to-proposal lineage, checker-validatable output schemas, bounded fallback policy, and shadow-only runtime until tool correctness and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260626T025850+0000"
+  "run_id": "RIR-DERIVED-20260626T083126+0000"
 }
