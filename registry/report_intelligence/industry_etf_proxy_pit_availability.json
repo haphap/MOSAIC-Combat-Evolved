@@ -3,15 +3,15 @@
   "labelability_action_summary": {
     "coverage_gate_status": "actionable_gaps_present",
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 33,
-      "entry_price_missing": 12,
+      "direction_missing_or_unsupported": 48,
+      "entry_price_missing": 19,
       "pit_availability_insufficient_window_history": 1,
-      "sector_etf_mapping_missing": 147
+      "sector_etf_mapping_missing": 189
     },
-    "eligible_claim_count": 607,
-    "labelability_rate": 0.484349,
-    "labelable_claim_count": 294,
-    "mapping_review_claim_count": 754,
+    "eligible_claim_count": 992,
+    "labelability_rate": 0.677419,
+    "labelable_claim_count": 672,
+    "mapping_review_claim_count": 1181,
     "next_actions": [
       "add_primary_etf_mapping_for_unmapped_industry_sectors",
       "refresh_or_replace_pit_unavailable_etf_mappings"
@@ -21,24 +21,24 @@
     },
     "pit_unavailable_mapping_count": 1,
     "policy": "Public-safe aggregate action summary for P10 industry ETF proxy mapping and PIT coverage; no source rows, report text, or local paths are included.",
-    "primary_mapping_coverage_rate": 0.80504,
-    "remaining_action_count": 148,
-    "sector_etf_mapping_missing_count": 147
+    "primary_mapping_coverage_rate": 0.839966,
+    "remaining_action_count": 190,
+    "sector_etf_mapping_missing_count": 189
   },
   "labelability_summary": {
     "benchmark_series_missing_count": 0,
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 33,
-      "entry_price_missing": 12,
+      "direction_missing_or_unsupported": 48,
+      "entry_price_missing": 19,
       "pit_availability_insufficient_window_history": 1,
-      "sector_etf_mapping_missing": 147
+      "sector_etf_mapping_missing": 189
     },
-    "eligible_claim_count": 607,
-    "labelable_claim_count": 294,
-    "labelable_window_count": 830,
+    "eligible_claim_count": 992,
+    "labelable_claim_count": 672,
+    "labelable_window_count": 1964,
     "pending_future_window_count": 952,
     "proxy_series_missing_count": 0,
-    "sector_etf_mapping_missing_count": 147
+    "sector_etf_mapping_missing_count": 189
   },
   "mapping_count": 99,
   "mapping_records": [
@@ -2924,7 +2924,7 @@
   "sector_etf_mapping_review_queue": [
     {
       "gap_type": "sector_etf_mapping_missing",
-      "missing_claim_count": 81,
+      "missing_claim_count": 105,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-0ecd75b3fdaeb2cd",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
@@ -2966,7 +2966,7 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
-      "missing_claim_count": 2,
+      "missing_claim_count": 6,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-f43f20c533859ce6",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
@@ -3344,6 +3344,27 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 6,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-70bb197058893d70",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "教育",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
       "missing_claim_count": 1,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-885e6b30073f2215",
@@ -3554,7 +3575,28 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
-      "missing_claim_count": 2,
+      "missing_claim_count": 3,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-70ed93d0f3e9108c",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "装修建材",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 3,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-3aa78efeee501080",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
@@ -3575,7 +3617,7 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
-      "missing_claim_count": 1,
+      "missing_claim_count": 2,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-5b9bee66ab45a213",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
@@ -3596,7 +3638,7 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
-      "missing_claim_count": 1,
+      "missing_claim_count": 4,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-5ad5c43994cfdccb",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
@@ -3658,7 +3700,7 @@
       "source_text_included": false
     }
   ],
-  "sector_etf_mapping_review_queue_count": 35,
+  "sector_etf_mapping_review_queue_count": 37,
   "windows_days": [
     20,
     60,

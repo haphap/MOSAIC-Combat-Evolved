@@ -6680,6 +6680,12 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
                 "required_current_data": [],
                 "steps": ["identify key catalysts and compare scenarios"],
             },
+            {
+                "method_pattern_id": "METHOD-EMPTY-STEPS",
+                "name": "Empty Step Analysis",
+                "required_current_data": [],
+                "steps": [],
+            },
         ]
     )
 
@@ -6727,6 +6733,13 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
     assert by_id["METHOD-REASONING-STEP"]["steps"][0][
         "requires_external_tool"
     ] is False
+    assert by_id["METHOD-EMPTY-STEPS"]["steps"][0]["interpretation"] == (
+        "Empty Step Analysis"
+    )
+    assert by_id["METHOD-EMPTY-STEPS"]["steps"][0]["tool"] == (
+        "analysis.reasoning_step"
+    )
+    assert by_id["METHOD-EMPTY-STEPS"]["required_tools"] == []
 
 
 def test_report_intelligence_method_patterns_keep_source_footprint_refs():
@@ -10331,6 +10344,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert {row["horizon_days"] for row in outcome_labels} == {20, 60, 120}
     assert {row["label_type"] for row in outcome_labels} == {"industry_etf_proxy"}
     assert {row["proxy_symbol"] for row in outcome_labels} == {"SH560860"}
+    assert {row["proxy_sector"] for row in outcome_labels} == {"工业金属"}
     assert {row["benchmark_symbol"] for row in outcome_labels} == {"SH510300"}
     assert {row["benchmark_source"] for row in outcome_labels} == {"cn_etf"}
     assert {row["benchmark_family"] for row in outcome_labels} == {
@@ -15188,6 +15202,74 @@ def test_prepare_analytical_footprint_review_import_scaffold(tmp_path: Path):
 
     assert apply_report.accepted
     assert apply_report.applied_rows == 1
+
+
+def test_analytical_footprint_review_pattern_preview_excludes_source_span_text(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+
+    def llm(_row, _markdown, _span_id, _chunk_index, _chunk_count):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [],
+                "analytical_footprints": [
+                    {
+                        "topic": "policy transmission analysis",
+                        "indicator_mentions": [
+                            {
+                                "indicator_text": "policy event",
+                                "canonical_metric_candidate": "policy_regime_event",
+                                "data_source_mentioned": "policy_announcement",
+                                "frequency": "event_driven",
+                                "transformation": "event_flag",
+                                "source_grounded": True,
+                            }
+                        ],
+                        "analysis_patterns": [
+                            {
+                                "pattern": "policy effect analysis",
+                                "source_grounded": True,
+                                "source_span": "licensed report prose must not appear",
+                            },
+                            {
+                                "source_grounded": True,
+                                "steps": ["extract event", "map expected impact"],
+                                "source_text": "another private prose snippet",
+                            },
+                        ],
+                    }
+                ],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            }
+        }
+
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    rows = _read_jsonl(
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    preview_dump = json.dumps(
+        rows[0]["analysis_patterns_review_preview"],
+        ensure_ascii=False,
+    )
+
+    assert "policy effect analysis" in preview_dump
+    assert "extract event" in preview_dump
+    assert "licensed report prose must not appear" not in preview_dump
+    assert "another private prose snippet" not in preview_dump
+    assert "source_span" not in preview_dump
+    assert "source_text" not in preview_dump
 
 
 def test_prepare_analytical_footprint_negative_examples_scaffold(tmp_path: Path):

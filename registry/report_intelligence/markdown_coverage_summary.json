@@ -1,7 +1,7 @@
 {
   "conversion_backend_counts": {
     "hybrid-auto-engine": 884,
-    "vlm-auto-engine": 2608
+    "vlm-auto-engine": 4570
   },
   "coverage_gate_blockers": [],
   "coverage_gate_status": "passed",
@@ -16,28 +16,28 @@
     },
     "industry_report_count": {
       "blocker": "industry_report_count_below_p9_target",
-      "current": 785,
+      "current": 1756,
       "next_action": "add_more_industry_research_reports_to_stratified_pool",
       "remaining": 0,
       "target": 80
     },
     "llm_extraction_processed_count": {
       "blocker": "llm_extraction_processed_count_below_p9_target",
-      "current": 3490,
+      "current": 5452,
       "next_action": "run_llm_extraction_on_quality_passed_markdown",
       "remaining": 0,
       "target": 100
     },
     "markdown_quality_pass_count": {
       "blocker": "markdown_quality_pass_count_below_p9_target",
-      "current": 3492,
+      "current": 5454,
       "next_action": "resolve_markdown_quality_gaps_before_llm_extraction",
       "remaining": 0,
       "target": 300
     },
     "markdown_ready_count": {
       "blocker": "markdown_ready_count_below_p9_target",
-      "current": 3492,
+      "current": 5454,
       "next_action": "download_pdfs_and_convert_quality_gated_markdown",
       "remaining": 0,
       "target": 300
@@ -51,21 +51,21 @@
     },
     "selected_report_count": {
       "blocker": "selected_report_count_below_p9_target",
-      "current": 3492,
+      "current": 5454,
       "next_action": "add_stratified_real_reports_to_private_source_pool",
       "remaining": 0,
       "target": 300
     },
     "stock_outcome_120d_ready_report_count": {
       "blocker": "stock_outcome_120d_ready_count_below_p9_target",
-      "current": 1025,
+      "current": 1937,
       "next_action": "prefer_historical_stock_reports_with_120d_outcome_windows",
       "remaining": 0,
       "target": 30
     },
     "stock_report_count": {
       "blocker": "stock_report_count_below_p9_target",
-      "current": 1713,
+      "current": 2704,
       "next_action": "add_more_stock_research_reports_with_ts_code",
       "remaining": 0,
       "target": 80
@@ -109,50 +109,50 @@
     "stock_report_count_min": 80
   },
   "evaluability_bucket_counts": {
-    "industry_proxy_candidate": 550,
+    "industry_proxy_candidate": 927,
     "llm_extraction_pending": 2,
     "macro_asset_proxy_candidate": 156,
-    "mapping_gap_candidate": 387,
-    "no_forecast_claim_extracted": 671,
+    "mapping_gap_candidate": 518,
+    "no_forecast_claim_extracted": 1307,
     "standard_evaluable_candidate": 308,
-    "stock_proxy_candidate": 1781
+    "stock_proxy_candidate": 2745
   },
   "forecast_horizon_bucket_counts": {
-    "20d": 256,
+    "20d": 278,
     "5d": 4,
-    "60d": 58,
-    "long_horizon": 2961,
-    "unknown": 315
+    "60d": 60,
+    "long_horizon": 4350,
+    "unknown": 408
   },
-  "industry_report_count": 785,
+  "industry_report_count": 1756,
   "institution_bucket_counts": {
-    "head_institution": 1008,
-    "long_tail_institution": 2484
+    "head_institution": 1635,
+    "long_tail_institution": 3819
   },
-  "llm_extraction_processed_count": 3490,
+  "llm_extraction_processed_count": 5452,
   "llm_extraction_without_quality_pass_count": 0,
   "markdown_false_positive_review_queue_count": 0,
   "markdown_false_positive_risk_gap_counts": {},
   "markdown_quality_gap_counts": {},
-  "markdown_quality_pass_count": 3492,
+  "markdown_quality_pass_count": 5454,
   "markdown_quality_review_gap_counts": {},
   "markdown_quality_review_policy": "ready Markdown blocked by quality gates enters aggregate manual review counts before extraction is trusted; repeated-line, sparse structure, short, and empty-table gaps are tracked as false-positive risk classes for corpus spot checks",
   "markdown_quality_review_queue_count": 0,
   "markdown_quality_spot_check_required": false,
-  "markdown_ready_count": 3492,
-  "pdf_download_ready_count": 3492,
+  "markdown_ready_count": 5454,
+  "pdf_download_ready_count": 5454,
   "private_artifact_redaction_policy": "public coverage summary stores aggregate counts only; no source-specific content, retrieval locator, local file reference, or report prose is allowed",
   "private_text_included": false,
   "report_horizon_bucket_counts": {
-    "20d": 332,
-    "5d": 46,
-    "60d": 149,
-    "long_horizon": 2534,
-    "no_extracted_forecast_horizon": 673,
-    "unknown": 283
+    "20d": 412,
+    "5d": 70,
+    "60d": 210,
+    "long_horizon": 3843,
+    "no_extracted_forecast_horizon": 1309,
+    "unknown": 367
   },
   "report_type_counts": {
-    "个股研报": 1713,
+    "个股研报": 2704,
     "宏观策略": 141,
     "宏观策略-A股": 27,
     "宏观策略-债券": 242,
@@ -161,34 +161,34 @@
     "宏观策略-待分类": 42,
     "宏观策略-汇率": 202,
     "宏观策略-海外": 176,
-    "行业研报": 785
+    "行业研报": 1756
   },
   "retry_queue_count": 0,
-  "run_id": "RIR-DERIVED-20260624T225905+0000",
+  "run_id": "RIR-DERIVED-20260626T025850+0000",
   "sector_bucket_below_min_count": 0,
   "sector_bucket_counts": {
-    "agriculture": 86,
-    "auto_transport": 231,
-    "consumer": 309,
-    "energy_materials": 375,
-    "financials": 80,
-    "healthcare": 180,
-    "industrial_equipment": 268,
-    "other_sector": 1258,
-    "real_estate_construction": 125,
-    "technology_electronics": 488,
-    "utilities_environment": 92
+    "agriculture": 141,
+    "auto_transport": 393,
+    "consumer": 535,
+    "energy_materials": 700,
+    "financials": 175,
+    "healthcare": 353,
+    "industrial_equipment": 448,
+    "other_sector": 1470,
+    "real_estate_construction": 237,
+    "technology_electronics": 850,
+    "utilities_environment": 152
   },
   "sector_bucket_coverage_gaps": [],
-  "selected_report_count": 3492,
-  "stock_outcome_120d_ready_report_count": 1025,
+  "selected_report_count": 5454,
+  "stock_outcome_120d_ready_report_count": 1937,
   "stock_outcome_age_bucket_counts": {
-    "stock_outcome_120d_calendar_ready": 1025,
-    "stock_outcome_20d_calendar_ready": 248,
+    "stock_outcome_120d_calendar_ready": 1937,
+    "stock_outcome_20d_calendar_ready": 318,
     "stock_outcome_5d_calendar_ready": 224,
-    "stock_outcome_60d_calendar_ready": 216
+    "stock_outcome_60d_calendar_ready": 225
   },
-  "stock_report_count": 1713,
+  "stock_report_count": 2704,
   "stratified_sampling_policy": {
     "industry_report_count_min": 80,
     "privacy_boundary": "aggregate_counts_only",
@@ -207,7 +207,7 @@
   },
   "time_bucket_counts": {
     "long_cycle_history": 567,
-    "recent_1y": 1409,
-    "recent_3y": 1516
+    "recent_1y": 1488,
+    "recent_3y": 3399
   }
 }

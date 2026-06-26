@@ -5983,6 +5983,30 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"电影|传媒|票房|春节档|pre[-_\s]*sale|movie",
     ),
 )
+COMPILED_TEXT_GROUNDED_INDICATOR_SEED_RULES = tuple(
+    (
+        re.compile(pattern, flags=re.IGNORECASE),
+        indicator_text,
+        re.compile(context_pattern, flags=re.IGNORECASE) if context_pattern else None,
+    )
+    for pattern, indicator_text, context_pattern in TEXT_GROUNDED_INDICATOR_SEED_RULES
+)
+TextGroundedSeedRuleMatch = tuple[str, re.Pattern[str] | None]
+
+
+def _text_grounded_indicator_rule_matches(
+    markdown_chunk: str,
+) -> tuple[TextGroundedSeedRuleMatch, ...]:
+    text = str(markdown_chunk or "")
+    if not text.strip():
+        return ()
+    return tuple(
+        (indicator_text, context_pattern)
+        for pattern, indicator_text, context_pattern in (
+            COMPILED_TEXT_GROUNDED_INDICATOR_SEED_RULES
+        )
+        if pattern.search(text)
+    )
 
 
 def _text_grounded_indicator_mentions(
@@ -5990,19 +6014,21 @@ def _text_grounded_indicator_mentions(
     *,
     footprint_context: str = "",
     inference_source: str = "source_chunk_indicator_seed_rule",
+    matched_seed_rules: Sequence[TextGroundedSeedRuleMatch] | None = None,
 ) -> list[dict[str, Any]]:
     text = str(markdown_chunk or "")
-    if not text.strip():
+    if not text.strip() and matched_seed_rules is None:
         return []
+    seed_rule_matches = (
+        tuple(matched_seed_rules)
+        if matched_seed_rules is not None
+        else _text_grounded_indicator_rule_matches(text)
+    )
     context = str(footprint_context or "")
     records: list[dict[str, Any]] = []
     seen_canonicals: set[str] = set()
-    for pattern, indicator_text, context_pattern in TEXT_GROUNDED_INDICATOR_SEED_RULES:
-        if not re.search(pattern, text, flags=re.IGNORECASE):
-            continue
-        if context_pattern and not re.search(
-            context_pattern, context, flags=re.IGNORECASE
-        ):
+    for indicator_text, context_pattern in seed_rule_matches:
+        if context_pattern and not context_pattern.search(context):
             continue
         mention = _apply_indicator_metadata_inference(
             {
@@ -8790,6 +8816,11 @@ def _refresh_analytical_footprint_indicator_governance(
     max_chunks: int = 8,
 ) -> list[dict[str, Any]]:
     metadata_by_source = _source_report_metadata(metadata_rows) if metadata_rows else {}
+    chunk_cache: dict[tuple[str, int], str] = {}
+    seed_rule_match_cache: dict[
+        tuple[str, int],
+        tuple[TextGroundedSeedRuleMatch, ...],
+    ] = {}
     refreshed_rows: list[dict[str, Any]] = []
     for row in footprint_rows:
         refreshed = dict(row)
@@ -8805,16 +8836,35 @@ def _refresh_analytical_footprint_indicator_governance(
         indicator_mentions = list(original_indicator_mentions)
         text_grounded_mentions: list[dict[str, Any]] = []
         if metadata_by_source and root_path is not None:
-            chunk = _footprint_markdown_chunk(
-                refreshed,
-                metadata_by_source=metadata_by_source,
-                root_path=root_path,
-                chunk_chars=chunk_chars,
-                max_chunks=max_chunks,
+            source_id = str(refreshed.get("source_id") or "")
+            chunk_index = _footprint_markdown_chunk_index(refreshed)
+            cache_key = (
+                (source_id, chunk_index)
+                if source_id and chunk_index is not None
+                else None
             )
+            if cache_key is not None and cache_key in chunk_cache:
+                chunk = chunk_cache[cache_key]
+            else:
+                chunk = _footprint_markdown_chunk(
+                    refreshed,
+                    metadata_by_source=metadata_by_source,
+                    root_path=root_path,
+                    chunk_chars=chunk_chars,
+                    max_chunks=max_chunks,
+                )
+                if cache_key is not None:
+                    chunk_cache[cache_key] = chunk
+            if cache_key is not None and cache_key in seed_rule_match_cache:
+                seed_rule_matches = seed_rule_match_cache[cache_key]
+            else:
+                seed_rule_matches = _text_grounded_indicator_rule_matches(chunk)
+                if cache_key is not None:
+                    seed_rule_match_cache[cache_key] = seed_rule_matches
             text_grounded_mentions = _text_grounded_indicator_mentions(
                 chunk,
                 footprint_context=_footprint_indicator_context(refreshed),
+                matched_seed_rules=seed_rule_matches,
             )
             if text_grounded_mentions:
                 indicator_mentions = list(base_indicator_mentions)
@@ -9038,16 +9088,54 @@ def _footprint_review_indicator_summary(row: Mapping[str, Any]) -> dict[str, Any
     return fallback
 
 
+ANALYTICAL_FOOTPRINT_REVIEW_PATTERN_PREVIEW_TEXT_KEYS = (
+    "pattern_candidate",
+    "pattern_name",
+    "pattern",
+    "name",
+    "description",
+    "step",
+)
+
+ANALYTICAL_FOOTPRINT_REVIEW_PATTERN_PREVIEW_FORBIDDEN_KEYS = {
+    "raw_text",
+    "source_span",
+    "source_span_text",
+    "source_text",
+}
+
+
+def _analysis_pattern_review_preview_text(pattern: Mapping[str, Any]) -> str:
+    text = _record_text(pattern, *ANALYTICAL_FOOTPRINT_REVIEW_PATTERN_PREVIEW_TEXT_KEYS)
+    if text:
+        return text
+    steps = tuple(
+        _bounded_metadata_text(step, max_chars=120)
+        for step in _ensure_list(pattern.get("steps"))[:3]
+        if str(step or "").strip()
+    )
+    if steps:
+        return " / ".join(steps)
+    safe_pattern = {
+        str(key): value
+        for key, value in pattern.items()
+        if str(key) not in ANALYTICAL_FOOTPRINT_REVIEW_PATTERN_PREVIEW_FORBIDDEN_KEYS
+        and not str(key).endswith("_text")
+    }
+    if safe_pattern:
+        return json.dumps(_jsonable(safe_pattern), ensure_ascii=False, sort_keys=True)
+    return ""
+
+
 def _analysis_pattern_review_preview(patterns: Any) -> list[str]:
     out: list[str] = []
     for pattern in _ensure_list(patterns)[:5]:
         if isinstance(pattern, Mapping):
-            text = _record_text(pattern, "pattern_candidate", "name", "description")
-            if not text:
-                text = json.dumps(_jsonable(pattern), ensure_ascii=False, sort_keys=True)
+            text = _analysis_pattern_review_preview_text(pattern)
         else:
             text = str(pattern or "")
-        out.append(_bounded_metadata_text(text))
+        if text:
+            out.append(_bounded_metadata_text(text))
     return out
 
 
@@ -17690,7 +17778,7 @@ def build_industry_etf_proxy_outcome_labels(
                     "proxy_label": proxy.get("mapping_label")
                     or proxy.get("etf_name")
                     or "",
-                    "proxy_sector": sector,
+                    "proxy_sector": str(proxy.get("sector_name") or sector),
                     "mapping_id": mapping_id,
                     "mapping_version": int(proxy.get("mapping_version") or 1),
                     "mapping_confidence": str(
@@ -20106,7 +20194,8 @@ def build_analysis_recipes(
         output_signal_name = _analysis_recipe_output_signal_name(name)
         steps: list[dict[str, Any]] = []
         required_tools: list[str] = []
-        for index, step in enumerate(_ensure_list(method.get("steps")), 1):
+        method_steps = _ensure_list(method.get("steps")) or [name]
+        for index, step in enumerate(method_steps, 1):
             step_text = step if isinstance(step, str) else json.dumps(_jsonable(step), ensure_ascii=False, sort_keys=True)
             metric = _canonical_metric_name(step_text) or "unknown_metric"
             coverage = classify_tool_coverage(metric)
@@ -20307,6 +20396,8 @@ def _labels_for_recipe(
     recipe: Mapping[str, Any],
     outcome_label_rows: Sequence[Mapping[str, Any]],
     *,
+    labels_by_recipe_id: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    labels_by_method_id: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     inferred_labels_by_method_id: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> list[Mapping[str, Any]]:
     recipe_id = str(recipe.get("analysis_recipe_id") or "")
@@ -20320,18 +20411,31 @@ def _labels_for_recipe(
         source_method_ids.add(method_id)
     labels: list[Mapping[str, Any]] = []
     seen: set[str] = set()
-    for label in outcome_label_rows:
-        if str(label.get("analysis_recipe_id") or "") == recipe_id:
+    if labels_by_recipe_id is None or labels_by_method_id is None:
+        for label in outcome_label_rows:
+            if str(label.get("analysis_recipe_id") or "") == recipe_id:
+                label_id = str(label.get("outcome_id") or id(label))
+                if label_id not in seen:
+                    labels.append(label)
+                    seen.add(label_id)
+                continue
+            if str(label.get("method_pattern_id") or "") in source_method_ids:
+                label_id = str(label.get("outcome_id") or id(label))
+                if label_id not in seen:
+                    labels.append(label)
+                    seen.add(label_id)
+    else:
+        for label in labels_by_recipe_id.get(recipe_id, ()):
             label_id = str(label.get("outcome_id") or id(label))
             if label_id not in seen:
                 labels.append(label)
                 seen.add(label_id)
-            continue
-        if str(label.get("method_pattern_id") or "") in source_method_ids:
-            label_id = str(label.get("outcome_id") or id(label))
-            if label_id not in seen:
-                labels.append(label)
-                seen.add(label_id)
+        for source_method_id in sorted(source_method_ids):
+            for label in labels_by_method_id.get(source_method_id, ()):
+                label_id = str(label.get("outcome_id") or id(label))
+                if label_id not in seen:
+                    labels.append(label)
+                    seen.add(label_id)
     if source_method_ids and inferred_labels_by_method_id:
         for source_method_id in sorted(source_method_ids):
             for label in inferred_labels_by_method_id.get(source_method_id, ()):
@@ -20340,6 +20444,21 @@ def _labels_for_recipe(
                     labels.append(label)
                     seen.add(label_id)
     return labels
+
+
+def _outcome_labels_by_recipe_and_method(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, list[Mapping[str, Any]]], dict[str, list[Mapping[str, Any]]]]:
+    labels_by_recipe_id: dict[str, list[Mapping[str, Any]]] = {}
+    labels_by_method_id: dict[str, list[Mapping[str, Any]]] = {}
+    for label in outcome_label_rows:
+        recipe_id = str(label.get("analysis_recipe_id") or "")
+        if recipe_id:
+            labels_by_recipe_id.setdefault(recipe_id, []).append(label)
+        method_id = str(label.get("method_pattern_id") or "")
+        if method_id:
+            labels_by_method_id.setdefault(method_id, []).append(label)
+    return labels_by_recipe_id, labels_by_method_id
 
 
 def _inferred_outcome_labels_by_method_id(
@@ -21066,6 +21185,9 @@ def build_recipe_paper_trading_runs(
     shadow_implemented_requested_tools: Sequence[Any] = (),
 ) -> list[dict[str, Any]]:
     method_profiles = _method_profile_by_method_id(method_performance_profile_rows)
+    labels_by_recipe_id, labels_by_method_id = _outcome_labels_by_recipe_and_method(
+        outcome_label_rows
+    )
     inferred_labels_by_method_id = _inferred_outcome_labels_by_method_id(
         outcome_label_rows=outcome_label_rows,
         forecast_rows=forecast_rows,
@@ -21105,6 +21227,8 @@ def build_recipe_paper_trading_runs(
         labels = _labels_for_recipe(
             recipe,
             outcome_label_rows,
+            labels_by_recipe_id=labels_by_recipe_id,
+            labels_by_method_id=labels_by_method_id,
             inferred_labels_by_method_id=inferred_labels_by_method_id,
         )
         metrics = _paper_trading_metric_summary(labels)

@@ -265,9 +265,9 @@
       },
       "blocker": "analytical-footprint review still required",
       "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
-      "evidence": "10310 / 10310 analytical footprints reviewed",
+      "evidence": "14712 / 14712 analytical footprints reviewed",
       "evidence_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
-      "exported_rows": 10310,
+      "exported_rows": 14712,
       "field_contract": {
         "boolean_allowed_values": [
           true,
