@@ -244,17 +244,17 @@
         "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
         "rerun_review_progress_after_batch_apply": false,
         "stale_current_batch_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-        "stale_current_batch_pending_rows": 406
+        "stale_current_batch_pending_rows": 6
       },
       "batch_plan": [],
       "blockers": [],
-      "complete_rows": 15118,
+      "complete_rows": 19966,
       "current_batch_status": {
         "already_applied": true,
         "complete_rows": 0,
         "evidence_status": {
           "aligned": true,
-          "covered_review_rows": 406,
+          "covered_review_rows": 6,
           "duplicate_evidence_id_count": 0,
           "duplicate_review_id_count": 0,
           "exists": true,
@@ -266,153 +266,130 @@
           "path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
           "priority_metadata_refresh_recommended": false,
           "priority_reason_counts": {
-            "complex_multi_step_patterns": 50,
-            "missing_indicator_mentions": 15,
-            "missing_target_agent_candidates": 406,
-            "missing_target_entity_candidates": 5
+            "missing_target_agent_candidates": 6
           },
           "priority_reason_missing_rows": 0,
-          "priority_reason_ready_rows": 406,
+          "priority_reason_ready_rows": 6,
           "priority_score_counts": {
-            "1": 336,
-            "3": 55,
-            "4": 15
+            "1": 6
           },
-          "quality_gap_focus_field_counts": {
-            "footprint_correct": 5,
-            "inferred_steps_tagged_correctly": 5,
-            "metric_mapping_correct": 23,
-            "unknowns_used_when_uncertain": 18
-          },
+          "quality_gap_focus_field_counts": {},
           "review_field_workload": {
             "footprint_correct": {
-              "draft_decision_available_rows": 406,
+              "draft_decision_available_rows": 6,
               "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
-              "missing_required_rows": 406,
-              "suggested_false_rows": 20,
-              "suggested_null_rows": 0,
-              "suggested_other_rows": 0,
-              "suggested_true_rows": 386
-            },
-            "inferred_steps_tagged_correctly": {
-              "draft_decision_available_rows": 406,
-              "draft_text_available_rows": 0,
-              "manual_decision_required_rows": 0,
-              "missing_required_rows": 406,
-              "suggested_false_rows": 20,
-              "suggested_null_rows": 0,
-              "suggested_other_rows": 0,
-              "suggested_true_rows": 386
-            },
-            "metric_mapping_correct": {
-              "draft_decision_available_rows": 406,
-              "draft_text_available_rows": 0,
-              "manual_decision_required_rows": 0,
-              "missing_required_rows": 406,
-              "suggested_false_rows": 23,
-              "suggested_null_rows": 0,
-              "suggested_other_rows": 0,
-              "suggested_true_rows": 383
-            },
-            "no_proprietary_text_leakage": {
-              "draft_decision_available_rows": 406,
-              "draft_text_available_rows": 0,
-              "manual_decision_required_rows": 0,
-              "missing_required_rows": 406,
+              "missing_required_rows": 6,
               "suggested_false_rows": 0,
               "suggested_null_rows": 0,
               "suggested_other_rows": 0,
-              "suggested_true_rows": 406
+              "suggested_true_rows": 6
+            },
+            "inferred_steps_tagged_correctly": {
+              "draft_decision_available_rows": 6,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 6,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 6
+            },
+            "metric_mapping_correct": {
+              "draft_decision_available_rows": 6,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 6,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 6
+            },
+            "no_proprietary_text_leakage": {
+              "draft_decision_available_rows": 6,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 6,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 6
             },
             "review_notes": {
               "draft_decision_available_rows": 0,
-              "draft_text_available_rows": 406,
-              "manual_decision_required_rows": 406,
-              "missing_required_rows": 406,
+              "draft_text_available_rows": 6,
+              "manual_decision_required_rows": 6,
+              "missing_required_rows": 6,
               "suggested_false_rows": 0,
               "suggested_null_rows": 0,
               "suggested_other_rows": 0,
               "suggested_true_rows": 0
             },
             "source_span_supports_footprint": {
-              "draft_decision_available_rows": 406,
+              "draft_decision_available_rows": 6,
               "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
-              "missing_required_rows": 406,
-              "suggested_false_rows": 15,
-              "suggested_null_rows": 0,
-              "suggested_other_rows": 0,
-              "suggested_true_rows": 391
-            },
-            "unknowns_used_when_uncertain": {
-              "draft_decision_available_rows": 406,
-              "draft_text_available_rows": 0,
-              "manual_decision_required_rows": 0,
-              "missing_required_rows": 406,
+              "missing_required_rows": 6,
               "suggested_false_rows": 0,
               "suggested_null_rows": 0,
               "suggested_other_rows": 0,
-              "suggested_true_rows": 406
+              "suggested_true_rows": 6
+            },
+            "unknowns_used_when_uncertain": {
+              "draft_decision_available_rows": 6,
+              "draft_text_available_rows": 0,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 6,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 6
             }
           },
           "review_input_exists": true,
           "review_input_malformed_rows": 0,
           "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-          "review_input_rows": 406,
-          "rows": 406,
+          "review_input_rows": 6,
+          "rows": 6,
           "same_order": true,
-          "snippet_ready_rows": 406,
+          "snippet_ready_rows": 6,
           "suggested_review_decision_counts": {
             "footprint_correct": {
-              "false": 20,
-              "true": 386
+              "true": 6
             },
             "inferred_steps_tagged_correctly": {
-              "false": 20,
-              "true": 386
+              "true": 6
             },
             "metric_mapping_correct": {
-              "false": 23,
-              "true": 383
+              "true": 6
             },
             "no_proprietary_text_leakage": {
-              "true": 406
+              "true": 6
             },
             "source_span_supports_footprint": {
-              "false": 15,
-              "true": 391
+              "true": 6
             },
             "unknowns_used_when_uncertain": {
-              "true": 406
+              "true": 6
             }
           },
-          "suggested_tag_counts": {
-            "boilerplate_risk_warning_footprint": 5,
-            "low_information_footprint": 15,
-            "metric_mapping_hidden_ungrounded": 2,
-            "metric_mapping_hidden_unknown": 2,
-            "metric_mapping_inference_available": 8,
-            "metric_mapping_missing": 15,
-            "metric_mapping_ungrounded": 3,
-            "metric_mapping_unknown": 3
-          },
+          "suggested_tag_counts": {},
           "target_row_hash_mismatch_count": 0
         },
         "exists": true,
         "malformed_rows": 0,
         "missing_required_fields": {
-          "footprint_correct": 406,
-          "inferred_steps_tagged_correctly": 406,
-          "metric_mapping_correct": 406,
-          "no_proprietary_text_leakage": 406,
-          "review_notes": 406,
-          "source_span_supports_footprint": 406,
-          "unknowns_used_when_uncertain": 406
+          "footprint_correct": 6,
+          "inferred_steps_tagged_correctly": 6,
+          "metric_mapping_correct": 6,
+          "no_proprietary_text_leakage": 6,
+          "review_notes": 6,
+          "source_span_supports_footprint": 6,
+          "unknowns_used_when_uncertain": 6
         },
         "path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-        "pending_rows": 406,
-        "rows": 406,
+        "pending_rows": 6,
+        "rows": 6,
         "target_status": {
           "aligned": true,
           "exists": true,
@@ -421,11 +398,11 @@
           "missing_target_rows": 0,
           "review_input_exists": true,
           "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-          "review_input_rows": 406,
+          "review_input_rows": 6,
           "target_malformed_rows": 0,
           "target_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
           "target_row_hash_mismatch_count": 0,
-          "target_rows": 15118
+          "target_rows": 19966
         }
       },
       "dry_run_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
@@ -440,82 +417,82 @@
         "interpretation": "count deltas are computed over each metric denominator; metric mapping is evaluated only on footprint_correct=true rows so rejected footprints are not double-counted as mapping failures",
         "metrics": {
           "footprint_precision": {
-            "current_pass_count": 14632,
-            "current_rate": 0.967853,
-            "denominator": 15118,
+            "current_pass_count": 19197,
+            "current_rate": 0.961485,
+            "denominator": 19966,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 12095,
+            "required_pass_count": 15973,
             "threshold": 0.8
           },
           "inferred_step_tagging_accuracy": {
-            "current_pass_count": 14589,
-            "current_rate": 0.965009,
-            "denominator": 15118,
+            "current_pass_count": 19151,
+            "current_rate": 0.959181,
+            "denominator": 19966,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 12095,
+            "required_pass_count": 15973,
             "threshold": 0.8
           },
           "metric_mapping_accuracy": {
-            "current_pass_count": 14213,
-            "current_rate": 0.971364,
-            "denominator": 14632,
+            "current_pass_count": 18759,
+            "current_rate": 0.977184,
+            "denominator": 19197,
             "denominator_policy": "footprint_correct_true_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 11706,
+            "required_pass_count": 15358,
             "threshold": 0.8
           },
           "proprietary_leakage_free_rate": {
-            "current_pass_count": 15118,
+            "current_pass_count": 19966,
             "current_rate": 1.0,
-            "denominator": 15118,
+            "denominator": 19966,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 15118,
+            "required_pass_count": 19966,
             "threshold": 1.0
           },
           "span_support_precision": {
-            "current_pass_count": 14846,
-            "current_rate": 0.982008,
-            "denominator": 15118,
+            "current_pass_count": 19425,
+            "current_rate": 0.972904,
+            "denominator": 19966,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 13607,
+            "required_pass_count": 17970,
             "threshold": 0.9
           },
           "unknown_on_ambiguity_rate": {
-            "current_pass_count": 15118,
+            "current_pass_count": 19966,
             "current_rate": 1.0,
-            "denominator": 15118,
+            "denominator": 19966,
             "denominator_policy": "completed_review_rows",
             "is_passing": true,
             "minimum_additional_pass_count_if_denominator_unchanged": 0,
             "operator": ">=",
-            "required_pass_count": 12095,
+            "required_pass_count": 15973,
             "threshold": 0.8
           }
         },
         "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
         "sample_size_completed_rows": {
-          "current_count": 15118,
+          "current_count": 19966,
           "pending_rows_are_excluded_from_metric_denominator": true
         }
       },
       "ready_for_promotion": true,
       "review_kind": "footprint_review",
       "simulation_accepted": true,
-      "target_rows": 15118
+      "target_rows": 19966
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",

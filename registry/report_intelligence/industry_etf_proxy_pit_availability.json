@@ -3,15 +3,15 @@
   "labelability_action_summary": {
     "coverage_gate_status": "actionable_gaps_present",
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 51,
-      "entry_price_missing": 9,
+      "direction_missing_or_unsupported": 104,
+      "entry_price_missing": 10,
       "pit_availability_insufficient_window_history": 3,
-      "sector_etf_mapping_missing": 32
+      "sector_etf_mapping_missing": 88
     },
-    "eligible_claim_count": 1207,
-    "labelability_rate": 0.655344,
-    "labelable_claim_count": 791,
-    "mapping_review_claim_count": 1239,
+    "eligible_claim_count": 2615,
+    "labelability_rate": 0.595793,
+    "labelable_claim_count": 1558,
+    "mapping_review_claim_count": 2703,
     "next_actions": [
       "add_primary_etf_mapping_for_unmapped_industry_sectors",
       "refresh_or_replace_pit_unavailable_etf_mappings"
@@ -21,24 +21,24 @@
     },
     "pit_unavailable_mapping_count": 2,
     "policy": "Public-safe aggregate action summary for P10 industry ETF proxy mapping and PIT coverage; no source rows, report text, or local paths are included.",
-    "primary_mapping_coverage_rate": 0.974173,
-    "remaining_action_count": 34,
-    "sector_etf_mapping_missing_count": 32
+    "primary_mapping_coverage_rate": 0.967444,
+    "remaining_action_count": 90,
+    "sector_etf_mapping_missing_count": 88
   },
   "labelability_summary": {
     "benchmark_series_missing_count": 0,
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 51,
-      "entry_price_missing": 9,
+      "direction_missing_or_unsupported": 104,
+      "entry_price_missing": 10,
       "pit_availability_insufficient_window_history": 3,
-      "sector_etf_mapping_missing": 32
+      "sector_etf_mapping_missing": 88
     },
-    "eligible_claim_count": 1207,
-    "labelable_claim_count": 791,
-    "labelable_window_count": 2303,
-    "pending_future_window_count": 1282,
+    "eligible_claim_count": 2615,
+    "labelable_claim_count": 1558,
+    "labelable_window_count": 3308,
+    "pending_future_window_count": 4498,
     "proxy_series_missing_count": 0,
-    "sector_etf_mapping_missing_count": 32
+    "sector_etf_mapping_missing_count": 88
   },
   "mapping_count": 189,
   "mapping_records": [
@@ -5537,6 +5537,69 @@
       "gap_type": "sector_etf_mapping_missing",
       "missing_claim_count": 1,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-012eda6c1c746915",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "AI_application_subsectors",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-9a7a664b0f0a79a3",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "CPO_Technology",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-0b0a9bb90c092ff4",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "China_Residential_Real_Estate",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-69672f4da835784c",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
       "required_mapping_fields": [
@@ -5556,7 +5619,91 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
-      "missing_claim_count": 23,
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-ec1ac71be8dcceb6",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "film_cinema_sector",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-4466b70e35973e39",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "insurance",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-3ec609b47ba89701",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "low_dielectric_electronic_cloth",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-91b313cda3f342db",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "publishing_sector",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 32,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-c6c1b632fb3f7b05",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
@@ -5598,6 +5745,216 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 2,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-8ea6f3bf9fd0214f",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "个护用品",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 5,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-bd48e169f601fbe8",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "休闲食品",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 4,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-98641a3d8bad41fb",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "农产品加工",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 3,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-ea0da5b635f2057a",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "化妆品",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 9,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-128f701a909f3dad",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "医疗器械",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 2,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-a8f568531655d972",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "医疗服务",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-954167e08fb05cae",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "国防军工",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-558658b70a107f77",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "广告营销",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-b5f9cb6f4742dccf",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "机器人行业",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-5c98c39582ea74e3",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "电解铝板块",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
       "missing_claim_count": 1,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-40d7eb1f72ed85b1",
@@ -5619,7 +5976,49 @@
     },
     {
       "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 4,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-8951d717e72af0d5",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "造纸",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
       "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-3c722098a038fa59",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "金属新材料",
+      "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 7,
       "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
       "queue_id": "IETF-REVIEW-0156f6dc64677265",
       "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
@@ -5639,7 +6038,7 @@
       "source_text_included": false
     }
   ],
-  "sector_etf_mapping_review_queue_count": 5,
+  "sector_etf_mapping_review_queue_count": 24,
   "windows_days": [
     20,
     60,

@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-26T15:30:27+00:00",
+  "as_of_datetime": "2026-06-28T05:58:01+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-PIT-LEAKAGE-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 81461,
+  "checked_item_count": 103030,
   "checks": [
     {
       "accepted": true,
@@ -20,9 +20,9 @@
       "accepted": true,
       "check_id": "RI-PIT-01",
       "evidence": {
-        "forecast_claim_rows": 5253,
-        "forecast_ledger_rows": 5253,
-        "metadata_rows": 5615
+        "forecast_claim_rows": 6770,
+        "forecast_ledger_rows": 6770,
+        "metadata_rows": 7121
       },
       "failure_count": 0,
       "failures": [],
@@ -32,11 +32,11 @@
       "accepted": true,
       "check_id": "RI-PIT-02",
       "evidence": {
-        "missing_data_vintage_count": 12803,
+        "missing_data_vintage_count": 13919,
         "missing_data_vintage_policy": "allowed in shadow labels only; labels cannot become current tool evidence or production inputs without vintage fields",
-        "outcome_label_rows": 12803,
+        "outcome_label_rows": 13919,
         "stock_survivorship_policy": "allowed only for shadow stock proxy labels; promoted runtime requires a delisted-inclusive survivorship audit",
-        "stock_survivorship_unverified_count": 9627
+        "stock_survivorship_unverified_count": 9738
       },
       "failure_count": 0,
       "failures": [],
@@ -46,8 +46,8 @@
       "accepted": true,
       "check_id": "RI-PIT-03",
       "evidence": {
-        "nonzero_source_profile_rows": 4925,
-        "source_profile_rows": 7393,
+        "nonzero_source_profile_rows": 5628,
+        "source_profile_rows": 8559,
         "weighted_context_rows": 1
       },
       "failure_count": 0,
@@ -58,7 +58,7 @@
       "accepted": true,
       "check_id": "RI-PIT-04",
       "evidence": {
-        "retrieved_claim_rows": 5253,
+        "retrieved_claim_rows": 6770,
         "weighted_context_rows": 1
       },
       "failure_count": 0,
@@ -71,7 +71,7 @@
       "evidence": {
         "non_pit_covered_tool_count": 0,
         "paper_or_production_recipe_count": 0,
-        "tool_coverage_match_rows": 21311
+        "tool_coverage_match_rows": 27064
       },
       "failure_count": 0,
       "failures": [],
@@ -81,7 +81,7 @@
       "accepted": true,
       "check_id": "RI-PIT-06",
       "evidence": {
-        "analysis_recipe_rows": 23832,
+        "analysis_recipe_rows": 32826,
         "weighted_context_rows": 1
       },
       "failure_count": 0,
@@ -101,5 +101,5 @@
     }
   ],
   "policy": "report intelligence is point-in-time constrained: report access, forecast signals, outcome labels, source weights, tool coverage, and recipe runtime modes must all be observed no later than the context as-of time before they can influence research priors",
-  "run_id": "RIR-DERIVED-20260626T152704+0000"
+  "run_id": "RIR-DERIVED-20260628T055328+0000"
 }
