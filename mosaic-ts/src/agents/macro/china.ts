@@ -27,6 +27,7 @@ import { CHINA_FIELD_NAMES, ChinaSchema } from "./_schemas.js";
 // ---------------------------------------------------------------------------
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_industry_policy",
   "get_policy_uncertainty",
   "get_pboc_ops",

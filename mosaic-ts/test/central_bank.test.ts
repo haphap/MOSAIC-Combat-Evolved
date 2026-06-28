@@ -83,6 +83,11 @@ const FRED_SCHEMA: JsonSchemaObject = {
 
 const FAKE_TOOL_METADATAS: ToolMetadata[] = [
   {
+    name: "get_rke_research_context",
+    description: "RKE context",
+    args_schema: TOOL_SCHEMA,
+  },
+  {
     name: "get_pboc_ops",
     description: "PBOC ops",
     args_schema: TOOL_SCHEMA,

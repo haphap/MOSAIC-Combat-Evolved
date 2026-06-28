@@ -3,15 +3,15 @@
   "labelability_action_summary": {
     "coverage_gate_status": "actionable_gaps_present",
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 48,
+      "direction_missing_or_unsupported": 51,
       "entry_price_missing": 9,
       "pit_availability_insufficient_window_history": 3,
-      "sector_etf_mapping_missing": 31
+      "sector_etf_mapping_missing": 32
     },
-    "eligible_claim_count": 1150,
-    "labelability_rate": 0.687826,
+    "eligible_claim_count": 1207,
+    "labelability_rate": 0.655344,
     "labelable_claim_count": 791,
-    "mapping_review_claim_count": 1181,
+    "mapping_review_claim_count": 1239,
     "next_actions": [
       "add_primary_etf_mapping_for_unmapped_industry_sectors",
       "refresh_or_replace_pit_unavailable_etf_mappings"
@@ -21,24 +21,24 @@
     },
     "pit_unavailable_mapping_count": 2,
     "policy": "Public-safe aggregate action summary for P10 industry ETF proxy mapping and PIT coverage; no source rows, report text, or local paths are included.",
-    "primary_mapping_coverage_rate": 0.973751,
-    "remaining_action_count": 33,
-    "sector_etf_mapping_missing_count": 31
+    "primary_mapping_coverage_rate": 0.974173,
+    "remaining_action_count": 34,
+    "sector_etf_mapping_missing_count": 32
   },
   "labelability_summary": {
     "benchmark_series_missing_count": 0,
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 48,
+      "direction_missing_or_unsupported": 51,
       "entry_price_missing": 9,
       "pit_availability_insufficient_window_history": 3,
-      "sector_etf_mapping_missing": 31
+      "sector_etf_mapping_missing": 32
     },
-    "eligible_claim_count": 1150,
+    "eligible_claim_count": 1207,
     "labelable_claim_count": 791,
     "labelable_window_count": 2303,
-    "pending_future_window_count": 1111,
+    "pending_future_window_count": 1282,
     "proxy_series_missing_count": 0,
-    "sector_etf_mapping_missing_count": 31
+    "sector_etf_mapping_missing_count": 32
   },
   "mapping_count": 189,
   "mapping_records": [
@@ -5616,9 +5616,30 @@
       "review_required": true,
       "sector_name": "社会服务",
       "source_text_included": false
+    },
+    {
+      "gap_type": "sector_etf_mapping_missing",
+      "missing_claim_count": 1,
+      "privacy_policy": "Public-safe mapping queue: sector/count/action only; no source rows, claim text, report text, or local paths.",
+      "queue_id": "IETF-REVIEW-0156f6dc64677265",
+      "recommended_action": "add_primary_etf_mapping_for_unmapped_industry_sector",
+      "required_mapping_fields": [
+        "sector_name",
+        "sector_aliases",
+        "etf_symbol",
+        "etf_name",
+        "benchmark_symbol",
+        "mapping_confidence",
+        "mapping_rationale",
+        "effective_from",
+        "effective_to"
+      ],
+      "review_required": true,
+      "sector_name": "食品加工",
+      "source_text_included": false
     }
   ],
-  "sector_etf_mapping_review_queue_count": 4,
+  "sector_etf_mapping_review_queue_count": 5,
   "windows_days": [
     20,
     60,

@@ -209,9 +209,11 @@ export function buildLayerThreeUserContext(state: DailyCycleStateType, agentId: 
     `* cohort:     ${cohort}\n\n` +
     `${regimeBlock}\n` +
     `${sectorBlocks}\n` +
+    `Use get_rke_research_context only as report-derived research prior and ` +
+    `style-fit hint. It may expand or annotate the candidate set, but any pick ` +
+    `must be confirmed by current fundamentals, price, and indicator tools. ` +
     `Apply your investment philosophy to the candidate set above. Use your ` +
-    `philosophy-specific tools only for spot-verification, never for stock ` +
-    `discovery — discovery comes from the Layer-2 longs.`
+    `philosophy-specific tools for current verification before selecting stocks.`
   );
 }
 

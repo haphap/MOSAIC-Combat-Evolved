@@ -19,6 +19,7 @@ import {
 import { EMERGING_MARKETS_FIELD_NAMES, EmergingMarketsSchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_etf_price_data",
   "get_us_china_spread",
   "get_fred_series",

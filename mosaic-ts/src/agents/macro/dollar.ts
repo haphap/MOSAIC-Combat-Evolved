@@ -15,7 +15,12 @@ import {
 } from "./_factory.js";
 import { DOLLAR_FIELD_NAMES, DollarSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_fred_series", "get_usdcny", "get_us_china_spread"] as const;
+export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
+  "get_fred_series",
+  "get_usdcny",
+  "get_us_china_spread",
+] as const;
 
 export const dollarSpec: LayerOneAgentSpec<DollarOutput> = {
   agentId: "dollar",

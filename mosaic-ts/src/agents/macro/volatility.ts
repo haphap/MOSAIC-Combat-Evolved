@@ -17,6 +17,7 @@ import {
 import { VOLATILITY_FIELD_NAMES, VolatilitySchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_fred_series",
   "get_ivx",
   "get_realized_volatility",

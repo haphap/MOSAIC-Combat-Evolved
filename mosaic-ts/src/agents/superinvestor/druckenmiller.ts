@@ -15,6 +15,7 @@ import {
 import { DruckenmillerSchema, SUPERINVESTOR_FIELD_NAMES } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_yield_curve_cn",
   "get_industry_policy",
   "get_stock_research",

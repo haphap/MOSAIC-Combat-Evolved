@@ -10,6 +10,7 @@ import {
 import { ConsumerSchema, STANDARD_SECTOR_FIELD_NAMES } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_industry_policy",
   "get_xueqiu_heat",
   "get_lhb_ranking",

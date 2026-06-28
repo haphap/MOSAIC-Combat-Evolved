@@ -327,6 +327,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
       required: ["x"],
     };
     const FAKE_TOOLS: ToolMetadata[] = [
+      { name: "get_rke_research_context", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_yield_curve_cn", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_industry_policy", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_stock_research", description: "x", args_schema: TOOL_SCHEMA },

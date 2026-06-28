@@ -7,7 +7,7 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 
 - Promotion dry-run ready: true
 - Gold-set review: 125/125 complete; scratch exists: true; simulation accepted: true
-- Analytical-footprint review: 14712/14712 complete; scratch exists: true; simulation accepted: true
+- Analytical-footprint review: 15118/15118 complete; scratch exists: true; simulation accepted: true
 - Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
 - Lockbox review: 1/1 complete; scratch exists: true; simulation accepted: true
 - Lockbox dependency status: ready
@@ -29,19 +29,20 @@ This section reports aggregate completion counts for the current local batch or 
   Review workflow groups: decision: none; metadata: none; text: none; draft_verify: `claim_correct`=50, `source_span_supports_claim`=50, `variable_mapping_correct`=50, `horizon_correct`=48, `target_correct`=45, `direction_correct`=42, `unsupported_field_false_grounded`=26; text_draft_verify: none
   Review field workload: `claim_correct`=missing:0,draft:50,text_draft:0,manual:0; `direction_correct`=missing:0,draft:42,text_draft:0,manual:0; `horizon_correct`=missing:0,draft:48,text_draft:0,manual:0; `source_span_supports_claim`=missing:0,draft:50,text_draft:0,manual:0; `target_correct`=missing:0,draft:45,text_draft:0,manual:0; `unsupported_field_false_grounded`=missing:0,draft:26,text_draft:0,manual:0; `variable_mapping_correct`=missing:0,draft:50,text_draft:0,manual:0
   Evidence alignment gaps: `extra_evidence_rows`=50
-- Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 465; complete: 465; pending: 0; malformed: 0
-  Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 465; covered: 465/465; same_order: true; aligned: true
-  Evidence quality: snippet_ready: 465; missing_markdown: 0
-  Evidence priority metadata: reason_ready: 465; missing_reason_rows: 0; refresh_recommended: false
-  Quality-gap focus fields: `footprint_correct`=4, `inferred_steps_tagged_correctly`=4, `metric_mapping_correct`=14, `unknowns_used_when_uncertain`=7
-  Suggested evidence tags: `boilerplate_risk_warning_footprint`=4, `metric_mapping_hidden_unknown`=2, `metric_mapping_inference_available`=3, `metric_mapping_ungrounded`=3, `metric_mapping_unknown`=7
-  Evidence priority scores: `1`=465
-  Evidence priority reasons: `missing_target_agent_candidates`=465
-  Suggested decision counts: `footprint_correct`={false:4,true:461}; `inferred_steps_tagged_correctly`={false:4,true:461}; `metric_mapping_correct`={false:14,true:451}; `no_proprietary_text_leakage`={true:465}; `source_span_supports_footprint`={true:465}; `unknowns_used_when_uncertain`={true:465}
-  Review workload summary: missing_required_cells=0; draft_decision_available_cells=2790; draft_text_available_cells=0; manual_review_required_cells=0; fields_with_manual_review_required=0
-  Review next fields: manual_required: none; draft_available: `footprint_correct`=465, `inferred_steps_tagged_correctly`=465, `metric_mapping_correct`=465, `no_proprietary_text_leakage`=465, `source_span_supports_footprint`=465, `unknowns_used_when_uncertain`=465; text_draft_available: none
-  Review workflow groups: decision: none; metadata: none; text: none; draft_verify: `footprint_correct`=465, `inferred_steps_tagged_correctly`=465, `metric_mapping_correct`=465, `no_proprietary_text_leakage`=465, `source_span_supports_footprint`=465, `unknowns_used_when_uncertain`=465; text_draft_verify: none
-  Review field workload: `footprint_correct`=missing:0,draft:465,text_draft:0,manual:0; `inferred_steps_tagged_correctly`=missing:0,draft:465,text_draft:0,manual:0; `metric_mapping_correct`=missing:0,draft:465,text_draft:0,manual:0; `no_proprietary_text_leakage`=missing:0,draft:465,text_draft:0,manual:0; `source_span_supports_footprint`=missing:0,draft:465,text_draft:0,manual:0; `unknowns_used_when_uncertain`=missing:0,draft:465,text_draft:0,manual:0
+- Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 406; complete: 0; pending: 406; malformed: 0
+  Missing required fields: `footprint_correct`=406, `inferred_steps_tagged_correctly`=406, `metric_mapping_correct`=406, `no_proprietary_text_leakage`=406, `review_notes`=406, `source_span_supports_footprint`=406, `unknowns_used_when_uncertain`=406
+  Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 406; covered: 406/406; same_order: true; aligned: true
+  Evidence quality: snippet_ready: 406; missing_markdown: 0
+  Evidence priority metadata: reason_ready: 406; missing_reason_rows: 0; refresh_recommended: false
+  Quality-gap focus fields: `footprint_correct`=5, `inferred_steps_tagged_correctly`=5, `metric_mapping_correct`=23, `unknowns_used_when_uncertain`=18
+  Suggested evidence tags: `boilerplate_risk_warning_footprint`=5, `low_information_footprint`=15, `metric_mapping_hidden_ungrounded`=2, `metric_mapping_hidden_unknown`=2, `metric_mapping_inference_available`=8, `metric_mapping_missing`=15, `metric_mapping_ungrounded`=3, `metric_mapping_unknown`=3
+  Evidence priority scores: `1`=336, `3`=55, `4`=15
+  Evidence priority reasons: `complex_multi_step_patterns`=50, `missing_indicator_mentions`=15, `missing_target_agent_candidates`=406, `missing_target_entity_candidates`=5
+  Suggested decision counts: `footprint_correct`={false:20,true:386}; `inferred_steps_tagged_correctly`={false:20,true:386}; `metric_mapping_correct`={false:23,true:383}; `no_proprietary_text_leakage`={true:406}; `source_span_supports_footprint`={false:15,true:391}; `unknowns_used_when_uncertain`={true:406}
+  Review workload summary: missing_required_cells=2842; draft_decision_available_cells=2436; draft_text_available_cells=406; manual_review_required_cells=406; fields_with_manual_review_required=1
+  Review next fields: manual_required: `review_notes`=406; draft_available: `footprint_correct`=406, `inferred_steps_tagged_correctly`=406, `metric_mapping_correct`=406, `no_proprietary_text_leakage`=406, `source_span_supports_footprint`=406, `unknowns_used_when_uncertain`=406; text_draft_available: `review_notes`=406
+  Review workflow groups: decision: none; metadata: none; text: `review_notes`=406; draft_verify: `footprint_correct`=406, `inferred_steps_tagged_correctly`=406, `metric_mapping_correct`=406, `no_proprietary_text_leakage`=406, `source_span_supports_footprint`=406, `unknowns_used_when_uncertain`=406; text_draft_verify: `review_notes`=406
+  Review field workload: `footprint_correct`=missing:406,draft:406,text_draft:0,manual:0; `inferred_steps_tagged_correctly`=missing:406,draft:406,text_draft:0,manual:0; `metric_mapping_correct`=missing:406,draft:406,text_draft:0,manual:0; `no_proprietary_text_leakage`=missing:406,draft:406,text_draft:0,manual:0; `review_notes`=missing:406,draft:0,text_draft:406,manual:406; `source_span_supports_footprint`=missing:406,draft:406,text_draft:0,manual:0; `unknowns_used_when_uncertain`=missing:406,draft:406,text_draft:0,manual:0
 - Lockbox decision: `registry/review_batches/lockbox_reviewed.json`; exists: true; rows: 1; complete: 1; pending: 0; malformed: 0
 
 ## Prepare Commands

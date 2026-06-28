@@ -220,6 +220,9 @@ export function buildLayerTwoUserContext(state: DailyCycleStateType, agentId: st
     `${regimeBlock}\n` +
     `${chinaBlock}\n` +
     `${flowBlock}\n` +
+    `Use get_rke_research_context only as report-derived research prior; it ` +
+    `does not replace current sector, flow, ETF, policy, price, or indicator ` +
+    `confirmation. ` +
     `Pick longs and shorts in this sector taking the macro regime + policy ` +
     `direction + capital flow into account. Use the tools to gather sector-` +
     `specific evidence, then write your analysis.`

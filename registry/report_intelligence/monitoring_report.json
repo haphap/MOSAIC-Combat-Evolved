@@ -26,22 +26,22 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-26T08:34:46+00:00",
+  "as_of_datetime": "2026-06-26T15:30:26+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
-    "alpha_decay_fail_count": 615,
+    "alpha_decay_fail_count": 613,
     "alpha_decay_watch_count": 78,
     "calibration_drift_count": 127,
-    "confidence_alpha_correlation": 0.01011691,
+    "confidence_alpha_correlation": 0.01014906,
     "confidence_alpha_correlation_status": "non_negative",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
-    "observation_count": 23044,
+    "observation_count": 23832,
     "paper_trading_validated_recipe_count": 298,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "freeze_recipe": 615,
-      "keep_shadow": 22205,
+      "freeze_recipe": 613,
+      "keep_shadow": 22995,
       "reduce_confidence_impact": 78,
       "send_to_manual_review": 146
     },
@@ -51,16 +51,16 @@
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {
-    "forecast_claim_rows": 5100,
-    "metadata_rows": 5454,
-    "outcome_label_rows": 12699
+    "forecast_claim_rows": 5253,
+    "metadata_rows": 5615,
+    "outcome_label_rows": 12803
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
     "effective_n_by_method": {
       "max_effective_n": 0.0,
       "nonzero_effective_n_count": 0,
-      "profile_count": 23044,
+      "profile_count": 23832,
       "top_profiles": [
         {
           "bucket": "",
@@ -126,8 +126,8 @@
     },
     "effective_n_by_source": {
       "max_effective_n": 124.666644,
-      "nonzero_effective_n_count": 4824,
-      "profile_count": 7228,
+      "nonzero_effective_n_count": 4925,
+      "profile_count": 7393,
       "top_profiles": [
         {
           "bucket": "positive_high_effective_n",
@@ -175,13 +175,13 @@
           "bucket": "positive_medium_effective_n",
           "id": "SPP-4db7f22514e9a718",
           "insufficient_data": false,
-          "n_effective": 21.0
+          "n_effective": 21.2
         },
         {
           "bucket": "positive_medium_effective_n",
           "id": "SPP-d038b18e1f8e32fc",
           "insufficient_data": false,
-          "n_effective": 21.0
+          "n_effective": 21.2
         },
         {
           "bucket": "positive_medium_effective_n",
@@ -193,8 +193,8 @@
     },
     "effective_n_by_viewpoint": {
       "max_effective_n": 48.8,
-      "nonzero_effective_n_count": 2159,
-      "profile_count": 3065,
+      "nonzero_effective_n_count": 2232,
+      "profile_count": 3194,
       "top_profiles": [
         {
           "bucket": "positive_high_effective_n",
@@ -212,7 +212,7 @@
           "bucket": "neutral_medium_effective_n",
           "id": "VPP-e8d018b135608da2",
           "insufficient_data": false,
-          "n_effective": 29.3
+          "n_effective": 29.5
         },
         {
           "bucket": "neutral_medium_effective_n",
@@ -265,32 +265,32 @@
       "non_neutral_profile_count": 578
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.489804
+    "weighted_vs_unweighted_retrieval_difference": 0.478203
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260626T083126+0000",
+  "run_id": "RIR-DERIVED-20260626T152704+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 64712,
+    "data_proposal_open_count": 66003,
     "evidence_coverage": {
-      "exact_or_partial_coverage_rate": 0.082087,
-      "metric_candidate_count": 21002,
+      "exact_or_partial_coverage_rate": 0.082399,
+      "metric_candidate_count": 21311,
       "tool_coverage_status_counts": {
-        "exact_match": 1643,
-        "missing": 19278,
+        "exact_match": 1675,
+        "missing": 19555,
         "partial_match": 81
       }
     },
     "high_priority_gap_aging_count": 0,
     "missing_data_reduction": null,
     "recipe_validation_pass_rate": 0.0,
-    "runtime_fallback_observation_count": 65829,
-    "shadow_recipe_count": 23044,
+    "runtime_fallback_observation_count": 67148,
+    "shadow_recipe_count": 23832,
     "shadow_tool_correctness_failure_rate": null,
-    "tool_gap_open_count": 65829,
+    "tool_gap_open_count": 67148,
     "tool_gap_priority_counts": {
-      "low": 3037,
-      "medium": 61675,
-      "resolved": 1117
+      "low": 3057,
+      "medium": 62946,
+      "resolved": 1145
     },
     "tool_proposal_acceptance_rate": 0.0
   }

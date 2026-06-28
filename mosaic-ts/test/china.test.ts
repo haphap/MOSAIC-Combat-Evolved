@@ -38,6 +38,7 @@ const TOOL_SCHEMA: JsonSchemaObject = {
 };
 
 const FAKE_TOOL_METADATAS: ToolMetadata[] = [
+  { name: "get_rke_research_context", description: "RKE context", args_schema: TOOL_SCHEMA },
   { name: "get_industry_policy", description: "policy documents", args_schema: TOOL_SCHEMA },
   { name: "get_policy_uncertainty", description: "EPU index", args_schema: TOOL_SCHEMA },
   { name: "get_pboc_ops", description: "PBOC ops", args_schema: TOOL_SCHEMA },
@@ -151,6 +152,7 @@ describe("chinaSpec", () => {
   it("declares the right agent ID + tools per Plan §5.1 (with §14 #8 get_property_data)", () => {
     expect(chinaSpec.agentId).toBe("china");
     expect([...REQUIRED_TOOLS]).toEqual([
+      "get_rke_research_context",
       "get_industry_policy",
       "get_policy_uncertainty",
       "get_pboc_ops",
