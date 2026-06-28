@@ -245,6 +245,7 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       required: ["x"],
     };
     const FAKE_TOOLS: ToolMetadata[] = [
+      "get_rke_research_context",
       "get_industry_policy",
       "get_xueqiu_heat",
       "get_lhb_ranking",

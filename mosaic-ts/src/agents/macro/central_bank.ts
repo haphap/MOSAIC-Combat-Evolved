@@ -27,7 +27,12 @@ import { CENTRAL_BANK_FIELD_NAMES, CentralBankSchema } from "./_schemas.js";
 // Spec
 // ---------------------------------------------------------------------------
 
-export const REQUIRED_TOOLS = ["get_pboc_ops", "get_fred_series", "get_yield_curve_cn"] as const;
+export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
+  "get_pboc_ops",
+  "get_fred_series",
+  "get_yield_curve_cn",
+] as const;
 
 export const centralBankSpec: LayerOneAgentSpec<CentralBankOutput> = {
   agentId: "central_bank",

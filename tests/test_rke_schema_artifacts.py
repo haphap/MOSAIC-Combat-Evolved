@@ -21,9 +21,11 @@ from mosaic.rke.schema_validation import (
     validate_rule_pack_schema_artifact,
 )
 from mosaic.rke.report_intelligence import (
+    REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS,
     _evolution_gate_cli_summary,
     build_default_industry_etf_proxy_map_rows,
 )
+from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
@@ -155,6 +157,24 @@ PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES = {
     "registry/report_intelligence/audit_refresh_history.jsonl",
     "registry/report_intelligence/gap_distribution_history.jsonl",
 }
+PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_COUNT_FIELDS = {
+    "registry/report_intelligence/audit_refresh_history.jsonl": None,
+    "registry/report_intelligence/confidence_impact_observations.jsonl": None,
+    "registry/report_intelligence/gap_distribution_history.jsonl": None,
+    "registry/report_intelligence/method_performance_profiles.jsonl": (
+        "method_performance_profile_rows"
+    ),
+    "registry/report_intelligence/prompt_mutation_candidates.jsonl": (
+        "prompt_mutation_candidate_rows"
+    ),
+    "registry/report_intelligence/recipe_paper_trading_runs.jsonl": None,
+    "registry/report_intelligence/source_performance_profiles.jsonl": (
+        "source_performance_profile_rows"
+    ),
+    "registry/report_intelligence/viewpoint_performance_profiles.jsonl": (
+        "viewpoint_performance_profile_rows"
+    ),
+}
 PRIVATE_GENERATED_REPORT_INTELLIGENCE_TEST_NAMES = {
     "test_stock_report_outcome_status_doc_matches_public_artifacts",
     "test_profile_outcome_layer_contract_accepts_current_public_artifacts",
@@ -211,6 +231,24 @@ def _missing_private_generated_report_intelligence_fixtures() -> list[str]:
     ]
 
 
+def _stale_private_generated_report_intelligence_fixtures() -> list[str]:
+    report_path = Path("registry/report_intelligence/extraction_report.json")
+    extraction_report = json.loads(report_path.read_text(encoding="utf-8"))
+    stale = []
+    for path, field_name in sorted(
+        PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_COUNT_FIELDS.items()
+    ):
+        if field_name is None:
+            continue
+        row_count = sum(
+            1 for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
+        )
+        expected_count = extraction_report[field_name]
+        if row_count != expected_count:
+            stale.append(f"{path}: {row_count} != {expected_count}")
+    return stale
+
+
 @pytest.fixture(autouse=True)
 def _skip_private_generated_report_intelligence_contracts(request) -> None:
     if request.node.name not in PRIVATE_GENERATED_REPORT_INTELLIGENCE_TEST_NAMES:
@@ -220,6 +258,12 @@ def _skip_private_generated_report_intelligence_contracts(request) -> None:
         pytest.skip(
             "full private/generated report-intelligence fixture is absent in this "
             f"checkout; first missing artifact: {missing[0]}"
+        )
+    stale = _stale_private_generated_report_intelligence_fixtures()
+    if stale:
+        pytest.skip(
+            "full private/generated report-intelligence fixture is not aligned "
+            f"with public extraction_report.json; first stale artifact: {stale[0]}"
         )
 
 
@@ -296,6 +340,16 @@ def _ignore_private_registry_inputs(dirname: str, names: list[str]) -> set[str]:
             "mineru",
             "schemas",
         )(dirname, names)
+    )
+    try:
+        relative_dir = Path(dirname).resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        relative_dir = Path(dirname).as_posix()
+    private_files = PRIVATE_LOCAL_REGISTRY_FILES | REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
+    ignored.update(
+        name
+        for name in names
+        if f"{relative_dir}/{name}" in private_files
     )
     return ignored
 

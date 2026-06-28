@@ -17,6 +17,7 @@ import {
 import { NEWS_SENTIMENT_FIELD_NAMES, NewsSentimentSchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_xueqiu_heat",
   "get_news",
   "get_caixin_sentiment",
