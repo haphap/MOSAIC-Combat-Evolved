@@ -17,7 +17,11 @@ from mosaic.rke.promotion_gate import (
 )
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
-from mosaic.rke.tushare_reports import P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
+from mosaic.rke.tushare_reports import (
+    P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
+    fetch_tushare_research_reports,
+    refresh_tushare_research_report_registry,
+)
 
 
 GOLD_MANUAL_FIELDS = (
@@ -1209,6 +1213,152 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(
     assert captured["date_chunk_days"] == 7
     assert captured["corpus_profile"] is None
     assert captured["preserve_review_templates"] is True
+    assert captured["source_only"] is False
+
+
+def test_rke_cli_fetch_tushare_reports_accepts_source_only(
+    monkeypatch, tmp_path: Path, capsys
+):
+    captured = {}
+
+    def fake_refresh(root, **kwargs):
+        captured["root"] = str(root)
+        captured.update(kwargs)
+        return TushareResearchReportRefreshResult(
+            root=str(root),
+            source_rows=3,
+            rows_with_abstract=3,
+            skipped_empty_abstract_rows=0,
+            gold_candidate_rows=0,
+            gold_review_template_updated=False,
+            license_review_template_updated=False,
+            publish_date_min="2024-01-01",
+            publish_date_max="2024-12-31",
+            report_type_counts={"个股研报": 2, "行业研报": 1},
+            query_key_counts={"个股研报": 2, "行业研报": 1},
+            completion_ready_for_broad_rollout=False,
+            manifest_valid=True,
+            outputs={
+                "source": "registry/sources/tushare_research_reports.jsonl",
+                "source_manifest": "registry/sources/tushare_research_reports.manifest.json",
+            },
+        )
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh
+    )
+
+    code = main(
+        (
+            "fetch-tushare-reports",
+            "--root",
+            str(tmp_path),
+            "--start-date",
+            "2024-01-01",
+            "--end-date",
+            "2024-12-31",
+            "--report-type",
+            "个股研报,行业研报",
+            "--source-only",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["gold_candidate_rows"] == 0
+    assert captured["source_only"] is True
+
+
+def test_tushare_source_only_refresh_skips_review_derived_outputs(tmp_path: Path):
+    input_path = tmp_path / "reports.csv"
+    input_path.write_text(
+        "\n".join(
+            (
+                "trade_date,report_type,title,abstr,ts_code,ind_name,url",
+                "20240102,个股研报,stock title,stock abstract,600519.SH,,https://example.test/a.pdf",
+                "20240103,行业研报,industry title,industry abstract,,半导体,https://example.test/b.pdf",
+                "20180103,行业研报,old industry title,,,银行,https://example.test/old.pdf",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        input_path=input_path,
+        stock_codes=(),
+        industry_keywords=(),
+        report_types=(),
+        source_only=True,
+    )
+
+    assert result.manifest_valid is True
+    assert result.source_rows == 3
+    assert result.rows_with_abstract == 2
+    assert result.skipped_empty_abstract_rows == 0
+    assert result.gold_candidate_rows == 0
+    assert set(result.outputs) == {"source", "source_manifest"}
+    assert (tmp_path / "registry/sources/tushare_research_reports.jsonl").exists()
+    assert (
+        tmp_path / "registry/sources/tushare_research_reports.manifest.json"
+    ).exists()
+    assert not (
+        tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    ).exists()
+    assert not (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    ).exists()
+
+
+def test_tushare_fetch_retries_transient_request_errors(monkeypatch):
+    import requests
+
+    class FakeFrame:
+        empty = False
+
+        def to_dict(self, orientation):
+            assert orientation == "records"
+            return [
+                {
+                    "trade_date": "20240102",
+                    "title": "stock title",
+                    "abstr": "stock abstract",
+                    "ts_code": "600519.SH",
+                    "inst_csname": "Broker A",
+                    "author": "Analyst A",
+                    "url": "https://example.test/a.pdf",
+                }
+            ]
+
+    class EmptyFrame:
+        empty = True
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = 0
+
+        def research_report(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise requests.exceptions.ConnectionError("transient EOF")
+            if kwargs["offset"] == 0:
+                return FakeFrame()
+            return EmptyFrame()
+
+    client = FakeClient()
+    monkeypatch.setattr("mosaic.rke.tushare_reports.time.sleep", lambda _seconds: None)
+
+    reports = fetch_tushare_research_reports(
+        report_types=("个股研报",),
+        start_date="2024-01-01",
+        end_date="2024-01-07",
+        pro=client,
+    )
+
+    assert client.calls == 2
+    assert len(reports) == 1
+    assert reports[0].report_type == "个股研报"
 
 
 def test_rke_cli_fetch_tushare_reports_p9_profile_defaults_date_chunk(

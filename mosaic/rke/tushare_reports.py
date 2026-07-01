@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import csv
 import json
+import time
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
+
+import requests
 
 from mosaic.dataflows.tushare import _RESEARCH_REPORT_FIELDS, _get_pro_client
 
@@ -59,6 +62,8 @@ from .validation_hardening import (
 
 ReportKind = Literal["stock", "industry"]
 TUSHARE_RESEARCH_REPORT_PAGE_SIZE = 1000
+TUSHARE_RESEARCH_REPORT_PAGE_RETRIES = 3
+TUSHARE_RESEARCH_REPORT_RETRY_SLEEP_SECONDS = 0.5
 P9_REPORT_INTELLIGENCE_CORPUS_PROFILE = "p9_report_intelligence_v1"
 P9_REPORT_INTELLIGENCE_REPORT_TYPES = (
     "个股研报",
@@ -330,13 +335,20 @@ def _fetch_research_report_pages(
     records: list[dict[str, Any]] = []
     offset = 0
     while len(records) < max_reports_per_query:
-        page = _df_to_records(
-            client.research_report(
-                **params,
-                limit=page_size,
-                offset=offset,
-            )
-        )
+        for attempt in range(1, TUSHARE_RESEARCH_REPORT_PAGE_RETRIES + 1):
+            try:
+                page = _df_to_records(
+                    client.research_report(
+                        **params,
+                        limit=page_size,
+                        offset=offset,
+                    )
+                )
+                break
+            except requests.exceptions.RequestException:
+                if attempt >= TUSHARE_RESEARCH_REPORT_PAGE_RETRIES:
+                    raise
+                time.sleep(TUSHARE_RESEARCH_REPORT_RETRY_SLEEP_SECONDS * attempt)
         if not page:
             break
         remaining = max_reports_per_query - len(records)
@@ -796,6 +808,7 @@ def refresh_tushare_research_report_registry(
     date_chunk_days: int = 31,
     merge_existing_source: bool = False,
     preserve_review_templates: bool = True,
+    source_only: bool = False,
     corpus_profile: str | None = None,
     discovered_at: str | None = None,
     pro: Any | None = None,
@@ -838,11 +851,13 @@ def refresh_tushare_research_report_registry(
         )
     if not reports:
         raise RuntimeError("research_report source returned zero rows; registry was not refreshed")
-    reports, skipped_empty_abstract_rows = _filter_reports_with_abstract(reports)
-    if not reports:
-        raise RuntimeError(
-            "research_report source returned no rows with non-empty abstracts; registry was not refreshed"
-        )
+    skipped_empty_abstract_rows = 0
+    if not source_only:
+        reports, skipped_empty_abstract_rows = _filter_reports_with_abstract(reports)
+        if not reports:
+            raise RuntimeError(
+                "research_report source returned no rows with non-empty abstracts; registry was not refreshed"
+            )
 
     outputs: dict[str, str] = {}
     source_path = root_path / "registry/sources/tushare_research_reports.jsonl"
@@ -865,6 +880,50 @@ def refresh_tushare_research_report_registry(
     query_end_date = end_date or audit.publish_date_max or ""
     report_type_counts = Counter(str(row.get("report_type") or "") for row in source_rows)
     query_key_counts = Counter(str(row.get("query_key") or "") for row in source_rows)
+
+    manifest_result = _write_research_report_manifest(
+        output_path=root_path / "registry/sources/tushare_research_reports.manifest.json",
+        source_path=Path("registry/sources/tushare_research_reports.jsonl"),
+        start_date=query_start_date,
+        end_date=query_end_date,
+        stock_codes=stock_codes,
+        industry_keywords=industry_keywords,
+        report_types=report_types,
+        max_reports_per_query=max_reports_per_query,
+        stock_query_batch_size=stock_query_batch_size,
+        date_chunk_days=date_chunk_days,
+        merge_existing_source=merge_existing_source,
+        input_path=str(input_path) if input_path is not None else None,
+        skipped_empty_abstract_rows=skipped_empty_abstract_rows,
+        row_count=audit.row_count,
+        rows_with_abstract=audit.rows_with_abstract,
+        publish_date_min=audit.publish_date_min,
+        publish_date_max=audit.publish_date_max,
+        report_type_counts=report_type_counts,
+        query_key_counts=query_key_counts,
+        ingested_at=ingested_at,
+        corpus_profile=resolved_corpus_profile,
+    )
+    outputs["source_manifest"] = str(manifest_result["path"])
+
+    if source_only:
+        return TushareResearchReportRefreshResult(
+            root=str(root_path),
+            corpus_profile=resolved_corpus_profile,
+            source_rows=audit.row_count,
+            rows_with_abstract=audit.rows_with_abstract,
+            skipped_empty_abstract_rows=skipped_empty_abstract_rows,
+            gold_candidate_rows=0,
+            gold_review_template_updated=False,
+            license_review_template_updated=False,
+            publish_date_min=audit.publish_date_min,
+            publish_date_max=audit.publish_date_max,
+            report_type_counts=dict(report_type_counts),
+            query_key_counts=dict(query_key_counts),
+            completion_ready_for_broad_rollout=False,
+            manifest_valid=True,
+            outputs=outputs,
+        )
 
     candidates = select_gold_set_candidates(source_rows, max_documents=DEFAULT_GOLD_SET_DOCUMENTS)
     gold_candidates_path = root_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
@@ -913,31 +972,6 @@ def refresh_tushare_research_report_registry(
         license_review_result = write_source_license_review_template(source_rows, license_review_path)
         outputs["license_review_template"] = str(license_review_result["path"])
         license_review_updated = True
-
-    manifest_result = _write_research_report_manifest(
-        output_path=root_path / "registry/sources/tushare_research_reports.manifest.json",
-        source_path=Path("registry/sources/tushare_research_reports.jsonl"),
-        start_date=query_start_date,
-        end_date=query_end_date,
-        stock_codes=stock_codes,
-        industry_keywords=industry_keywords,
-        report_types=report_types,
-        max_reports_per_query=max_reports_per_query,
-        stock_query_batch_size=stock_query_batch_size,
-        date_chunk_days=date_chunk_days,
-        merge_existing_source=merge_existing_source,
-        input_path=str(input_path) if input_path is not None else None,
-        skipped_empty_abstract_rows=skipped_empty_abstract_rows,
-        row_count=audit.row_count,
-        rows_with_abstract=audit.rows_with_abstract,
-        publish_date_min=audit.publish_date_min,
-        publish_date_max=audit.publish_date_max,
-        report_type_counts=report_type_counts,
-        query_key_counts=query_key_counts,
-        ingested_at=ingested_at,
-        corpus_profile=resolved_corpus_profile,
-    )
-    outputs["source_manifest"] = str(manifest_result["path"])
 
     gold_summary_result = write_gold_set_review_summary(root_path)
     license_summary_result = write_source_license_review_summary(root_path)

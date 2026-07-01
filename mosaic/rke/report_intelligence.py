@@ -1540,6 +1540,37 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any
     return {"path": str(path), "rows": len(rows)}
 
 
+PUBLIC_SUMMARY_PRIVATE_ID_QUEUE_SUFFIXES = (
+    "_forecast_claim_ids",
+    "_recipe_ids",
+    "_tool_gap_ids",
+    "_tool_proposal_ids",
+)
+PUBLIC_SUMMARY_PRIVATE_QUEUE_KEYS = {
+    "requested_tools",
+    "shadow_implemented_requested_tools",
+    "tool_gap_ids",
+    "tool_proposal_ids",
+    "unlinked_requested_tools",
+}
+
+
+def _public_summary_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    def scrub(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): scrub(item)
+                for key, item in value.items()
+                if str(key) not in PUBLIC_SUMMARY_PRIVATE_QUEUE_KEYS
+                and not str(key).endswith(PUBLIC_SUMMARY_PRIVATE_ID_QUEUE_SUFFIXES)
+            }
+        if isinstance(value, list):
+            return [scrub(item) for item in value]
+        return value
+
+    return scrub(payload)
+
+
 def _read_registry_jsonl(
     path: Path,
     *,
@@ -2077,6 +2108,16 @@ def _selected_source_rows(
             for row in rows
             if str(row.get("publish_date") or "") <= max_publish_date
         ]
+    deduped_rows: list[Mapping[str, Any]] = []
+    seen_source_ids: set[str] = set()
+    for row in rows:
+        source_id = str(row.get("source_id") or "").strip()
+        if source_id:
+            if source_id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_id)
+        deduped_rows.append(row)
+    rows = deduped_rows
     if selection_order not in {"latest", "oldest", "stratified"}:
         blockers.append("selection_order must be latest, oldest, or stratified")
         selection_order = "latest"
@@ -22401,7 +22442,7 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         "recipe_paper_trading_summary": str(
             _write_json(
                 registry_path / "recipe_paper_trading_summary.json",
-                recipe_paper_trading_summary,
+                _public_summary_payload(recipe_paper_trading_summary),
             )["path"]
         ),
         "confidence_impact_observations": str(
@@ -22413,7 +22454,7 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         "confidence_impact_monitor": str(
             _write_json(
                 registry_path / "confidence_impact_monitor.json",
-                confidence_impact_monitor,
+                _public_summary_payload(confidence_impact_monitor),
             )["path"]
         ),
     }
@@ -25984,23 +26025,11 @@ def build_prompt_mutation_candidates(
                     ),
                     "macro_regime_source_counts": macro_regime_source_counts,
                     "industry_cycle_regime_counts": industry_cycle_regime_counts,
-                    "regime_gap_forecast_claim_count": len(
-                        {
-                            str(item)
-                            for item in _ensure_list(
-                                readiness.get("regime_gap_forecast_claim_ids")
-                            )
-                            if str(item).strip()
-                        }
+                    "regime_gap_forecast_claim_count": sum(
+                        regime_gap_counts.values()
                     ),
-                    "mechanism_gap_forecast_claim_count": len(
-                        {
-                            str(item)
-                            for item in _ensure_list(
-                                readiness.get("mechanism_gap_forecast_claim_ids")
-                            )
-                            if str(item).strip()
-                        }
+                    "mechanism_gap_forecast_claim_count": sum(
+                        mechanism_gap_counts.values()
                     ),
                     "hard_gap_count": hard_gap_count,
                     "diagnostic_gap_policy": (
@@ -33107,13 +33136,13 @@ def run_report_intelligence_derived_refresh(
         "industry_etf_proxy_pit_availability": str(
             _write_json(
                 registry_dir / "industry_etf_proxy_pit_availability.json",
-                industry_etf_proxy_pit_availability,
+                _public_summary_payload(industry_etf_proxy_pit_availability),
             )["path"]
         ),
         "outcome_labeling_readiness": str(
             _write_json(
                 registry_dir / "outcome_labeling_readiness.json",
-                outcome_labeling_readiness,
+                _public_summary_payload(outcome_labeling_readiness),
             )["path"]
         ),
         "report_outcome_labels": str(
@@ -33191,7 +33220,7 @@ def run_report_intelligence_derived_refresh(
         "recipe_paper_trading_summary": str(
             _write_json(
                 registry_dir / "recipe_paper_trading_summary.json",
-                recipe_paper_trading_summary,
+                _public_summary_payload(recipe_paper_trading_summary),
             )["path"]
         ),
         "confidence_impact_observations": str(
@@ -33203,7 +33232,7 @@ def run_report_intelligence_derived_refresh(
         "confidence_impact_monitor": str(
             _write_json(
                 registry_dir / "confidence_impact_monitor.json",
-                confidence_impact_monitor,
+                _public_summary_payload(confidence_impact_monitor),
             )["path"]
         ),
         "monitor_refresh_history": str(
@@ -33545,7 +33574,14 @@ def run_report_intelligence_refresh(
         pdf_result: Mapping[str, Any] = {"status": "not_attempted"}
         if not url and not local_pdf_path and not markdown_path.exists():
             row_blockers.append(f"{source_id}: report_url_missing")
-        if not cfg.skip_download and local_pdf_path:
+        if pdf_path.exists() and pdf_path.stat().st_size > 0 and not cfg.overwrite:
+            pdf_result = {
+                "status": "cached",
+                "path": str(pdf_path),
+                "bytes": pdf_path.stat().st_size,
+                "sha256": _file_sha256(pdf_path),
+            }
+        elif not cfg.skip_download and local_pdf_path:
             pdf_result = materialize_local_pdf(
                 Path(local_pdf_path).expanduser(),
                 pdf_path,
@@ -33557,13 +33593,6 @@ def run_report_intelligence_refresh(
             pdf_result = downloader(url, pdf_path, cfg.overwrite)
             if pdf_result.get("status") == "blocked":
                 row_blockers.append(f"{source_id}: {pdf_result.get('blocker')}")
-        elif pdf_path.exists():
-            pdf_result = {
-                "status": "cached",
-                "path": str(pdf_path),
-                "bytes": pdf_path.stat().st_size,
-                "sha256": _file_sha256(pdf_path),
-            }
         prepared_rows.append(
             {
                 "row": row,
@@ -34237,13 +34266,13 @@ def run_report_intelligence_refresh(
         "industry_etf_proxy_pit_availability": str(
             _write_json(
                 registry_dir / "industry_etf_proxy_pit_availability.json",
-                industry_etf_proxy_pit_availability,
+                _public_summary_payload(industry_etf_proxy_pit_availability),
             )["path"]
         ),
         "outcome_labeling_readiness": str(
             _write_json(
                 registry_dir / "outcome_labeling_readiness.json",
-                outcome_labeling_readiness,
+                _public_summary_payload(outcome_labeling_readiness),
             )["path"]
         ),
         "report_outcome_labels": str(
@@ -34321,7 +34350,7 @@ def run_report_intelligence_refresh(
         "recipe_paper_trading_summary": str(
             _write_json(
                 registry_dir / "recipe_paper_trading_summary.json",
-                recipe_paper_trading_summary,
+                _public_summary_payload(recipe_paper_trading_summary),
             )["path"]
         ),
         "confidence_impact_observations": str(
@@ -34333,7 +34362,7 @@ def run_report_intelligence_refresh(
         "confidence_impact_monitor": str(
             _write_json(
                 registry_dir / "confidence_impact_monitor.json",
-                confidence_impact_monitor,
+                _public_summary_payload(confidence_impact_monitor),
             )["path"]
         ),
         "monitor_refresh_history": str(

@@ -1608,6 +1608,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Regenerate gold-set and license review templates even when they contain manual values.",
     )
     fetch_reports.add_argument(
+        "--source-only",
+        action="store_true",
+        help=(
+            "Only refresh the private Tushare source registry and source manifest; "
+            "skip review, gold-set, dashboard, and registry-derived outputs."
+        ),
+    )
+    fetch_reports.add_argument(
         "--env-file",
         help="Optional .env file to load before initializing the Tushare client.",
     )
@@ -2853,6 +2861,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             date_chunk_days=date_chunk_days,
             merge_existing_source=args.merge_existing_source,
             preserve_review_templates=not args.overwrite_review_templates,
+            source_only=args.source_only,
             corpus_profile=(
                 P9_REPORT_INTELLIGENCE_CORPUS_PROFILE if args.p9_profile else None
             ),

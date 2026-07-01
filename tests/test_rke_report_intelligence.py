@@ -6149,6 +6149,84 @@ def test_report_intelligence_can_skip_processed_batch_source_ids(tmp_path: Path)
     assert status[0]["source_id"] == "SRC-OLDER-UNPROCESSED"
 
 
+def test_report_intelligence_reuses_cached_pdf_without_calling_downloader(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    cached_pdf = (
+        tmp_path / f".mosaic/rke/report_intelligence/pdfs/{source_id}.pdf"
+    )
+    cached_pdf.parent.mkdir(parents=True)
+    cached_pdf.write_bytes(b"%PDF-1.4 cached report")
+
+    def downloader(url: str, path: Path, overwrite: bool):
+        raise AssertionError("cached PDF should not trigger downloader")
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,), skip_llm=True),
+        downloader=downloader,
+        converter=_fake_converter,
+    )
+
+    metadata = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_metadata.jsonl"
+    )
+    assert result.blocker_count == 0
+    assert result.pdf_ready_count == 1
+    assert metadata[0]["pdf"]["status"] == "cached"
+
+
+def test_report_intelligence_dedupes_duplicate_source_ids_before_download(
+    tmp_path: Path,
+):
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    base_row = {
+        "abstract": "摘要不能作为本测试的抽取输入。",
+        "author": "Analyst A",
+        "discovered_at": "2026-06-06T00:00:00+00:00",
+        "industry": "宏观",
+        "institution": "Broker A",
+        "license_status": "pending_review",
+        "point_in_time_available": True,
+        "publish_date": "2026-06-05",
+        "query_key": "liquidity",
+        "report_type": "宏观研报",
+        "source_hash": "sha256:test",
+        "source_id": "SRC-DUPLICATE",
+        "source_span_id": "SRC-DUPLICATE:abstract",
+        "source_type": "tushare_research_report",
+        "title": "Liquidity report",
+        "ts_code": "",
+        "url": "https://example.invalid/report.pdf",
+    }
+    _write_jsonl(
+        source_path,
+        [
+            base_row,
+            {**base_row, "source_hash": "sha256:test-duplicate"},
+        ],
+    )
+    downloaded: list[str] = []
+
+    def downloader(url: str, path: Path, overwrite: bool):
+        downloaded.append(url)
+        return _fake_downloader(url, path, overwrite)
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, skip_llm=True),
+        downloader=downloader,
+        converter=_fake_converter,
+    )
+
+    status = _read_jsonl(
+        tmp_path / "registry/report_intelligence/processing_status.jsonl"
+    )
+    assert result.blocker_count == 0
+    assert result.selected_reports == 1
+    assert downloaded == ["https://example.invalid/report.pdf"]
+    assert [row["source_id"] for row in status] == ["SRC-DUPLICATE"]
+
+
 def test_report_intelligence_can_require_cached_markdown_before_limit(tmp_path: Path):
     source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
     base_row = {

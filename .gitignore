@@ -68,7 +68,8 @@ registry/review_batches/source_license_review_workbook.md
 registry/review_batches/lockbox_reviewed.json
 
 # RKE report intelligence keeps original PDFs / MinerU Markdown in local cache.
-# The registry stores derived metadata, hashes, paths, and extraction status.
+# The registry stores local derived reports and extraction artifacts.
+registry/report_intelligence/
 registry/report_intelligence/pdfs/
 registry/report_intelligence/markdown/
 registry/report_intelligence/mineru/

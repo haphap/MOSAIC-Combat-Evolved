@@ -611,8 +611,9 @@ def test_operator_readiness_detects_stale_runbook_promotion_policy(
     runbook_path = tmp_path / "registry/review_batches/manual_review_runbook.md"
     runbook = runbook_path.read_text(encoding="utf-8")
     stale_runbook = runbook.replace(
-        " --license-input registry/review_batches/source_license_policy_import.jsonl ",
-        " ",
+        " --lockbox-input registry/review_batches/lockbox_reviewed.json",
+        " --license-input registry/review_batches/source_license_policy_import.jsonl "
+        "--lockbox-input registry/review_batches/lockbox_reviewed.json",
         1,
     )
     assert stale_runbook != runbook
@@ -630,8 +631,8 @@ def test_operator_readiness_detects_stale_runbook_promotion_policy(
 
     assert not report.accepted
     assert not runbook_check.passed
-    assert "license_input=False" in runbook_check.evidence
-    assert "must be built and passed" in runbook_check.blocker
+    assert "license_input=True" in runbook_check.evidence
+    assert "must be omitted" in runbook_check.blocker
 
 
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):

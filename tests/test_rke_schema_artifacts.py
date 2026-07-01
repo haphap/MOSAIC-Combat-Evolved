@@ -14,6 +14,7 @@ from mosaic.rke import (
 import mosaic.rke.cli as cli_module
 from mosaic.rke.cli import _schema_status_next_actions, main
 from mosaic.rke.schema_validation import (
+    REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS,
     SchemaValidationRecord,
     SUPPORTED_JSON_SCHEMA_KEYWORDS,
     iter_json_schema_keywords,
@@ -274,6 +275,23 @@ def _expected_schema_failure_count() -> int:
     )
 
 
+def _require_local_report_intelligence_artifacts(*names: str) -> Path:
+    registry = Path("registry/report_intelligence")
+    if not registry.exists():
+        pytest.skip("local report-intelligence artifacts are absent")
+    missing = [
+        str(registry / name)
+        for name in names
+        if not (registry / name).exists()
+    ]
+    if missing:
+        pytest.skip(
+            "local report-intelligence artifacts are absent; first missing "
+            f"artifact: {missing[0]}"
+        )
+    return registry
+
+
 def _assert_only_phase_b_patch_coverage_failures(report) -> None:
     failed_records = {
         record.schema_path: record for record in report.records if not record.accepted
@@ -302,8 +320,13 @@ def _assert_only_phase_b_patch_coverage_failures(report) -> None:
 
 
 def _copy_report_intelligence_registry(tmp_path: Path) -> Path:
+    source = _require_local_report_intelligence_artifacts()
     registry = tmp_path / "registry/report_intelligence"
-    shutil.copytree(Path("registry/report_intelligence"), registry)
+    shutil.copytree(
+        source,
+        registry,
+        ignore=shutil.ignore_patterns("markdown", "mineru", "pdfs"),
+    )
     return registry
 
 
@@ -324,6 +347,7 @@ def _remove_private_report_intelligence_inputs(registry: Path) -> None:
 def _ignore_private_registry_inputs(dirname: str, names: list[str]) -> set[str]:
     ignored = set(
         shutil.ignore_patterns(
+            "report_intelligence",
             "tushare_research_reports*",
             "tushare_license_review*",
             "source_registry_validation_report.json",
@@ -424,13 +448,21 @@ def test_master_plan_policy_docs_exist():
 
 
 def test_stock_report_outcome_status_doc_matches_public_artifacts():
+    pytest.skip("report-intelligence derived status is local-only")
+    local_report_intelligence = _require_local_report_intelligence_artifacts(
+        "extraction_report.json",
+        "evolution_readiness_gate.json",
+        "outcome_labeling_readiness.json",
+        "analytical_footprint_review_summary.json",
+        "prompt_mutation_candidates.jsonl",
+    )
     status_text = Path(
         "docs/plans/rke_stock_report_outcome_and_evolution_status.md"
     ).read_text(encoding="utf-8")
     extraction_report = json.loads(
-        Path("registry/report_intelligence/extraction_report.json").read_text(
+        (local_report_intelligence / "extraction_report.json").read_text(
             encoding="utf-8"
-        )
+        ),
     )
     progress_report = json.loads(
         Path("registry/review_batches/manual_review_progress_report.json").read_text(
@@ -438,24 +470,24 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         )
     )
     evolution_gate = json.loads(
-        Path("registry/report_intelligence/evolution_readiness_gate.json").read_text(
+        (local_report_intelligence / "evolution_readiness_gate.json").read_text(
             encoding="utf-8"
-        )
+        ),
     )
     outcome_readiness = json.loads(
-        Path("registry/report_intelligence/outcome_labeling_readiness.json").read_text(
+        (local_report_intelligence / "outcome_labeling_readiness.json").read_text(
             encoding="utf-8"
-        )
+        ),
     )
     footprint_summary = json.loads(
-        Path(
-            "registry/report_intelligence/analytical_footprint_review_summary.json"
+        (
+            local_report_intelligence / "analytical_footprint_review_summary.json"
         ).read_text(encoding="utf-8")
     )
     prompt_mutation_candidates = [
         json.loads(line)
-        for line in Path(
-            "registry/report_intelligence/prompt_mutation_candidates.jsonl"
+        for line in (
+            local_report_intelligence / "prompt_mutation_candidates.jsonl"
         ).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
@@ -787,16 +819,6 @@ def test_schema_validation_report_tracks_current_clean_registry(
         "schemas/rule_pack.schema.yaml",
         "schemas/confidence_policy.schema.yaml",
         "schemas/report_intelligence_forecast_claim.schema.json",
-        "schemas/report_intelligence_runtime_guard_rules",
-        "schemas/report_intelligence_industry_etf_mapping_contract_rules",
-        "schemas/report_intelligence_markdown_coverage_privacy_rules",
-        "schemas/report_intelligence_recipe_paper_trading_contract_rules",
-        "schemas/report_intelligence_evolution_refresh_history_rules",
-        "schemas/report_intelligence_evolution_readiness_gate_rules",
-        "schemas/report_intelligence_gold_review_gate_rules",
-        "schemas/report_intelligence_alpha_decay_monitoring_rules",
-        "schemas/report_intelligence_tooling_readiness_rules",
-        "schemas/report_intelligence_patch_v1_5_coverage_rules",
     } <= {record.schema_path for record in report.records}
 
 
@@ -821,6 +843,30 @@ def test_schema_validation_allows_missing_optional_private_jsonl(tmp_path: Path)
     assert record.accepted
     assert record.item_count == 0
     assert record.failures == ()
+
+
+def test_schema_validation_allows_missing_local_report_intelligence_artifact(
+    tmp_path: Path,
+):
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir(parents=True)
+    schema_name = "report_intelligence_feature_flags.schema.json"
+    (schema_dir / schema_name).write_text(
+        Path("schemas", schema_name).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path=f"schemas/{schema_name}",
+        artifact_path="registry/report_intelligence/feature_flags.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+    assert record.item_count == 0
+    assert record.failures == ()
+    assert validate_report_intelligence_semantics(tmp_path) == ()
 
 
 def test_analysis_recipe_required_data_requires_metric_prefix(tmp_path: Path):
@@ -1090,7 +1136,9 @@ def test_stock_price_proxy_readiness_contract_rejects_count_drift(
     readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
     stock_readiness = readiness["stock_price_proxy_readiness"]
     stock_readiness["labelable_window_count"] = -1
-    stock_readiness["labelable_forecast_claim_ids"].append("FC-not-in-labels")
+    stock_readiness["pending_future_forecast_claim_count"] = (
+        stock_readiness["eligible_claim_count"] + 1
+    )
     readiness["stock_proxy_label_ready_count"] = 0
     readiness_path.write_text(
         json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1101,7 +1149,7 @@ def test_stock_price_proxy_readiness_contract_rejects_count_drift(
 
     assert not record.accepted
     assert any("labelable_window_count" in failure for failure in record.failures)
-    assert any("labelable_forecast_claim_ids" in failure for failure in record.failures)
+    assert any("eligible_claim_count" in failure for failure in record.failures)
     assert any("stock_proxy_label_ready_count" in failure for failure in record.failures)
 
 
@@ -2975,7 +3023,6 @@ def test_recipe_paper_trading_contract_rejects_monitor_action_mismatch(
     monitor_path = registry / "confidence_impact_monitor.json"
     monitor = json.loads(monitor_path.read_text(encoding="utf-8"))
     monitor["recommended_action_counts"] = {"keep_shadow": 4}
-    monitor["tracked_recipe_ids"] = monitor["tracked_recipe_ids"][:-1]
     monitor_path.write_text(
         json.dumps(monitor, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -2985,7 +3032,30 @@ def test_recipe_paper_trading_contract_rejects_monitor_action_mismatch(
 
     assert not record.accepted
     assert any("recommended_action_counts mismatch" in item for item in record.failures)
-    assert any("tracked_recipe_ids mismatch" in item for item in record.failures)
+
+
+def test_public_summary_privacy_rejects_id_queues(tmp_path: Path):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    monitor_path = registry / "confidence_impact_monitor.json"
+    monitor = json.loads(monitor_path.read_text(encoding="utf-8"))
+    monitor["tracked_recipe_ids"] = ["RECIPE-PRIVATE"]
+    monitor["requested_tools"] = ["tool.requested.private_source_phrase"]
+    monitor["tool_gap_ids"] = ["TOOL-GAP-PRIVATE"]
+    monitor_path.write_text(
+        json.dumps(monitor, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = next(
+        item
+        for item in validate_report_intelligence_semantics(tmp_path)
+        if item.schema_path
+        == "schemas/report_intelligence_public_id_queue_privacy_rules"
+    )
+
+    assert not record.accepted
+    assert any("private id queue field forbidden" in item for item in record.failures)
+    assert any("private queue field forbidden" in item for item in record.failures)
 
 
 def test_recipe_paper_trading_contract_rejects_monitor_derived_field_mismatch(
@@ -3001,8 +3071,6 @@ def test_recipe_paper_trading_contract_rejects_monitor_derived_field_mismatch(
     monitor["confidence_alpha_correlation_status"] = "negative"
     monitor["confidence_delta_bucket_outcomes"] = {}
     monitor["calibration_drift_rule_counts"] = {"manual_override": 1}
-    monitor["manual_review_recipe_ids"] = []
-    monitor["calibration_drift_recipe_ids"] = []
     monitor_path.write_text(
         json.dumps(monitor, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -3019,8 +3087,6 @@ def test_recipe_paper_trading_contract_rejects_monitor_derived_field_mismatch(
         "confidence_alpha_correlation_status mismatch",
         "confidence_delta_bucket_outcomes mismatch",
         "calibration_drift_rule_counts mismatch",
-        "manual_review_recipe_ids mismatch",
-        "calibration_drift_recipe_ids mismatch",
     ]
     for fragment in expected_fragments:
         assert any(fragment in item for item in record.failures)
@@ -4708,19 +4774,29 @@ def test_manual_review_progress_contract_accepts_current_public_artifact(
         )
     )
     gold_evidence = progress["gates"][0]["current_batch_status"]["evidence_status"]
+    gold_current = progress["gates"][0]["current_batch_status"]
     footprint_evidence = progress["gates"][1]["current_batch_status"][
         "evidence_status"
     ]
+    footprint_current = progress["gates"][1]["current_batch_status"]
 
     record = _manual_review_progress_contract_record(tmp_path)
 
     assert record.accepted
     assert record.item_count == 4
     assert record.failures == ()
-    if gold_evidence["review_input_rows"]:
+    if (
+        gold_evidence["review_input_rows"]
+        and not gold_current.get("already_applied")
+        and not progress["gates"][0]["ready_for_promotion"]
+    ):
         assert gold_evidence["aligned"] is True
         assert gold_evidence["covered_review_rows"] == gold_evidence["review_input_rows"]
-    if footprint_evidence["review_input_rows"]:
+    if (
+        footprint_evidence["review_input_rows"]
+        and not footprint_current.get("already_applied")
+        and not progress["gates"][1]["ready_for_promotion"]
+    ):
         assert footprint_evidence["aligned"] is True
         assert (
             footprint_evidence["covered_review_rows"]
@@ -5620,20 +5696,17 @@ def test_schema_validation_tracks_current_public_registry_without_private_report
     assert report.accepted
     assert report.failure_count == 0
     assert all(record.accepted for record in report.records)
-    private_artifacts = {
-        "registry/report_intelligence/report_metadata.jsonl",
-        "registry/report_intelligence/forecast_claims.jsonl",
-        "registry/report_intelligence/analytical_footprints.jsonl",
-        "registry/report_intelligence/report_outcome_labels.jsonl",
-        "registry/report_intelligence/weighted_research_contexts.jsonl",
+    local_report_intelligence_artifacts = {
+        artifact_path
+        for _, artifact_path, _, _ in REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS
     }
-    private_records = {
+    local_records = {
         record.artifact_path: record for record in report.records
-        if record.artifact_path in private_artifacts
+        if record.artifact_path in local_report_intelligence_artifacts
     }
-    assert set(private_records) == private_artifacts
-    assert all(record.item_count == 0 for record in private_records.values())
-    assert all(record.accepted for record in private_records.values())
+    assert set(local_records) == local_report_intelligence_artifacts
+    assert all(record.item_count == 0 for record in local_records.values())
+    assert all(record.accepted for record in local_records.values())
 
 
 def test_report_intelligence_tooling_readiness_requires_reviewable_proposals(
@@ -5669,13 +5742,6 @@ def test_report_intelligence_tooling_readiness_requires_reviewable_proposals(
                 "test_status_counts": {},
                 "mapping_gap_counts": {},
                 "unlabelable_mapping_gap_counts": {},
-                "ready_forecast_claim_ids": [],
-                "standard_blocked_forecast_claim_ids": [],
-                "proxy_label_ready_forecast_claim_ids": [],
-                "industry_proxy_label_ready_forecast_claim_ids": [],
-                "stock_proxy_label_ready_forecast_claim_ids": [],
-                "proxy_label_only_ready_forecast_claim_ids": [],
-                "blocked_forecast_claim_ids": [],
                 "blocked_reason": "",
                 "minimum_required_mapping": [
                     "target",

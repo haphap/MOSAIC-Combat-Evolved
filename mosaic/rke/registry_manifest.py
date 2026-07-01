@@ -9,6 +9,33 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
+REPORT_INTELLIGENCE_LOCAL_ARTIFACT_FILES = frozenset(
+    {
+        "registry/report_intelligence/analytical_footprint_error_taxonomy.json",
+        "registry/report_intelligence/analytical_footprint_review_summary.json",
+        "registry/report_intelligence/confidence_impact_monitor.json",
+        "registry/report_intelligence/evolution_readiness_gate.json",
+        "registry/report_intelligence/extraction_provenance_audit.json",
+        "registry/report_intelligence/extraction_report.json",
+        "registry/report_intelligence/feature_flags.json",
+        "registry/report_intelligence/industry_etf_proxy_map.jsonl",
+        "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+        "registry/report_intelligence/macro_market_series_catalog.jsonl",
+        "registry/report_intelligence/macro_regime_calendar.jsonl",
+        "registry/report_intelligence/markdown_coverage_summary.json",
+        "registry/report_intelligence/monitoring_report.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/patch_v1_5_coverage_report.json",
+        "registry/report_intelligence/pit_leakage_audit.json",
+        "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "registry/report_intelligence/recipe_validation_audit.json",
+        "registry/report_intelligence/runtime_safety_audit.json",
+        "registry/report_intelligence/statistical_robustness_audit.json",
+        "registry/report_intelligence/tool_feasibility_audit.json",
+    }
+)
+
+
 PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
     {
         "registry/compliance/tushare_license_review_import_report.json",
@@ -83,11 +110,9 @@ PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
         "registry/sources/tushare_research_reports.jsonl",
         "registry/sources/tushare_research_reports.manifest.json",
     }
-)
+) | REPORT_INTELLIGENCE_LOCAL_ARTIFACT_FILES
 PRIVATE_LOCAL_REGISTRY_PREFIXES = (
-    "registry/report_intelligence/markdown/",
-    "registry/report_intelligence/mineru/",
-    "registry/report_intelligence/pdfs/",
+    "registry/report_intelligence/",
 )
 
 
@@ -139,24 +164,6 @@ REQUIRED_REGISTRY_FILES = (
     "registry/promotion/rke_production_promotion_gate.json",
     "registry/rendered_prompts/macro.central_bank.rke.json",
     "registry/rendered_prompts/macro.central_bank.rke.md",
-    "registry/report_intelligence/analytical_footprint_error_taxonomy.json",
-    "registry/report_intelligence/analytical_footprint_review_summary.json",
-    "registry/report_intelligence/extraction_provenance_audit.json",
-    "registry/report_intelligence/extraction_report.json",
-    "registry/report_intelligence/feature_flags.json",
-    "registry/report_intelligence/industry_etf_proxy_map.jsonl",
-    "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
-    "registry/report_intelligence/markdown_coverage_summary.json",
-    "registry/report_intelligence/monitoring_report.json",
-    "registry/report_intelligence/pit_leakage_audit.json",
-    "registry/report_intelligence/patch_v1_5_coverage_report.json",
-    "registry/report_intelligence/outcome_labeling_readiness.json",
-    "registry/report_intelligence/recipe_paper_trading_summary.json",
-    "registry/report_intelligence/confidence_impact_monitor.json",
-    "registry/report_intelligence/runtime_safety_audit.json",
-    "registry/report_intelligence/statistical_robustness_audit.json",
-    "registry/report_intelligence/tool_feasibility_audit.json",
-    "registry/report_intelligence/recipe_validation_audit.json",
     "registry/rule_checks/rule_pack_validation_report.json",
     "registry/rule_packs/macro.central_bank.liquidity.v1.json",
     "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
