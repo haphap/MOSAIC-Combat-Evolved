@@ -47,6 +47,15 @@ def repo(tmp_path: Path, monkeypatch) -> Path:
     seed.mkdir(parents=True)
     (seed / "volatility.zh.md").write_text("base zh\n## 输出 schema\n", encoding="utf-8")
     (seed / "volatility.en.md").write_text("base en\n## Output schema\n", encoding="utf-8")
+    super_seed = repo / "prompts" / "mosaic" / "cohort_default" / "superinvestor"
+    super_seed.mkdir(parents=True)
+    for agent in ("druckenmiller", "munger", "burry", "ackman"):
+        (super_seed / f"{agent}.zh.md").write_text(
+            f"{agent} zh\n## 输出 schema\n", encoding="utf-8"
+        )
+        (super_seed / f"{agent}.en.md").write_text(
+            f"{agent} en\n## Output schema\n", encoding="utf-8"
+        )
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "seed")
     (repo / "data").mkdir()
@@ -79,6 +88,22 @@ class TestRead:
     def test_unknown_agent(self, repo: Path):
         with pytest.raises(RpcError, match="unknown agent"):
             dispatch("prompts.read", {"agent": "nope", "cohort": "cohort_default", "lang": "zh"})
+
+    def test_superinvestor_roster_uses_canonical_four(self, repo: Path):
+        for agent in ("druckenmiller", "munger", "burry", "ackman"):
+            r = dispatch(
+                "prompts.read",
+                {"agent": agent, "cohort": "cohort_default", "lang": "zh"},
+            )
+            assert r["content"].startswith(f"{agent} zh")
+            assert r["path"] == f"prompts/mosaic/cohort_default/superinvestor/{agent}.zh.md"
+
+        for removed_agent in ("aschenbrenner", "baker"):
+            with pytest.raises(RpcError, match="unknown agent"):
+                dispatch(
+                    "prompts.read",
+                    {"agent": removed_agent, "cohort": "cohort_default", "lang": "zh"},
+                )
 
     def test_bad_lang(self, repo: Path):
         with pytest.raises(RpcError, match="lang"):
