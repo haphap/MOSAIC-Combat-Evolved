@@ -48,7 +48,7 @@ export const AGENTS_BY_LAYER: Record<Layer, ReadonlyArray<string>> = {
     "financials",
     "relationship_mapper",
   ],
-  superinvestor: ["druckenmiller", "aschenbrenner", "baker", "ackman"],
+  superinvestor: ["druckenmiller", "munger", "burry", "ackman"],
   decision: ["cro", "alpha_discovery", "autonomous_execution", "cio"],
 };
 

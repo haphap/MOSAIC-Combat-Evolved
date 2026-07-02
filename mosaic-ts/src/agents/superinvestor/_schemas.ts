@@ -10,9 +10,9 @@
 import { z } from "zod";
 import type {
   AckmanOutput,
-  AschenbrennerOutput,
-  BakerOutput,
+  BurryOutput,
   DruckenmillerOutput,
+  MungerOutput,
   SuperinvestorOutput,
 } from "../types.js";
 
@@ -79,8 +79,8 @@ function buildSuperinvestorSchema<L extends string>(literal: L) {
 // ---------------------------------------------------------------------------
 
 export const DruckenmillerSchema = buildSuperinvestorSchema("druckenmiller");
-export const AschenbrennerSchema = buildSuperinvestorSchema("aschenbrenner");
-export const BakerSchema = buildSuperinvestorSchema("baker");
+export const MungerSchema = buildSuperinvestorSchema("munger");
+export const BurrySchema = buildSuperinvestorSchema("burry");
 export const AckmanSchema = buildSuperinvestorSchema("ackman");
 
 export const SUPERINVESTOR_FIELD_NAMES = [
@@ -97,12 +97,12 @@ export const SUPERINVESTOR_FIELD_NAMES = [
 type _GuardEqShape<T, U> = T extends U ? (U extends T ? true : never) : never;
 
 const _drCheck: _GuardEqShape<z.infer<typeof DruckenmillerSchema>, DruckenmillerOutput> = true;
-const _asCheck: _GuardEqShape<z.infer<typeof AschenbrennerSchema>, AschenbrennerOutput> = true;
-const _baCheck: _GuardEqShape<z.infer<typeof BakerSchema>, BakerOutput> = true;
+const _muCheck: _GuardEqShape<z.infer<typeof MungerSchema>, MungerOutput> = true;
+const _buCheck: _GuardEqShape<z.infer<typeof BurrySchema>, BurryOutput> = true;
 const _acCheck: _GuardEqShape<z.infer<typeof AckmanSchema>, AckmanOutput> = true;
 
 export type _SuperinvestorSchemaGuards = SuperinvestorOutput;
 void _drCheck;
-void _asCheck;
-void _baCheck;
+void _muCheck;
+void _buCheck;
 void _acCheck;

@@ -353,7 +353,7 @@ describe("renderDarwinianWeights (Phase 3F)", () => {
       {
         ackman: { weight: 1.5, sharpe_30: 1.0, quartile: 1 },
         druckenmiller: { weight: 0.8, sharpe_30: 0.3, quartile: 3 },
-        baker: { weight: 0.4, sharpe_30: -0.1, quartile: 4 },
+        burry: { weight: 0.4, sharpe_30: -0.1, quartile: 4 },
       },
       "2024-07-31",
     );
@@ -361,12 +361,12 @@ describe("renderDarwinianWeights (Phase 3F)", () => {
     expect(out).toContain("ackman: weight=1.50");
     expect(out).toContain("Q1");
     expect(out).toContain("Q4");
-    // Sorted by weight descending → ackman before druckenmiller before baker
+    // Sorted by weight descending → ackman before druckenmiller before burry
     const ackmanIdx = out.indexOf("ackman");
     const druckIdx = out.indexOf("druckenmiller");
-    const bakerIdx = out.indexOf("baker");
+    const burryIdx = out.indexOf("burry");
     expect(ackmanIdx).toBeLessThan(druckIdx);
-    expect(druckIdx).toBeLessThan(bakerIdx);
+    expect(druckIdx).toBeLessThan(burryIdx);
   });
 
   it("renders n<5 marker when sharpe_30 is null", async () => {
