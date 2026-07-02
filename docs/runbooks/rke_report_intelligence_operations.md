@@ -436,14 +436,42 @@ Operational guidance:
       running.
     - The HF cache must contain the NVIDIA Qwen3.6 35B NVFP4 snapshot above.
   - Service-owner startup flow, and only for the owner shell:
+    - If the same-parameter container is already healthy, reuse it and skip
+      startup:
 
-    ```bash
-    rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090 || true
-    rtk docker rm -f vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
-    rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-    rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
-    rtk sndr launch nvidia-qwen3.6-35b-a3b-nvfp4-5090 --skip-autodetect
-    ```
+      ```bash
+      curl -s http://127.0.0.1:8000/health
+      rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      ```
+
+    - If the same-parameter container exists but is stopped, prefer restarting
+      it instead of deleting it:
+
+      ```bash
+      rtk docker ps -a \
+        --filter name=vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d \
+        --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk docker start vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d
+      ```
+
+      This reuses the container definition and mounted host caches, but not GPU
+      memory. The model still reloads and warms up after every stopped start.
+
+    - Rebuild the container only when no reusable container exists, the preset
+      or runtime flags changed, the container is in an abnormal state, or a
+      clean deterministic launch is required:
+
+      ```bash
+      rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090 || true
+      rtk docker rm -f vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
+      rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+      rtk sndr launch nvidia-qwen3.6-35b-a3b-nvfp4-5090 --skip-autodetect
+      ```
+
+    `sndr launch` renders a conservative Docker script that removes any
+    same-name container before creating a fresh one. Use `rtk docker start`
+    instead when the goal is to reuse an unchanged stopped container.
 
     If another vLLM container is already running, or GPU memory is close to
     full, do not launch. Either wait for the current owner to finish, or have
@@ -602,28 +630,47 @@ Operational guidance:
     - Result: `16/16` success, output throughput `327.67 tok/s`, total token
       throughput `1665.09 tok/s`, mean TTFT `76.23 ms`, MTP acceptance rate
       `63.73%`, and MTP acceptance length `2.91`.
-  - Service-owner stop and cleanup, and only for the owner shell:
+  - Service-owner stop, and only for the owner shell:
+    - Default stop keeps the container available for same-parameter reuse:
+
+      ```bash
+      rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090 || true
+      rtk docker stop vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
+      rtk docker ps -a \
+        --filter name=vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d \
+        --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+      ```
+
+    `sndr down` may report no running engine if the container was launched
+    outside the current sndr runtime state. In that case, use `rtk docker stop`
+    on the known container name to preserve it for reuse.
+
+    After stop, GPU memory should return to the desktop idle baseline.
+
+  - Full cleanup only when rebuilding or recovering from abnormal state:
 
     ```bash
-    rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090
     rtk docker rm -f vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
-    rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-    rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
     ```
 
-    After cleanup, GPU memory should return to the desktop idle baseline.
+    Removing the container does not remove host caches mounted from Hugging
+    Face, Triton, or vLLM torch compile cache directories. It only discards the
+    container definition and forces the next `sndr launch` to recreate it.
+
   - Common failure notes:
     - If `sndr up` says the model is missing but the HF cache exists under
-      `models--nvidia--Qwen3.6-35B-A3B-NVFP4/snapshots/`, use the primary
+      `models--nvidia--Qwen3.6-35B-A3B-NVFP4/snapshots/`, use the rebuild
       `sndr launch --skip-autodetect` flow above.
     - If `/health` returns `000` while logs show safetensor loading, profile,
       warmup, or autotune, continue waiting until health is ready or the
       container exits.
     - If logs end with `Engine core initialization failed`, do not run RKE
       extraction against this endpoint. The service owner should capture
-      `rtk docker logs --tail 200`, stop with `rtk sndr down`, remove the
-      stopped container, and retest only after the preset, vLLM image, or sndr
-      patches change.
+      `rtk docker logs --tail 200`, stop with `rtk sndr down` and
+      `rtk docker stop`, and remove the stopped container only if a rebuild is
+      required before retesting.
 - 2026-07-01 macro backfill run:
   - Source pool: `979` previously unprocessed local macro reports from the
     private local source registry.
