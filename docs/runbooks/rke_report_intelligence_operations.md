@@ -401,6 +401,229 @@ Operational guidance:
   the same 50 report ids, with footprints on `50/50` reports. Treat this as
   higher structured-recall evidence, not as a completed manual semantic-quality
   review.
+- 2026-07-02 sndr 35B NVFP4 article-extraction smoke:
+  - Preset: `nvidia-qwen3.6-35b-a3b-nvfp4-5090`.
+  - Do not use `sndr up` as the primary path for this preset. On this host it
+    can fail a false model-path autodetect check even when the HF cache is
+    present. Use `sndr launch ... --skip-autodetect`.
+  - Runtime envelope:
+    - Served model: `qwen3.6-35b-a3b-nvfp4`.
+    - HF snapshot:
+      `/models/models--nvidia--Qwen3.6-35B-A3B-NVFP4/snapshots/491c2f1ea524c639598bf8fa787a93fed5a6fbce`.
+    - API base URL: `http://127.0.0.1:8000`.
+    - Chat endpoint: `/v1/chat/completions`.
+    - Auth header: `Authorization: Bearer genesis-local`.
+    - Preset engine flags: `--tensor-parallel-size 1`,
+      `--gpu-memory-utilization 0.9`, `--max-model-len 120000`,
+      `--max-num-seqs 1`, `--max-num-batched-tokens 4096`,
+      `--dtype bfloat16`, `--kv-cache-dtype auto`,
+      `--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`,
+      `--enable-chunked-prefill`, `--disable-custom-all-reduce`,
+      `--language-model-only`, `--trust-remote-code`, and
+      `--enable-auto-tool-choice`.
+  - Single-owner service workflow, now the standard operating model:
+    - Pick exactly one service owner for each service lifetime. The owner can
+      be a human shell or one Codex session.
+    - The same owner may perform the full lifecycle: cleanup, launch, health
+      polling, extraction requests, log inspection, and final shutdown.
+    - Current workstation note: on 2026-07-02 this service was successfully
+      started by another owner shell before testing. When that is already true,
+      skip startup and start at the health check and extraction request below.
+  - Environment prerequisites:
+    - RTX 5090 D visible from the host. `rtk nvidia-smi` should show the idle
+      desktop baseline around `1.2-1.8 GiB` used before launch.
+    - No other vLLM/MinerU GPU workload or vLLM Docker container should be
+      running.
+    - The HF cache must contain the NVIDIA Qwen3.6 35B NVFP4 snapshot above.
+  - Service-owner startup flow, and only for the owner shell:
+
+    ```bash
+    rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090 || true
+    rtk docker rm -f vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
+    rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+    rtk sndr launch nvidia-qwen3.6-35b-a3b-nvfp4-5090 --skip-autodetect
+    ```
+
+    If another vLLM container is already running, or GPU memory is close to
+    full, do not launch. Either wait for the current owner to finish, or have
+    that owner stop the service first.
+
+  - Health wait, up to 10 minutes:
+
+    ```bash
+    for i in {1..120}; do
+      code=$(curl -s -o /tmp/sndr-health-35b.out -w "%{http_code}" \
+        http://127.0.0.1:8000/health || true)
+      if [ "$code" = 200 ]; then
+        echo READY
+        break
+      fi
+      if ! rtk docker ps --format "{{.Names}}" | \
+        grep -qx vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d; then
+        echo EXITED
+        rtk docker ps -a \
+          --filter name=vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d \
+          --format "{{.Status}}"
+        rtk docker logs --tail 200 \
+          vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d
+        exit 1
+      fi
+      sleep 5
+    done
+    ```
+
+    If the container exits before `/health` returns `200`, stop waiting and
+    inspect logs instead of sending extraction requests.
+  - Service ready confirmation by the owner:
+
+    ```bash
+    curl -s http://127.0.0.1:8000/health
+    rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    ```
+
+    The owner should see container
+    `vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d` with port
+    `0.0.0.0:8000->8000/tcp`.
+  - Extraction call flow:
+    - Use `http://127.0.0.1:8000`, `/v1/chat/completions`, model
+      `qwen3.6-35b-a3b-nvfp4`, `Authorization: Bearer genesis-local`, and
+      `Content-Type: application/json`.
+    - Start every extraction test with:
+
+      ```bash
+      curl -s http://127.0.0.1:8000/health
+      ```
+
+      Continue only when it returns a healthy response.
+  - Model check after health is ready:
+
+    ```bash
+    curl -sS \
+      -H 'Authorization: Bearer genesis-local' \
+      http://127.0.0.1:8000/v1/models
+    ```
+
+  - Minimal reproducible article-extraction request:
+
+    ```bash
+    curl -s http://127.0.0.1:8000/v1/chat/completions \
+      -H "Authorization: Bearer genesis-local" \
+      -H "Content-Type: application/json" \
+      -d @- <<'JSON' | tee /tmp/sndr-35b-extract-response.json | python3 -m json.tool
+    {
+      "model": "qwen3.6-35b-a3b-nvfp4",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract article metadata. Return exactly one compact JSON object in the final answer content. No markdown."
+        },
+        {
+          "role": "user",
+          "content": "Title: Example Market Note\nAuthor: Jane Doe\nDate: 2026-07-02\nBody: Acme reported revenue growth of 12% and expanded operations in Shanghai. Extract title, author, date, organizations, locations, and numeric claims."
+        }
+      ],
+      "temperature": 0,
+      "max_tokens": 1024
+    }
+    JSON
+    ```
+
+    Read the final answer from `content` first:
+
+    ```bash
+    python3 - <<'PY'
+    import json
+    from pathlib import Path
+
+    d = json.loads(Path("/tmp/sndr-35b-extract-response.json").read_text())
+    msg = d["choices"][0]["message"]
+    print(msg.get("content") or msg.get("reasoning") or "")
+    PY
+    ```
+
+    Qwen reasoning parser output can include
+    `choices[0].message.reasoning`. Prefer `choices[0].message.content`; if it
+    is empty, increase `max_tokens` and make the system prompt explicit:
+    `Return final JSON in content after reasoning.` For deterministic
+    extraction where supported by the server,
+    `chat_template_kwargs: {"enable_thinking": false}` also helps keep JSON in
+    `content`.
+  - RKE-like reproducible synthetic article input:
+
+    ```text
+    Title: Copper Grid Demand Lifts Orders
+    Date: 2026-07-02
+
+    Huaxin Cable said second-quarter orders rose 18% year over year to
+    RMB 4.2 billion. Management attributed the increase to grid upgrades,
+    data-center power projects, and higher copper-clad cable demand.
+    The company expects gross margin to improve by 1.5 percentage points in
+    the next two quarters if copper prices remain below RMB 82,000 per ton.
+    It warned that a sudden copper-price spike and delayed utility tenders
+    could pressure shipment timing. Capital expenditure for 2026 is planned
+    at RMB 600 million, mainly for high-voltage production lines.
+    ```
+
+  - OpenAI-compatible extraction request to run only after `/health` is ready:
+
+    ```bash
+    curl -sS http://127.0.0.1:8000/v1/chat/completions \
+      -H 'Authorization: Bearer genesis-local' \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "model": "qwen3.6-35b-a3b-nvfp4",
+        "temperature": 0,
+        "max_tokens": 600,
+        "chat_template_kwargs": {"enable_thinking": false},
+        "response_format": {"type": "json_object"},
+        "messages": [
+          {
+            "role": "system",
+            "content": "Extract structured facts from the article. Return only JSON with keys: title, publication_date, entities, metrics, forecasts, risks, capex, evidence_spans."
+          },
+          {
+            "role": "user",
+            "content": "Title: Copper Grid Demand Lifts Orders\nDate: 2026-07-02\n\nHuaxin Cable said second-quarter orders rose 18% year over year to RMB 4.2 billion. Management attributed the increase to grid upgrades, data-center power projects, and higher copper-clad cable demand. The company expects gross margin to improve by 1.5 percentage points in the next two quarters if copper prices remain below RMB 82,000 per ton. It warned that a sudden copper-price spike and delayed utility tenders could pressure shipment timing. Capital expenditure for 2026 is planned at RMB 600 million, mainly for high-voltage production lines."
+          }
+        ]
+      }'
+    ```
+
+  - Result checks:
+    - HTTP status is `200`.
+    - `choices[0].message.content` is valid JSON.
+    - The JSON includes article-level facts, metric values, forecast horizon,
+      risks, capex, and evidence snippets grounded in the synthetic input.
+    - Record elapsed wall time, HTTP status, and whether JSON parsing succeeds.
+  - Observed benchmark reference:
+    - File:
+      `/home/hap/Project/sndr-bench-results/20260702-rtx5090d/nvidia-qwen3.6-35b-a3b-nvfp4-5090-ctx120k-k3-warm.json`.
+    - Result: `16/16` success, output throughput `327.67 tok/s`, total token
+      throughput `1665.09 tok/s`, mean TTFT `76.23 ms`, MTP acceptance rate
+      `63.73%`, and MTP acceptance length `2.91`.
+  - Service-owner stop and cleanup, and only for the owner shell:
+
+    ```bash
+    rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090
+    rtk docker rm -f vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
+    rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+    ```
+
+    After cleanup, GPU memory should return to the desktop idle baseline.
+  - Common failure notes:
+    - If `sndr up` says the model is missing but the HF cache exists under
+      `models--nvidia--Qwen3.6-35B-A3B-NVFP4/snapshots/`, use the primary
+      `sndr launch --skip-autodetect` flow above.
+    - If `/health` returns `000` while logs show safetensor loading, profile,
+      warmup, or autotune, continue waiting until health is ready or the
+      container exits.
+    - If logs end with `Engine core initialization failed`, do not run RKE
+      extraction against this endpoint. The service owner should capture
+      `rtk docker logs --tail 200`, stop with `rtk sndr down`, remove the
+      stopped container, and retest only after the preset, vLLM image, or sndr
+      patches change.
 - 2026-07-01 macro backfill run:
   - Source pool: `979` previously unprocessed local macro reports from the
     private local source registry.
@@ -428,8 +651,8 @@ Operational guidance:
     retry shard was in the same order of magnitude. Do not re-test these
     settings before future macro shards unless the model/container, RKE
     extraction flags, or Markdown quality gates change.
-- Stop this container before MinerU VLM conversion or any other GPU-heavy local
-  workload if memory pressure appears.
+- Ask the service owner to stop this container before MinerU VLM conversion or
+  any other GPU-heavy local workload if memory pressure appears.
 
 ## Forecast Claim Pre-Review Rule
 
