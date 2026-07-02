@@ -46,9 +46,7 @@ SECTOR_AGENTS = frozenset(
         "semiconductor",
     }
 )
-SUPERINVESTOR_AGENTS = frozenset(
-    {"ackman", "aschenbrenner", "baker", "druckenmiller"}
-)
+SUPERINVESTOR_AGENTS = frozenset({"ackman", "burry", "druckenmiller", "munger"})
 
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
@@ -173,24 +171,40 @@ SUPERINVESTOR_STYLE_KEYWORDS: Mapping[str, tuple[str, ...]] = {
         "高端",
         "龙头",
     ),
-    "superinvestor.aschenbrenner": (
-        "ai",
-        "人工智能",
-        "算力",
-        "半导体",
-        "芯片",
-        "数据中心",
-        "国产替代",
-        "enterprise_ai",
+    "superinvestor.munger": (
+        "quality",
+        "moat",
+        "roic",
+        "gross_margin",
+        "free_cash_flow",
+        "predictability",
+        "cashflow",
+        "roe",
+        "护城河",
+        "定价权",
+        "自由现金流",
+        "低负债",
+        "可预测",
+        "复利",
     ),
-    "superinvestor.baker": (
-        "biotech",
-        "医药",
-        "生物",
-        "创新药",
-        "医疗器械",
-        "专利",
-        "研发",
+    "superinvestor.burry": (
+        "value",
+        "deep_value",
+        "fcf_yield",
+        "ev_ebit",
+        "balance_sheet",
+        "debt",
+        "cash",
+        "buyback",
+        "contrarian",
+        "downside",
+        "stock_forward_return",
+        "深度价值",
+        "逆向",
+        "低估",
+        "资产负债表",
+        "现金",
+        "回购",
     ),
     "superinvestor.druckenmiller": (
         "momentum",

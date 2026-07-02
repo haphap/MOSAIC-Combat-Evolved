@@ -12,18 +12,18 @@
 
 ## 哪些情况会出现 novel pick
 
-1. **Cross-philosophy ticker**：既符合 quality compounder（ackman）又有
-   AI capex 元素（aschenbrenner）的 ticker，可能两个都嫌不够纯粹。
+1. **Cross-philosophy ticker**：既符合 quality compounder（ackman / munger）又有
+   逆向深度价值（burry）特征的 ticker，可能各自都嫌不够纯粹。
 2. **Sector boundary**：一个 ticker 在多个 sector_focus 中边缘出现，
    每个 sector agent 都给低 conviction，但综合看其实是好 pick。
-3. **小市值高质量**：ackman 嫌小、druckenmiller 嫌不动量、aschenbrenner
-   嫌不算力——但确实有 IP moat。
+3. **小市值高质量**：ackman 嫌小、druckenmiller 嫌不动量、munger 嫌可预测性不足、
+   burry 嫌安全边际不够硬——但综合看可能是遗漏。
 4. **政策窗口**：某个政策催化在哪个 superinvestor 的逻辑里都不直接 fit。
 
 ## 严格约束
 
 * **空 novel_picks 是最常见的结果**。4 位 superinvestor 已经覆盖 macro /
-  AI / 生物 IP / quality 四大象限，残留的真 alpha 应该极少。**强行凑数比
+  quality / deep value / activist quality 四大象限，残留的真 alpha 应该极少。**强行凑数比
   错过更糟**。
 * `novel_picks ≥ 3 时 confidence 应 ≤ 0.4`——这意味着上游覆盖太差，更
   可能是判断错而非真 alpha。

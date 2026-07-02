@@ -219,14 +219,14 @@ export interface SectorConsensus {
 
 // ============================================================ Layer 3: Superinvestor
 
-/** Plan §5.3 — druckenmiller, aschenbrenner, baker, ackman.
+/** Plan §5.3 — druckenmiller, munger, burry, ackman.
  *
  *  Each superinvestor applies a philosophy filter and produces a concentrated
  *  pick list (typically 3–5 names) with the philosophical rationale.
  */
 export interface SuperinvestorPick {
   ticker: string;
-  /** The investor-style rationale: macro asymmetry / IP moat / quality compounder / AI cycle. */
+  /** The investor-style rationale: macro asymmetry / quality moat / deep value / activist quality. */
   thesis: string;
   conviction: number;
   /** Suggested holding period bracket. */
@@ -234,7 +234,7 @@ export interface SuperinvestorPick {
 }
 
 export interface SuperinvestorOutput {
-  agent: "druckenmiller" | "aschenbrenner" | "baker" | "ackman";
+  agent: "druckenmiller" | "munger" | "burry" | "ackman";
   picks: SuperinvestorPick[];
   /** Why these 3-5 names + macro/sector regime fit. */
   philosophy_note: string;
@@ -246,11 +246,11 @@ export interface SuperinvestorOutput {
 export interface DruckenmillerOutput extends Omit<SuperinvestorOutput, "agent"> {
   agent: "druckenmiller";
 }
-export interface AschenbrennerOutput extends Omit<SuperinvestorOutput, "agent"> {
-  agent: "aschenbrenner";
+export interface MungerOutput extends Omit<SuperinvestorOutput, "agent"> {
+  agent: "munger";
 }
-export interface BakerOutput extends Omit<SuperinvestorOutput, "agent"> {
-  agent: "baker";
+export interface BurryOutput extends Omit<SuperinvestorOutput, "agent"> {
+  agent: "burry";
 }
 export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
   agent: "ackman";

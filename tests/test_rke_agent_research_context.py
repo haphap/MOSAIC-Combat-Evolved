@@ -113,9 +113,9 @@ def test_superinvestor_context_filters_by_style_fit():
             "report_id": "RPT-STOCK-1",
             "target": {
                 "target_type": "stock",
-                "target_id": "688001.SH",
+                "target_id": "600519.SH",
             },
-            "metric_proxy_mapping": ["ai", "earnings_growth", "stock_forward_return"],
+            "metric_proxy_mapping": ["quality", "roe", "free_cash_flow"],
             "direction": "positive",
             "horizon": {"bucket": "long_horizon"},
         }
@@ -124,20 +124,20 @@ def test_superinvestor_context_filters_by_style_fit():
         {
             "report_id": "RPT-STOCK-1",
             "report_type": "个股研报",
-            "sector": "半导体",
-            "ts_code": "688001.SH",
+            "sector": "食品饮料",
+            "ts_code": "600519.SH",
         }
     ]
 
     context = build_rke_agent_research_context_from_rows(
-        agent_id="aschenbrenner",
+        agent_id="munger",
         layer="superinvestor",
         forecasts=forecasts,
         metadata=metadata,
     )
 
-    assert context["agent_id"] == "superinvestor.aschenbrenner"
-    assert context["context_items"][0]["ticker"] == "688001.SH"
+    assert context["agent_id"] == "superinvestor.munger"
+    assert context["context_items"][0]["ticker"] == "600519.SH"
     assert context["context_items"][0]["style_fit"] in {"medium", "high"}
 
 

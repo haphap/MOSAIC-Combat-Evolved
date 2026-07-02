@@ -166,8 +166,8 @@ export function summarizeAgentOutput(output: unknown): string {
       pushArrayLength(parts, "risks", obj, "contagion_risks");
       break;
     case "druckenmiller":
-    case "aschenbrenner":
-    case "baker":
+    case "munger":
+    case "burry":
     case "ackman":
       pushArrayLength(parts, "picks", obj, "picks");
       break;

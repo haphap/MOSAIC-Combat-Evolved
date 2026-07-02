@@ -16,7 +16,7 @@ import { redactSensitiveText } from "../../security/redaction.js";
 import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 import { pad } from "../_format.js";
 
-const DEFAULT_AGENTS = ["druckenmiller", "ackman", "aschenbrenner", "baker"];
+const DEFAULT_AGENTS = ["druckenmiller", "munger", "burry", "ackman"];
 const MIROFISH_BRIDGE_TIMEOUT_MS = 30 * 60 * 1000;
 
 interface GenerateOpts {

@@ -112,6 +112,68 @@ agent 消费接口。
   contract、PIT label coverage、regime snapshot background-only、market-feedback rating
   evidence、prior privacy、prior shadow-only policy 和 readiness gap audit。
 
+## 当前实现边界
+
+截至 2026-07-02，宏观 RKE 已经形成“宏观研报观点可评级、可导出 redacted agent prior、
+可进入 shadow evolution gate”的闭环；但它还没有完整实现为：
+
+```text
+宏观研报 claim / all-agent claim
+  -> 通用 mechanism candidate
+  -> 通用 rule pack / parameter prior
+  -> 受控 validation
+  -> module-level Prompt IR / Agent Runtime patch
+  -> all-agent autoresearch / Darwinian weight / RKE profile replay
+  -> monitoring / rollback feedback
+```
+
+当前已实现或已有 MVP 证据：
+
+```text
+1. `macro.central_bank` 有 central-bank MVP 骨架：
+   claim / hypothesis -> rule pack -> parameter prior -> validation checker
+   -> mutation / patch validator -> Prompt IR artifact -> runtime checker
+   -> paper-trading / monitoring / rollback readiness reports。
+2. Report Intelligence 已经能生成宏观 claim、macro claim legs、PIT outcome labels、
+   viewpoint/source profiles、macro agent research priors 和 evolution readiness gate。
+3. `weighted_research_contexts.jsonl` 已经计算 source/viewpoint/combined research prior weight。
+```
+
+当前缺口：
+
+```text
+1. `macro.central_bank` MVP 不能代表所有 macro agents、行业 agents 或全量研报 claim 已经
+   自动编译为 rule pack。
+2. macro agent prior 仍主要是 redacted research context，不是 validated rule pack 或
+   production runtime patch。
+3. Patch artifact 和 validator 已存在，但从 validation result 到 Prompt IR / Agent Runtime 的
+   apply/activation 状态机尚未通用化。
+4. Agent-facing RKE context 仍需落地 retrieval ranking，不能只按输入顺序截断。
+5. Autoresearch 和 Darwinian weight 还需要读取 RKE prior usage quality、agent claim outcome、
+   RKE profile update、rollback feedback，并覆盖 macro、sector、superinvestor、decision
+   全部 agent prompt，才能形成 replay 中可进化的闭环。
+```
+
+因此，本计划后续阶段要把“宏观研报可评价/可导出 prior”推进到“所有 MOSAIC agents 能在
+replay 中可审计地使用 RKE prior，并让使用效果反哺各层 prompt、rule、parameter、profile
+和 retrieval ranking”。宏观研报反馈只是 RKE 输入源，prompt evolution 的对象不是只限
+macro agents。所有阶段继续保持 shadow-first；任何生产影响仍需单独 promotion gate。
+
+### Prompt private repo 边界
+
+所有涉及 agent prompt 内容、prompt mutation、prompt hash 冻结、prompt drift 复核和
+prompt evolution 的工作，都以 private prompt repo 为 source of truth。MOSAIC-RKE public
+repo 只保留：
+
+- agent id、runtime schema、tool contract、prompt loader 和最小 fallback prompt。
+- private prompt repo 路径/版本/hash 的引用与检查结果，但不提交完整优化 prompt 内容。
+- prompt leak/drift 检查脚本、runtime wiring、测试 fixture 和 migration audit。
+
+后续优化 Munger、Burry 以及其他 agents 时，完整中文/英文 prompt、role rubric、RKE 使用细则、
+tool discipline 和 mutation candidate 必须落在 private prompt repo；public repo 只同步必要的
+agent roster、fallback prompt、schema 和测试。benchmark/replay 记录应保存 effective prompt
+source、private prompt revision/hash、fallback 是否被使用，以及 prompt unavailable 的降级原因。
+
 ## 复用优先级
 
 本计划不是新建第二套宏观 RKE 系统。实施时必须优先复用现有结构，只有现有契约无法表达时才新增
@@ -154,6 +216,7 @@ artifact 或 builder。
 | 波动率可用但未纳入宏观 outcome | volatility agent 无法从研报观点获得评价 | 新增 volatility index/realized-vol label family |
 | 多资产 claim 被压成单 target | 宏观策略观点的资产配置逻辑被截断 | 新增 parent claim + claim legs |
 | agent 消费接口不明确 | 下游 agents 不能安全使用 RKE 研报经验 | 新增 redacted macro agent priors |
+| agent context 仍按输入顺序截断 | 已计算的 `combined_research_prior_weight`、source/viewpoint profile 和 reliability 没有真正进入下游优先级；高质量 prior 可能被低价值旧顺序挤出，autoresearch/Darwin 也无法观察 RKE 排序贡献 | 新增 agent prior retrieval ranking policy：先做安全过滤，再按 agent 匹配、profile match、combined weight、n_effective/reliability、freshness 稳定排序；低权重/反例只降权不删除 |
 | regime trace 背景不够结构化 | 后续无法按 agent/regime 做归因 | 新增 PIT macro regime snapshot |
 
 ## P0：宏观 claim 数据契约
@@ -679,7 +742,50 @@ source_policy=no_source_prose
 - 不能绕过 macro agent 自己的数据工具。
 - 不能读取原始 claim text 或研报 source span。
 
-### P6.3 CLI/API
+### P6.3 Agent prior 排序与截断策略
+
+当前 `weighted_research_contexts.jsonl` 已经计算 `source_weight_multiplier`、
+`viewpoint_weight_multiplier` 和 `combined_research_prior_weight`，但 agent-facing context
+仍按 forecast 输入顺序过滤后截断。后续必须增加独立的 retrieval ranking policy，避免 RKE
+加权结果只停留在 artifact 字段里。
+
+排序只在以下前置过滤之后执行：
+
+- `agent_id` / layer / sector / ticker / macro target 匹配。
+- `as_of_date` 和 PIT 可见性过滤。
+- private/source prose 字段剔除。
+- `research_only=true`、`current_data_required=true`、`production_signal_allowed=false`。
+
+建议稳定排序键：
+
+```text
+agent_target_specificity_bucket
+performance_context_match_rank
+combined_research_prior_weight desc
+statistical_reliability_bucket_rank
+n_effective desc
+freshness_bucket_rank
+latest_completed_exit_date desc
+original_input_index asc
+```
+
+其中：
+
+- `performance_context_match_rank` 优先级为
+  `source_and_viewpoint_profile_match` > `viewpoint_profile_match` / `source_profile_match` >
+  `insufficient_data`。
+- `combined_research_prior_weight` 只能影响展示和 prompt context 优先级，不能直接变成交易信号。
+- 低权重或 contradictory prior 必须保留可审计 footprint：可以进入靠后位置或单独的
+  `downweighted_prior_sample`，但不能因为权重低而从 RKE 体系消失。
+- 排序输出可以新增 public-safe 字段，例如 `retrieval_rank`、`priority_bucket`、
+  `ranking_policy_id` 和 `ranking_reason_codes`；不得包含 claim text、source span、报告标题摘要或
+  licensed raw values。
+
+该排序策略是 autoresearch 和 Darwinian weight 使用 RKE 信息的前置条件：prompt mutation
+评估时要能区分“agent 是否正确使用了高 priority prior”和“agent 是否忽略/误用了 downweighted
+failure-mode prior”。
+
+### P6.4 CLI/API
 
 新增 CLI：
 
@@ -725,6 +831,11 @@ bridge 只返回 redacted prior，不返回私有 forecast claims。
 - macro agent tool requirement candidate。
 - macro regime feature addition candidate。
 - macro agent research prior weighting candidate。
+- macro agent prior retrieval ranking candidate。
+- all-agent prompt mutation candidate：macro、sector、superinvestor、decision 全部 prompt
+  内容候选必须写入 private prompt repo；public repo 只记录候选 id、hash、评测结果和 runtime
+  引用。候选来源可以是 RKE prior usage、agent claim outcome、tool-gap handling 或
+  failure-mode handling。
 
 候选项要进入现有 evolution readiness/report-intelligence action 体系；除非现有 gate schema
 无法表达 RI-MACRO 子检查，否则不新增第二个宏观 evolution gate 文件。
@@ -941,6 +1052,7 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 实施：
 
 - `build_macro_agent_research_priors()`。
+- agent prior retrieval ranking policy。
 - `export-macro-agent-priors` CLI。
 - redacted public/private boundary。
 - 后续可选 TS bridge handler。
@@ -950,6 +1062,9 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 - 每个 agent prior 都有 `use_policy=shadow_research_prior_only`。
 - 不包含 claim text/source span。
 - downstream agent 能按 agent_id/as_of_date 读取 summary。
+- downstream context 不再只按输入顺序截断；排序能解释
+  `combined_research_prior_weight`、profile match、reliability、freshness 和 agent target match。
+- 低权重/contradictory prior 被降权但仍可审计，不被静默删除。
 - 缺样本或 blocker 时 prior 降级为 `insufficient_sample` 或不输出。
 
 ### P11.6 阶段 F：演化 gate
@@ -966,6 +1081,207 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 - evolution gate 有 RI-MACRO-01 到 RI-MACRO-07。
 - 任一 blocker 存在时，不能 promotion。
 - 通过后仍是 shadow-only。
+
+### P11.7 阶段 G：macro prior retrieval ranking
+
+实施：
+
+- 把 P6.3 的 ranking policy 落到 agent-facing context builder。
+- 输出 `retrieval_rank`、`priority_bucket`、`ranking_policy_id`、
+  `ranking_reason_codes` 等 redacted/public-safe 字段。
+- 对低权重、contradictory、known failure mode prior 建立保留和降权策略。
+- 增加 context truncation audit，检查高 priority prior 没有被输入顺序挤出。
+
+验收：
+
+- downstream context 不再只按 forecast 输入顺序截断。
+- 排序能解释 `combined_research_prior_weight`、profile match、reliability、freshness、
+  agent target match 和 original-order tie-break。
+- 低权重/contradictory prior 被降权但仍可审计。
+- 非中性 prior 仍要求 `current_data_required=true`。
+
+### P11.8 阶段 H：macro prior 到 rule/parameter candidate
+
+实施：
+
+- 复用 central_bank MVP 的 compiler/checker，但抽象为 macro domain policy。
+- 建立 macro mechanism-to-rule template registry。
+- 建立 macro parameter-prior template registry。
+- 对 claim cluster、consensus cluster、source dependency 和 copying risk 做编译前约束。
+- 缺 PIT proxy、缺 validation target、样本不足或 source-dependent 时输出 refusal reason，
+  不生成 rule candidate。
+
+验收：
+
+- `macro.central_bank`、`macro.dollar` 或 `macro.yield_curve` 至少各有一条非手写
+  rule-pack candidate 路径。
+- compiler 能拒绝未 verifier、缺 PIT、缺 horizon/target、缺 validation target、
+  source-dependent 或 unsafe actionability 的 macro prior。
+- 生成的 rule pack 和 parameter prior 默认为 `candidate` / `shadow_only`，
+  不直接 promotion。
+
+### P11.9 阶段 I：runtime wiring and patch activation
+
+实施：
+
+- 增加 patch apply dry-run。
+- 增加 Prompt IR / Agent Runtime diff preview。
+- 增加 runtime activation state：`proposed`、`shadow_applied`、`paper_trading_applied`、
+  `staged_production_applied`。
+- 区分 mutation proposal、patch validation、operator approval、runtime activation。
+- 增加 rollback executor 或 operator-ready rollback command。
+
+验收：
+
+- `validate_patch` 通过不等于 patch 已应用。
+- 每次 apply 都记录 target_path、old_value、new_value、approval、rollback rule、
+  runtime activation state 和 activation proof。
+- runtime 能证明实际读取了被批准的 active rule pack / parameter override。
+- 生产状态必须由 promotion gate 与 lockbox gate 共同决定。
+
+### P11.10 阶段 J0：LLM reasoning benchmark and manual review gate
+
+在启动全量 replay、autoresearch mutation、Darwinian weight 更新或 RKE profile/retrieval
+演化之前，先做 episode/date 小规模、agent 全量参与的 paired LLM reasoning benchmark。
+该阶段只评测不同 LLM 在固定 RKE context、固定 PIT tool data 和固定 prompt 下的
+推理/结构化输出质量，不做任何 prompt mutation、profile update、rule/parameter promotion
+或 runtime patch apply。
+
+实施：
+
+- 固定 episode 集合，覆盖 2009 起不同 market regimes；首轮不全量跑 2009-至今。
+- 每个选中的 episode / as-of date 必须运行 macro、sector、superinvestor、decision 全部
+  MOSAIC agents；不得只选每层少数代表 agents。这样才能观察不同 LLM 对完整 agent stack
+  的影响大小。
+- 固定输入：effective agent prompt（优先 private prompt repo，缺失时使用 bundled fallback 并记录）、
+  PIT tool data、redacted RKE priors、tool summary、output schema、context hash 和 prompt hash。
+- 对比至少一个 baseline 和两个真实 LLM，例如本地 Qwen 27B、Qwen3.6 35B、DeepSeek/API
+  模型；只替换 LLM，不改变输入。
+- 输出统一结构化 schema，包含 direction、confidence、evidence ids、RKE prior ids used、
+  rejected prior ids、current data confirmation、risk flags 和 downstream handoff。
+- 记录 latency、tokens/sec、schema failure、JSON parse failure、timeout、content empty 等运行指标。
+- 评分由 deterministic harness 完成：directional hit、subsequent investment return、
+  after-cost alpha、benchmark-relative alpha、drawdown、turnover/cost、schema validity、
+  RKE prior usage quality、stale/contradictory prior rejection、current-data confirmation、
+  confidence calibration 和 safety violations。
+- 生成人工复核包，按 episode / as-of date / agent / model 展示输入 hash、输出、
+  deterministic score、后续投资收益/风险窗口、failure reason 和模型间分歧；可以抽取
+  代表性分歧案例做人工深读，但底层比较表必须覆盖全部 agents。
+
+验收：
+
+- benchmark 输入、输出、模型参数和耗时可复现。
+- 每个 benchmark as-of date 的全部 MOSAIC agents 都有 paired output；缺失 agent 必须记录
+  timeout、tool-data gap、private prompt unavailable / fallback used 或 no-applicable-prior reason。
+- 评价不依赖 LLM 判断 correctness；outcome label、score、profile 计算均为 deterministic。
+- 人工复核必须同时查看推理/结构化质量和后续投资收益表现，包括 after-cost alpha、
+  benchmark-relative alpha、drawdown、turnover/cost 和 confidence calibration。只看 reasoning
+  好坏不足以批准进入下一阶段。
+- 人工复核比较通过前，不启动全量 replay、autoresearch mutation、Darwinian weight 更新、
+  RKE profile/retrieval/rule/parameter 演化或 runtime patch activation。
+- 人工复核必须明确选择进入下一阶段的模型/配置，或记录继续测试/拒绝推进的原因。
+
+### P11.10A 阶段 J0.5：Layer-3 superinvestor 画像重构
+
+在正式运行 LLM reasoning benchmark 或后续 replay 之前，先修正 Layer-3 superinvestor
+画像。当前 `aschenbrenner` 和 `baker` 在 prompt 与 RKE style-fit 中分别绑定到 AI/算力和
+biotech/IP，实际更像行业专题 agent；它们没有在投资风格上与 `druckenmiller`、`ackman`
+形成充分互补。后续实施时应把 canonical Layer-3 roster 从：
+
+```text
+druckenmiller / aschenbrenner / baker / ackman
+```
+
+调整为：
+
+```text
+druckenmiller / munger / burry / ackman
+```
+
+参考对象：
+
+- `https://github.com/virattt/ai-hedge-fund` 中的 investor-agent 设计只作为风格参考，
+  不复用其交易实现或数据假设。
+- `Charlie Munger` 画像应抽象为“好生意、护城河、管理质量、可预测复利、合理价格”。
+- `Michael Burry` 画像应抽象为“逆向、深度价值、下行优先、硬财务指标、具体 catalyst”。
+
+目标四象限：
+
+| Agent | 投资风格边界 | 与其他人的互补 |
+| --- | --- | --- |
+| `druckenmiller` | 宏观 regime、趋势、动量、非对称赔率、快速加减仓 | 捕捉流动性/景气/价格趋势，不要求长期质量 |
+| `munger` | 质量护城河、ROIC/ROE、FCF 转化、低杠杆、管理质量、可预测复利、合理价格 | 与 `ackman` 都重视质量，但更强调长期复利和避免愚蠢，不以 activist/catalyst 为核心 |
+| `burry` | 逆向深度价值、FCF yield、EV/EBIT、资产负债表、净现金/低债务、回购/资产出售/供给出清等 catalyst | 与 `druckenmiller` 形成反动量互补，专门寻找被市场厌恶但下行可控的错价 |
+| `ackman` | 集中持仓、优质资产、定价权、治理/资本配置改善、可识别 catalyst | 与 `munger` 区分为更重 catalyst/治理改善和集中表达 |
+
+Private prompt repo 设计要求：
+
+- `munger` 和 `burry` 都必须是跨行业投资风格 agent，不能绑定 AI、biotech、消费或任何单一行业。
+- 候选池来自全部 `layer2_outputs.*.longs`；可以复核少数边界案例，但不能凭空发明 ticker。
+- RKE context 只能作为 redacted research prior、known failure mode 和 recipe/tool-gap 线索；
+  所有 picks 都必须用当前 fundamentals、price、indicator 或其他 PIT tool data 再确认。
+- `munger` 的每条 thesis 必须同时包含质量证据和价格/风险证据，例如 ROIC/ROE、毛利率、
+  FCF、负债、估值或情绪；holding period 以 `1Y` / `5Y+` 为主。
+- `burry` 的每条 thesis 必须同时包含估值/现金流线索、下行风险控制和具体 catalyst；
+  holding period 以 `3M` / `6M` / `1Y` 为主，只有资产重估路径很长时才用 `5Y+`。
+- 两者的 `confidence >= 0.7` 均要求 RKE prior、当前财务、当前价格和风险检查没有明显冲突。
+
+后续实施范围：
+
+- 在 private prompt repo 中新增/升级
+  `prompts/mosaic/cohort_default/superinvestor/{munger,burry}.{zh,en}.md`，完整承载 Munger/Burry
+  prompt 内容和后续 evolution candidate。
+- public MOSAIC-RKE repo 只保留
+  `prompts/mosaic/cohort_default/superinvestor/{munger,burry}.{zh,en}.md` 的最小 fallback，
+  并删除或迁移 `aschenbrenner`、`baker` 的 canonical fallback。
+- 更新 TS Layer-3 runtime：agent node、schema/type、`AGENTS_BY_LAYER`、Layer-3 graph 拓扑、
+  runtime summary、MiroFish 默认 agent 列表和相关 tests。
+- 更新 RKE agent research context：`SUPERINVESTOR_AGENTS` 与 style keywords 改为
+  `munger`/`burry`，关键词必须描述投资风格而不是行业。
+- 更新 Layer-4 `alpha_discovery` prompt，使“为什么被四位 superinvestor 漏掉”的解释使用
+  `druckenmiller`、`munger`、`burry`、`ackman` 四个新角色；完整 alpha_discovery prompt
+  优化同样进入 private prompt repo，public repo 只保留 fallback。
+- 更新 docs/wiki 和测试 fixture；历史计划可以保留旧名字作为迁移背景，但 runtime canonical
+  路径不得继续依赖旧两人。
+
+验收：
+
+- Canonical superinvestor list、prompt loader、Layer-3 graph、schema 和 tests 均使用
+  `druckenmiller`、`munger`、`burry`、`ackman`。
+- `aschenbrenner`、`baker` 不再出现在运行时 canonical agent list、RKE superinvestor style-fit
+  或默认 prompt resolution 中；若保留历史说明，必须明确是迁移前状态。
+- `munger` / `burry` 的 private prompt repo 版本通过 prompt leak/drift 检查，并在 LLM
+  benchmark 前冻结 prompt hash；public fallback 只验证 loader/schema 兼容。
+- 后续 P11.10 benchmark 必须使用新 roster；不要用旧行业绑定画像跑完评测再迁移。
+
+### P11.11 阶段 J：all-agent autoresearch / Darwinian / RKE replay 闭环
+
+实施：
+
+- 只有 P11.10 的 LLM reasoning benchmark 和人工复核通过后，才进入本阶段。
+- macro、sector、superinvestor、decision 全部 agent 输出都抽取为 redacted agent claim /
+  footprint，进入 RKE claim/profile 体系。
+- 给 agent claim 生成 PIT outcome label 或 readiness gap。
+- autoresearch mutation context 增加 RKE prior usage quality、ranking usage quality、
+  known failure mode handling、tool gap resolution。
+- Darwinian weight 特征区分 current-data skill、research-prior usage skill、
+  stale-prior rejection skill。
+- replay 从 2009 起逐步运行所有 MOSAIC agents，并记录每个 agent prompt、rule、parameter、
+  profile、retrieval updates 的可复现证据。
+- prompt mutation 的候选路径必须覆盖所有 agent prompt，但 prompt 内容变更必须进入
+  private prompt repo；宏观研报 prior 可以影响 sector/superinvestor/decision agents 的
+  reasoning、tool requirement、risk discount 和 handoff 约束，但不能绕过各 agent 自己的
+  current-data 工具确认。
+
+验收：
+
+- autoresearch 能评价 prompt 是否更好利用 RKE prior，而不是只评价文风。
+- Darwinian weight 不把 report prior 当作 current data。
+- RKE profile/retrieval/rule/parameter 更新都进入同一 evolution gate。
+- macro、sector、superinvestor、decision 四层 private prompt repo 版本都有 replay/evaluation
+  记录；没有可用 RKE prior 的 agent 必须记录 explicit no-prior / no-applicable-prior reason。
+- replay 结果能解释 agent claim、report claim、outcome label、profile weight、prompt mutation
+  和 rollback 之间的关系。
 
 ## P12：交付条件
 
@@ -984,10 +1300,34 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 8. PIT/provenance/statistical/privacy/schema gates 全部通过。
 9. public artifacts 不包含 source prose、claim text、source span、PDF/Markdown/cache。
 10. 运行 `export-macro-agent-priors` 能生成下游可消费的 shadow research prior。
+11. Agent-facing RKE context 使用稳定 retrieval ranking policy，不再只按 forecast 输入顺序
+    截断；排序字段必须是 redacted/public-safe，且所有非中性 prior 仍要求 current data
+    confirmation。
+12. 至少两个 macro agents 的 prior 能进入 rule/parameter candidate compiler，并对缺 PIT、
+    缺 validation target 或 source-dependent cluster 给出 refusal reason。
+13. Patch application 有 dry-run、shadow、paper-trading、staged-production 状态机和 runtime
+    activation proof；patch validation 不能被误解为 patch 已应用。
+14. LLM reasoning benchmark 已用固定 episode、固定输入和 paired comparison 完成；不全量运行
+    全部日期，但每个 benchmark as-of date 必须覆盖全部 MOSAIC agents。人工复核必须同时接受
+    推理/结构化质量和后续投资收益/风险表现后，才允许进入 all-agent replay 和
+    autoresearch/Darwinian/RKE 演化阶段。
+15. Autoresearch / Darwinian replay 能读取 RKE prior usage quality、agent claim outcome、
+    retrieval ranking quality 和 rollback feedback，并覆盖 macro、sector、superinvestor、
+    decision 全部 agent prompt。
+16. 所有 agent 的 private prompt repo 版本都有 replay/evaluation 记录；没有适用 RKE prior
+    的 agent 必须记录 explicit no-prior / no-applicable-prior reason。
+17. Agent claim 和 report claim 都能进入 RKE claim/profile/footprint/evolution 体系，
+    但 public artifact 仍不泄漏 source prose、claim text 或 private report metadata。
+18. Layer-3 superinvestor roster 已完成风格互补重构：canonical 四人组为
+    `druckenmiller`、`munger`、`burry`、`ackman`，且 `munger`/`burry` private prompt
+    repo 内容、public fallback、RKE style-fit、runtime schema 和 tests 均不绑定单一行业。
 
 ### P12 当前验收状态（2026-06-23）
 
-当前分支已经满足本计划的宏观闭环交付条件；产物仍保持 shadow-only，不改变生产交易：
+当前分支已经满足本计划的基础宏观反馈闭环条件 1-10；新增的 all-agent prompt evolution、
+retrieval ranking、compiler、patch activation、LLM benchmark、Layer-3 roster 重构和 replay
+条件 11-18 仍是后续工作。产物仍保持
+shadow-only，不改变生产交易：
 
 - 条件 1：已满足。当前 public-safe extraction summary 有 1048 条 forecast claims；
   evolution gate 中 RI-MACRO-01 记录 142 条 macro forecast rows、140 条 macro
@@ -1027,9 +1367,29 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
   --as-of-date 2026-06-18 --no-source-prose` 可输出 539 条 shadow prior，
   `production_signal_allowed=false`，且 `private_text_included=false`。
 
+新增条件当前状态：
+
+- 条件 11：未完成。已记录 ranking policy 设计，但 agent-facing context 仍需实际落地
+  retrieval ranking 和 truncation audit。
+- 条件 12：未完成。macro prior 到通用 rule/parameter candidate compiler 仍需抽象和实现。
+- 条件 13：未完成。patch validation 已有，但 patch apply/activation 状态机和 runtime proof
+  尚未通用化。
+- 条件 14：未完成。LLM reasoning benchmark 和人工复核 gate 尚未运行；人工复核还必须查看
+  后续投资收益/风险表现。在该 gate 通过前，不启动全量 replay、autoresearch mutation、
+  Darwinian weight 更新或 RKE profile/retrieval 演化。
+- 条件 15：未完成。autoresearch / Darwinian replay 还没有系统读取 RKE prior usage quality、
+  agent claim outcome、retrieval ranking quality 和 rollback feedback。
+- 条件 16：未完成。所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
+- 条件 17：未完成。agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution
+  闭环。
+- 条件 18：部分完成。本轮执行 public runtime、fallback prompt、RKE style-fit、docs 和 tests
+  的同步迁移；完整 Munger/Burry prompt 升级仍需进入 private prompt repo，并在 benchmark
+  前冻结 private prompt hash。
+
 因此当前状态是：宏观研报观点已经可评级、可回测/评价、可导出下游 macro agent
-shadow research prior、可进入 evolution gate。所有产物仍为研究和演化用途，不能影响生产交易，
-除非后续有单独的 promotion gate 任务明确批准。
+shadow research prior、可进入 evolution gate；但所有 agent private prompt repo 版本的 RKE
+驱动演化仍未完成。
+所有产物仍为研究和演化用途，不能影响生产交易，除非后续有单独的 promotion gate 任务明确批准。
 
 ## P13：首轮不做的事
 

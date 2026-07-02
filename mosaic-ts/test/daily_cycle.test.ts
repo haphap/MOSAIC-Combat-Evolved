@@ -323,8 +323,8 @@ interface CannedOutputs {
   relationship_mapper: RelationshipMapperOutput;
   // L3 superinvestor (4)
   druckenmiller: SuperinvestorOutput;
-  aschenbrenner: SuperinvestorOutput;
-  baker: SuperinvestorOutput;
+  munger: SuperinvestorOutput;
+  burry: SuperinvestorOutput;
   ackman: SuperinvestorOutput;
   // L4 decision (4)
   cro: CroOutput;
@@ -497,18 +497,18 @@ function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
       key_drivers: ["d-druck"],
       confidence: 0.6,
     },
-    aschenbrenner: {
-      agent: "aschenbrenner",
+    munger: {
+      agent: "munger",
       picks: [superPick("688981.SH", 0.8), superPick("002371.SZ", 0.7)],
-      philosophy_note: "AI capex",
-      key_drivers: ["d-asch"],
+      philosophy_note: "quality moat",
+      key_drivers: ["d-munger"],
       confidence: 0.6,
     },
-    baker: {
-      agent: "baker",
+    burry: {
+      agent: "burry",
       picks: [superPick("600276.SH", 0.7)],
-      philosophy_note: "biotech IP",
-      key_drivers: ["d-baker"],
+      philosophy_note: "deep value",
+      key_drivers: ["d-burry"],
       confidence: 0.5,
     },
     ackman: {
@@ -590,8 +590,8 @@ const ALL_AGENT_IDS = [
   "relationship_mapper",
   // L3
   "druckenmiller",
-  "aschenbrenner",
-  "baker",
+  "munger",
+  "burry",
   "ackman",
   // L4
   "cro",
@@ -620,8 +620,8 @@ const AGENT_SUBDIR: Record<string, string> = {
   financials: "sector",
   relationship_mapper: "sector",
   druckenmiller: "superinvestor",
-  aschenbrenner: "superinvestor",
-  baker: "superinvestor",
+  munger: "superinvestor",
+  burry: "superinvestor",
   ackman: "superinvestor",
   cro: "decision",
   alpha_discovery: "decision",

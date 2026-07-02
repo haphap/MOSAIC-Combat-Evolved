@@ -13,21 +13,21 @@ that **L1 / L2 signals support but none of the 4 superinvestors picked**.
 
 ## When novel picks emerge
 
-1. **Cross-philosophy**: a ticker fits both quality compounder (ackman)
-   and AI capex (aschenbrenner) — both philosophers might find it impure.
+1. **Cross-philosophy**: a ticker fits quality compounder (ackman / munger)
+   and contrarian deep value (burry) — each philosopher might find it impure.
 2. **Sector boundary**: a ticker sits at the edge of several
    sector_focus lists; each sector agent gave it low conviction, but in
    aggregate it's actually good.
 3. **Small-cap high-quality**: ackman finds it too small,
-   druckenmiller finds it not momentum-driven, aschenbrenner finds it
-   not compute-related — yet it has a real IP moat.
+   druckenmiller finds it not momentum-driven, munger finds predictability weak,
+   burry finds margin of safety not hard enough — yet the combined case may be missed.
 4. **Policy window**: a policy catalyst that doesn't cleanly fit any one
    philosopher's framework.
 
 ## Strict constraints
 
 * **Empty novel_picks is the most common result**. The 4 superinvestors
-  cover macro / AI / biotech IP / quality compounder — true residual
+  cover macro / quality / deep value / activist quality — true residual
   alpha should be rare. **Forcing picks is worse than missing them.**
 * `novel_picks ≥ 3 → confidence ≤ 0.4` — likely indicates a judgement
   error, not real alpha (upstream coverage is wide).

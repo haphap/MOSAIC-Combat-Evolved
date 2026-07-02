@@ -18,23 +18,23 @@ import {
   renderAckman,
 } from "../src/agents/superinvestor/ackman.js";
 import {
-  aschenbrennerSpec,
-  buildAschenbrennerNode,
-  fallbackAschenbrenner,
-  renderAschenbrenner,
-} from "../src/agents/superinvestor/aschenbrenner.js";
-import {
-  bakerSpec,
-  buildBakerNode,
-  fallbackBaker,
-  renderBaker,
-} from "../src/agents/superinvestor/baker.js";
+  buildBurryNode,
+  burrySpec,
+  fallbackBurry,
+  renderBurry,
+} from "../src/agents/superinvestor/burry.js";
 import {
   buildDruckenmillerNode,
   druckenmillerSpec,
   fallbackDruckenmiller,
   renderDruckenmiller,
 } from "../src/agents/superinvestor/druckenmiller.js";
+import {
+  buildMungerNode,
+  fallbackMunger,
+  mungerSpec,
+  renderMunger,
+} from "../src/agents/superinvestor/munger.js";
 import type {
   DruckenmillerOutput,
   RegimeSignal,
@@ -51,8 +51,8 @@ describe("AGENTS_BY_LAYER.superinvestor", () => {
   it("lists the canonical 4 superinvestor agents from Plan §5.3", () => {
     expect([...AGENTS_BY_LAYER.superinvestor]).toEqual([
       "druckenmiller",
-      "aschenbrenner",
-      "baker",
+      "munger",
+      "burry",
       "ackman",
     ]);
   });
@@ -63,8 +63,8 @@ describe("AGENTS_BY_LAYER.superinvestor", () => {
 describe("each superinvestor spec wires the right factory inputs", () => {
   const cases = [
     { name: "druckenmiller", spec: druckenmillerSpec },
-    { name: "aschenbrenner", spec: aschenbrennerSpec },
-    { name: "baker", spec: bakerSpec },
+    { name: "munger", spec: mungerSpec },
+    { name: "burry", spec: burrySpec },
     { name: "ackman", spec: ackmanSpec },
   ] as const;
 
@@ -97,15 +97,15 @@ describe("renderers + fallbacks", () => {
     expect(fb.confidence).toBe(0);
     expect(renderDruckenmiller(fb).length).toBeGreaterThan(20);
   });
-  it("aschenbrenner", () => {
-    const fb = fallbackAschenbrenner("", null);
+  it("munger", () => {
+    const fb = fallbackMunger("", null);
     expect(fb.confidence).toBe(0);
-    expect(renderAschenbrenner(fb).length).toBeGreaterThan(20);
+    expect(renderMunger(fb).length).toBeGreaterThan(20);
   });
-  it("baker", () => {
-    const fb = fallbackBaker("", null);
+  it("burry", () => {
+    const fb = fallbackBurry("", null);
     expect(fb.confidence).toBe(0);
-    expect(renderBaker(fb).length).toBeGreaterThan(20);
+    expect(renderBurry(fb).length).toBeGreaterThan(20);
   });
   it("ackman", () => {
     const fb = fallbackAckman("", null);
@@ -151,8 +151,8 @@ describe("schemas reject malformations", () => {
 
   it("rejects empty key_drivers", () => {
     expect(() =>
-      bakerSpec.schema.parse({
-        agent: "baker",
+      burrySpec.schema.parse({
+        agent: "burry",
         picks: [],
         philosophy_note: "x",
         key_drivers: [],
@@ -452,8 +452,8 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
 // Compile-time canary
 const _allBuilders = {
   druckenmiller: buildDruckenmillerNode,
-  aschenbrenner: buildAschenbrennerNode,
-  baker: buildBakerNode,
+  munger: buildMungerNode,
+  burry: buildBurryNode,
   ackman: buildAckmanNode,
 };
 void _allBuilders;
