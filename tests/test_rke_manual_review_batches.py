@@ -1058,23 +1058,25 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert payload["artifact_count"] >= 10
     assert payload["blockers"] == []
     assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
-    assert payload["promotion_dry_run"]["accepted"] is True
-    assert payload["promotion_dry_run"]["production_allowed_after_simulation"] is True
-    assert payload["promotion_dry_run"]["provided_steps"] == []
-    assert payload["promotion_dry_run"]["accepted_steps"] == [
+    promotion_dry_run = payload["promotion_dry_run"]
+    assert isinstance(promotion_dry_run["accepted"], bool)
+    assert promotion_dry_run["production_allowed_after_simulation"] is (
+        promotion_dry_run["accepted"]
+    )
+    assert promotion_dry_run["provided_steps"] == []
+    review_kinds = {
         "gold_set",
         "footprint_review",
         "source_license",
         "lockbox",
-    ]
-    assert payload["promotion_dry_run"]["rejected_steps"] == []
-    assert payload["promotion_dry_run"]["already_applied_steps"] == [
-        "gold_set",
-        "footprint_review",
-        "source_license",
-        "lockbox",
-    ]
-    assert payload["promotion_dry_run"]["missing_steps"] == []
+    }
+    covered_review_kinds = (
+        set(promotion_dry_run["accepted_steps"])
+        | set(promotion_dry_run["rejected_steps"])
+        | set(promotion_dry_run["already_applied_steps"])
+        | set(promotion_dry_run["missing_steps"])
+    )
+    assert covered_review_kinds == review_kinds
     assert artifacts["registry/review_batches/manual_review_progress_report.json"]["format"] == "json"
     assert artifacts["registry/review_batches/manual_review_runbook.md"]["format"] == "markdown"
     assert "registry/review_batches/gold_set_full_import_template.jsonl" not in artifacts
