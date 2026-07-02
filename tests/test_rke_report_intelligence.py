@@ -4316,6 +4316,7 @@ def _git_ls_files(prefix: str) -> list[str]:
 
 def _copy_committed_report_intelligence_public_artifacts(tmp_path: Path) -> Path:
     registry = tmp_path / "registry/report_intelligence"
+    copied = False
     for relative in _git_ls_files("registry/report_intelligence"):
         if relative in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS:
             continue
@@ -4323,6 +4324,42 @@ def _copy_committed_report_intelligence_public_artifacts(tmp_path: Path) -> Path
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+        copied = True
+    if not copied:
+        registry.mkdir(parents=True, exist_ok=True)
+        (registry / "extraction_report.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "TEST-COMMITTED-PUBLIC-SENTINEL",
+                    "root": "<repo_root>",
+                    "blocker_count": 0,
+                    "blockers": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (registry / "outcome_labeling_readiness.json").write_text(
+            json.dumps(
+                {
+                    "readiness_id": "TEST-COMMITTED-PUBLIC-SENTINEL",
+                    "forecast_claim_count": 0,
+                    "forecast_ledger_count": 0,
+                    "ready_for_outcome_labeling_count": 0,
+                    "standard_blocked_count": 0,
+                    "blocked_count": 0,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        copied = True
     return registry
 
 
@@ -4674,7 +4711,6 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     }
     assert readiness["industry_cycle_regime_counts"] == {}
     assert readiness["regime_gap_counts"] == {}
-    assert readiness["regime_gap_forecast_claim_ids"] == []
     assert readiness["mechanism_channel_counts"] == {
         "policy_liquidity_transmission": 1
     }
@@ -4684,7 +4720,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "pboc_net_injection_7d": 1,
     }
     assert readiness["mechanism_gap_counts"] == {}
-    assert readiness["mechanism_gap_forecast_claim_ids"] == []
+    assert "_forecast_claim_ids" not in json.dumps(readiness, ensure_ascii=False)
     assert "regime, mechanism, company capability, and impact" in readiness[
         "mechanism_policy"
     ]
@@ -9435,8 +9471,6 @@ def test_report_intelligence_prompt_mutation_candidates_track_regime_mechanism_g
             "as_of_date_macro_regime_counts": {"us_rate_cut_cycle": 1},
             "macro_regime_source_counts": {"as_of_date": 1},
             "industry_cycle_regime_counts": {"price_cycle": 2},
-            "regime_gap_forecast_claim_ids": ["FC-R1", "FC-R2", "FC-R3"],
-            "mechanism_gap_forecast_claim_ids": ["FC-M1"],
             "stock_price_proxy_readiness": {"data_gap_counts": {}},
             "industry_etf_proxy_readiness": {"data_gap_counts": {}},
         },
@@ -9470,7 +9504,7 @@ def test_report_intelligence_prompt_mutation_candidates_track_regime_mechanism_g
     assert evidence["as_of_date_macro_regime_counts"] == {"us_rate_cut_cycle": 1}
     assert evidence["macro_regime_source_counts"] == {"as_of_date": 1}
     assert evidence["hard_gap_count"] == 3
-    assert evidence["regime_gap_forecast_claim_count"] == 3
+    assert evidence["regime_gap_forecast_claim_count"] == 5
     assert evidence["mechanism_gap_forecast_claim_count"] == 1
     assert candidate["private_text_included"] is False
     candidate_dump = json.dumps(candidate, ensure_ascii=False)
@@ -10490,9 +10524,6 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert proxy_readiness["qlib_etf_dir_configured"].startswith("qlib://")
     assert proxy_readiness["eligible_claim_count"] == 1
     assert proxy_readiness["labelable_forecast_claim_count"] == 1
-    assert proxy_readiness["labelable_forecast_claim_ids"] == [
-        outcome_labels[0]["forecast_claim_id"]
-    ]
     assert proxy_readiness["labelable_window_count"] == 3
     assert proxy_readiness["pending_future_window_count"] == 0
     assert proxy_readiness["latest_calendar_date"] == "2026-05-31"
@@ -10501,6 +10532,8 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert readiness["standard_blocked_count"] == 0
     assert readiness["proxy_label_ready_count"] == 1
     assert readiness["proxy_label_only_ready_count"] == 0
+    assert "_forecast_claim_ids" not in readiness_dump
+    assert len({row["forecast_claim_id"] for row in outcome_labels}) == 1
 
     mapping_rows = _read_jsonl(
         tmp_path / "registry/report_intelligence/industry_etf_proxy_map.jsonl"
@@ -11886,16 +11919,13 @@ def test_report_intelligence_counts_stock_price_proxy_as_labelable_channel(
         .read_text(encoding="utf-8")
     )
     assert readiness["standard_blocked_count"] == 1
-    assert readiness["standard_blocked_forecast_claim_ids"] == [forecast_claim_id]
     assert readiness["proxy_label_ready_count"] == 1
     assert readiness["stock_proxy_label_ready_count"] == 1
     assert readiness["industry_proxy_label_ready_count"] == 0
-    assert readiness["stock_proxy_label_ready_forecast_claim_ids"] == [
-        forecast_claim_id
-    ]
     assert readiness["proxy_label_only_ready_count"] == 1
     assert readiness["blocked_count"] == 0
     assert readiness["unlabelable_mapping_gap_counts"] == {}
+    assert json.dumps(readiness, ensure_ascii=False).count(forecast_claim_id) == 0
 
 
 def test_report_intelligence_keeps_long_window_stock_hits(
@@ -12060,18 +12090,13 @@ def test_report_intelligence_marks_stock_proxy_future_windows_as_pending(
     assert stock_readiness["labelable_forecast_claim_count"] == 0
     assert stock_readiness["pending_future_window_count"] == 4
     assert stock_readiness["pending_future_forecast_claim_count"] == 1
-    assert stock_readiness["pending_future_forecast_claim_ids"] == [
-        forecast_claim_id
-    ]
     assert readiness["standard_blocked_count"] == 1
     assert readiness["proxy_label_pending_count"] == 1
     assert readiness["stock_proxy_label_pending_count"] == 1
     assert readiness["proxy_label_pending_only_count"] == 1
-    assert readiness["proxy_label_pending_only_forecast_claim_ids"] == [
-        forecast_claim_id
-    ]
     assert readiness["blocked_count"] == 0
     assert readiness["unlabelable_mapping_gap_counts"] == {}
+    assert json.dumps(readiness, ensure_ascii=False).count(forecast_claim_id) == 0
 
     provenance_audit = json.loads(
         (
@@ -14179,18 +14204,13 @@ def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(
     )
     assert readiness["ready_for_outcome_labeling_count"] == 0
     assert readiness["standard_blocked_count"] == 1
-    assert readiness["standard_blocked_forecast_claim_ids"] == [forecast_claim_id]
     assert readiness["proxy_label_ready_count"] == 1
-    assert readiness["proxy_label_ready_forecast_claim_ids"] == [forecast_claim_id]
     assert readiness["proxy_label_only_ready_count"] == 1
-    assert readiness["proxy_label_only_ready_forecast_claim_ids"] == [
-        forecast_claim_id
-    ]
     assert readiness["blocked_count"] == 0
-    assert readiness["blocked_forecast_claim_ids"] == []
     assert readiness["blocked_reason"] == ""
     assert readiness["mapping_gap_counts"] == {"benchmark": 1, "horizon": 1}
     assert readiness["unlabelable_mapping_gap_counts"] == {}
+    assert json.dumps(readiness, ensure_ascii=False).count(forecast_claim_id) == 0
 
     provenance_audit = json.loads(
         (tmp_path / "registry/report_intelligence/extraction_provenance_audit.json")
