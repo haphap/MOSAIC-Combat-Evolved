@@ -23,6 +23,7 @@ from mosaic.rke.schema_validation import (
 )
 from mosaic.rke.report_intelligence import (
     REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS,
+    REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS,
     _evolution_gate_cli_summary,
     build_default_industry_etf_proxy_map_rows,
 )
@@ -148,16 +149,19 @@ EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES = {
     ),
 }
 
-PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES = {
-    "registry/report_intelligence/source_performance_profiles.jsonl",
-    "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
-    "registry/report_intelligence/method_performance_profiles.jsonl",
-    "registry/report_intelligence/confidence_impact_observations.jsonl",
-    "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
-    "registry/report_intelligence/prompt_mutation_candidates.jsonl",
-    "registry/report_intelligence/audit_refresh_history.jsonl",
-    "registry/report_intelligence/gap_distribution_history.jsonl",
-}
+PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES = (
+    REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS
+    | {
+        "registry/report_intelligence/source_performance_profiles.jsonl",
+        "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+        "registry/report_intelligence/method_performance_profiles.jsonl",
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+        "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+        "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+        "registry/report_intelligence/audit_refresh_history.jsonl",
+        "registry/report_intelligence/gap_distribution_history.jsonl",
+    }
+)
 PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_COUNT_FIELDS = {
     "registry/report_intelligence/audit_refresh_history.jsonl": None,
     "registry/report_intelligence/confidence_impact_observations.jsonl": None,
@@ -320,7 +324,12 @@ def _assert_only_phase_b_patch_coverage_failures(report) -> None:
 
 
 def _copy_report_intelligence_registry(tmp_path: Path) -> Path:
-    source = _require_local_report_intelligence_artifacts()
+    source = _require_local_report_intelligence_artifacts(
+        *(
+            Path(path).name
+            for path in sorted(PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES)
+        )
+    )
     registry = tmp_path / "registry/report_intelligence"
     shutil.copytree(
         source,
@@ -1515,6 +1524,19 @@ def _evolution_readiness_gate_record(tmp_path: Path):
 
 
 def _copy_gold_review_summary(tmp_path: Path) -> Path:
+    report_intelligence_dir = tmp_path / "registry/report_intelligence"
+    report_intelligence_dir.mkdir(parents=True, exist_ok=True)
+    (report_intelligence_dir / "feature_flags.json").write_text(
+        json.dumps(
+            {
+                "flags": {},
+                "rollout_mode": "extraction_only",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     gold_dir = tmp_path / "registry/gold_sets"
     gold_dir.mkdir(parents=True, exist_ok=True)
     summary_path = gold_dir / "tushare_research_reports.review_summary.json"
