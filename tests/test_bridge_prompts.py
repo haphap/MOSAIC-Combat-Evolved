@@ -47,6 +47,10 @@ def repo(tmp_path: Path, monkeypatch) -> Path:
     seed.mkdir(parents=True)
     (seed / "volatility.zh.md").write_text("base zh\n## 输出 schema\n", encoding="utf-8")
     (seed / "volatility.en.md").write_text("base en\n## Output schema\n", encoding="utf-8")
+    super_seed = repo / "prompts" / "mosaic" / "cohort_default" / "superinvestor"
+    super_seed.mkdir(parents=True)
+    (super_seed / "munger.zh.md").write_text("munger zh\n## 输出 schema\n", encoding="utf-8")
+    (super_seed / "munger.en.md").write_text("munger en\n## Output schema\n", encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "seed")
     (repo / "data").mkdir()
@@ -79,6 +83,16 @@ class TestRead:
     def test_unknown_agent(self, repo: Path):
         with pytest.raises(RpcError, match="unknown agent"):
             dispatch("prompts.read", {"agent": "nope", "cohort": "cohort_default", "lang": "zh"})
+
+    def test_superinvestor_roster_uses_munger_burry(self, repo: Path):
+        r = dispatch("prompts.read", {"agent": "munger", "cohort": "cohort_default", "lang": "zh"})
+        assert r["content"].startswith("munger zh")
+        assert r["path"] == "prompts/mosaic/cohort_default/superinvestor/munger.zh.md"
+        with pytest.raises(RpcError, match="unknown agent"):
+            dispatch(
+                "prompts.read",
+                {"agent": "aschenbrenner", "cohort": "cohort_default", "lang": "zh"},
+            )
 
     def test_bad_lang(self, repo: Path):
         with pytest.raises(RpcError, match="lang"):

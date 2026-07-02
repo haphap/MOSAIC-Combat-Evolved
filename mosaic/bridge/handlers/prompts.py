@@ -51,7 +51,7 @@ _LAYER_BY_AGENT: dict[str, str] = {
          "financials", "relationship_mapper"],
         "sector",
     ),
-    **dict.fromkeys(["druckenmiller", "aschenbrenner", "baker", "ackman"], "superinvestor"),
+    **dict.fromkeys(["druckenmiller", "munger", "burry", "ackman"], "superinvestor"),
     **dict.fromkeys(["cro", "alpha_discovery", "autonomous_execution", "cio"], "decision"),
 }
 _DEFAULT_COHORT = "cohort_default"
