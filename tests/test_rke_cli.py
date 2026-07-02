@@ -699,8 +699,8 @@ def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, c
     assert "gold_set gate must be ready before opening lockbox review" in (
         blocked_output["upstream_blockers"]
     )
-    assert not any(
-        "footprint_review gate must be ready" in blocker
+    assert all(
+        blocker.startswith(("gold_set", "footprint_review", "source_license"))
         for blocker in blocked_output["upstream_blockers"]
     )
     assert not reviewed_path.exists()
