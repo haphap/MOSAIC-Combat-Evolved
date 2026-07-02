@@ -15,7 +15,12 @@ import {
 } from "./_factory.js";
 import { INSTITUTIONAL_FLOW_FIELD_NAMES, InstitutionalFlowSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_lhb_ranking", "get_fund_flow", "get_stock_moneyflow"] as const;
+export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
+  "get_lhb_ranking",
+  "get_fund_flow",
+  "get_stock_moneyflow",
+] as const;
 
 export const institutionalFlowSpec: LayerOneAgentSpec<InstitutionalFlowOutput> = {
   agentId: "institutional_flow",

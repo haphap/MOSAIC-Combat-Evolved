@@ -99,20 +99,21 @@ describe("AGENTS_BY_LAYER.macro", () => {
 
 describe("each macro agent spec wires the right factory inputs", () => {
   const cases = [
-    { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 3 },
-    { name: "dollar", spec: dollarSpec, expected_tools: 3 },
-    { name: "yield_curve", spec: yieldCurveSpec, expected_tools: 3 },
-    { name: "commodities", spec: commoditiesSpec, expected_tools: 2 },
-    { name: "volatility", spec: volatilitySpec, expected_tools: 4 },
-    { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 6 },
-    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 4 },
-    { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 3 },
+    { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 4 },
+    { name: "dollar", spec: dollarSpec, expected_tools: 4 },
+    { name: "yield_curve", spec: yieldCurveSpec, expected_tools: 4 },
+    { name: "commodities", spec: commoditiesSpec, expected_tools: 3 },
+    { name: "volatility", spec: volatilitySpec, expected_tools: 5 },
+    { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 7 },
+    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 5 },
+    { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 4 },
   ] as const;
 
   for (const { name, spec, expected_tools } of cases) {
     it(`${name}`, () => {
       expect(spec.agentId).toBe(name);
       expect(spec.requiredTools.length).toBe(expected_tools);
+      expect(spec.requiredTools).toContain("get_rke_research_context");
       expect(spec.fieldNames.length).toBeGreaterThanOrEqual(4);
       // Every spec must include `key_drivers` + `confidence` (Plan §11.2 2B-6
       // contract for the L1 aggregator).
@@ -279,6 +280,7 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
       required: ["curr_date"],
     };
     const FAKE_TOOL_METADATAS: ToolMetadata[] = [
+      { name: "get_rke_research_context", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_us_china_relations", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_xueqiu_heat", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_industry_policy", description: "x", args_schema: TOOL_SCHEMA },

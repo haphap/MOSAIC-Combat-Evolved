@@ -17,6 +17,7 @@ import {
 import { GEOPOLITICAL_FIELD_NAMES, GeopoliticalSchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_us_china_relations",
   "get_xueqiu_heat",
   "get_industry_policy",

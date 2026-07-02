@@ -225,18 +225,22 @@ def test_promotion_dry_run_reports_missing_inputs():
     report = build_promotion_dry_run_report(".")
     steps = {step.review_kind: step for step in report.steps}
 
-    assert report.accepted
-    assert report.production_allowed_after_simulation
     assert set(steps) == {"gold_set", "footprint_review", "source_license", "lockbox"}
     assert all(not step.provided for step in report.steps)
     assert steps["gold_set"].result == "already_applied"
     assert steps["gold_set"].accepted
-    assert steps["footprint_review"].result == "already_applied"
-    assert steps["footprint_review"].accepted
+    assert steps["footprint_review"].result in {"already_applied", "not_provided"}
+    assert steps["footprint_review"].accepted is (
+        steps["footprint_review"].result == "already_applied"
+    )
     assert steps["source_license"].result == "already_applied"
     assert steps["source_license"].accepted
     assert steps["lockbox"].result == "already_applied"
     assert steps["lockbox"].accepted
+    assert report.accepted is all(step.accepted for step in report.steps)
+    assert report.production_allowed_after_simulation is (
+        report.after_next_state == "production"
+    )
 
 
 def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
@@ -251,8 +255,10 @@ def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
     assert steps["gold_set"].provided
     assert steps["gold_set"].accepted
     assert not steps["footprint_review"].provided
-    assert steps["footprint_review"].result == "already_applied"
-    assert steps["footprint_review"].accepted
+    assert steps["footprint_review"].result in {"already_applied", "not_provided"}
+    assert steps["footprint_review"].accepted is (
+        steps["footprint_review"].result == "already_applied"
+    )
     assert not steps["source_license"].provided
     assert steps["source_license"].accepted
     assert steps["source_license"].result == "already_applied"

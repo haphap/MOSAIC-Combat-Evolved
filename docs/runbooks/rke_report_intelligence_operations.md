@@ -59,22 +59,24 @@ Both paths are gitignored and must remain private.
 ## GitHub Registry Boundary
 
 Do not commit the full Report Intelligence runtime database to GitHub. The
-tracked `registry/report_intelligence/` surface is limited to public-safe control
-plane artifacts such as feature flags, compact catalogs, readiness gates, and
-aggregate audit summaries. Large per-claim/per-footprint/per-recipe derived
-JSONL artifacts are local generated outputs, even when they are redacted.
+`registry/report_intelligence/` surface is local-only. Do not commit compact
+catalogs, readiness gates, aggregate audit summaries, feature flags, or any other
+Report Intelligence derived report. Treat redacted summaries as local generated
+outputs too.
 
 Keep these classes local/gitignored:
 
+- compact catalogs, readiness gates, feature flags, and aggregate audit
+  summaries;
 - extracted claim, footprint, metadata, review-aid, and outcome-label files;
 - recipe/method/tool-gap/metric-candidate detail JSONL files;
 - macro regime snapshot and macro agent research-prior detail exports;
 - audit, monitor, gap-distribution, prompt-mutation, and paper-trading history
   JSONL files.
 
-If downstream macro agents need one of these views, consume it from the local
-registry or add a separate compact public export. Do not re-add the full detail
-JSONL files to `REQUIRED_REGISTRY_FILES`.
+If downstream macro or investment agents need one of these views, consume it
+from the local registry. Do not re-add Report Intelligence artifacts to
+`REQUIRED_REGISTRY_FILES`.
 
 Last source build:
 
@@ -260,6 +262,558 @@ Use this no-`--skip-download` pattern for fresh local source batches so
 `local_pdf_path` is materialized into the cache before MinerU conversion. Use
 `--skip-download --skip-convert --require-cached-markdown` only for the
 subsequent LLM-only shard pass after Markdown is already cached.
+
+## Local Qwen LLM Extraction
+
+Use the existing local Docker vLLM service for cached-Markdown extraction before
+testing another local endpoint. Do not rerun a smoke test just to rediscover the
+same parameters unless the container, model id, vLLM version, or RKE extraction
+flags have changed.
+
+Validated local service:
+
+- Container: `rke-vllm-qwen36-27b-160k-20260610`
+- Base URL: `http://127.0.0.1:8020/v1`
+- Model id: `Qwen3.6-27B-heretic-int4-AutoRound`
+- Health/model check: `curl -sS http://127.0.0.1:8020/v1/models`
+- Managed-sandbox note: if localhost access fails inside the sandbox while
+  `ss -ltnp` shows `0.0.0.0:8020` listening, rerun the curl/RKE command with
+  host-network permission instead of changing model parameters.
+
+NVIDIA Qwen3.6 27B NVFP4 sndr service:
+
+- Use this service when the user explicitly requests the NVIDIA 27B NVFP4
+  preset. The validated RKE extraction command above still points to the older
+  `rke-vllm-qwen36-27b-160k-20260610` service on port `8020` unless that command
+  is changed deliberately.
+- Preset: `nvidia-qwen3.6-27b-nvfp4-5090`.
+- Container: `vllm-qwen3.6-27b-nvfp4-5090-5090d`.
+- Base URL: `http://127.0.0.1:8000`.
+- Chat endpoint: `/v1/chat/completions`.
+- Served model: `qwen3.6-27b-nvfp4`.
+- Auth header: `Authorization: Bearer genesis-local`.
+- HF snapshot:
+  `/models/models--nvidia--Qwen3.6-27B-NVFP4/snapshots/0893e1606ff3d5f97a441f405d5fc541a6bdf404`.
+- Runtime envelope from `sndr launch --dry-run`: `--tensor-parallel-size 1`,
+  `--gpu-memory-utilization 0.9`, `--max-model-len 120000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 4096`, `--dtype bfloat16`,
+  `--kv-cache-dtype auto`,
+  `--speculative-config '{"method": "mtp", "num_speculative_tokens": 3}'`,
+  `--enable-chunked-prefill`, `--disable-custom-all-reduce`,
+  `--language-model-only`, `--trust-remote-code`, and
+  `--enable-auto-tool-choice`.
+- This service shares port `8000` with the 35B NVFP4 sndr service. Run only one
+  of them at a time.
+
+Single-owner startup flow:
+
+- If the same-parameter container is already healthy, reuse it and skip startup:
+
+  ```bash
+  curl -s http://127.0.0.1:8000/health
+  rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  ```
+
+- If the same-parameter container exists but is stopped, prefer restarting it:
+
+  ```bash
+  rtk docker ps -a \
+    --filter name=vllm-qwen3.6-27b-nvfp4-5090-5090d \
+    --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  rtk docker start vllm-qwen3.6-27b-nvfp4-5090-5090d
+  ```
+
+  This preserves the container definition and mounted host caches, but not GPU
+  memory. The model still reloads and warms up after every stopped start.
+
+- Rebuild the container only when no reusable container exists, the preset or
+  runtime flags changed, the container is in an abnormal state, or a clean
+  deterministic launch is required:
+
+  ```bash
+  rtk sndr down nvidia-qwen3.6-27b-nvfp4-5090 || true
+  rtk docker rm -f vllm-qwen3.6-27b-nvfp4-5090-5090d 2>/dev/null || true
+  rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+  rtk sndr launch nvidia-qwen3.6-27b-nvfp4-5090 --skip-autodetect
+  ```
+
+  `sndr launch` renders a conservative Docker script that removes any same-name
+  container before creating a fresh one. Use `rtk docker start` when the goal is
+  to reuse an unchanged stopped container.
+
+Wait for readiness:
+
+```bash
+for i in {1..120}; do
+  code=$(curl -s -o /tmp/sndr-health-27b.out -w "%{http_code}" \
+    http://127.0.0.1:8000/health || true)
+  if [ "$code" = 200 ]; then
+    echo READY
+    break
+  fi
+  if ! rtk docker ps --format "{{.Names}}" | \
+    grep -qx vllm-qwen3.6-27b-nvfp4-5090-5090d; then
+    echo EXITED
+    rtk docker ps -a \
+      --filter name=vllm-qwen3.6-27b-nvfp4-5090-5090d \
+      --format "{{.Status}}"
+    rtk docker logs --tail 200 vllm-qwen3.6-27b-nvfp4-5090-5090d
+    exit 1
+  fi
+  sleep 5
+done
+```
+
+Confirm the served model:
+
+```bash
+curl -sS \
+  -H 'Authorization: Bearer genesis-local' \
+  http://127.0.0.1:8000/v1/models
+```
+
+Default stop keeps the container available for same-parameter reuse:
+
+```bash
+rtk sndr down nvidia-qwen3.6-27b-nvfp4-5090 || true
+rtk docker stop vllm-qwen3.6-27b-nvfp4-5090-5090d 2>/dev/null || true
+rtk docker ps -a \
+  --filter name=vllm-qwen3.6-27b-nvfp4-5090-5090d \
+  --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+```
+
+Full cleanup only when rebuilding or recovering from abnormal state:
+
+```bash
+rtk docker rm -f vllm-qwen3.6-27b-nvfp4-5090-5090d 2>/dev/null || true
+```
+
+Removing the container does not remove host caches mounted from Hugging Face,
+Triton, or vLLM torch compile cache directories. It only discards the container
+definition and forces the next `sndr launch` to recreate it.
+
+LLM-only shard command pattern:
+
+```bash
+PATH=/home/hap/Project/MOSAIC-RKE/.venv/bin:$PATH \
+HOME=/home/hap/Project/MOSAIC-RKE/.mosaic/tmp/home \
+UV_CACHE_DIR=/home/hap/Project/MOSAIC-RKE/.mosaic/tmp/uv-cache \
+MOSAIC_RKE_TMPDIR=/home/hap/Project/MOSAIC-RKE/.mosaic/tmp \
+TMPDIR=/home/hap/Project/MOSAIC-RKE/.mosaic/tmp \
+.venv/bin/mosaic-rke report-intelligence \
+  --root . \
+  --source-path .mosaic/rke/report_intelligence_batches/<batch>/<domain>_llm_shards/<shard>.jsonl \
+  --registry-dir .mosaic/rke/report_intelligence_batches/<batch>/<domain>_llm_registry/<part> \
+  --exclude-processed-registry-dir registry/report_intelligence \
+  --skip-download \
+  --skip-convert \
+  --require-cached-markdown \
+  --vllm-base-url http://127.0.0.1:8020/v1 \
+  --vllm-model Qwen3.6-27B-heretic-int4-AutoRound \
+  --vllm-timeout-seconds 600 \
+  --max-llm-output-tokens 2048
+```
+
+Operational guidance:
+
+- Feed only source shards whose Markdown status passed quality gates. Do not put
+  PDF download, MinerU conversion, or blocked Markdown rows into the LLM pass.
+- Use `250` reports per shard as the verified stable batch size on this host.
+  Use smaller shards, such as `100`, only when frequent checkpoints matter more
+  than launch overhead.
+- Do not add `--progress-jsonl` for large LLM-only shards unless debugging; it
+  can produce very large terminal buffers.
+- Keep each shard in its own private registry directory, then merge only clean
+  shard registries. Retry transient blockers as one-source shards before merge.
+- Stop MinerU VLM workloads before starting this extraction service; both share
+  the same GPU.
+
+2026-06-29 local Qwen validation:
+
+- Input shape: one cached-Markdown stock shard with `250` reports.
+- Command parameters: the exact base URL, model id, timeout, and token cap shown
+  above.
+- Result: `250/250` LLM-processed, `0` blockers, `166` forecast claims, `432`
+  analytical footprints, and `165` stock-price-proxy eligible claims.
+- Wall time: about `69` minutes for the serial RKE extraction loop. This is a
+  stability validation, not a reason to retest every future batch.
+
+2026-06-29 NVIDIA Qwen3.6 35B NVFP4 validation:
+
+- Model: `nvidia/Qwen3.6-35B-A3B-NVFP4`
+- Local snapshot:
+  `/home/hap/Project/qwen36-27b-single-5090/models/hf-cache/models--nvidia--Qwen3.6-35B-A3B-NVFP4/snapshots/491c2f1ea524c639598bf8fa787a93fed5a6fbce`
+- Docker image: `bbac761a6be4`
+- Validated container: `rke-vllm-qwen36-35b-a3b-nvfp4-patched8-20260629`
+- Base URL: `http://127.0.0.1:8020/v1`
+- Health/model check:
+  `curl -sS http://127.0.0.1:8020/v1/models`
+- Required vLLM serving parameters on the 5090 host:
+  `--quantization modelopt_mixed`, `--dtype auto`,
+  `--max-model-len 65536`, `--gpu-memory-utilization 0.85`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 4128`,
+  `--kv-cache-dtype fp8_e4m3`, `--enable-prefix-caching`,
+  `--enable-chunked-prefill`, `--reasoning-parser qwen3`,
+  `--enable-auto-tool-choice`, `--tool-call-parser qwen3_coder`, and the local
+  `qwen3.5-enhanced.jinja` chat template.
+- RKE extraction already sends
+  `chat_template_kwargs: {"enable_thinking": false}`. Keep this for JSON
+  extraction; without it, short requests may return only `reasoning` and no
+  `content`.
+- Required temporary compatibility patch for this pinned vLLM image:
+  `.mosaic/tmp/patch_modelopt_mixed_qwen36_nvfp4.py`, launched via
+  `.mosaic/tmp/start_qwen35_nvfp4_vllm.sh`.
+  The patch fixes three local compatibility gaps: ModelOpt mixed quant-layer
+  prefix lookup for Qwen3.6, `ParallelLMHead` receiving `quant_config`, and
+  scalar NVFP4 `lm_head` scale loading in `VocabParallelEmbedding`.
+- Known bad parameters or shortcuts:
+  `--kv-cache-dtype nvfp4` is not supported by the selected attention backend;
+  `--disable-log-requests` is not accepted by this vLLM image; skipping or
+  tying `lm_head` weights is not a valid quality comparison because the
+  checkpoint has an untied quantized `lm_head`.
+- MTP speculative decoding check on 2026-06-29:
+  `--speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'`
+  is accepted by vLLM argument parsing and initializes `Qwen3_5MoeMTP`, but the
+  engine fails while loading the drafter with
+  `ValueError: There is no module or parameter named 'lm_head.input_scale' in
+  Qwen3_5MoeMTP`. Do not use this MTP config for RKE extraction until the local
+  NVFP4 compatibility patch also covers the MTP drafter `lm_head` scale path, or
+  a validated upstream image fixes that loader path.
+- Startup metrics from the validated run: checkpoint size `21.82 GiB`, weight
+  loading `12.01 s`, model memory `20.35 GiB`, initial profile/warmup `43.20 s`,
+  torch compile `24.54 s`, KV cache memory `3.78 GiB`, GPU KV cache size
+  `396144` tokens, and maximum concurrency for `65536` tokens per request
+  `4.97x`.
+- RKE cached-Markdown smoke:
+  `50/50` selected stock reports processed, `0` blockers, `46` forecast claims,
+  `131` analytical footprints, `271` metric candidates, `461` tool gaps, and
+  `147` stock-price proxy outcome labels.
+- Smoke wall time: about `8m29s` from run id `RIR-20260629T035251+0000` to
+  output mtime, or about `354` reports/hour for the serial RKE extraction loop.
+  This is faster than the local 27B validation baseline of about `214-218`
+  reports/hour, but the samples differ, so treat quality comparison as
+  directional until the same source shard is A/B tested.
+- Quality gates on the 50-report smoke: extraction provenance accepted, runtime
+  safety accepted, statistical robustness accepted, PIT leakage accepted, tool
+  feasibility accepted, and `unvalidated_confidence_impact_count=0`.
+  Manual analytical-footprint review remains pending for newly generated rows,
+  as expected.
+- Full 250-report stock shard validation:
+  `historical_backfill_20260628/stock_llm_registry/part_04` processed
+  `250/250` reports with `0` blockers. Run id
+  `RIR-20260629T040509+0000`, output mtime `2026-06-29T12:54:10+08:00`,
+  about `49m01s` wall time, or about `306` reports/hour. Provenance, runtime
+  safety, statistical robustness, PIT leakage, and tool feasibility gates were
+  accepted; `unvalidated_confidence_impact_count=0` and
+  `aggregate_calibration_drift_count=0`.
+- Same-source 50-report structural comparison against the 27B part_01 output:
+  27B produced `30` forecast claims and `78` analytical footprints across the
+  50 overlapping report ids, with footprints on `34/50` reports. The 35B NVFP4
+  smoke produced `46` forecast claims and `131` analytical footprints across
+  the same 50 report ids, with footprints on `50/50` reports. Treat this as
+  higher structured-recall evidence, not as a completed manual semantic-quality
+  review.
+- 2026-07-02 sndr 35B NVFP4 article-extraction smoke:
+  - Preset: `nvidia-qwen3.6-35b-a3b-nvfp4-5090`.
+  - Do not use `sndr up` as the primary path for this preset. On this host it
+    can fail a false model-path autodetect check even when the HF cache is
+    present. Use `sndr launch ... --skip-autodetect`.
+  - Runtime envelope:
+    - Served model: `qwen3.6-35b-a3b-nvfp4`.
+    - HF snapshot:
+      `/models/models--nvidia--Qwen3.6-35B-A3B-NVFP4/snapshots/491c2f1ea524c639598bf8fa787a93fed5a6fbce`.
+    - API base URL: `http://127.0.0.1:8000`.
+    - Chat endpoint: `/v1/chat/completions`.
+    - Auth header: `Authorization: Bearer genesis-local`.
+    - Preset engine flags: `--tensor-parallel-size 1`,
+      `--gpu-memory-utilization 0.9`, `--max-model-len 120000`,
+      `--max-num-seqs 1`, `--max-num-batched-tokens 4096`,
+      `--dtype bfloat16`, `--kv-cache-dtype auto`,
+      `--speculative-config '{"method":"mtp","num_speculative_tokens":3}'`,
+      `--enable-chunked-prefill`, `--disable-custom-all-reduce`,
+      `--language-model-only`, `--trust-remote-code`, and
+      `--enable-auto-tool-choice`.
+  - Single-owner service workflow, now the standard operating model:
+    - Pick exactly one service owner for each service lifetime. The owner can
+      be a human shell or one Codex session.
+    - The same owner may perform the full lifecycle: cleanup, launch, health
+      polling, extraction requests, log inspection, and final shutdown.
+    - Current workstation note: on 2026-07-02 this service was successfully
+      started by another owner shell before testing. When that is already true,
+      skip startup and start at the health check and extraction request below.
+  - Environment prerequisites:
+    - RTX 5090 D visible from the host. `rtk nvidia-smi` should show the idle
+      desktop baseline around `1.2-1.8 GiB` used before launch.
+    - No other vLLM/MinerU GPU workload or vLLM Docker container should be
+      running.
+    - The HF cache must contain the NVIDIA Qwen3.6 35B NVFP4 snapshot above.
+  - Service-owner startup flow, and only for the owner shell:
+    - If the same-parameter container is already healthy, reuse it and skip
+      startup:
+
+      ```bash
+      curl -s http://127.0.0.1:8000/health
+      rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      ```
+
+    - If the same-parameter container exists but is stopped, prefer restarting
+      it instead of deleting it:
+
+      ```bash
+      rtk docker ps -a \
+        --filter name=vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d \
+        --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk docker start vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d
+      ```
+
+      This reuses the container definition and mounted host caches, but not GPU
+      memory. The model still reloads and warms up after every stopped start.
+
+    - Rebuild the container only when no reusable container exists, the preset
+      or runtime flags changed, the container is in an abnormal state, or a
+      clean deterministic launch is required:
+
+      ```bash
+      rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090 || true
+      rtk docker rm -f vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
+      rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+      rtk sndr launch nvidia-qwen3.6-35b-a3b-nvfp4-5090 --skip-autodetect
+      ```
+
+    `sndr launch` renders a conservative Docker script that removes any
+    same-name container before creating a fresh one. Use `rtk docker start`
+    instead when the goal is to reuse an unchanged stopped container.
+
+    If another vLLM container is already running, or GPU memory is close to
+    full, do not launch. Either wait for the current owner to finish, or have
+    that owner stop the service first.
+
+  - Health wait, up to 10 minutes:
+
+    ```bash
+    for i in {1..120}; do
+      code=$(curl -s -o /tmp/sndr-health-35b.out -w "%{http_code}" \
+        http://127.0.0.1:8000/health || true)
+      if [ "$code" = 200 ]; then
+        echo READY
+        break
+      fi
+      if ! rtk docker ps --format "{{.Names}}" | \
+        grep -qx vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d; then
+        echo EXITED
+        rtk docker ps -a \
+          --filter name=vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d \
+          --format "{{.Status}}"
+        rtk docker logs --tail 200 \
+          vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d
+        exit 1
+      fi
+      sleep 5
+    done
+    ```
+
+    If the container exits before `/health` returns `200`, stop waiting and
+    inspect logs instead of sending extraction requests.
+  - Service ready confirmation by the owner:
+
+    ```bash
+    curl -s http://127.0.0.1:8000/health
+    rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    ```
+
+    The owner should see container
+    `vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d` with port
+    `0.0.0.0:8000->8000/tcp`.
+  - Extraction call flow:
+    - Use `http://127.0.0.1:8000`, `/v1/chat/completions`, model
+      `qwen3.6-35b-a3b-nvfp4`, `Authorization: Bearer genesis-local`, and
+      `Content-Type: application/json`.
+    - Start every extraction test with:
+
+      ```bash
+      curl -s http://127.0.0.1:8000/health
+      ```
+
+      Continue only when it returns a healthy response.
+  - Model check after health is ready:
+
+    ```bash
+    curl -sS \
+      -H 'Authorization: Bearer genesis-local' \
+      http://127.0.0.1:8000/v1/models
+    ```
+
+  - Minimal reproducible article-extraction request:
+
+    ```bash
+    curl -s http://127.0.0.1:8000/v1/chat/completions \
+      -H "Authorization: Bearer genesis-local" \
+      -H "Content-Type: application/json" \
+      -d @- <<'JSON' | tee /tmp/sndr-35b-extract-response.json | python3 -m json.tool
+    {
+      "model": "qwen3.6-35b-a3b-nvfp4",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You extract article metadata. Return exactly one compact JSON object in the final answer content. No markdown."
+        },
+        {
+          "role": "user",
+          "content": "Title: Example Market Note\nAuthor: Jane Doe\nDate: 2026-07-02\nBody: Acme reported revenue growth of 12% and expanded operations in Shanghai. Extract title, author, date, organizations, locations, and numeric claims."
+        }
+      ],
+      "temperature": 0,
+      "max_tokens": 1024
+    }
+    JSON
+    ```
+
+    Read the final answer from `content` first:
+
+    ```bash
+    python3 - <<'PY'
+    import json
+    from pathlib import Path
+
+    d = json.loads(Path("/tmp/sndr-35b-extract-response.json").read_text())
+    msg = d["choices"][0]["message"]
+    print(msg.get("content") or msg.get("reasoning") or "")
+    PY
+    ```
+
+    Qwen reasoning parser output can include
+    `choices[0].message.reasoning`. Prefer `choices[0].message.content`; if it
+    is empty, increase `max_tokens` and make the system prompt explicit:
+    `Return final JSON in content after reasoning.` For deterministic
+    extraction where supported by the server,
+    `chat_template_kwargs: {"enable_thinking": false}` also helps keep JSON in
+    `content`.
+  - RKE-like reproducible synthetic article input:
+
+    ```text
+    Title: Copper Grid Demand Lifts Orders
+    Date: 2026-07-02
+
+    Huaxin Cable said second-quarter orders rose 18% year over year to
+    RMB 4.2 billion. Management attributed the increase to grid upgrades,
+    data-center power projects, and higher copper-clad cable demand.
+    The company expects gross margin to improve by 1.5 percentage points in
+    the next two quarters if copper prices remain below RMB 82,000 per ton.
+    It warned that a sudden copper-price spike and delayed utility tenders
+    could pressure shipment timing. Capital expenditure for 2026 is planned
+    at RMB 600 million, mainly for high-voltage production lines.
+    ```
+
+  - OpenAI-compatible extraction request to run only after `/health` is ready:
+
+    ```bash
+    curl -sS http://127.0.0.1:8000/v1/chat/completions \
+      -H 'Authorization: Bearer genesis-local' \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "model": "qwen3.6-35b-a3b-nvfp4",
+        "temperature": 0,
+        "max_tokens": 600,
+        "chat_template_kwargs": {"enable_thinking": false},
+        "response_format": {"type": "json_object"},
+        "messages": [
+          {
+            "role": "system",
+            "content": "Extract structured facts from the article. Return only JSON with keys: title, publication_date, entities, metrics, forecasts, risks, capex, evidence_spans."
+          },
+          {
+            "role": "user",
+            "content": "Title: Copper Grid Demand Lifts Orders\nDate: 2026-07-02\n\nHuaxin Cable said second-quarter orders rose 18% year over year to RMB 4.2 billion. Management attributed the increase to grid upgrades, data-center power projects, and higher copper-clad cable demand. The company expects gross margin to improve by 1.5 percentage points in the next two quarters if copper prices remain below RMB 82,000 per ton. It warned that a sudden copper-price spike and delayed utility tenders could pressure shipment timing. Capital expenditure for 2026 is planned at RMB 600 million, mainly for high-voltage production lines."
+          }
+        ]
+      }'
+    ```
+
+  - Result checks:
+    - HTTP status is `200`.
+    - `choices[0].message.content` is valid JSON.
+    - The JSON includes article-level facts, metric values, forecast horizon,
+      risks, capex, and evidence snippets grounded in the synthetic input.
+    - Record elapsed wall time, HTTP status, and whether JSON parsing succeeds.
+  - Observed benchmark reference:
+    - File:
+      `/home/hap/Project/sndr-bench-results/20260702-rtx5090d/nvidia-qwen3.6-35b-a3b-nvfp4-5090-ctx120k-k3-warm.json`.
+    - Result: `16/16` success, output throughput `327.67 tok/s`, total token
+      throughput `1665.09 tok/s`, mean TTFT `76.23 ms`, MTP acceptance rate
+      `63.73%`, and MTP acceptance length `2.91`.
+  - Service-owner stop, and only for the owner shell:
+    - Default stop keeps the container available for same-parameter reuse:
+
+      ```bash
+      rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090 || true
+      rtk docker stop vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
+      rtk docker ps -a \
+        --filter name=vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d \
+        --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+      ```
+
+    `sndr down` may report no running engine if the container was launched
+    outside the current sndr runtime state. In that case, use `rtk docker stop`
+    on the known container name to preserve it for reuse.
+
+    After stop, GPU memory should return to the desktop idle baseline.
+
+  - Full cleanup only when rebuilding or recovering from abnormal state:
+
+    ```bash
+    rtk docker rm -f vllm-qwen3.6-35b-a3b-nvfp4-5090-5090d 2>/dev/null || true
+    ```
+
+    Removing the container does not remove host caches mounted from Hugging
+    Face, Triton, or vLLM torch compile cache directories. It only discards the
+    container definition and forces the next `sndr launch` to recreate it.
+
+  - Common failure notes:
+    - If `sndr up` says the model is missing but the HF cache exists under
+      `models--nvidia--Qwen3.6-35B-A3B-NVFP4/snapshots/`, use the rebuild
+      `sndr launch --skip-autodetect` flow above.
+    - If `/health` returns `000` while logs show safetensor loading, profile,
+      warmup, or autotune, continue waiting until health is ready or the
+      container exits.
+    - If logs end with `Engine core initialization failed`, do not run RKE
+      extraction against this endpoint. The service owner should capture
+      `rtk docker logs --tail 200`, stop with `rtk sndr down` and
+      `rtk docker stop`, and remove the stopped container only if a rebuild is
+      required before retesting.
+- 2026-07-01 macro backfill run:
+  - Source pool: `979` previously unprocessed local macro reports from the
+    private local source registry.
+  - MinerU main conversion used `vlm-auto-engine` with
+    `MINERU_BACKEND=vlm-vllm-engine`,
+    `MINERU_API_MAX_CONCURRENT_REQUESTS=200`,
+    `MINERU_PROCESSING_WINDOW_SIZE=256`, batch size `80`, and max batch bytes
+    `200000000`. Result: `907/979` Markdown ready, `72` MinerU blockers.
+  - LLM extraction used the 35B NVFP4 container above, model
+    `nvidia/Qwen3.6-35B-A3B-NVFP4`, shard sizes `250/250/250/157`,
+    `--vllm-timeout-seconds 600`, and `--max-llm-output-tokens 2048`. Result:
+    `899/907` processed, with `8` Markdown repeated-line-noise blockers.
+  - Retry conversion combined the `72` MinerU blockers and `8` Markdown-quality
+    blockers, then used batch size `8`, max batch bytes `50000000`,
+    `MINERU_API_MAX_CONCURRENT_REQUESTS=80`, and
+    `MINERU_PROCESSING_WINDOW_SIZE=128` with `--overwrite`. Result: `69/80`
+    Markdown ready and `11` remaining MinerU blockers.
+  - Retry LLM extraction on the `69` ready rows processed `62/69`; `7` rows
+    still failed the Markdown repeated-line-noise gate. Clean merge therefore
+    added `961` processed macro reports. Remaining local macro source gap after
+    this run is `18` reports: `11` MinerU conversion failures and `7` Markdown
+    quality failures.
+  - Practical 35B NVFP4 macro extraction throughput for the serial RKE loop was
+    about `270` processed reports/hour over the four main macro shards. The
+    retry shard was in the same order of magnitude. Do not re-test these
+    settings before future macro shards unless the model/container, RKE
+    extraction flags, or Markdown quality gates change.
+- Ask the service owner to stop this container before MinerU VLM conversion or
+  any other GPU-heavy local workload if memory pressure appears.
 
 ## Forecast Claim Pre-Review Rule
 
@@ -858,8 +1412,9 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 3. Only after Markdown quality is acceptable, start or verify the vLLM service
    and run LLM extraction with the configured `.env` model.
 
-4. Recompute derived public artifacts with `--refresh-derived-only` after
-   private extraction outputs exist.
+4. Recompute local derived artifacts with `--refresh-derived-only` after private
+   extraction outputs exist. Keep the generated `registry/report_intelligence/`
+   files local.
 
 ## Operation Log
 

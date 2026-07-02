@@ -15,6 +15,7 @@ import {
 import { YIELD_CURVE_FIELD_NAMES, YieldCurveSchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
   "get_yield_curve_cn",
   "get_fred_series",
   "get_us_china_spread",

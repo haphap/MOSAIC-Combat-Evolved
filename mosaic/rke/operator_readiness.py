@@ -405,28 +405,6 @@ def _manual_review_templates_have_provenance(
 
 
 def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
-    gates = tuple(getattr(handoff, "gates", ()) or ())
-    source_license_gate = next(
-        (
-            gate
-            for gate in gates
-            if str(getattr(gate, "review_kind", "") or "") == "source_license"
-        ),
-        None,
-    )
-    source_license_already_passed = bool(
-        getattr(source_license_gate, "passed", False)
-    )
-    source_license_steps = (
-        ()
-        if source_license_already_passed
-        else (
-            "prepare-source-license-review",
-            "fill-source-license-policy",
-            "dry-run-source-license-review",
-            "apply-source-license-review",
-        )
-    )
     expected_steps = (
         "review-progress-preflight",
         "prepare-gold-review",
@@ -440,7 +418,6 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         "fill-footprint-review",
         "dry-run-footprint-review",
         "apply-footprint-review",
-        *source_license_steps,
         "promotion-status-before-lockbox",
         "prepare-lockbox-review",
         "fill-lockbox-review",
@@ -481,10 +458,6 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         ),
         "fill-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
     }
-    if not source_license_already_passed:
-        fill_expectations[
-            "fill-source-license-policy"
-        ] = "registry/review_batches/source_license_policy_reviewed.json"
     for step_id, expected_input in fill_expectations.items():
         step = by_id.get(step_id)
         if step is None:
@@ -495,18 +468,6 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         if str(getattr(step, "manual_input_path", "") or "") != expected_input:
             failures.append(f"{step_id} manual input path mismatch")
 
-    if not source_license_already_passed:
-        source_apply = by_id.get("apply-source-license-review")
-        source_apply_command = str(getattr(source_apply, "command", "") or "")
-        if (
-            "build-license-review-import" not in source_apply_command
-            or "source_license_policy_reviewed.json" not in source_apply_command
-            or "apply-license-review" not in source_apply_command
-        ):
-            failures.append(
-                "source-license apply step must build the import before applying it"
-            )
-
     promotion_dry_run = by_id.get("promotion-dry-run")
     promotion_dry_run_command = str(getattr(promotion_dry_run, "command", "") or "")
     if (
@@ -516,15 +477,7 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         or "lockbox_reviewed.json" not in promotion_dry_run_command
     ):
         failures.append("promotion dry-run must use all required reviewed inputs")
-    if (
-        not source_license_already_passed
-        and "source_license_policy_import.jsonl" not in promotion_dry_run_command
-    ):
-        failures.append("promotion dry-run must include source-license input")
-    if (
-        source_license_already_passed
-        and "--license-input" in promotion_dry_run_command
-    ):
+    if "--license-input" in promotion_dry_run_command:
         failures.append(
             "promotion dry-run must not rebuild source-license input after the gate already passed"
         )
@@ -534,13 +487,6 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         "dry-run-footprint-review",
         "dry-run-lockbox-review",
     )
-    if not source_license_already_passed:
-        expected_before_promotion = (
-            "dry-run-gold-review",
-            "dry-run-footprint-review",
-            "dry-run-source-license-review",
-            "dry-run-lockbox-review",
-        )
     if step_ids == expected_steps:
         promotion_index = step_ids.index("promotion-dry-run")
         for step_id in expected_before_promotion:
@@ -590,11 +536,8 @@ def _manual_review_runbook_promotion_policy_consistent(
     has_license_import = DEFAULT_LICENSE_POLICY_IMPORT_PATH in section
     has_license_builder = "build-license-review-import" in section
     failures = list(missing_fragments)
-    if source_license_already_passed:
-        if has_license_input or has_license_import or has_license_builder:
-            failures.append("source-license input must be omitted after the gate already passed")
-    elif not has_license_input or not has_license_import or not has_license_builder:
-        failures.append("source-license input must be built and passed before the gate has passed")
+    if has_license_input or has_license_import or has_license_builder:
+        failures.append("source-license input must be omitted from promotion dry-run")
 
     evidence = (
         f"source_license_already_passed={source_license_already_passed}, "

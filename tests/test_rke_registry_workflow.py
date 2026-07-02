@@ -14,11 +14,19 @@ from mosaic.rke import (
     validate_required_registry_content,
     write_registry_manifest,
 )
-from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from mosaic.rke.registry_manifest import (
+    PRIVATE_LOCAL_REGISTRY_FILES,
+    REPORT_INTELLIGENCE_LOCAL_ARTIFACT_FILES,
+    is_public_registry_artifact,
+)
 
 
 def _copy_registry(src_root: Path, dst_root: Path) -> None:
-    shutil.copytree(src_root / "registry", dst_root / "registry")
+    shutil.copytree(
+        src_root / "registry",
+        dst_root / "registry",
+        ignore=shutil.ignore_patterns("report_intelligence"),
+    )
 
 
 def test_required_registry_files_are_present_in_repo():
@@ -28,7 +36,10 @@ def test_required_registry_files_are_present_in_repo():
     assert missing == ()
     assert empty == ()
     assert invalid == ()
-    assert "registry/report_intelligence/extraction_report.json" in REQUIRED_REGISTRY_FILES
+    assert (
+        "registry/report_intelligence/extraction_report.json"
+        not in REQUIRED_REGISTRY_FILES
+    )
     assert (
         "registry/report_intelligence/weighted_research_contexts.jsonl"
         not in REQUIRED_REGISTRY_FILES
@@ -57,50 +68,8 @@ def test_required_registry_files_are_present_in_repo():
     }
     assert local_report_intelligence_details <= PRIVATE_LOCAL_REGISTRY_FILES
     assert local_report_intelligence_details.isdisjoint(REQUIRED_REGISTRY_FILES)
-    assert (
-        "registry/report_intelligence/outcome_labeling_readiness.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/monitoring_report.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/runtime_safety_audit.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/pit_leakage_audit.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/extraction_provenance_audit.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/statistical_robustness_audit.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/tool_feasibility_audit.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/recipe_validation_audit.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/patch_v1_5_coverage_report.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/recipe_paper_trading_summary.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/confidence_impact_monitor.json"
-        in REQUIRED_REGISTRY_FILES
-    )
+    assert REPORT_INTELLIGENCE_LOCAL_ARTIFACT_FILES <= PRIVATE_LOCAL_REGISTRY_FILES
+    assert REPORT_INTELLIGENCE_LOCAL_ARTIFACT_FILES.isdisjoint(REQUIRED_REGISTRY_FILES)
     assert (
         "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         not in REQUIRED_REGISTRY_FILES
@@ -117,27 +86,14 @@ def test_required_registry_files_are_present_in_repo():
     }
     assert private_review_artifacts <= PRIVATE_LOCAL_REGISTRY_FILES
     assert private_review_artifacts.isdisjoint(REQUIRED_REGISTRY_FILES)
-    assert (
-        "registry/report_intelligence/analytical_footprint_review_summary.json"
-        in REQUIRED_REGISTRY_FILES
+    assert not any(
+        item.startswith("registry/report_intelligence/")
+        for item in REQUIRED_REGISTRY_FILES
+    )
+    assert not is_public_registry_artifact(
+        "registry/report_intelligence/future_local_artifact.json"
     )
     assert set(REQUIRED_REGISTRY_FILES).isdisjoint(PRIVATE_LOCAL_REGISTRY_FILES)
-    assert (
-        "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/markdown_coverage_summary.json"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/industry_etf_proxy_map.jsonl"
-        in REQUIRED_REGISTRY_FILES
-    )
-    assert (
-        "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
-        in REQUIRED_REGISTRY_FILES
-    )
 
 
 def test_registry_manifest_tracks_hashes_and_required_artifacts(tmp_path: Path):

@@ -259,7 +259,6 @@ def _operator_command_sequence(
     gates: Sequence[OperatorGateHandoff],
     *,
     promotion_dry_run_command: str,
-    source_license_review_complete: bool,
     gold_evidence_command: str = "",
     footprint_assist_command: str = "",
     footprint_evidence_command: str = "",
@@ -267,7 +266,6 @@ def _operator_command_sequence(
     gate_by_kind = {gate.review_kind: gate for gate in gates}
     gold = gate_by_kind["gold_set"]
     footprint = gate_by_kind["footprint_review"]
-    source_license = gate_by_kind["source_license"]
     lockbox = gate_by_kind["lockbox"]
     steps: list[OperatorCommandStep] = [
         OperatorCommandStep(
@@ -392,43 +390,6 @@ def _operator_command_sequence(
             expected_result="Footprint summaries and downstream gates are recomputed.",
         ),
     ]
-    if not source_license_review_complete:
-        steps.extend(
-            [
-                OperatorCommandStep(
-                    step_id="prepare-source-license-review",
-                    phase="source_license",
-                    action="Write the reviewed source-license policy starter and workbook.",
-                    command=source_license.prepare_command,
-                    manual_input_path="",
-                    expected_result=f"Reviewed policy target is {SOURCE_LICENSE_REVIEWED_POLICY_PATH}.",
-                ),
-                OperatorCommandStep(
-                    step_id="fill-source-license-policy",
-                    phase="source_license",
-                    action="Fill and sign the reviewed source-license policy.",
-                    command="",
-                    manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
-                    expected_result="Policy fields, matched-row fingerprint, and production approval scope are complete.",
-                ),
-                OperatorCommandStep(
-                    step_id="dry-run-source-license-review",
-                    phase="source_license",
-                    action="Build and validate the source-license import rows.",
-                    command=source_license.dry_run_command,
-                    manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
-                    expected_result="Policy expands to all current source rows and dry-run import is accepted.",
-                ),
-                OperatorCommandStep(
-                    step_id="apply-source-license-review",
-                    phase="source_license",
-                    action="Build and apply accepted source-license decisions.",
-                    command=source_license.apply_command,
-                    manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
-                    expected_result="Source-license summaries and production blockers are recomputed.",
-                ),
-            ]
-        )
     steps.extend(
         [
             OperatorCommandStep(
@@ -867,31 +828,15 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         OPERATOR_HANDOFF_MD_PATH,
     )
     footprint_arg = f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
-    source_license_review_complete = any(
-        gate.review_kind == "source_license" and gate.passed for gate in gates
+    promotion_dry_run_command = operator_command(
+        "mosaic-rke promotion-dry-run --root . "
+        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+        f"{footprint_arg} "
+        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
     )
-    if source_license_review_complete:
-        promotion_dry_run_command = operator_command(
-            "mosaic-rke promotion-dry-run --root . "
-            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-            f"{footprint_arg} "
-            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-        )
-    else:
-        promotion_dry_run_command = operator_command(
-            "mosaic-rke build-license-review-import --root . "
-            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
-            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
-            "mosaic-rke promotion-dry-run --root . "
-            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-            f"{footprint_arg} "
-            f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
-            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-        )
     command_sequence = _operator_command_sequence(
         gates,
         promotion_dry_run_command=promotion_dry_run_command,
-        source_license_review_complete=source_license_review_complete,
         gold_evidence_command=(
             str((gold_progress.next_batch_commands or {}).get("evidence") or "")
             if gold_progress

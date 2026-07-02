@@ -338,7 +338,11 @@ def validate_json_schema_artifact(
     )
     failures: list[str] = list(schema_failures)
     artifact_file = root_path / artifact_path
-    if allow_empty and not artifact_file.exists():
+    local_optional_report_intelligence = (
+        artifact_path.startswith("registry/report_intelligence/")
+        and not artifact_file.exists()
+    )
+    if (allow_empty or local_optional_report_intelligence) and not artifact_file.exists():
         items: list[Any] = []
         item_failures: tuple[str, ...] = ()
     elif artifact_kind == "jsonl":
@@ -349,7 +353,7 @@ def validate_json_schema_artifact(
     else:
         raise ValueError(f"unsupported artifact_kind: {artifact_kind}")
     failures.extend(item_failures)
-    if not items and not allow_empty:
+    if not items and not (allow_empty or local_optional_report_intelligence):
         failures.append("artifact has no validation items")
     if schema is not None:
         for idx, item in enumerate(items):
@@ -1333,6 +1337,25 @@ REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS = {
     "title",
     "url",
 }
+REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_ID_QUEUE_SUFFIXES = (
+    "_forecast_claim_ids",
+    "_recipe_ids",
+    "_tool_gap_ids",
+    "_tool_proposal_ids",
+)
+REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_QUEUE_KEYS = {
+    "requested_tools",
+    "shadow_implemented_requested_tools",
+    "tool_gap_ids",
+    "tool_proposal_ids",
+    "unlinked_requested_tools",
+}
+REPORT_INTELLIGENCE_PUBLIC_ID_QUEUE_ARTIFACTS = (
+    "registry/report_intelligence/confidence_impact_monitor.json",
+    "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+    "registry/report_intelligence/outcome_labeling_readiness.json",
+    "registry/report_intelligence/recipe_paper_trading_summary.json",
+)
 
 
 def _required_field_failures(
@@ -1629,6 +1652,33 @@ def _public_forbidden_text_failures(
         for index, item in enumerate(value):
             failures.extend(
                 _public_forbidden_text_failures(item, path=f"{path}[{index}]")
+            )
+    return failures
+
+
+def _public_forbidden_id_queue_failures(
+    value: Any,
+    *,
+    path: str,
+) -> list[str]:
+    failures: list[str] = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            child_path = f"{path}.{key}"
+            key_text = str(key)
+            if key_text in REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_QUEUE_KEYS:
+                failures.append(f"{child_path}: private queue field forbidden")
+                continue
+            if key_text.endswith(
+                REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_ID_QUEUE_SUFFIXES
+            ):
+                failures.append(f"{child_path}: private id queue field forbidden")
+                continue
+            failures.extend(_public_forbidden_id_queue_failures(item, path=child_path))
+    elif isinstance(value, Sequence) and not isinstance(value, str):
+        for index, item in enumerate(value):
+            failures.extend(
+                _public_forbidden_id_queue_failures(item, path=f"{path}[{index}]")
             )
     return failures
 
@@ -2979,83 +3029,56 @@ def _validate_stock_price_proxy_readiness_contract(
     stock_labels = [
         row for row in outcome_label_rows if row.get("label_type") == "stock_price_proxy"
     ]
-    stock_claim_ids = {
-        str(row.get("forecast_claim_id") or "")
-        for row in stock_labels
-        if str(row.get("forecast_claim_id") or "").strip()
-    }
-    labelable_ids = {
-        str(item)
-        for item in _string_items(stock_readiness.get("labelable_forecast_claim_ids"))
-        if str(item).strip()
-    }
-    eligible_ids = {
-        str(item)
-        for item in _string_items(stock_readiness.get("eligible_forecast_claim_ids"))
-        if str(item).strip()
-    }
-    pending_ids = {
-        str(item)
-        for item in _string_items(
-            stock_readiness.get("pending_future_forecast_claim_ids")
-        )
-        if str(item).strip()
-    }
-    stock_labels_same_vintage = _private_public_id_sets_same_vintage(
-        stock_claim_ids,
-        labelable_ids,
+    eligible_count = _int_or_none(stock_readiness.get("eligible_claim_count"))
+    labelable_count = _int_or_none(
+        stock_readiness.get("labelable_forecast_claim_count")
     )
-    if stock_labels_same_vintage and labelable_ids != stock_claim_ids:
-        failures.append(
-            "outcome_labeling_readiness.stock_price_proxy_readiness."
-            "labelable_forecast_claim_ids: must match stock outcome label claim ids"
-        )
-    if not labelable_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.stock_price_proxy_readiness."
-            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if not pending_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.stock_price_proxy_readiness."
-            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if labelable_ids & pending_ids:
-        failures.append(
-            "outcome_labeling_readiness.stock_price_proxy_readiness."
-            "labelable and pending future claim ids must be disjoint"
-        )
-
-    expected_counts = {
-        "eligible_claim_count": len(eligible_ids),
-        "labelable_forecast_claim_count": len(labelable_ids),
-        "pending_future_forecast_claim_count": len(pending_ids),
-    }
-    for field, expected in expected_counts.items():
-        if _int_or_none(stock_readiness.get(field)) != expected:
+    pending_count = _int_or_none(
+        stock_readiness.get("pending_future_forecast_claim_count")
+    )
+    for field, value in (
+        ("eligible_claim_count", eligible_count),
+        ("labelable_forecast_claim_count", labelable_count),
+        ("pending_future_forecast_claim_count", pending_count),
+    ):
+        if value is None or value < 0:
             failures.append(
                 "outcome_labeling_readiness.stock_price_proxy_readiness."
-                f"{field}: expected {expected}"
+                f"{field}: expected nonnegative integer"
             )
+    if (
+        eligible_count is not None
+        and labelable_count is not None
+        and pending_count is not None
+        and labelable_count + pending_count > eligible_count
+    ):
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "labelable + pending future counts cannot exceed eligible_claim_count"
+        )
     labelable_window_count = _int_or_none(stock_readiness.get("labelable_window_count"))
     if labelable_window_count is None or labelable_window_count < 0:
         failures.append(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
             "labelable_window_count: expected nonnegative integer"
         )
-    elif stock_labels_same_vintage and labelable_window_count != len(stock_labels):
+    elif stock_labels and labelable_window_count != len(stock_labels):
         failures.append(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
             f"labelable_window_count: expected {len(stock_labels)}"
         )
-    if _int_or_none(readiness_report.get("stock_proxy_label_ready_count")) != len(
-        labelable_ids
+    if (
+        labelable_count is not None
+        and _int_or_none(readiness_report.get("stock_proxy_label_ready_count"))
+        != labelable_count
     ):
         failures.append(
             "outcome_labeling_readiness.stock_proxy_label_ready_count mismatch"
         )
-    if _int_or_none(readiness_report.get("stock_proxy_label_pending_count")) != len(
-        pending_ids
+    if (
+        pending_count is not None
+        and _int_or_none(readiness_report.get("stock_proxy_label_pending_count"))
+        != pending_count
     ):
         failures.append(
             "outcome_labeling_readiness.stock_proxy_label_pending_count mismatch"
@@ -3088,7 +3111,7 @@ def _validate_stock_price_proxy_readiness_contract(
                 "outcome_labeling_readiness.stock_price_proxy_readiness."
                 "stock_series_coverage_summary.target_series_missing_count: must be nonnegative integer"
             )
-        if target_count == 0 and labelable_ids:
+        if target_count == 0 and (labelable_count or 0) > 0:
             failures.append(
                 "outcome_labeling_readiness.stock_price_proxy_readiness."
                 "stock_series_coverage_summary.target_series_count: cannot be zero when labels exist"
@@ -3107,7 +3130,7 @@ def _validate_stock_price_proxy_readiness_contract(
                     "stock_series_coverage_summary lifecycle counts must add to target_series_count"
                 )
 
-    return len(stock_labels) + len(eligible_ids), failures
+    return len(stock_labels) + (eligible_count or 0), failures
 
 
 def _validate_macro_asset_proxy_readiness_contract(
@@ -3202,90 +3225,62 @@ def _validate_macro_asset_proxy_readiness_contract(
     macro_labels = [
         row for row in outcome_label_rows if row.get("label_type") == "macro_asset_proxy"
     ]
-    macro_claim_ids = {
-        str(row.get("forecast_claim_id") or "")
-        for row in macro_labels
-        if str(row.get("forecast_claim_id") or "").strip()
-    }
-    labelable_id_list = [
-        str(item)
-        for item in _string_items(macro_readiness.get("labelable_forecast_claim_ids"))
-        if str(item).strip()
-    ]
-    eligible_id_list = [
-        str(item)
-        for item in _string_items(macro_readiness.get("eligible_forecast_claim_ids"))
-        if str(item).strip()
-    ]
-    pending_id_list = [
-        str(item)
-        for item in _string_items(
-            macro_readiness.get("pending_future_forecast_claim_ids")
-        )
-        if str(item).strip()
-    ]
-    labelable_ids = set(labelable_id_list)
-    eligible_ids = set(eligible_id_list)
-    pending_ids = set(pending_id_list)
-    macro_labels_same_vintage = _private_public_id_sets_same_vintage(
-        macro_claim_ids,
-        labelable_ids,
+    eligible_count = _int_or_none(macro_readiness.get("eligible_claim_count"))
+    labelable_count = _int_or_none(
+        macro_readiness.get("labelable_forecast_claim_count")
     )
-    if macro_labels_same_vintage and labelable_ids != macro_claim_ids:
-        failures.append(
-            "outcome_labeling_readiness.macro_asset_proxy_readiness."
-            "labelable_forecast_claim_ids: must match macro outcome label claim ids"
-        )
-    if not labelable_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.macro_asset_proxy_readiness."
-            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if not pending_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.macro_asset_proxy_readiness."
-            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if labelable_ids & pending_ids:
-        failures.append(
-            "outcome_labeling_readiness.macro_asset_proxy_readiness."
-            "labelable and pending future claim ids must be disjoint"
-        )
-    for field, expected in (
-        ("eligible_claim_count", len(eligible_id_list)),
-        ("labelable_forecast_claim_count", len(labelable_id_list)),
-        ("pending_future_forecast_claim_count", len(pending_id_list)),
+    pending_count = _int_or_none(
+        macro_readiness.get("pending_future_forecast_claim_count")
+    )
+    for field, value in (
+        ("eligible_claim_count", eligible_count),
+        ("labelable_forecast_claim_count", labelable_count),
+        ("pending_future_forecast_claim_count", pending_count),
     ):
-        if _int_or_none(macro_readiness.get(field)) != expected:
+        if value is None or value < 0:
             failures.append(
                 "outcome_labeling_readiness.macro_asset_proxy_readiness."
-                f"{field}: expected {expected}"
+                f"{field}: expected nonnegative integer"
             )
+    if (
+        eligible_count is not None
+        and labelable_count is not None
+        and pending_count is not None
+        and labelable_count + pending_count > eligible_count
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "labelable + pending future counts cannot exceed eligible_claim_count"
+        )
     labelable_window_count = _int_or_none(macro_readiness.get("labelable_window_count"))
     if labelable_window_count is None or labelable_window_count < 0:
         failures.append(
             "outcome_labeling_readiness.macro_asset_proxy_readiness."
             "labelable_window_count: expected nonnegative integer"
         )
-    elif macro_labels_same_vintage and labelable_window_count != len(macro_labels):
+    elif macro_labels and labelable_window_count != len(macro_labels):
         failures.append(
             "outcome_labeling_readiness.macro_asset_proxy_readiness."
             f"labelable_window_count: expected {len(macro_labels)}"
         )
-    if _int_or_none(readiness_report.get("macro_proxy_label_ready_count")) != len(
-        labelable_id_list
+    if (
+        labelable_count is not None
+        and _int_or_none(readiness_report.get("macro_proxy_label_ready_count"))
+        != labelable_count
     ):
         failures.append(
             "outcome_labeling_readiness.macro_proxy_label_ready_count mismatch"
         )
-    if _int_or_none(readiness_report.get("macro_proxy_label_pending_count")) != len(
-        pending_id_list
+    if (
+        pending_count is not None
+        and _int_or_none(readiness_report.get("macro_proxy_label_pending_count"))
+        != pending_count
     ):
         failures.append(
             "outcome_labeling_readiness.macro_proxy_label_pending_count mismatch"
         )
 
-    return len(macro_labels) + len(eligible_id_list), failures
+    return len(macro_labels) + (eligible_count or 0), failures
 
 
 def _validate_macro_series_directional_readiness_contract(
@@ -3362,65 +3357,33 @@ def _validate_macro_series_directional_readiness_contract(
         for row in outcome_label_rows
         if row.get("label_type") == "macro_series_directional"
     ]
-    series_claim_ids = {
-        str(row.get("forecast_claim_id") or "")
-        for row in series_labels
-        if str(row.get("forecast_claim_id") or "").strip()
-    }
-    labelable_id_list = [
-        str(item)
-        for item in _string_items(series_readiness.get("labelable_forecast_claim_ids"))
-        if str(item).strip()
-    ]
-    eligible_id_list = [
-        str(item)
-        for item in _string_items(series_readiness.get("eligible_forecast_claim_ids"))
-        if str(item).strip()
-    ]
-    pending_id_list = [
-        str(item)
-        for item in _string_items(
-            series_readiness.get("pending_future_forecast_claim_ids")
-        )
-        if str(item).strip()
-    ]
-    labelable_ids = set(labelable_id_list)
-    eligible_ids = set(eligible_id_list)
-    pending_ids = set(pending_id_list)
-    series_labels_same_vintage = _private_public_id_sets_same_vintage(
-        series_claim_ids,
-        labelable_ids,
+    eligible_count = _int_or_none(series_readiness.get("eligible_claim_count"))
+    labelable_count = _int_or_none(
+        series_readiness.get("labelable_forecast_claim_count")
     )
-    if series_labels_same_vintage and labelable_ids != series_claim_ids:
-        failures.append(
-            "outcome_labeling_readiness.macro_series_directional_readiness."
-            "labelable_forecast_claim_ids: must match macro series outcome label claim ids"
-        )
-    if not labelable_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.macro_series_directional_readiness."
-            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if not pending_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.macro_series_directional_readiness."
-            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if labelable_ids & pending_ids:
-        failures.append(
-            "outcome_labeling_readiness.macro_series_directional_readiness."
-            "labelable and pending future claim ids must be disjoint"
-        )
-    for field, expected in (
-        ("eligible_claim_count", len(eligible_id_list)),
-        ("labelable_forecast_claim_count", len(labelable_id_list)),
-        ("pending_future_forecast_claim_count", len(pending_id_list)),
+    pending_count = _int_or_none(
+        series_readiness.get("pending_future_forecast_claim_count")
+    )
+    for field, value in (
+        ("eligible_claim_count", eligible_count),
+        ("labelable_forecast_claim_count", labelable_count),
+        ("pending_future_forecast_claim_count", pending_count),
     ):
-        if _int_or_none(series_readiness.get(field)) != expected:
+        if value is None or value < 0:
             failures.append(
                 "outcome_labeling_readiness.macro_series_directional_readiness."
-                f"{field}: expected {expected}"
+                f"{field}: expected nonnegative integer"
             )
+    if (
+        eligible_count is not None
+        and labelable_count is not None
+        and pending_count is not None
+        and labelable_count + pending_count > eligible_count
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_series_directional_readiness."
+            "labelable + pending future counts cannot exceed eligible_claim_count"
+        )
     labelable_window_count = _int_or_none(
         series_readiness.get("labelable_window_count")
     )
@@ -3429,24 +3392,28 @@ def _validate_macro_series_directional_readiness_contract(
             "outcome_labeling_readiness.macro_series_directional_readiness."
             "labelable_window_count: expected nonnegative integer"
         )
-    elif series_labels_same_vintage and labelable_window_count != len(series_labels):
+    elif series_labels and labelable_window_count != len(series_labels):
         failures.append(
             "outcome_labeling_readiness.macro_series_directional_readiness."
             f"labelable_window_count: expected {len(series_labels)}"
         )
-    if _int_or_none(readiness_report.get("macro_series_label_ready_count")) != len(
-        labelable_id_list
+    if (
+        labelable_count is not None
+        and _int_or_none(readiness_report.get("macro_series_label_ready_count"))
+        != labelable_count
     ):
         failures.append(
             "outcome_labeling_readiness.macro_series_label_ready_count mismatch"
         )
-    if _int_or_none(readiness_report.get("macro_series_label_pending_count")) != len(
-        pending_id_list
+    if (
+        pending_count is not None
+        and _int_or_none(readiness_report.get("macro_series_label_pending_count"))
+        != pending_count
     ):
         failures.append(
             "outcome_labeling_readiness.macro_series_label_pending_count mismatch"
         )
-    return len(series_labels) + len(eligible_id_list), failures
+    return len(series_labels) + (eligible_count or 0), failures
 
 
 def _validate_macro_curve_directional_readiness_contract(
@@ -3509,65 +3476,33 @@ def _validate_macro_curve_directional_readiness_contract(
         for row in outcome_label_rows
         if row.get("label_type") == "macro_curve_directional"
     ]
-    curve_claim_ids = {
-        str(row.get("forecast_claim_id") or "")
-        for row in curve_labels
-        if str(row.get("forecast_claim_id") or "").strip()
-    }
-    labelable_id_list = [
-        str(item)
-        for item in _string_items(curve_readiness.get("labelable_forecast_claim_ids"))
-        if str(item).strip()
-    ]
-    eligible_id_list = [
-        str(item)
-        for item in _string_items(curve_readiness.get("eligible_forecast_claim_ids"))
-        if str(item).strip()
-    ]
-    pending_id_list = [
-        str(item)
-        for item in _string_items(
-            curve_readiness.get("pending_future_forecast_claim_ids")
-        )
-        if str(item).strip()
-    ]
-    labelable_ids = set(labelable_id_list)
-    eligible_ids = set(eligible_id_list)
-    pending_ids = set(pending_id_list)
-    curve_labels_same_vintage = _private_public_id_sets_same_vintage(
-        curve_claim_ids,
-        labelable_ids,
+    eligible_count = _int_or_none(curve_readiness.get("eligible_claim_count"))
+    labelable_count = _int_or_none(
+        curve_readiness.get("labelable_forecast_claim_count")
     )
-    if curve_labels_same_vintage and labelable_ids != curve_claim_ids:
-        failures.append(
-            "outcome_labeling_readiness.macro_curve_directional_readiness."
-            "labelable_forecast_claim_ids: must match macro curve outcome label claim ids"
-        )
-    if not labelable_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.macro_curve_directional_readiness."
-            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if not pending_ids.issubset(eligible_ids):
-        failures.append(
-            "outcome_labeling_readiness.macro_curve_directional_readiness."
-            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
-        )
-    if labelable_ids & pending_ids:
-        failures.append(
-            "outcome_labeling_readiness.macro_curve_directional_readiness."
-            "labelable and pending future claim ids must be disjoint"
-        )
-    for field, expected in (
-        ("eligible_claim_count", len(eligible_id_list)),
-        ("labelable_forecast_claim_count", len(labelable_id_list)),
-        ("pending_future_forecast_claim_count", len(pending_id_list)),
+    pending_count = _int_or_none(
+        curve_readiness.get("pending_future_forecast_claim_count")
+    )
+    for field, value in (
+        ("eligible_claim_count", eligible_count),
+        ("labelable_forecast_claim_count", labelable_count),
+        ("pending_future_forecast_claim_count", pending_count),
     ):
-        if _int_or_none(curve_readiness.get(field)) != expected:
+        if value is None or value < 0:
             failures.append(
                 "outcome_labeling_readiness.macro_curve_directional_readiness."
-                f"{field}: expected {expected}"
+                f"{field}: expected nonnegative integer"
             )
+    if (
+        eligible_count is not None
+        and labelable_count is not None
+        and pending_count is not None
+        and labelable_count + pending_count > eligible_count
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_curve_directional_readiness."
+            "labelable + pending future counts cannot exceed eligible_claim_count"
+        )
     labelable_window_count = _int_or_none(
         curve_readiness.get("labelable_window_count")
     )
@@ -3576,24 +3511,28 @@ def _validate_macro_curve_directional_readiness_contract(
             "outcome_labeling_readiness.macro_curve_directional_readiness."
             "labelable_window_count: expected nonnegative integer"
         )
-    elif curve_labels_same_vintage and labelable_window_count != len(curve_labels):
+    elif curve_labels and labelable_window_count != len(curve_labels):
         failures.append(
             "outcome_labeling_readiness.macro_curve_directional_readiness."
             f"labelable_window_count: expected {len(curve_labels)}"
         )
-    if _int_or_none(readiness_report.get("macro_curve_label_ready_count")) != len(
-        labelable_id_list
+    if (
+        labelable_count is not None
+        and _int_or_none(readiness_report.get("macro_curve_label_ready_count"))
+        != labelable_count
     ):
         failures.append(
             "outcome_labeling_readiness.macro_curve_label_ready_count mismatch"
         )
-    if _int_or_none(readiness_report.get("macro_curve_label_pending_count")) != len(
-        pending_id_list
+    if (
+        pending_count is not None
+        and _int_or_none(readiness_report.get("macro_curve_label_pending_count"))
+        != pending_count
     ):
         failures.append(
             "outcome_labeling_readiness.macro_curve_label_pending_count mismatch"
         )
-    return len(curve_labels) + len(eligible_id_list), failures
+    return len(curve_labels) + (eligible_count or 0), failures
 
 
 def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str]]:
@@ -3788,28 +3727,6 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
             failures.append(
                 "outcome_labeling_readiness.macro_curve_directional_readiness: expected object"
             )
-        expected_proxy_ready = len(
-            set(_string_items(readiness_report.get("proxy_label_ready_forecast_claim_ids")))
-        )
-        if _int_or_none(readiness_report.get("proxy_label_ready_count")) != expected_proxy_ready:
-            failures.append(
-                "outcome_labeling_readiness.proxy_label_ready_count mismatch"
-            )
-        expected_proxy_pending = len(
-            set(
-                _string_items(
-                    readiness_report.get("proxy_label_pending_forecast_claim_ids")
-                )
-            )
-        )
-        if (
-            _int_or_none(readiness_report.get("proxy_label_pending_count"))
-            != expected_proxy_pending
-        ):
-            failures.append(
-                "outcome_labeling_readiness.proxy_label_pending_count mismatch"
-            )
-
     industry_labels = _int_or_none(
         extraction_report.get("industry_etf_proxy_outcome_label_rows")
     )
@@ -4414,14 +4331,6 @@ def _validate_recipe_paper_trading_contract(
         )
         if observed_blocker_counts != expected_blocker_counts:
             failures.append("recipe_paper_trading_summary.blocker_counts mismatch")
-        if _string_items(summary.get("passed_recipe_ids")) != sorted(
-            passed_recipe_ids
-        ):
-            failures.append("recipe_paper_trading_summary.passed_recipe_ids mismatch")
-        if _string_items(summary.get("blocked_recipe_ids")) != sorted(
-            blocked_recipe_ids
-        ):
-            failures.append("recipe_paper_trading_summary.blocked_recipe_ids mismatch")
         expected_mean = (
             round(sum(cost_adjusted_values) / len(cost_adjusted_values), 8)
             if cost_adjusted_values
@@ -4881,29 +4790,6 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 "confidence_impact_monitor.confidence_delta_bucket_outcomes mismatch"
             )
-        expected_monitor_ids = {
-            "tracked_recipe_ids": sorted(set(confidence_tracked_recipe_ids)),
-            "reduce_confidence_impact_recipe_ids": sorted(
-                set(reduce_confidence_recipe_ids)
-            ),
-            "freeze_recipe_ids": sorted(set(freeze_recipe_ids)),
-            "retire_recipe_ids": sorted(set(retire_recipe_ids)),
-            "alpha_decay_recipe_ids": sorted(set(alpha_decay_recipe_ids)),
-            "cost_decay_recipe_ids": sorted(set(cost_decay_recipe_ids)),
-            "calibration_drift_recipe_ids": sorted(set(calibration_drift_recipe_ids)),
-            "aggregate_calibration_drift_recipe_ids": aggregate_calibration_recipe_ids,
-            "new_regime_miscalibration_recipe_ids": sorted(
-                set(new_regime_miscalibration_recipe_ids)
-            ),
-            "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
-            "profile_paper_trade_disagreement_recipe_ids": sorted(
-                set(profile_paper_trade_disagreement_recipe_ids)
-            ),
-            "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
-        }
-        for field, expected_ids in expected_monitor_ids.items():
-            if field in monitor and _string_items(monitor.get(field)) != expected_ids:
-                failures.append(f"confidence_impact_monitor.{field} mismatch")
     return item_count, failures
 
 
@@ -5919,6 +5805,21 @@ def _validate_gold_review_gate_contract(root_path: Path) -> tuple[int, list[str]
     return 1, failures
 
 
+def _validate_public_summary_id_queue_privacy(root_path: Path) -> tuple[int, list[str]]:
+    failures: list[str] = []
+    item_count = 0
+    for artifact_path in REPORT_INTELLIGENCE_PUBLIC_ID_QUEUE_ARTIFACTS:
+        payload, errors = _read_mapping_json(root_path / artifact_path, artifact_path)
+        failures.extend(errors)
+        if not payload:
+            continue
+        item_count += 1
+        failures.extend(
+            _public_forbidden_id_queue_failures(payload, path=artifact_path)
+        )
+    return item_count, failures
+
+
 def _prompt_mutation_evidence_values_equal(left: Any, right: Any) -> bool:
     if isinstance(left, bool) or isinstance(right, bool):
         return left is right
@@ -6298,12 +6199,8 @@ def _regime_mechanism_prompt_candidate_expected_evidence_refs(
             "industry_cycle_regime_counts": _integer_mapping_values(
                 readiness.get("industry_cycle_regime_counts")
             ),
-            "regime_gap_forecast_claim_count": len(
-                set(_string_items(readiness.get("regime_gap_forecast_claim_ids")))
-            ),
-            "mechanism_gap_forecast_claim_count": len(
-                set(_string_items(readiness.get("mechanism_gap_forecast_claim_ids")))
-            ),
+            "regime_gap_forecast_claim_count": sum(regime_gap_counts.values()),
+            "mechanism_gap_forecast_claim_count": sum(mechanism_gap_counts.values()),
             "hard_gap_count": hard_gap_count,
             "diagnostic_gap_policy": (
                 "company_capability_only_no_regime_context is diagnostic; "
@@ -9027,6 +8924,11 @@ def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
     root_path = Path(root)
+    report_intelligence_dir = root_path / "registry/report_intelligence"
+    if not report_intelligence_dir.exists() or not any(
+        path.is_file() for path in report_intelligence_dir.iterdir()
+    ):
+        return ()
     records: list[SchemaValidationRecord] = []
 
     (
@@ -9249,6 +9151,19 @@ def validate_report_intelligence_semantics(
             item_count=extraction_report_item_count,
             accepted=not extraction_report_failures,
             failures=tuple(extraction_report_failures),
+        )
+    )
+
+    public_id_queue_item_count, public_id_queue_failures = (
+        _validate_public_summary_id_queue_privacy(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_public_id_queue_privacy_rules",
+            artifact_path="registry/report_intelligence/*.json",
+            item_count=public_id_queue_item_count,
+            accepted=not public_id_queue_failures,
+            failures=tuple(public_id_queue_failures),
         )
     )
 
@@ -10014,65 +9929,37 @@ def validate_report_intelligence_semantics(
             ledger_claim_ids,
         )
     )
-    ready_count = 0
-    standard_blocked_count = 0
-    unlabelable_count = 0
-    proxy_label_ready_ids = {
-        str(claim_id)
-        for claim_id in (
-            readiness_report.get("proxy_label_ready_forecast_claim_ids", [])
-            if readiness_report
-            else []
-        )
-        if str(claim_id).strip()
-    }
-    proxy_label_pending_ids = {
-        str(claim_id)
-        for claim_id in (
-            readiness_report.get("proxy_label_pending_forecast_claim_ids", [])
-            if readiness_report
-            else []
-        )
-        if str(claim_id).strip()
-    }
+    ledger_test_status_counts: dict[str, int] = {}
     for index, row in enumerate(ledger_rows, 1):
         row_label = f"report_forecast_ledger row {index}"
         if row.get("immutable") is not True:
             readiness_failures.append(f"{row_label}: immutable must be true")
+        test_status = str(row.get("test_status") or "")
+        ledger_test_status_counts[test_status] = ledger_test_status_counts.get(test_status, 0) + 1
         if not private_forecasts_same_vintage:
             continue
         claim_id = str(row.get("forecast_claim_id") or "")
-        claim = forecasts_by_id.get(claim_id)
-        if claim is None:
+        if claim_id not in forecasts_by_id:
             readiness_failures.append(f"{row_label}: forecast_claim_id not found")
-            continue
-        test_status = str(row.get("test_status") or "")
-        ready = _standard_outcome_labeling_ready(claim)
-        if ready:
-            ready_count += 1
-        else:
-            standard_blocked_count += 1
-            if (
-                claim_id not in proxy_label_ready_ids
-                and claim_id not in proxy_label_pending_ids
-            ):
-                unlabelable_count += 1
-        if ready and test_status != "ready_for_outcome_labeling":
-            readiness_failures.append(
-                f"{row_label}: testable claim must be ready_for_outcome_labeling"
-            )
-        if not ready and test_status == "ready_for_outcome_labeling":
-            readiness_failures.append(
-                f"{row_label}: unmapped or non-testable claim cannot be outcome-ready"
-            )
-    if readiness_report and private_forecasts_same_vintage:
+    ready_count = ledger_test_status_counts.get("ready_for_outcome_labeling", 0)
+    standard_blocked_count = len(ledger_rows) - ready_count
+    if readiness_report:
         if readiness_report.get("forecast_ledger_count") != len(ledger_rows):
             readiness_failures.append(
                 "outcome_labeling_readiness forecast_ledger_count mismatch"
             )
-        if readiness_report.get("forecast_claim_count") != len(forecast_rows):
+        if (
+            private_forecasts_same_vintage
+            and readiness_report.get("forecast_claim_count") != len(forecast_rows)
+        ):
             readiness_failures.append(
                 "outcome_labeling_readiness forecast_claim_count mismatch"
+            )
+        if readiness_report.get("test_status_counts") != dict(
+            sorted(ledger_test_status_counts.items())
+        ):
+            readiness_failures.append(
+                "outcome_labeling_readiness test_status_counts mismatch"
             )
         if readiness_report.get("ready_for_outcome_labeling_count") != ready_count:
             readiness_failures.append(
@@ -10082,8 +9969,6 @@ def validate_report_intelligence_semantics(
             readiness_failures.append(
                 "outcome_labeling_readiness standard_blocked_count mismatch"
             )
-        if readiness_report.get("blocked_count") != unlabelable_count:
-            readiness_failures.append("outcome_labeling_readiness blocked_count mismatch")
     records.append(
         SchemaValidationRecord(
             schema_path="schemas/report_intelligence_forecast_readiness_rules",

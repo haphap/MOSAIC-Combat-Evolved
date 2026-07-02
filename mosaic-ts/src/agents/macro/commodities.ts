@@ -14,7 +14,11 @@ import {
 } from "./_factory.js";
 import { COMMODITIES_FIELD_NAMES, CommoditiesSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_commodity_prices", "get_yield_curve_cn"] as const;
+export const REQUIRED_TOOLS = [
+  "get_rke_research_context",
+  "get_commodity_prices",
+  "get_yield_curve_cn",
+] as const;
 
 export const commoditiesSpec: LayerOneAgentSpec<CommoditiesOutput> = {
   agentId: "commodities",

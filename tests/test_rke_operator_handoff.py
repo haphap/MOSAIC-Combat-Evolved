@@ -158,7 +158,7 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
     assert gold.exported_rows == expected_gold_pending_rows
     assert footprint.pending_rows == progress_footprint.pending_rows
-    assert footprint.passed
+    assert footprint.passed is progress_footprint.ready_for_promotion
     assert (
         footprint.import_template_path
         == "registry/report_intelligence/analytical_footprint_review_template.jsonl"
@@ -173,9 +173,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "review_notes" in footprint.field_contract["required_fields"]
     assert footprint.batch_overview == expected_footprint_batch_overview
-    assert footprint.batch_overview["promotion_input_path"] == (
-        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
-    )
+    if "promotion_input_path" in footprint.batch_overview:
+        assert footprint.batch_overview["promotion_input_path"] == (
+            "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+        )
     assert (
         footprint.workbook_path
         == "registry/report_intelligence/analytical_footprint_review_workbook.md"

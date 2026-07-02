@@ -213,7 +213,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 
 - Passed: true
 - Blocker: analytical-footprint review still required
-- Evidence: 14712 / 14712 analytical footprints reviewed
+- Evidence: 19966 / 19966 analytical footprints reviewed
 - Review packet: registry/report_intelligence/analytical_footprint_review_template.jsonl
 - Review workbook: registry/report_intelligence/analytical_footprint_review_workbook.md
 - Import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
@@ -222,7 +222,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 - Reviewed policy/input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
 - Prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
 - Pending rows: 0
-- Exported rows: 14712
+- Exported rows: 19966
 - Review aids: policy: private_review_aids_only_not_import_files; fill_import_path: registry/report_intelligence/analytical_footprint_review_batch.jsonl; promotion_import_path: registry/report_intelligence/analytical_footprint_reviewed.jsonl; assist_jsonl: registry/report_intelligence/analytical_footprint_review_assist.jsonl; assist_workbook_markdown: registry/report_intelligence/analytical_footprint_review_workbook.md; evidence_jsonl: registry/report_intelligence/analytical_footprint_review_evidence.jsonl; evidence_markdown: registry/report_intelligence/analytical_footprint_review_evidence.md
 - Field contract: policy: human_decisions_only_preserve_ids_hashes_and_context_refs; required_fields: footprint_correct, source_span_supports_footprint, metric_mapping_correct, inferred_steps_tagged_correctly, unknowns_used_when_uncertain, no_proprietary_text_leakage, reviewer, review_date, review_notes; optional_fields: none; boolean_fields: footprint_correct, source_span_supports_footprint, metric_mapping_correct, inferred_steps_tagged_correctly, unknowns_used_when_uncertain, no_proprietary_text_leakage; boolean_allowed_values: true, false; date_fields: review_date=YYYY-MM-DD; text_fields: reviewer, review_date, review_notes; preserve_fields: footprint_id, target_row_hash, review_context_ref, target_review_path
 - Batch overview: batch_count: 0; pending_rows: 0; rerun_review_progress_after_batch_apply: false

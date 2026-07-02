@@ -74,6 +74,7 @@ const TOOL_SCHEMA: JsonSchemaObject = {
 };
 
 const FAKE_TOOLS: ToolMetadata[] = [
+  "get_rke_research_context",
   "get_pboc_ops",
   "get_fred_series",
   "get_yield_curve_cn",

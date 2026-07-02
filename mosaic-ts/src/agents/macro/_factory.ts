@@ -243,7 +243,10 @@ export function buildUserContext(state: DailyCycleStateType, agentId: string): s
     `* as_of_date: ${date}\n` +
     `* mode:       ${mode}\n` +
     `* cohort:     ${cohort}\n\n` +
-    `Run the required tools, gather data, and write your analysis.`
+    `Use get_rke_research_context only as report-derived research prior. ` +
+    `It is not a live signal and cannot raise confidence unless current data ` +
+    `tools confirm it. Run the required tools, gather current data, and write ` +
+    `your analysis.`
   );
 }
 

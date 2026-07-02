@@ -296,7 +296,14 @@ def test_cli_apply_lockbox_review_import(tmp_path: Path, capsys):
     _write_json(import_path, _passed_lockbox_review(tmp_path))
 
     code = main(
-        ("apply-lockbox-review", "--root", str(tmp_path), "--input", str(import_path))
+        (
+            "apply-lockbox-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            str(import_path),
+            "--allow-pending-upstream",
+        )
     )
     output = json.loads(capsys.readouterr().out)
 
