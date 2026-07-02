@@ -280,6 +280,120 @@ Validated local service:
   `ss -ltnp` shows `0.0.0.0:8020` listening, rerun the curl/RKE command with
   host-network permission instead of changing model parameters.
 
+NVIDIA Qwen3.6 27B NVFP4 sndr service:
+
+- Use this service when the user explicitly requests the NVIDIA 27B NVFP4
+  preset. The validated RKE extraction command above still points to the older
+  `rke-vllm-qwen36-27b-160k-20260610` service on port `8020` unless that command
+  is changed deliberately.
+- Preset: `nvidia-qwen3.6-27b-nvfp4-5090`.
+- Container: `vllm-qwen3.6-27b-nvfp4-5090-5090d`.
+- Base URL: `http://127.0.0.1:8000`.
+- Chat endpoint: `/v1/chat/completions`.
+- Served model: `qwen3.6-27b-nvfp4`.
+- Auth header: `Authorization: Bearer genesis-local`.
+- HF snapshot:
+  `/models/models--nvidia--Qwen3.6-27B-NVFP4/snapshots/0893e1606ff3d5f97a441f405d5fc541a6bdf404`.
+- Runtime envelope from `sndr launch --dry-run`: `--tensor-parallel-size 1`,
+  `--gpu-memory-utilization 0.9`, `--max-model-len 120000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 4096`, `--dtype bfloat16`,
+  `--kv-cache-dtype auto`,
+  `--speculative-config '{"method": "mtp", "num_speculative_tokens": 3}'`,
+  `--enable-chunked-prefill`, `--disable-custom-all-reduce`,
+  `--language-model-only`, `--trust-remote-code`, and
+  `--enable-auto-tool-choice`.
+- This service shares port `8000` with the 35B NVFP4 sndr service. Run only one
+  of them at a time.
+
+Single-owner startup flow:
+
+- If the same-parameter container is already healthy, reuse it and skip startup:
+
+  ```bash
+  curl -s http://127.0.0.1:8000/health
+  rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  ```
+
+- If the same-parameter container exists but is stopped, prefer restarting it:
+
+  ```bash
+  rtk docker ps -a \
+    --filter name=vllm-qwen3.6-27b-nvfp4-5090-5090d \
+    --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  rtk docker start vllm-qwen3.6-27b-nvfp4-5090-5090d
+  ```
+
+  This preserves the container definition and mounted host caches, but not GPU
+  memory. The model still reloads and warms up after every stopped start.
+
+- Rebuild the container only when no reusable container exists, the preset or
+  runtime flags changed, the container is in an abnormal state, or a clean
+  deterministic launch is required:
+
+  ```bash
+  rtk sndr down nvidia-qwen3.6-27b-nvfp4-5090 || true
+  rtk docker rm -f vllm-qwen3.6-27b-nvfp4-5090-5090d 2>/dev/null || true
+  rtk docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+  rtk sndr launch nvidia-qwen3.6-27b-nvfp4-5090 --skip-autodetect
+  ```
+
+  `sndr launch` renders a conservative Docker script that removes any same-name
+  container before creating a fresh one. Use `rtk docker start` when the goal is
+  to reuse an unchanged stopped container.
+
+Wait for readiness:
+
+```bash
+for i in {1..120}; do
+  code=$(curl -s -o /tmp/sndr-health-27b.out -w "%{http_code}" \
+    http://127.0.0.1:8000/health || true)
+  if [ "$code" = 200 ]; then
+    echo READY
+    break
+  fi
+  if ! rtk docker ps --format "{{.Names}}" | \
+    grep -qx vllm-qwen3.6-27b-nvfp4-5090-5090d; then
+    echo EXITED
+    rtk docker ps -a \
+      --filter name=vllm-qwen3.6-27b-nvfp4-5090-5090d \
+      --format "{{.Status}}"
+    rtk docker logs --tail 200 vllm-qwen3.6-27b-nvfp4-5090-5090d
+    exit 1
+  fi
+  sleep 5
+done
+```
+
+Confirm the served model:
+
+```bash
+curl -sS \
+  -H 'Authorization: Bearer genesis-local' \
+  http://127.0.0.1:8000/v1/models
+```
+
+Default stop keeps the container available for same-parameter reuse:
+
+```bash
+rtk sndr down nvidia-qwen3.6-27b-nvfp4-5090 || true
+rtk docker stop vllm-qwen3.6-27b-nvfp4-5090-5090d 2>/dev/null || true
+rtk docker ps -a \
+  --filter name=vllm-qwen3.6-27b-nvfp4-5090-5090d \
+  --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+rtk nvidia-smi --query-gpu=memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+```
+
+Full cleanup only when rebuilding or recovering from abnormal state:
+
+```bash
+rtk docker rm -f vllm-qwen3.6-27b-nvfp4-5090-5090d 2>/dev/null || true
+```
+
+Removing the container does not remove host caches mounted from Hugging Face,
+Triton, or vLLM torch compile cache directories. It only discards the container
+definition and forces the next `sndr launch` to recreate it.
+
 LLM-only shard command pattern:
 
 ```bash
