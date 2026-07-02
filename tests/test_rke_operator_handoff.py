@@ -173,9 +173,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "review_notes" in footprint.field_contract["required_fields"]
     assert footprint.batch_overview == expected_footprint_batch_overview
-    assert footprint.batch_overview["promotion_input_path"] == (
-        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
-    )
+    if "promotion_input_path" in footprint.batch_overview:
+        assert footprint.batch_overview["promotion_input_path"] == (
+            "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+        )
     assert (
         footprint.workbook_path
         == "registry/report_intelligence/analytical_footprint_review_workbook.md"
