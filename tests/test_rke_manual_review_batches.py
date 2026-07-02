@@ -1060,8 +1060,9 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
     promotion_dry_run = payload["promotion_dry_run"]
     assert isinstance(promotion_dry_run["accepted"], bool)
-    assert promotion_dry_run["production_allowed_after_simulation"] is (
-        promotion_dry_run["accepted"]
+    assert isinstance(promotion_dry_run["production_allowed_after_simulation"], bool)
+    assert isinstance(
+        promotion_dry_run["staged_production_allowed_after_simulation"], bool
     )
     assert promotion_dry_run["provided_steps"] == []
     review_kinds = {
