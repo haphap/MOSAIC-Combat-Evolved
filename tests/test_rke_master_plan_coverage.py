@@ -210,18 +210,28 @@ def test_master_plan_coverage_reports_invalid_direct_json_evidence(tmp_path: Pat
     )
 
 
-def test_master_plan_coverage_rejects_blocked_report_intelligence_patch(
+def test_master_plan_coverage_ignores_private_blocked_report_intelligence_patch(
     tmp_path: Path,
 ):
     _copy_registry_and_schemas(tmp_path)
     coverage_path = (
         tmp_path / "registry/report_intelligence/patch_v1_5_coverage_report.json"
     )
-    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
-    coverage["accepted"] = False
-    coverage["blocker_count"] = 1
-    coverage["blocked_phase_ids"] = ["B"]
-    coverage["phase_records"][1]["status"] = "blocked"
+    coverage_path.parent.mkdir(parents=True, exist_ok=True)
+    coverage = {
+        "accepted": False,
+        "blocker_count": 1,
+        "blocked_phase_ids": ["B"],
+        "current_rollout_mode": "shadow_tooling",
+        "phase_records": [
+            {"phase_id": phase_id, "status": "blocked" if phase_id == "B" else "passed"}
+            for phase_id in "ABCDEF"
+        ]
+        + [
+            {"phase_id": "G", "status": "deferred_by_rollout"},
+            {"phase_id": "H", "status": "deferred_by_rollout"},
+        ],
+    }
     coverage_path.write_text(
         json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -232,10 +242,9 @@ def test_master_plan_coverage_rejects_blocked_report_intelligence_patch(
         record for record in report.records if record.section_id == "Phase-1B"
     )
 
-    assert not report.coverage_complete
-    assert phase_1b.status == "blocked"
-    assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
-    assert "blocked phases: B" in phase_1b.blocker
+    assert report.coverage_complete
+    assert phase_1b.status == "passed"
+    assert phase_1b.blocker == ""
 
 
 def test_master_plan_coverage_reports_invalid_direct_jsonl_evidence(tmp_path: Path):
@@ -257,11 +266,14 @@ def test_master_plan_coverage_reports_invalid_direct_jsonl_evidence(tmp_path: Pa
     )
 
 
-def test_master_plan_coverage_malformed_blocked_evidence_is_missing(tmp_path: Path):
+def test_master_plan_coverage_ignores_private_malformed_report_intelligence_evidence(
+    tmp_path: Path,
+):
     _copy_registry_and_schemas(tmp_path)
     patch_coverage = (
         tmp_path / "registry/report_intelligence/patch_v1_5_coverage_report.json"
     )
+    patch_coverage.parent.mkdir(parents=True, exist_ok=True)
     patch_coverage.write_text("{\n", encoding="utf-8")
 
     report = build_master_plan_coverage_report(tmp_path)
@@ -269,9 +281,9 @@ def test_master_plan_coverage_malformed_blocked_evidence_is_missing(tmp_path: Pa
         record for record in report.records if record.section_id == "Phase-1B"
     )
 
-    assert not report.coverage_complete
-    assert phase_1b.status == "missing"
-    assert "patch_v1_5_coverage_report.json must contain valid JSON" in phase_1b.blocker
+    assert report.coverage_complete
+    assert phase_1b.status == "passed"
+    assert phase_1b.blocker == ""
 
 
 def test_master_plan_coverage_reports_invalid_completion_audit_json(tmp_path: Path):
