@@ -1334,7 +1334,7 @@ def test_rke_runtime_context_preflight_blocks_bad_recipe_tool_gap_ids():
     assert "item_recipe_tool_gap_ids_invalid" in output
 
 
-def test_rke_runtime_context_preflight_blocks_missing_failure_tags():
+def test_rke_runtime_context_preflight_blocks_bad_failure_tags():
     output = rke_research_tools.format_rke_runtime_context(
         {
             "agent_id": "macro.dollar",
@@ -1354,6 +1354,7 @@ def test_rke_runtime_context_preflight_blocks_missing_failure_tags():
                     "metric_family": "fx_rate",
                     "statistical_reliability_bucket": "limited",
                     "n_effective": 3.0,
+                    "known_failure_mode_tags": ["", 3],
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                     "ranking_reason_codes": ["agent_specific_match"],

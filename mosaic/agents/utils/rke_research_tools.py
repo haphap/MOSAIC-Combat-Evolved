@@ -197,6 +197,9 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     if items and any(
         "known_failure_mode_tags" not in item
         or not isinstance(item.get("known_failure_mode_tags"), (list, tuple))
+        or not all(
+            isinstance(tag, str) and tag for tag in item.get("known_failure_mode_tags", [])
+        )
         for item in items
     ):
         failures.append("known_failure_mode_tags_missing")
