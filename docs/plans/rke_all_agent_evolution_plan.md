@@ -476,6 +476,11 @@ Status 2026-07-03:
   the condition-level readiness summaries from `delivery_readiness`, and keeps
   run context keys such as `cohort` and `prompt_source_status` separate from
   proof-object keys.
+- Public bridge now exposes `rke_benchmark.patch_activation_readiness`, a
+  no-write shadow activation gate that requires patch artifact, validation,
+  shadow apply, runtime activation/proof, and rollback refs before a candidate
+  patch can count as activated. It preserves candidate `blocked_by` reasons and
+  keeps production activation forbidden.
 - Agent footprint summary and profile/evolution readiness now carry redacted
   `report_claim_refs` aggregate counts, and every footprint row that consumed an
   RKE context hash must also carry a redacted report-claim link before
@@ -483,7 +488,7 @@ Status 2026-07-03:
 - Prompt mutation release and rollback readiness now retain candidate
   `blocked_by` as hard blockers, preventing shadow-exit proof from overriding
   unresolved PIT/validation/refusal blockers.
-- This implements the rollback proof-object preflight. E7 is not complete until
-  real private branch mutations, benchmark/manual-review decisions, shadow or
-  paper-trading gate evidence, monitor output, and post-rollback verification
-  are produced by actual runs.
+- This implements the rollback and patch-activation proof-object preflights. E7
+  is not complete until real private branch mutations, benchmark/manual-review
+  decisions, shadow or paper-trading gate evidence, monitor output, runtime
+  patch proof, and post-rollback verification are produced by actual runs.

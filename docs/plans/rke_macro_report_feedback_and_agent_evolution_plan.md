@@ -2265,7 +2265,10 @@ Part 1 未完成条件当前状态：
 
 Part 2 handoff notes，不计入 Part 1 完成判定：
 
-- patch validation 已有，但 patch apply/activation 状态机和 runtime proof 尚未通用化。
+- patch validation 已有；`rke_benchmark.patch_activation_readiness` 已补 no-write
+  shadow activation/runtime proof gate，要求 patch artifact、validation、shadow apply、
+  runtime activation/proof 和 rollback refs，且 production activation 继续禁止。真实
+  patch apply/activation proof 仍需由正式 run 产生。
 - Python `get_rke_research_context` tool path 已记录 consumed context hash、Part 1
   ranking policy、retrieval rank/priority bucket 分布和 truncation audit；agent
   footprint summary 和 shadow replay gate 已强制每个 consumed context hash 都带这些
@@ -2321,6 +2324,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   overwrite target paths、`prompts.verify_release` 和 leak/drift evidence；candidate
   `blocked_by` 未清空时仍阻断 release；真实 private prompt 写入与 release 仍需在
   private prompt repo 中执行。
+- `rke_benchmark.patch_activation_readiness` 已能检查 shadow-only patch activation 的
+  artifact/validation/apply/runtime proof/rollback refs，并把 candidate `blocked_by`
+  保持为硬 blocker；真实 runtime activation proof 仍需由实际 replay/benchmark 产生。
 - `rke_benchmark.prompt_mutation_rollback_readiness` 已能检查 private prompt branch
   candidate 离开 shadow 前所需的 rollback trigger、previous prompt hash、rollback
   procedure、monitor output 和 post-rollback verification evidence；candidate `blocked_by`
@@ -2338,8 +2344,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   decision，不执行也不允许 production promotion。
 - `rke_benchmark.delivery_readiness` 已能把 Part 2 E7 的 prompt provenance、runtime
   context、benchmark、profile/evolution、Darwinian/autoresearch、prompt release、
-  rollback、shadow replay、paper-trading 和 promotion decision gates 汇总成逐项 blocker
-  审计，并把 prompt source blocker 作为 no-body condition evidence summary 透传；
+  patch activation、rollback、shadow replay、paper-trading 和 promotion decision gates
+  汇总成逐项 blocker 审计，并把 prompt source blocker 作为 no-body condition evidence
+  summary 透传；
   真实 benchmark/replay/promotion 仍需实际运行。
 - `rke_benchmark.record_delivery_evidence` 已能把真实 run 产生的 no-body evidence refs
   写入 private-local `.mosaic/rke/all_agent_evolution/delivery_evidence.jsonl`，后续

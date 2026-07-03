@@ -96,6 +96,23 @@ def _prompt_release_check_for_candidates(
     return _prompt_release_check_from_lifecycle(lifecycle, **overrides)
 
 
+def _patch_activation_evidence(**overrides: object) -> dict:
+    row = {
+        "mutation_candidate_id": "PMUT-1",
+        "patch_artifact_ref": "patch-artifact-1",
+        "patch_validation_ref": "patch-validation-1",
+        "shadow_apply_ref": "shadow-apply-1",
+        "runtime_activation_ref": "runtime-activation-1",
+        "runtime_proof_ref": "runtime-proof-1",
+        "rollback_ref": "rollback-1",
+        "shadow_activation_passed": True,
+        "runtime_proof_passed": True,
+        "production_activation_allowed": False,
+    }
+    row.update(overrides)
+    return row
+
+
 def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
     return [
         {
@@ -828,6 +845,79 @@ def test_candidate_consumption_manifest_rejects_prompt_bypass():
     )
 
 
+def test_patch_activation_readiness_blocks_missing_runtime_proof():
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.patch_activation_readiness",
+        {"candidates": candidates},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "patch_activation_evidence_missing" in manifest["blocked_reasons"]
+    assert "runtime_proof_ref_missing" in manifest["blocked_reasons"]
+    assert manifest["patch_activation_ready"] is False
+    assert manifest["production_allowed"] is False
+
+
+def test_patch_activation_readiness_accepts_shadow_runtime_proof():
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.patch_activation_readiness",
+        {
+            "candidates": candidates,
+            "patch_activation_evidence": [_patch_activation_evidence()],
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["patch_activation_ready"] is True
+    assert manifest["direct_runtime_write_allowed"] is False
+    record = manifest["activation_records"][0]
+    assert record["runtime_proof_ref"] == "runtime-proof-1"
+    assert record["patch_activation_ready"] is True
+
+
+def test_patch_activation_readiness_keeps_candidate_blockers():
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=["missing_validation_target"],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.patch_activation_readiness",
+        {
+            "candidates": candidates,
+            "patch_activation_evidence": [_patch_activation_evidence()],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "candidate_blocked_by:missing_validation_target" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["patch_activation_ready"] is False
+
+
 def test_prompt_mutation_lifecycle_manifest_blocks_missing_candidates(
     tmp_path: Path, monkeypatch
 ):
@@ -1558,7 +1648,7 @@ def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch)
     )
 
     assert manifest["readiness_status"] == "blocked_preflight"
-    assert manifest["condition_count"] == 10
+    assert manifest["condition_count"] == 11
     assert manifest["ready_condition_count"] == 0
     assert manifest["delivery_ready"] is False
     assert any(
@@ -1808,6 +1898,7 @@ def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
             "downstream_outcome_metrics": {},
             "prompt_mutation_provenance": {},
             "candidates": [],
+            "patch_activation_evidence": [],
             "prompt_mutation_release_checks": [],
             "rollback_evidence": [],
             "paper_trading_plan": {},
@@ -1822,7 +1913,7 @@ def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
 
     assert audit["evidence_status"] == "complete"
     assert audit["delivery_readiness_status"] == "blocked_preflight"
-    assert audit["condition_count"] == 10
+    assert audit["condition_count"] == 11
     assert audit["ready_condition_count"] < audit["condition_count"]
     prompt_condition = next(
         condition
@@ -1974,6 +2065,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                 "prompt_sha256": "b" * 64,
             },
             "candidates": candidates,
+            "patch_activation_evidence": [_patch_activation_evidence()],
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(
                     candidates,

@@ -130,6 +130,7 @@ _DELIVERY_EVIDENCE_KEYS = (
     "downstream_outcome_metrics",
     "prompt_mutation_provenance",
     "candidates",
+    "patch_activation_evidence",
     "prompt_mutation_release_checks",
     "rollback_evidence",
     "paper_trading_plan",
@@ -881,6 +882,126 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
             "source_prose_included": False,
             "forbidden_field_violation_count": len(failures),
         },
+    }
+
+
+@method("rke_benchmark.patch_activation_readiness")
+def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate shadow-only patch apply/activation proof without applying patches."""
+    candidate_manifest = candidate_consumption_manifest(
+        {"candidates": params.get("candidates")}
+        if "candidates" in params
+        else {}
+    )
+    supplied = params.get("patch_activation_evidence")
+    if supplied is None:
+        evidence_rows: list[Any] = []
+    elif isinstance(supplied, list):
+        evidence_rows = supplied
+    else:
+        raise RpcError(INVALID_PARAMS, "'patch_activation_evidence' must be a list")
+
+    evidence_by_candidate: dict[str, dict[str, Any]] = {}
+    evidence_failures: list[str] = []
+    for index, row in enumerate(evidence_rows, 1):
+        if not isinstance(row, dict):
+            evidence_failures.append(
+                f"patch_activation_evidence[{index}]: must be an object"
+            )
+            continue
+        forbidden_paths = _forbidden_paths(row)
+        if forbidden_paths:
+            evidence_failures.append(
+                f"patch_activation_evidence[{index}]: forbidden private/prose fields "
+                + ", ".join(forbidden_paths[:5])
+            )
+            continue
+        candidate_id = _clean_str(row.get("mutation_candidate_id"))
+        if candidate_id:
+            evidence_by_candidate[candidate_id] = row
+
+    patch_candidates = [
+        item
+        for item in candidate_manifest["candidate_summaries"]
+        if "refusal" not in item["candidate_type"]
+    ]
+    records: list[dict[str, Any]] = []
+    for item in patch_candidates:
+        candidate_id = item["mutation_candidate_id"]
+        evidence = evidence_by_candidate.get(candidate_id, {})
+        blockers = [
+            f"candidate_blocked_by:{reason}" for reason in item["blocked_by"]
+        ]
+        for key in (
+            "patch_artifact_ref",
+            "patch_validation_ref",
+            "shadow_apply_ref",
+            "runtime_activation_ref",
+            "runtime_proof_ref",
+            "rollback_ref",
+        ):
+            if not _clean_str(evidence.get(key)):
+                blockers.append(f"{key}_missing")
+        if evidence.get("shadow_activation_passed") is not True:
+            blockers.append("shadow_activation_not_passed")
+        if evidence.get("runtime_proof_passed") is not True:
+            blockers.append("runtime_proof_not_passed")
+        if evidence.get("production_activation_allowed") is not False:
+            blockers.append("production_activation_not_forbidden")
+        if not evidence:
+            blockers.append("patch_activation_evidence_missing")
+        records.append(
+            {
+                "mutation_candidate_id": candidate_id,
+                "candidate_type": item["candidate_type"],
+                "target_scope": item["target_scope"],
+                "target_component": item["target_component"],
+                "patch_artifact_ref": _clean_str(evidence.get("patch_artifact_ref")),
+                "patch_validation_ref": _clean_str(
+                    evidence.get("patch_validation_ref")
+                ),
+                "shadow_apply_ref": _clean_str(evidence.get("shadow_apply_ref")),
+                "runtime_activation_ref": _clean_str(
+                    evidence.get("runtime_activation_ref")
+                ),
+                "runtime_proof_ref": _clean_str(evidence.get("runtime_proof_ref")),
+                "rollback_ref": _clean_str(evidence.get("rollback_ref")),
+                "patch_activation_ready": not blockers,
+                "blockers": blockers,
+            }
+        )
+
+    blocked_reasons = list(candidate_manifest["manifest_blockers"]) + evidence_failures
+    if candidate_manifest["manifest_status"] != "ready_for_private_prompt_lifecycle":
+        blocked_reasons.append("candidate_consumption_manifest_not_ready")
+    if not patch_candidates:
+        blocked_reasons.append("patch_candidate_missing")
+    for record in records:
+        blocked_reasons.extend(record["blockers"])
+
+    return {
+        "schema_version": "rke_patch_activation_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "blocked_reasons": sorted(set(blocked_reasons)),
+        "candidate_manifest_status": candidate_manifest["manifest_status"],
+        "patch_candidate_count": len(patch_candidates),
+        "activation_record_count": len(records),
+        "activation_records": records,
+        "required_evidence": [
+            "patch_artifact_ref",
+            "patch_validation_ref",
+            "shadow_apply_ref",
+            "runtime_activation_ref",
+            "runtime_proof_ref",
+            "rollback_ref",
+            "shadow_activation_passed",
+            "runtime_proof_passed",
+            "production_activation_allowed=false",
+        ],
+        "patch_activation_ready": bool(records) and not blocked_reasons,
+        "direct_runtime_write_allowed": False,
+        "production_allowed": False,
+        "promotion_allowed": False,
     }
 
 
@@ -1637,6 +1758,14 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "release_checks": effective_params.get("prompt_mutation_release_checks"),
         }
     )
+    patch_activation = patch_activation_readiness(
+        {
+            "candidates": effective_params.get("candidates"),
+            "patch_activation_evidence": effective_params.get(
+                "patch_activation_evidence"
+            ),
+        }
+    )
     rollback = prompt_mutation_rollback_readiness(
         {
             "candidates": effective_params.get("candidates"),
@@ -1692,6 +1821,11 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_mutation_release",
             prompt_release["readiness_status"],
             prompt_release["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "patch_activation",
+            patch_activation["readiness_status"],
+            patch_activation["blocked_reasons"],
         ),
         _delivery_condition(
             "rollback_evidence",
