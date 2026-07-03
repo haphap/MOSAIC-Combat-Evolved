@@ -6551,6 +6551,54 @@ def _tool_gap_prompt_candidate_expected_evidence_refs(
     ]
 
 
+def _data_acquisition_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    rows, row_failures, _rows_present = _load_public_semantic_jsonl(
+        root_path,
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
+    )
+    failures.extend(row_failures)
+    active_rows = [
+        row
+        for row in rows
+        if str(row.get("decision_status") or "pending_review") != "rejected"
+    ]
+    priority_counts: dict[str, int] = {}
+    pit_counts: dict[str, int] = {}
+    license_counts: dict[str, int] = {}
+    for row in active_rows:
+        priority = str(row.get("business_priority") or "").strip() or "unknown"
+        pit_status = str(row.get("pit_feasibility_status") or "").strip() or "unknown"
+        license_status = str(row.get("license_status") or "").strip() or "unknown"
+        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        pit_counts[pit_status] = pit_counts.get(pit_status, 0) + 1
+        license_counts[license_status] = license_counts.get(license_status, 0) + 1
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/data_acquisition_proposals.jsonl",
+            "field": "decision_status",
+            "proposal_count": len(active_rows),
+            "business_priority_counts": dict(sorted(priority_counts.items())),
+            "pit_feasibility_status_counts": dict(sorted(pit_counts.items())),
+            "license_status_counts": dict(sorted(license_counts.items())),
+            "market_cap_metadata_gap_count": sum(
+                1
+                for row in active_rows
+                if row.get("tool_gap_id")
+                == "stock_context_market_cap_metadata_missing"
+            ),
+            "top_tool_gap_ids": [
+                str(row.get("tool_gap_id") or "")
+                for row in active_rows[:10]
+                if str(row.get("tool_gap_id") or "").strip()
+            ],
+        }
+    ]
+
+
 def _paper_trading_diagnostic_evidence(
     summary: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -6966,6 +7014,19 @@ def _validate_prompt_mutation_governed_evidence(
             candidate_type=candidate_type,
             expected_refs=expected_refs,
             evidence_source="tool gap priority",
+            failures=failures,
+        )
+    elif candidate_type == "data_acquisition_prioritization_rule":
+        expected_refs = _data_acquisition_prompt_candidate_expected_evidence_refs(
+            root_path=root_path,
+            failures=failures,
+        )
+        _validate_prompt_mutation_expected_refs(
+            row,
+            row_label=row_label,
+            candidate_type=candidate_type,
+            expected_refs=expected_refs,
+            evidence_source="data acquisition proposals",
             failures=failures,
         )
     elif candidate_type == "recipe_paper_trading_rule":

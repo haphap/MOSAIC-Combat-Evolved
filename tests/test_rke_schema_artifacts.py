@@ -4940,6 +4940,78 @@ def test_prompt_mutation_candidate_contract_rejects_remaining_public_evidence_dr
         assert any(fragment in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_rejects_data_acquisition_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    proposals_path = registry / "data_acquisition_proposals.jsonl"
+    proposals_path.write_text(
+        json.dumps(
+            {
+                "data_proposal_id": "DAP-MARKET-CAP",
+                "tool_gap_id": "stock_context_market_cap_metadata_missing",
+                "business_priority": "medium",
+                "pit_feasibility_status": "requires_pit_backfill_review",
+                "license_status": "pending_review",
+                "decision_status": "pending_review",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidate = dict(candidates[0])
+    candidate.update(
+        {
+            "mutation_candidate_id": "PMUT-DATA-ACQUISITION-TEST",
+            "candidate_type": "data_acquisition_prioritization_rule",
+            "target_scope": "report_intelligence.data_acquisition",
+            "target_component": "data_acquisition_review_queue",
+            "proposed_change": "Keep data acquisition gaps blocked until review.",
+            "trigger_sources": ["data_acquisition_proposals"],
+            "evidence_refs": [
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/"
+                        "data_acquisition_proposals.jsonl"
+                    ),
+                    "field": "decision_status",
+                    "proposal_count": 0,
+                    "business_priority_counts": {},
+                    "pit_feasibility_status_counts": {},
+                    "license_status_counts": {},
+                    "market_cap_metadata_gap_count": 0,
+                    "top_tool_gap_ids": [],
+                }
+            ],
+            "severity": "medium",
+            "blocked_by": ["data_engineering_review_required"],
+            "promotion_state": "shadow_candidate_only",
+            "manual_review_required": True,
+            "production_prompt_change_allowed": False,
+            "private_text_included": False,
+        }
+    )
+    candidates.append(candidate)
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    expected_fragments = [
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.proposal_count",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.business_priority_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.pit_feasibility_status_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.license_status_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.market_cap_metadata_gap_count",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.top_tool_gap_ids",
+    ]
+    for fragment in expected_fragments:
+        assert any(fragment in item for item in record.failures)
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
