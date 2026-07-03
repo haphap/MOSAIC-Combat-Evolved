@@ -240,6 +240,7 @@ def test_prompts_methods_registered():
         "prompts.write",
         "prompts.init_private_repo",
         "prompts.audit_versions",
+        "prompts.preflight",
         "prompts.verify_release",
     }.issubset(set(all_methods()))
 
@@ -291,6 +292,73 @@ def test_audit_versions_returns_metadata_only(repo: Path, tmp_path: Path, monkey
     assert result["versions"][0]["id"] == vid
     assert "content" not in result["versions"][0]
     assert "zh_prompt" not in result["versions"][0]
+
+
+def test_preflight_blocks_without_private_prompt_source(repo: Path):
+    result = dispatch(
+        "prompts.preflight",
+        {"agents": ["volatility"], "langs": ["zh"]},
+    )
+
+    assert result["ready"] is False
+    assert result["blocked_count"] == 1
+    row = result["rows"][0]
+    assert row["status"] == "blocked"
+    assert row["blocked_reason"] == "private_prompt_unavailable"
+    assert row["fallback_used"] is False
+    assert "content" not in row
+
+
+def test_preflight_records_private_prompt_provenance(repo: Path, tmp_path: Path, monkeypatch):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    init_private_prompt_repo(private_repo, project_root=repo, seed_baseline=True)
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "prompts.preflight",
+        {"agents": ["volatility"], "langs": ["zh", "en"]},
+    )
+
+    assert result["ready"] is True
+    assert result["blocked_count"] == 0
+    assert result["row_count"] == 2
+    for row in result["rows"]:
+        assert row["status"] == "ready"
+        assert row["prompt_repo_id"] == "https://github.com/haphap/MOSAIC-Prompts"
+        assert len(row["prompt_repo_revision"]) == 40
+        assert row["prompt_file_path"].startswith("prompts/mosaic/cohort_default/")
+        assert len(row["prompt_sha256"]) == 64
+        assert row["resolved_source"] == "private_repo"
+        assert row["fallback_used"] is False
+        assert "content" not in row
+
+
+def test_preflight_allows_git_backed_prompts_root(repo: Path, tmp_path: Path, monkeypatch):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    init_private_prompt_repo(private_repo, project_root=repo, seed_baseline=True)
+    monkeypatch.setenv("MOSAIC_PROMPTS_ROOT", str(private_repo / "prompts" / "mosaic"))
+
+    result = dispatch(
+        "prompts.preflight",
+        {"agents": ["volatility"], "langs": ["zh"]},
+    )
+
+    assert result["ready"] is True
+    row = result["rows"][0]
+    assert row["resolved_source"] == "private_root"
+    assert row["prompt_file_path"] == "prompts/mosaic/cohort_default/macro/volatility.zh.md"
+
+
+def test_preflight_rejects_project_prompt_root(repo: Path, monkeypatch):
+    monkeypatch.setenv("MOSAIC_PROMPTS_ROOT", str(repo / "prompts" / "mosaic"))
+
+    result = dispatch(
+        "prompts.preflight",
+        {"agents": ["volatility"], "langs": ["zh"]},
+    )
+
+    assert result["ready"] is False
+    assert result["rows"][0]["blocked_reason"] == "prompt_provenance_unavailable"
 
 
 def test_verify_release_checks_pin_metadata(repo: Path, tmp_path: Path, monkeypatch):

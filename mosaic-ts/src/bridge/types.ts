@@ -429,6 +429,30 @@ export interface PromptVersionAuditRow {
   modification_summary?: string | null;
 }
 
+export interface PromptPreflightRow {
+  agent: string;
+  layer: string;
+  cohort: string;
+  lang: PromptLang;
+  status: "ready" | "blocked";
+  blocked_reason?: "private_prompt_unavailable" | "prompt_provenance_unavailable";
+  prompt_repo_id?: string;
+  prompt_repo_revision?: string;
+  prompt_file_path?: string;
+  prompt_sha256?: string;
+  resolved_source?: "private_repo" | "private_root";
+  fallback_used: boolean;
+}
+
+export interface PromptPreflightResult {
+  ready: boolean;
+  cohort: string;
+  expected_prompt_repo_id: string;
+  row_count: number;
+  blocked_count: number;
+  rows: PromptPreflightRow[];
+}
+
 export interface PromptReleaseCheckResult {
   ready: boolean;
   checks: Record<string, boolean>;
@@ -987,6 +1011,14 @@ export class BridgeApi {
       "prompts.audit_versions",
       params ?? {},
     );
+  }
+
+  promptsPreflight(params?: {
+    cohort?: string;
+    agents?: string[];
+    langs?: PromptLang[];
+  }): Promise<PromptPreflightResult> {
+    return this.client.call<PromptPreflightResult>("prompts.preflight", params ?? {});
   }
 
   promptsVerifyRelease(params: {

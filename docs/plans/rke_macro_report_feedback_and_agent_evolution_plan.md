@@ -2249,6 +2249,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - Python `get_rke_research_context` tool path 已记录 consumed context hash、Part 1
   ranking policy、retrieval rank/priority bucket 分布和 truncation audit；全 agent
   private prompt provenance、benchmark wiring 和 replay proof 仍属于 Part 2。
+- `prompts.preflight` 已提供 formal benchmark/replay 前的 private prompt provenance
+  预检机制，不返回 prompt body；真实 private prompt repo 的全 agent ready rows、
+  leak/drift/release checks 和 benchmark 仍属于 Part 2。
 - LLM reasoning benchmark 和人工复核 gate 尚未运行；正式 benchmark 还必须使用 private
   prompt repo 解析出的 frozen prompt hash，不能用 public fallback 充当有效 paired output。
 - autoresearch / Darwinian replay 还没有系统读取 RKE prior usage quality、agent claim outcome、

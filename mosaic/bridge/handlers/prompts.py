@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,26 +38,27 @@ from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
 # Mirror of cohorts.ts AGENTS_BY_LAYER (Plan §5). Keep in sync with the TS map.
-_LAYER_BY_AGENT: dict[str, str] = {
-    **dict.fromkeys(
-        [
-            "central_bank", "geopolitical", "china", "dollar", "yield_curve",
-            "commodities", "volatility", "emerging_markets", "news_sentiment",
-            "institutional_flow",
-        ],
-        "macro",
+_AGENTS_BY_LAYER: dict[str, tuple[str, ...]] = {
+    "macro": (
+        "central_bank", "geopolitical", "china", "dollar", "yield_curve",
+        "commodities", "volatility", "emerging_markets", "news_sentiment",
+        "institutional_flow",
     ),
-    **dict.fromkeys(
-        ["semiconductor", "energy", "biotech", "consumer", "industrials",
-         "financials", "relationship_mapper"],
-        "sector",
+    "sector": (
+        "semiconductor", "energy", "biotech", "consumer", "industrials",
+        "financials", "relationship_mapper",
     ),
-    **dict.fromkeys(["druckenmiller", "munger", "burry", "ackman"], "superinvestor"),
-    **dict.fromkeys(["cro", "alpha_discovery", "autonomous_execution", "cio"], "decision"),
+    "superinvestor": ("druckenmiller", "munger", "burry", "ackman"),
+    "decision": ("cro", "alpha_discovery", "autonomous_execution", "cio"),
 }
+_LAYER_BY_AGENT: dict[str, str] = {
+    agent: layer for layer, agents in _AGENTS_BY_LAYER.items() for agent in agents
+}
+_ALL_AGENTS = tuple(agent for agents in _AGENTS_BY_LAYER.values() for agent in agents)
 _DEFAULT_COHORT = "cohort_default"
 _LANGS = ("zh", "en")
 _WRITE_TARGETS = ("private_git", "project_git", "working_tree")
+_CANONICAL_PROMPT_REPO_ID = "https://github.com/haphap/MOSAIC-Prompts"
 
 
 def _repo_root() -> Path:
@@ -121,6 +123,12 @@ def _prompt_repo_id() -> str:
     )
 
 
+def _formal_prompt_repo_id() -> str:
+    return os.getenv("MOSAIC_PROMPTS_REPO_ID") or os.getenv(
+        "MOSAIC_PRIVATE_PROMPT_REPO_ID", _CANONICAL_PROMPT_REPO_ID
+    )
+
+
 def _public_write_allowed(params: dict[str, Any]) -> bool:
     # Per-invocation only — deliberately NOT honoring a long-lived env var, so the
     # escape hatch can't be left globally enabled (plan principle 7).
@@ -135,6 +143,118 @@ def _prompt_sha256(files: dict[str, str]) -> str:
         digest.update(files[rel].encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _git_run(cwd: Path, *args: str) -> str:
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
+    return proc.stdout.strip()
+
+
+def _optional_str_list(
+    params: dict[str, Any],
+    key: str,
+    *,
+    allowed: tuple[str, ...],
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    values = params.get(key)
+    if values is None:
+        return default
+    if not isinstance(values, list) or not values:
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be a non-empty list")
+    out: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise RpcError(INVALID_PARAMS, f"'{key}' entries must be non-empty strings")
+        normalized = value.strip()
+        if normalized not in allowed:
+            raise RpcError(INVALID_PARAMS, f"unsupported {key} entry {normalized!r}")
+        out.append(normalized)
+    return tuple(out)
+
+
+def _formal_prompt_source() -> dict[str, Any]:
+    """Resolve the private prompt source for formal benchmark/replay preflight."""
+    from mosaic.autoresearch.prompt_repo import (
+        private_prompt_repo_from_env,
+        validate_private_prompt_repo,
+    )
+
+    explicit_root = os.getenv("MOSAIC_PROMPTS_ROOT")
+    if explicit_root and explicit_root.strip():
+        prompts_root = Path(explicit_root).expanduser().resolve()
+        if not prompts_root.exists():
+            return {"ready": False, "blocked_reason": "private_prompt_unavailable"}
+        try:
+            repo_root = Path(_git_run(prompts_root, "rev-parse", "--show-toplevel")).resolve()
+            revision = _git_run(repo_root, "rev-parse", "HEAD")
+            project_root = _repo_root()
+            if repo_root == project_root or repo_root.is_relative_to(project_root):
+                return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
+        except Exception:
+            return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
+        return {
+            "ready": True,
+            "resolved_source": "private_root",
+            "repo_root": repo_root,
+            "prompts_root": prompts_root,
+            "prompt_repo_id": _formal_prompt_repo_id(),
+            "prompt_repo_revision": revision,
+        }
+
+    repo = private_prompt_repo_from_env()
+    if repo is None:
+        return {"ready": False, "blocked_reason": "private_prompt_unavailable"}
+    try:
+        repo_root = validate_private_prompt_repo(repo, project_root=_repo_root())
+        revision = _git_run(repo_root, "rev-parse", "HEAD")
+    except Exception:
+        return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
+    return {
+        "ready": True,
+        "resolved_source": "private_repo",
+        "repo_root": repo_root,
+        "prompts_root": repo_root / "prompts" / "mosaic",
+        "prompt_repo_id": _formal_prompt_repo_id(),
+        "prompt_repo_revision": revision,
+    }
+
+
+def _blocked_prompt_preflight_row(
+    *,
+    cohort: str,
+    agent: str,
+    lang: str,
+    reason: str,
+    source: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    layer = _LAYER_BY_AGENT[agent]
+    row = {
+        "agent": agent,
+        "layer": layer,
+        "cohort": cohort,
+        "lang": lang,
+        "status": "blocked",
+        "blocked_reason": reason,
+        "fallback_used": False,
+    }
+    if source and source.get("ready"):
+        path = Path(source["prompts_root"]) / cohort / layer / f"{agent}.{lang}.md"
+        rel = path.relative_to(Path(source["repo_root"]))
+        row.update({
+            "prompt_repo_id": source["prompt_repo_id"],
+            "prompt_repo_revision": source["prompt_repo_revision"],
+            "prompt_file_path": rel.as_posix(),
+            "resolved_source": source["resolved_source"],
+        })
+    return row
 
 
 def _store():
@@ -337,6 +457,76 @@ def prompts_audit_versions(params: dict[str, Any]) -> dict[str, Any]:
             "modification_summary": row.get("modification_summary"),
         })
     return {"versions": safe_rows}
+
+
+@method("prompts.preflight")
+def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
+    """Resolve formal benchmark/replay prompt provenance without prompt bodies."""
+    cohort = _optional_str(params, "cohort") or _DEFAULT_COHORT
+    agents = _optional_str_list(
+        params,
+        "agents",
+        allowed=_ALL_AGENTS,
+        default=_ALL_AGENTS,
+    )
+    langs = _optional_str_list(
+        params,
+        "langs",
+        allowed=_LANGS,
+        default=_LANGS,
+    )
+    source = _formal_prompt_source()
+    rows: list[dict[str, Any]] = []
+    for agent in agents:
+        layer = _LAYER_BY_AGENT[agent]
+        for lang in langs:
+            if not source.get("ready"):
+                rows.append(
+                    _blocked_prompt_preflight_row(
+                        cohort=cohort,
+                        agent=agent,
+                        lang=lang,
+                        reason=str(source["blocked_reason"]),
+                    )
+                )
+                continue
+
+            path = Path(source["prompts_root"]) / cohort / layer / f"{agent}.{lang}.md"
+            rel = path.relative_to(Path(source["repo_root"]))
+            if not path.exists():
+                rows.append(
+                    _blocked_prompt_preflight_row(
+                        cohort=cohort,
+                        agent=agent,
+                        lang=lang,
+                        reason="private_prompt_unavailable",
+                        source=source,
+                    )
+                )
+                continue
+            text = path.read_text(encoding="utf-8")
+            rows.append({
+                "agent": agent,
+                "layer": layer,
+                "cohort": cohort,
+                "lang": lang,
+                "status": "ready",
+                "prompt_repo_id": source["prompt_repo_id"],
+                "prompt_repo_revision": source["prompt_repo_revision"],
+                "prompt_file_path": rel.as_posix(),
+                "prompt_sha256": _prompt_sha256({rel.as_posix(): text}),
+                "resolved_source": source["resolved_source"],
+                "fallback_used": False,
+            })
+    blocked = [row for row in rows if row["status"] != "ready"]
+    return {
+        "ready": not blocked,
+        "cohort": cohort,
+        "expected_prompt_repo_id": _CANONICAL_PROMPT_REPO_ID,
+        "row_count": len(rows),
+        "blocked_count": len(blocked),
+        "rows": rows,
+    }
 
 
 @method("prompts.verify_release")

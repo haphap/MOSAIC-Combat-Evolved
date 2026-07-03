@@ -78,6 +78,20 @@ Prompt freeze mechanics:
   benchmark or replay.
 - Replay records the prompt hash and repo revision, not the prompt body.
 
+Status 2026-07-03:
+
+- Public bridge now exposes `prompts.preflight`, a no-body formal-run preflight
+  that resolves private prompt provenance for requested agents/languages. It
+  requires `MOSAIC_PROMPTS_REPO` / `MOSAIC_PRIVATE_PROMPT_REPO`, or a git-backed
+  `MOSAIC_PROMPTS_ROOT`, records `prompt_repo_id`, HEAD revision, relative prompt
+  file path, prompt sha256, resolved source, and `fallback_used=false`.
+- Missing private prompts or missing git provenance return blocked rows with
+  `private_prompt_unavailable` or `prompt_provenance_unavailable`; bundled
+  prompts are not used as fallback for formal rows.
+- This implements the public E0 preflight mechanism. E0 is not fully closed
+  until the private prompt repo has ready rows for all benchmark/replay agents
+  and leak/drift/release checks have passed.
+
 ## E1: Runtime Consumption Of Part 1 Ranked RKE Context
 
 Ownership split:
