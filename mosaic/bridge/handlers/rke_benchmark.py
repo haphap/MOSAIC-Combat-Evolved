@@ -763,6 +763,114 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
     }
 
 
+@method("rke_benchmark.prompt_mutation_release_readiness")
+def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate prompt mutation release checks before replay/benchmark use."""
+    lifecycle = prompt_mutation_lifecycle_manifest(
+        {"candidates": params.get("candidates")}
+        if "candidates" in params
+        else {}
+    )
+    supplied = params.get("release_checks")
+    if supplied is None:
+        release_rows: list[Any] = []
+    elif isinstance(supplied, list):
+        release_rows = supplied
+    else:
+        raise RpcError(INVALID_PARAMS, "'release_checks' must be a list")
+
+    release_by_candidate: dict[str, dict[str, Any]] = {}
+    evidence_failures: list[str] = []
+    for index, row in enumerate(release_rows, 1):
+        if not isinstance(row, dict):
+            evidence_failures.append(f"release_checks[{index}]: must be an object")
+            continue
+        if _forbidden_paths(row):
+            evidence_failures.append(
+                f"release_checks[{index}]: forbidden private/prose fields"
+            )
+            continue
+        candidate_id = _clean_str(row.get("mutation_candidate_id"))
+        if candidate_id:
+            release_by_candidate[candidate_id] = row
+
+    branch_records = [
+        record
+        for record in lifecycle["lifecycle_records"]
+        if record["candidate_action"] == "private_prompt_branch_after_blockers_clear"
+    ]
+    records: list[dict[str, Any]] = []
+    for record in branch_records:
+        candidate_id = record["mutation_candidate_id"]
+        evidence = release_by_candidate.get(candidate_id, {})
+        blockers: list[str] = []
+        if not isinstance(evidence.get("prompt_version_id"), int):
+            blockers.append("prompt_version_id_missing")
+        for key in (
+            "prompt_repo_id",
+            "prompt_commit_hash",
+            "prompt_sha256",
+            "verify_release_ref",
+            "leak_drift_check_ref",
+        ):
+            if not _clean_str(evidence.get(key)):
+                blockers.append(f"{key}_missing")
+        if evidence.get("verify_release_passed") is not True:
+            blockers.append("verify_release_not_passed")
+        if evidence.get("leak_drift_passed") is not True:
+            blockers.append("leak_drift_not_passed")
+        if evidence.get("release_ready") is not True:
+            blockers.append("release_not_ready")
+        if not evidence:
+            blockers.append("release_check_missing")
+        records.append(
+            {
+                "mutation_candidate_id": candidate_id,
+                "private_prompt_branch": record["private_prompt_branch"],
+                "affected_agents": record["affected_agents"],
+                "prompt_version_id": evidence.get("prompt_version_id")
+                if isinstance(evidence.get("prompt_version_id"), int)
+                else None,
+                "prompt_repo_id": _clean_str(evidence.get("prompt_repo_id")),
+                "prompt_commit_hash": _clean_str(evidence.get("prompt_commit_hash")),
+                "prompt_sha256": _clean_str(evidence.get("prompt_sha256")),
+                "verify_release_ref": _clean_str(evidence.get("verify_release_ref")),
+                "leak_drift_check_ref": _clean_str(evidence.get("leak_drift_check_ref")),
+                "release_ready": not blockers,
+                "blockers": blockers,
+            }
+        )
+
+    blocked_reasons = list(lifecycle["blocked_reasons"]) + evidence_failures
+    if lifecycle["manifest_status"] != "ready_for_private_branch":
+        blocked_reasons.append("lifecycle_manifest_not_ready")
+    if not branch_records:
+        blocked_reasons.append("prompt_branch_candidate_missing")
+    for record in records:
+        blocked_reasons.extend(record["blockers"])
+
+    return {
+        "schema_version": "rke_prompt_mutation_release_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "blocked_reasons": sorted(set(blocked_reasons)),
+        "lifecycle_manifest_status": lifecycle["manifest_status"],
+        "branch_candidate_count": len(branch_records),
+        "release_record_count": len(records),
+        "release_records": records,
+        "required_evidence": [
+            "prompt_version_id",
+            "prompt_repo_id",
+            "prompt_commit_hash",
+            "prompt_sha256",
+            "verify_release_ref",
+            "leak_drift_check_ref",
+        ],
+        "prompt_release_ready": bool(records) and not blocked_reasons,
+        "direct_prompt_write_allowed": False,
+        "promotion_allowed": False,
+    }
+
+
 @method("rke_benchmark.prompt_mutation_rollback_readiness")
 def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Check rollback proof objects for prompt mutations before shadow exit."""

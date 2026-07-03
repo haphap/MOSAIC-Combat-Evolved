@@ -311,6 +311,10 @@ Status 2026-07-03:
   rollback rule, benchmark/manual-review requirements, and shadow-only promotion
   guard. Refusal rows only preserve the blocker reason and create no prompt
   branch; refusal-only input remains `blocked_preflight`.
+- Public bridge now exposes `rke_benchmark.prompt_mutation_release_readiness`,
+  a no-write gate that requires prompt version id, prompt repo/commit/hash,
+  `prompts.verify_release` evidence, and leak/drift check evidence before a
+  prompt mutation can feed formal benchmark/replay gates.
 - This implements the lifecycle planning proof object. E4 is not complete until
   actual private prompt branches, leak/drift checks, fixed-episode benchmark
   evidence, manual review, shadow replay, paper-trading gate, promotion decision,

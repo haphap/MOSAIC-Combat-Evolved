@@ -2286,6 +2286,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.prompt_mutation_lifecycle_manifest` 已能把 safe candidate/refusal
   摘要转成 private prompt branch 生命周期预检；refusal-only row 只记录 blocker，不创建
   prompt branch，也不能作为条件 12 的完成证据。
+- `rke_benchmark.prompt_mutation_release_readiness` 已能检查 prompt version id、
+  private prompt repo commit/hash、`prompts.verify_release` 和 leak/drift evidence；
+  真实 private prompt 写入与 release 仍需在 private prompt repo 中执行。
 - `rke_benchmark.prompt_mutation_rollback_readiness` 已能检查 private prompt branch
   candidate 离开 shadow 前所需的 rollback trigger、previous prompt hash、rollback
   procedure、monitor output 和 post-rollback verification evidence；真实 rollback monitor

@@ -708,6 +708,34 @@ export interface RkePromptMutationLifecycleManifestResult {
   rollback_required_before_promotion: boolean;
 }
 
+export interface RkePromptMutationReleaseRecord {
+  mutation_candidate_id: string;
+  private_prompt_branch: string;
+  affected_agents: string[];
+  prompt_version_id: number | null;
+  prompt_repo_id: string;
+  prompt_commit_hash: string;
+  prompt_sha256: string;
+  verify_release_ref: string;
+  leak_drift_check_ref: string;
+  release_ready: boolean;
+  blockers: string[];
+}
+
+export interface RkePromptMutationReleaseReadinessResult {
+  schema_version: "rke_prompt_mutation_release_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
+  branch_candidate_count: number;
+  release_record_count: number;
+  release_records: RkePromptMutationReleaseRecord[];
+  required_evidence: string[];
+  prompt_release_ready: boolean;
+  direct_prompt_write_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
 export interface RkePromptMutationRollbackRecord {
   mutation_candidate_id: string;
   private_prompt_branch: string;
@@ -1415,6 +1443,16 @@ export class BridgeApi {
   }): Promise<RkePromptMutationLifecycleManifestResult> {
     return this.client.call<RkePromptMutationLifecycleManifestResult>(
       "rke_benchmark.prompt_mutation_lifecycle_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkPromptMutationReleaseReadiness(params?: {
+    candidates?: Array<Record<string, unknown>>;
+    release_checks?: Array<Record<string, unknown>>;
+  }): Promise<RkePromptMutationReleaseReadinessResult> {
+    return this.client.call<RkePromptMutationReleaseReadinessResult>(
+      "rke_benchmark.prompt_mutation_release_readiness",
       params ?? {},
     );
   }

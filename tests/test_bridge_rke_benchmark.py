@@ -565,6 +565,81 @@ def test_prompt_mutation_lifecycle_manifest_keeps_refusal_out_of_prompt_branch(
     assert "missing_pit_outcome" in record["blocked_by"]
 
 
+def test_prompt_mutation_release_readiness_blocks_missing_release_check(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                )
+            ]
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "release_check_missing" in manifest["blocked_reasons"]
+    assert "prompt_version_id_missing" in manifest["blocked_reasons"]
+    assert manifest["prompt_release_ready"] is False
+    assert manifest["direct_prompt_write_allowed"] is False
+
+
+def test_prompt_mutation_release_readiness_accepts_release_and_leak_drift(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                )
+            ],
+            "release_checks": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "prompt_version_id": 42,
+                    "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                    "prompt_commit_hash": "a" * 40,
+                    "prompt_sha256": "b" * 64,
+                    "verify_release_ref": "verify-release-1",
+                    "leak_drift_check_ref": "leak-drift-1",
+                    "verify_release_passed": True,
+                    "leak_drift_passed": True,
+                    "release_ready": True,
+                }
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["prompt_release_ready"] is True
+    assert manifest["promotion_allowed"] is False
+    record = manifest["release_records"][0]
+    assert record["prompt_version_id"] == 42
+    assert record["release_ready"] is True
+
+
 def test_prompt_mutation_rollback_readiness_blocks_missing_evidence(
     tmp_path: Path, monkeypatch
 ):
