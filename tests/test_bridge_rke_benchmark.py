@@ -118,15 +118,18 @@ def _paper_trading_plan(benchmark_run_id: str, **overrides: object) -> dict:
     return row
 
 
-def _promotion_evidence(benchmark_run_id: str) -> dict:
-    return {
+def _promotion_evidence(benchmark_run_id: str, **overrides: object) -> dict:
+    row = {
         "benchmark_run_id": benchmark_run_id,
         "paper_trading_result_ref": f"{benchmark_run_id}-paper-results",
         "monitor_summary_ref": f"{benchmark_run_id}-monitor-summary",
         "second_review_timestamp": "2026-07-03T13:00:00Z",
         "lockbox_decision_ref": f"{benchmark_run_id}-lockbox",
         "decision": "approved_for_promotion_review",
+        "second_review_approved": True,
     }
+    row.update(overrides)
+    return row
 
 
 def _prompt_release_check() -> dict:
@@ -2830,6 +2833,29 @@ def test_promotion_decision_readiness_blocks_missing_evidence(
     assert manifest["promotion_allowed"] is False
 
 
+def test_promotion_decision_readiness_blocks_unapproved_second_review(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.promotion_decision_readiness",
+        {
+            "benchmark_run_id": "bench-promotion-unapproved",
+            "promotion_evidence": _promotion_evidence(
+                "bench-promotion-unapproved", second_review_approved=False
+            ),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "second_review_not_approved" in manifest["blocked_reasons"]
+    assert manifest["promotion_evidence"]["second_review_approved"] is False
+    assert manifest["ready_for_operator_promotion_decision"] is False
+
+
 def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
     tmp_path: Path, monkeypatch
 ):
@@ -2911,6 +2937,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
 
     assert manifest["readiness_status"] == "ready"
     assert manifest["paper_trading_status"] == "ready"
+    assert manifest["promotion_evidence"]["second_review_approved"] is True
     assert manifest["ready_for_operator_promotion_decision"] is True
     assert manifest["production_allowed"] is False
     assert manifest["promotion_allowed"] is False

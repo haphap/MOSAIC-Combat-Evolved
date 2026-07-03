@@ -480,8 +480,8 @@ Status 2026-07-03:
   still keeps `promotion_allowed=false`.
 - Public bridge now exposes `rke_benchmark.promotion_decision_readiness`, a
   no-write gate that requires paper-trading readiness, paper-trading result ref,
-  monitor summary ref, second review timestamp, and lockbox decision ref before
-  marking a mutation ready for operator promotion decision. The promotion
+  monitor summary ref, approved second review timestamp, and lockbox decision ref
+  before marking a mutation ready for operator promotion decision. The promotion
   evidence must bind to the same `benchmark_run_id`. It still keeps
   `production_allowed=false` and `promotion_allowed=false`.
 - Public bridge now exposes `rke_benchmark.delivery_readiness`, a no-write E7

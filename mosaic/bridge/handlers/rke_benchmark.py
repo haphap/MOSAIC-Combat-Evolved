@@ -1857,6 +1857,8 @@ def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
             blocked_reasons.append(f"{key}_missing")
     if _clean_str(evidence.get("decision")) != "approved_for_promotion_review":
         blocked_reasons.append("promotion_review_decision_not_approved")
+    if evidence.get("second_review_approved") is not True:
+        blocked_reasons.append("second_review_not_approved")
     evidence_run_id = _clean_str(evidence.get("benchmark_run_id"))
     if not evidence_run_id:
         blocked_reasons.append("promotion_evidence_benchmark_run_id_missing")
@@ -1882,6 +1884,7 @@ def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
             ),
             "lockbox_decision_ref": _clean_str(evidence.get("lockbox_decision_ref")),
             "decision": _clean_str(evidence.get("decision")),
+            "second_review_approved": evidence.get("second_review_approved") is True,
         },
         "ready_for_operator_promotion_decision": not blocked_reasons,
         "production_allowed": False,
