@@ -269,9 +269,12 @@ def _prompt_mutation_provenance(benchmark_run_id: str) -> dict:
     }
 
 
-def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
-    return [
-        {
+def _all_prompt_release_checks(
+    rows: list[dict], benchmark_run_id: str | None = None
+) -> list[dict]:
+    release_checks = []
+    for index, row in enumerate(rows, 1):
+        release_check = {
             "agent": row["agent"],
             "lang": row["lang"],
             "prompt_version_id": index,
@@ -285,8 +288,10 @@ def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
             "verify_release_passed": True,
             "leak_drift_passed": True,
         }
-        for index, row in enumerate(rows, 1)
-    ]
+        if benchmark_run_id is not None:
+            release_check["benchmark_run_id"] = benchmark_run_id
+        release_checks.append(release_check)
+    return release_checks
 
 
 def test_fixed_episode_manifest_blocks_without_private_prompt_source():
@@ -431,6 +436,31 @@ def test_all_agent_prompt_provenance_readiness_blocks_release_repo_mismatch(
 
     assert result["readiness_status"] == "blocked_preflight"
     assert "prompt_repo_revision_mismatch" in result["blocked_reasons"]
+    assert result["all_agent_prompt_provenance_ready"] is False
+
+
+def test_all_agent_prompt_provenance_readiness_blocks_cross_run_release_checks(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+
+    result = dispatch(
+        "rke_benchmark.all_agent_prompt_provenance_readiness",
+        {
+            "benchmark_run_id": "bench-prompt-ready",
+            "release_checks": _all_prompt_release_checks(
+                preflight["rows"], "other-run"
+            ),
+        },
+    )
+
+    assert result["readiness_status"] == "blocked_preflight"
+    assert "release_check_benchmark_run_id_mismatch" in result["blocked_reasons"]
     assert result["all_agent_prompt_provenance_ready"] is False
 
 
@@ -1992,7 +2022,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
         {
             "benchmark_run_id": "bench-shadow-ready",
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
-                preflight["rows"]
+                preflight["rows"], "bench-shadow-ready"
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
@@ -2100,7 +2130,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
         {
             "benchmark_run_id": "bench-paper-ready",
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
-                preflight["rows"]
+                preflight["rows"], "bench-paper-ready"
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
@@ -2180,7 +2210,7 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
         {
             "benchmark_run_id": "bench-paper-ready",
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
-                preflight["rows"]
+                preflight["rows"], "bench-paper-ready"
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
@@ -2281,7 +2311,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
         {
             "benchmark_run_id": "bench-promotion-ready",
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
-                preflight["rows"]
+                preflight["rows"], "bench-promotion-ready"
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
@@ -2367,7 +2397,7 @@ def test_promotion_decision_readiness_blocks_cross_run_evidence(
         {
             "benchmark_run_id": "bench-promotion-ready",
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
-                preflight["rows"]
+                preflight["rows"], "bench-promotion-ready"
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
@@ -2740,7 +2770,9 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
     preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
-    all_prompt_release_checks = _all_prompt_release_checks(preflight["rows"])
+    all_prompt_release_checks = _all_prompt_release_checks(
+        preflight["rows"], "bench-delivery-ready"
+    )
     dispatch(
         "rke_benchmark.capture_agent_claim_footprints",
         {

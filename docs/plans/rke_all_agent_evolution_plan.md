@@ -99,8 +99,10 @@ Status 2026-07-03:
   evidence before formal benchmark/replay can treat prompt provenance as ready.
   Release evidence must match the private `prompt_repo_id`,
   `prompt_repo_revision`, and prompt file path returned by `prompts.preflight`;
-  the gate preserves the preflight source summary so E7 blockers include
-  repo-level dirty state, not only repeated row-level prompt blockers.
+  shadow/delivery aggregate gates also require it to bind to the same
+  `benchmark_run_id`. The gate preserves the preflight source summary so E7
+  blockers include repo-level dirty state, not only repeated row-level prompt
+  blockers.
 - This implements the public E0 preflight mechanism. E0 is not fully closed
   until the private prompt repo has ready rows for all benchmark/replay agents
   and leak/drift/release checks have passed.

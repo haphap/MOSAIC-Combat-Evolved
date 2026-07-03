@@ -175,6 +175,7 @@ _TARGET_FIELDS = ("target_type", "target_id", "metric_family", "ticker", "sector
 @method("rke_benchmark.all_agent_prompt_provenance_readiness")
 def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate formal all-agent prompt pins before benchmark/replay."""
+    benchmark_run_id = _clean_str(params.get("benchmark_run_id"))
     cohort = params.get("cohort") or _DEFAULT_COHORT
     if not isinstance(cohort, str) or not cohort.strip():
         cohort = _DEFAULT_COHORT
@@ -217,6 +218,12 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
             blockers.append("fallback_prompt_used")
         if not release:
             blockers.append("release_check_missing")
+        if benchmark_run_id:
+            release_run_id = _clean_str(release.get("benchmark_run_id"))
+            if not release_run_id:
+                blockers.append("release_check_benchmark_run_id_missing")
+            elif release_run_id != benchmark_run_id:
+                blockers.append("release_check_benchmark_run_id_mismatch")
         if release.get("verify_release_passed") is not True:
             blockers.append("verify_release_not_passed")
         if release.get("leak_drift_passed") is not True:
@@ -249,6 +256,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
                 "prompt_repo_id": _clean_str(row.get("prompt_repo_id")),
                 "prompt_repo_revision": _clean_str(row.get("prompt_repo_revision")),
                 "prompt_sha256": _clean_str(row.get("prompt_sha256")),
+                "benchmark_run_id": _clean_str(release.get("benchmark_run_id")),
                 "prompt_version_id": release.get("prompt_version_id")
                 if isinstance(release.get("prompt_version_id"), int)
                 else None,
@@ -270,6 +278,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
     return {
         "schema_version": "rke_all_agent_prompt_provenance_readiness_v1",
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
         "cohort": cohort,
         "blocked_reasons": sorted(set(blocked_reasons)),
         "agent_count": len(_ALL_AGENTS),
@@ -1668,6 +1677,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     benchmark_run_id = _require_str(params, "benchmark_run_id")
     prompt_provenance = all_agent_prompt_provenance_readiness(
         {
+            "benchmark_run_id": benchmark_run_id,
             "cohort": params.get("cohort"),
             "release_checks": params.get("all_agent_prompt_release_checks"),
         }
@@ -1965,6 +1975,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     effective_params["cohort"] = cohort
     prompt_provenance = all_agent_prompt_provenance_readiness(
         {
+            "benchmark_run_id": benchmark_run_id,
             "cohort": cohort,
             "release_checks": effective_params.get("all_agent_prompt_release_checks"),
         }
