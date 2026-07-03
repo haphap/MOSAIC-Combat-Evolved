@@ -603,6 +603,7 @@ def test_rke_research_tool_formats_context(monkeypatch):
                 "private_text_included": False,
                 "truncated_item_count": 0,
                 "current_data_required": True,
+                "ranking_policy_id": "rke_agent_research_context_rank_v1",
             },
         }
 
@@ -668,6 +669,42 @@ def test_rke_runtime_context_preflight_blocks_wrong_ranking_policy():
 
     assert "runtime_preflight_status=blocked" in output
     assert "ranking_policy_id_mismatch" in output
+
+
+def test_rke_runtime_context_preflight_blocks_summary_ranking_policy_mismatch():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "ranking_reason_codes": ["agent_specific_match"],
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
+                    "actionability_guard": SAFE_ACTIONABILITY,
+                }
+            ],
+            "summary": {
+                "item_count": 1,
+                "matched_item_count": 1,
+                "private_text_included": False,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+                "ranking_policy_id": "other_ranker",
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "summary_ranking_policy_id_mismatch" in output
 
 
 def test_rke_runtime_context_preflight_blocks_unsupported_priority_bucket():
@@ -801,6 +838,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                 "private_text_included": False,
                 "truncated_item_count": 0,
                 "current_data_required": True,
+                "ranking_policy_id": "rke_agent_research_context_rank_v1",
             },
         }
     )

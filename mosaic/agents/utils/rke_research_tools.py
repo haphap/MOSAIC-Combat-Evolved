@@ -107,6 +107,11 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("production_signal_not_disabled")
     summary = context.get("summary")
     summary_map = summary if isinstance(summary, Mapping) else {}
+    summary_ranking_policy_id = str(summary_map.get("ranking_policy_id") or "")
+    if not summary_ranking_policy_id:
+        failures.append("summary_ranking_policy_id_missing")
+    elif summary_ranking_policy_id != RANKING_POLICY_ID:
+        failures.append("summary_ranking_policy_id_mismatch")
     if summary_map.get("private_text_included") is not False:
         failures.append("private_text_boundary_missing")
     try:
