@@ -1187,6 +1187,43 @@ def test_profile_outcome_layer_contract_accepts_current_public_artifacts(
     assert record.failures == ()
 
 
+def _seed_profile_outcome_layer(profile):
+    profile["n_effective"] = 1.0
+    support = profile["outcome_layer_support"]
+    support["layer_count"] = 1
+    support["mixed_layer_profile"] = False
+    support["layering_policy"] = (
+        "compare by label_type, target_family, benchmark_family, cost_model_id, "
+        "agent_layer, and regime_bucket"
+    )
+    summary = {
+        "label_type": "stock_price_proxy",
+        "target_family": "stock",
+        "benchmark_family": "CSI300_ETF_PROXY",
+        "cost_model_id": "single_stock_round_trip_20bps_v1",
+        "agent_layer": "superinvestor",
+        "regime_bucket": "company_quality",
+        "n_nominal": 1,
+        "n_effective": 1.0,
+        "mean_after_cost_alpha": 0.01,
+        "hit_rate": 1.0,
+        "shrunk_after_cost_alpha": 0.001,
+        "shrunk_hit_rate": 0.55,
+        "statistical_reliability_bucket": "insufficient_data",
+    }
+    key = {
+        "label_type": "stock_price_proxy",
+        "target_family": "stock",
+        "benchmark_family": "CSI300_ETF_PROXY",
+        "cost_model_id": "single_stock_round_trip_20bps_v1",
+        "agent_layer": "superinvestor",
+        "regime_bucket": "company_quality",
+    }
+    support["layer_summaries"] = [summary]
+    support["layer_keys"] = [key]
+    return support, summary, key
+
+
 def test_profile_outcome_layer_contract_rejects_layer_drift(
     tmp_path: Path,
 ):
@@ -1197,17 +1234,12 @@ def test_profile_outcome_layer_contract_rejects_layer_drift(
         for line in profiles_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    profile = next(
-        row
-        for row in profiles
-        if row["outcome_layer_support"]["layer_summaries"]
-    )
-    support = profile["outcome_layer_support"]
+    support, summary, _key = _seed_profile_outcome_layer(profiles[0])
     support["layer_count"] = 0
     support["mixed_layer_profile"] = False
     support["layer_keys"] = []
-    support["layer_summaries"][0]["n_effective"] = 0.0
-    support["layer_summaries"][0].pop("benchmark_family", None)
+    summary["n_effective"] = 0.0
+    summary.pop("benchmark_family", None)
     profiles_path.write_text(
         "\n".join(
             json.dumps(row, ensure_ascii=False, sort_keys=True) for row in profiles
@@ -1223,6 +1255,34 @@ def test_profile_outcome_layer_contract_rejects_layer_drift(
     assert any("benchmark_family" in failure for failure in record.failures)
     assert any("layer_keys: must match" in failure for failure in record.failures)
     assert any("n_effective: expected sum" in failure for failure in record.failures)
+
+
+def test_profile_outcome_layer_contract_rejects_incomplete_extended_keys(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    profiles_path = registry / "source_performance_profiles.jsonl"
+    profiles = [
+        json.loads(line)
+        for line in profiles_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    _support, summary, key = _seed_profile_outcome_layer(profiles[0])
+    summary.pop("target_family")
+    key.pop("agent_layer")
+    profiles_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) for row in profiles
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _profile_outcome_layer_record(tmp_path)
+
+    assert not record.accepted
+    assert any("target_family" in failure for failure in record.failures)
+    assert any("agent_layer" in failure for failure in record.failures)
 
 
 def test_extraction_report_contract_accepts_current_public_artifact(tmp_path: Path):

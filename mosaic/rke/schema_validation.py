@@ -7043,6 +7043,18 @@ PROFILE_OUTCOME_LAYER_REQUIRED_SUMMARY_FIELDS = (
     "statistical_reliability_bucket",
 )
 
+PROFILE_OUTCOME_LAYER_BASE_KEY_FIELDS = (
+    "label_type",
+    "benchmark_family",
+    "cost_model_id",
+)
+
+PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS = (
+    "target_family",
+    "agent_layer",
+    "regime_bucket",
+)
+
 
 def _profile_layer_expected_effective_n(
     profile: Mapping[str, Any],
@@ -7054,6 +7066,29 @@ def _profile_layer_expected_effective_n(
             return 0.0
         return _float_or_none(source_support.get("n_effective_reports")) or 0.0
     return _float_or_none(profile.get("n_effective")) or 0.0
+
+
+def _profile_layer_uses_extended_keys(
+    *,
+    policy: str,
+    summaries: Sequence[Any],
+    keys: Sequence[Any],
+) -> bool:
+    if any(field in policy for field in PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS):
+        return True
+    for row in (*summaries, *keys):
+        if isinstance(row, Mapping) and any(
+            field in row for field in PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS
+        ):
+            return True
+    return False
+
+
+def _profile_layer_key(
+    row: Mapping[str, Any],
+    fields: Sequence[str],
+) -> tuple[str, ...]:
+    return tuple(str(row.get(field) or "") for field in fields)
 
 
 def _validate_profile_outcome_layer_support(
@@ -7115,12 +7150,22 @@ def _validate_profile_outcome_layer_support(
                     f"{row_label}.outcome_layer_support.mixed_layer_profile: must match layer_count > 1"
                 )
             policy = str(support.get("layering_policy") or "")
-            for required_text in ("label_type", "benchmark_family", "cost_model_id"):
+            key_fields = PROFILE_OUTCOME_LAYER_BASE_KEY_FIELDS
+            if _profile_layer_uses_extended_keys(
+                policy=policy,
+                summaries=summaries,
+                keys=keys,
+            ):
+                key_fields = (
+                    *PROFILE_OUTCOME_LAYER_BASE_KEY_FIELDS,
+                    *PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS,
+                )
+            for required_text in key_fields:
                 if required_text not in policy:
                     failures.append(
                         f"{row_label}.outcome_layer_support.layering_policy: must mention {required_text}"
                     )
-            summary_keys: list[tuple[str, str, str]] = []
+            summary_keys: list[tuple[str, ...]] = []
             n_effective_sum = 0.0
             for summary_index, summary in enumerate(summaries, 1):
                 summary_label = (
@@ -7132,14 +7177,10 @@ def _validate_profile_outcome_layer_support(
                 for field in PROFILE_OUTCOME_LAYER_REQUIRED_SUMMARY_FIELDS:
                     if field not in summary:
                         failures.append(f"{summary_label}.{field}: required")
-                key = (
-                    str(summary.get("label_type") or ""),
-                    str(summary.get("benchmark_family") or ""),
-                    str(summary.get("cost_model_id") or ""),
-                )
+                key = _profile_layer_key(summary, key_fields)
                 if not all(key):
                     failures.append(
-                        f"{summary_label}: label_type, benchmark_family, and cost_model_id required"
+                        f"{summary_label}: {', '.join(key_fields)} required"
                     )
                 summary_keys.append(key)
                 n_effective = _float_or_none(summary.get("n_effective"))
@@ -7147,7 +7188,7 @@ def _validate_profile_outcome_layer_support(
                     failures.append(f"{summary_label}.n_effective: must be nonnegative")
                 else:
                     n_effective_sum += n_effective
-            observed_keys: list[tuple[str, str, str]] = []
+            observed_keys: list[tuple[str, ...]] = []
             for key_index, key_row in enumerate(keys, 1):
                 key_label = (
                     f"{row_label}.outcome_layer_support.layer_keys[{key_index}]"
@@ -7155,14 +7196,10 @@ def _validate_profile_outcome_layer_support(
                 if not isinstance(key_row, Mapping):
                     failures.append(f"{key_label}: expected object")
                     continue
-                key = (
-                    str(key_row.get("label_type") or ""),
-                    str(key_row.get("benchmark_family") or ""),
-                    str(key_row.get("cost_model_id") or ""),
-                )
+                key = _profile_layer_key(key_row, key_fields)
                 if not all(key):
                     failures.append(
-                        f"{key_label}: label_type, benchmark_family, and cost_model_id required"
+                        f"{key_label}: {', '.join(key_fields)} required"
                     )
                 observed_keys.append(key)
             if sorted(observed_keys) != sorted(summary_keys):
