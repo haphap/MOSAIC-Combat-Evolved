@@ -1127,6 +1127,7 @@ def test_report_intelligence_builds_public_safe_stock_context_snapshots():
             "source_id": "SRC-STOCK-1",
             "claim_text": "private prose",
             "target": {"target_type": "stock", "target_id": "600519.SH"},
+            "metric_proxy_mapping": ["inventory_to_sales"],
             "direction": "positive",
             "signal_datetime": "2026-01-10T09:00:00+08:00",
         }
@@ -1161,6 +1162,7 @@ def test_report_intelligence_builds_public_safe_stock_context_snapshots():
     assert snapshot["liquidity_bucket"] == "tradable_proxy_observed"
     assert snapshot["stock_outcome_age_bucket"] == "stock_outcome_pending"
     assert snapshot["benchmark_family"] == "CSI300_ETF_PROXY"
+    assert snapshot["fundamental_metric_family_counts"] == {"inventory_to_sales": 1}
     assert snapshot["background_only"] is True
     assert snapshot["claim_validation_allowed"] is False
     assert snapshot["private_text_included"] is False

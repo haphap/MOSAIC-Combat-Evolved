@@ -20235,12 +20235,19 @@ def build_stock_context_snapshots(
                 "_metadata_rows": [],
                 "_outcome_rows": [],
                 "_sectors": set(),
+                "_fundamental_metric_family_counts": {},
             },
         )
         claim_id = str(claim.get("forecast_claim_id") or "")
         if claim_id:
             aggregate["_claim_ids"].add(claim_id)
             aggregate["_outcome_rows"].extend(outcomes_by_claim.get(claim_id, ()))
+        metric_family = _domain_claim_metric_family(claim)
+        if metric_family != "unknown":
+            _increment_count(
+                aggregate["_fundamental_metric_family_counts"],
+                metric_family,
+            )
         report_key = str(claim.get("source_id") or claim.get("report_id") or "")
         if report_key:
             aggregate["_report_keys"].add(report_key)
@@ -20291,6 +20298,9 @@ def build_stock_context_snapshots(
             "liquidity_bucket": liquidity_bucket,
             "stock_outcome_age_bucket": stock_outcome_age_bucket,
             "benchmark_family": benchmark_family,
+            "fundamental_metric_family_counts": dict(
+                sorted(aggregate["_fundamental_metric_family_counts"].items())
+            ),
             "source_claim_count": len(aggregate["_claim_ids"]),
             "report_count": len(aggregate["_report_keys"]),
             "outcome_label_count": len(outcome_rows),
@@ -20310,6 +20320,11 @@ def build_stock_context_snapshots(
                     "stock_symbol": stock_symbol,
                     "as_of_date": as_of_date,
                     "market_cap_bucket": market_cap_bucket,
+                    "fundamental_metric_family_counts": dict(
+                        sorted(
+                            aggregate["_fundamental_metric_family_counts"].items()
+                        )
+                    ),
                     "claim_count": len(aggregate["_claim_ids"]),
                     "outcome_label_count": len(outcome_rows),
                 },

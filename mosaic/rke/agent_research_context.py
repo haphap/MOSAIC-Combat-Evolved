@@ -690,6 +690,15 @@ def _public_claim_item(
                 "benchmark_family": _safe_token(
                     stock_context_snapshot.get("benchmark_family") or "unknown"
                 ),
+                "fundamental_metric_family_counts": dict(
+                    sorted(
+                        _ensure_mapping(
+                            stock_context_snapshot.get(
+                                "fundamental_metric_family_counts"
+                            )
+                        ).items()
+                    )
+                ),
                 "context_snapshot_feature_missing_reasons": _ensure_str_list(
                     stock_context_snapshot.get("missing_feature_reasons")
                 ),

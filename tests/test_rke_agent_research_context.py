@@ -353,6 +353,7 @@ def test_superinvestor_context_uses_available_stock_snapshot():
                 "liquidity_bucket": "tradable_proxy_observed",
                 "stock_outcome_age_bucket": "stock_outcome_pending",
                 "benchmark_family": "CSI300_ETF_PROXY",
+                "fundamental_metric_family_counts": {"free_cash_flow": 1, "roic": 1},
                 "missing_feature_reasons": [],
             }
         ],
@@ -364,6 +365,10 @@ def test_superinvestor_context_uses_available_stock_snapshot():
     assert item["context_snapshot_id"] == "SCS-1"
     assert item["market_cap_bucket"] == "large_cap"
     assert item["liquidity_bucket"] == "tradable_proxy_observed"
+    assert item["fundamental_metric_family_counts"] == {
+        "free_cash_flow": 1,
+        "roic": 1,
+    }
     assert "stock_context_snapshot_missing" not in item["ranking_reason_codes"]
 
 

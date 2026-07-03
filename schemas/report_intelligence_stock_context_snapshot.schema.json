@@ -33,6 +33,10 @@
     "liquidity_bucket": {"type": "string", "minLength": 1},
     "stock_outcome_age_bucket": {"type": "string", "minLength": 1},
     "benchmark_family": {"type": "string", "minLength": 1},
+    "fundamental_metric_family_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "source_claim_count": {"type": "integer", "minimum": 0},
     "report_count": {"type": "integer", "minimum": 0},
     "outcome_label_count": {"type": "integer", "minimum": 0},
