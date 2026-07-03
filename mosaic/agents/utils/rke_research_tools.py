@@ -309,6 +309,10 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         )
         or "latest_completed_exit_date" not in summary
         or (
+            summary.get("label_count") == 0
+            and bool(summary.get("latest_completed_exit_date"))
+        )
+        or (
             summary.get("latest_completed_exit_date")
             and not _is_iso_date(summary.get("latest_completed_exit_date"))
         )

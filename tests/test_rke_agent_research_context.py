@@ -1165,6 +1165,40 @@ def test_rke_runtime_context_preflight_blocks_invalid_exit_dates():
     assert "outcome_label_summary_invalid" in output
 
 
+def test_rke_runtime_context_preflight_blocks_empty_outcome_latest_exit():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "as_of_date": "2026-06-27",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "freshness_bucket": "historical_completed_exit",
+                    "latest_completed_exit_date": "2026-06-20",
+                    "outcome_label_summary": {
+                        "label_count": 0,
+                        "directional_hit_count": 0,
+                        "pending_label_count": 0,
+                        "pending_share": 0.0,
+                        "label_types": [],
+                        "latest_completed_exit_date": "2026-06-20",
+                    },
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "outcome_label_summary_invalid" in output
+
+
 def test_rke_runtime_context_preflight_blocks_bad_snapshot_audit():
     output = rke_research_tools.format_rke_runtime_context(
         {
