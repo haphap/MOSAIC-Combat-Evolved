@@ -172,7 +172,9 @@ def _prompt_release_check_for_candidates(
 
 
 def _rollback_evidence_for_candidates(
-    candidates: list[dict], **overrides: object
+    candidates: list[dict],
+    benchmark_run_id: str | None = None,
+    **overrides: object,
 ) -> dict:
     lifecycle = dispatch(
         "rke_benchmark.prompt_mutation_lifecycle_manifest",
@@ -194,6 +196,8 @@ def _rollback_evidence_for_candidates(
         "monitor_output_ref": "monitor-run-1",
         "post_rollback_verification_ref": "verify-run-1",
     }
+    if benchmark_run_id is not None:
+        row["benchmark_run_id"] = benchmark_run_id
     row.update(overrides)
     return row
 
@@ -1773,6 +1777,42 @@ def test_prompt_mutation_rollback_readiness_blocks_previous_hash_mismatch(
     assert manifest["rollback_gate_ready"] is False
 
 
+def test_prompt_mutation_rollback_readiness_blocks_cross_run_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_rollback_readiness",
+        {
+            "benchmark_run_id": "bench-rollback-ready",
+            "candidates": candidates,
+            "rollback_evidence": [
+                _rollback_evidence_for_candidates(candidates, "other-run")
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "rollback_evidence_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["rollback_gate_ready"] is False
+
+
 def test_prompt_mutation_rollback_readiness_blocks_candidate_blockers(
     tmp_path: Path, monkeypatch
 ):
@@ -1935,6 +1975,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
                     candidates,
+                    "bench-shadow-ready",
                     rollback_trigger_definition="shadow replay regression",
                     monitor_output_ref="monitor-shadow-ready",
                     post_rollback_verification_ref="verify-shadow-ready",
@@ -2042,6 +2083,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
                     candidates,
+                    "bench-paper-ready",
                     rollback_trigger_definition="paper trading risk breach",
                     monitor_output_ref="monitor-paper-ready",
                     post_rollback_verification_ref="verify-paper-ready",
@@ -2121,6 +2163,7 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
                     candidates,
+                    "bench-paper-ready",
                     rollback_trigger_definition="paper trading risk breach",
                     monitor_output_ref="monitor-paper-ready",
                     post_rollback_verification_ref="verify-paper-ready",
@@ -2223,6 +2266,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
                     candidates,
+                    "bench-promotion-ready",
                     rollback_trigger_definition="promotion monitor breach",
                     monitor_output_ref="monitor-promotion-ready",
                     post_rollback_verification_ref="verify-promotion-ready",
@@ -2306,6 +2350,7 @@ def test_promotion_decision_readiness_blocks_cross_run_evidence(
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
                     candidates,
+                    "bench-promotion-ready",
                     rollback_trigger_definition="promotion monitor breach",
                     monitor_output_ref="monitor-promotion-ready",
                     post_rollback_verification_ref="verify-promotion-ready",
@@ -2748,6 +2793,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
                     candidates,
+                    "bench-delivery-ready",
                     rollback_trigger_definition="delivery monitor breach",
                     monitor_output_ref="monitor-delivery",
                     post_rollback_verification_ref="verify-delivery",

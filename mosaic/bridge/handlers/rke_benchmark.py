@@ -1529,6 +1529,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
 @method("rke_benchmark.prompt_mutation_rollback_readiness")
 def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Check rollback proof objects for prompt mutations before shadow exit."""
+    benchmark_run_id = _clean_str(params.get("benchmark_run_id"))
     lifecycle = prompt_mutation_lifecycle_manifest(
         {"candidates": params.get("candidates")}
         if "candidates" in params
@@ -1582,6 +1583,12 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
         blockers.extend(
             f"candidate_blocked_by:{reason}" for reason in record["blocked_by"]
         )
+        if benchmark_run_id:
+            evidence_run_id = _clean_str(evidence.get("benchmark_run_id"))
+            if not evidence_run_id:
+                blockers.append("rollback_evidence_benchmark_run_id_missing")
+            elif evidence_run_id != benchmark_run_id:
+                blockers.append("rollback_evidence_benchmark_run_id_mismatch")
         if not previous_hashes:
             blockers.append("previous_prompt_hash_missing")
         if not evidence_previous_hashes:
@@ -1603,6 +1610,7 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
                 "affected_agents": record["affected_agents"],
                 "previous_prompt_hashes": previous_hashes,
                 "rollback_previous_prompt_hashes": evidence_previous_hashes,
+                "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
                 "rollback_trigger_definition": _clean_str(
                     evidence.get("rollback_trigger_definition")
                 ),
@@ -1626,6 +1634,7 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
 
     return {
         "schema_version": "rke_prompt_mutation_rollback_readiness_v1",
+        "benchmark_run_id": benchmark_run_id,
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
         "blocked_reasons": sorted(set(blocked_reasons)),
         "lifecycle_manifest_status": lifecycle["manifest_status"],
@@ -1680,6 +1689,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     )
     rollback = prompt_mutation_rollback_readiness(
         {
+            "benchmark_run_id": benchmark_run_id,
             "candidates": params.get("candidates"),
             "rollback_evidence": params.get("rollback_evidence"),
         }
@@ -2012,6 +2022,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     )
     rollback = prompt_mutation_rollback_readiness(
         {
+            "benchmark_run_id": benchmark_run_id,
             "candidates": effective_params.get("candidates"),
             "rollback_evidence": effective_params.get("rollback_evidence"),
         }
