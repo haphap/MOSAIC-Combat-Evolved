@@ -19,6 +19,7 @@ from mosaic.rke.agent_research_context import (
     RANKING_POLICY_ID,
     RESEARCH_PRIOR_USE_POLICY,
     SAFE_ACTIONABILITY,
+    assert_public_safe_context,
     build_rke_agent_research_context,
     format_rke_agent_research_context,
 )
@@ -97,6 +98,10 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     summary_map = summary if isinstance(summary, Mapping) else {}
     if summary_map.get("private_text_included") is not False:
         failures.append("private_text_boundary_missing")
+    try:
+        assert_public_safe_context(context)
+    except ValueError:
+        failures.append("public_safe_context_violation")
     truncated_item_count = _optional_non_negative_int(
         summary_map.get("truncated_item_count")
     )

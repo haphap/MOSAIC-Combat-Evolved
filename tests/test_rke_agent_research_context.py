@@ -839,6 +839,40 @@ def test_rke_runtime_context_preflight_blocks_top_level_policy_boundary():
     assert "private_text_boundary_missing" in output
 
 
+def test_rke_runtime_context_preflight_blocks_hidden_private_fields():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
+                    "actionability_guard": SAFE_ACTIONABILITY,
+                    "claim_text": "private prose",
+                }
+            ],
+            "summary": {
+                "private_text_included": False,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "public_safe_context_violation" in output
+    assert "private prose" not in output
+
+
 def test_normalize_agent_id_accepts_ts_and_rke_forms():
     assert normalize_agent_id("dollar", "macro") == "macro.dollar"
     assert normalize_agent_id("sector.semiconductor") == "sector.semiconductor"
