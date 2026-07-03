@@ -2333,8 +2333,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.prompt_mutation_release_readiness` 已能检查 prompt version id、
   private prompt repo commit/hash、lifecycle private branch、base prompt repo revision、
   overwrite target paths、audit-version ref、`prompts.verify_release` 和 leak/drift
-  evidence；candidate `blocked_by` 未清空时仍阻断 release；真实 private prompt 写入与
-  release 仍需在 private prompt repo 中执行。
+  evidence；在 shadow/delivery 聚合中使用时，release evidence 必须绑定同一个
+  `benchmark_run_id`；candidate `blocked_by` 未清空时仍阻断 release；真实 private prompt
+  写入与 release 仍需在 private prompt repo 中执行。
 - `rke_benchmark.patch_activation_readiness` 已能检查 shadow-only patch activation 的
   artifact/validation/apply/runtime proof/rollback refs，并把 candidate `blocked_by`
   保持为硬 blocker；在 `delivery_readiness` 中使用时，patch activation evidence 必须

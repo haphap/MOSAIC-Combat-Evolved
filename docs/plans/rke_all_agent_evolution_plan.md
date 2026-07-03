@@ -344,6 +344,8 @@ Status 2026-07-03:
   lifecycle private branch, base prompt repo revision, overwrite target paths,
   audit-version ref, `prompts.verify_release` evidence, and leak/drift check
   evidence before a prompt mutation can feed formal benchmark/replay gates.
+  Shadow/delivery aggregate gates also require release evidence to bind to the
+  same `benchmark_run_id`.
 - This implements the lifecycle planning proof object. E4 is not complete until
   actual private prompt branches, leak/drift checks, fixed-episode benchmark
   evidence, manual review, shadow replay, paper-trading gate, promotion decision,

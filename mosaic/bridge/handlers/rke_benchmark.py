@@ -1355,6 +1355,7 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
 @method("rke_benchmark.prompt_mutation_release_readiness")
 def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate prompt mutation release checks before replay/benchmark use."""
+    benchmark_run_id = _clean_str(params.get("benchmark_run_id"))
     lifecycle = prompt_mutation_lifecycle_manifest(
         {"candidates": params.get("candidates")}
         if "candidates" in params
@@ -1423,6 +1424,12 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blockers.extend(
             f"candidate_blocked_by:{reason}" for reason in record["blocked_by"]
         )
+        if benchmark_run_id:
+            evidence_run_id = _clean_str(evidence.get("benchmark_run_id"))
+            if not evidence_run_id:
+                blockers.append("release_check_benchmark_run_id_missing")
+            elif evidence_run_id != benchmark_run_id:
+                blockers.append("release_check_benchmark_run_id_mismatch")
         if not isinstance(evidence.get("prompt_version_id"), int):
             blockers.append("prompt_version_id_missing")
         for key in (
@@ -1475,6 +1482,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 "mutation_candidate_id": candidate_id,
                 "private_prompt_branch": record["private_prompt_branch"],
                 "affected_agents": record["affected_agents"],
+                "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
                 "prompt_version_id": evidence.get("prompt_version_id")
                 if isinstance(evidence.get("prompt_version_id"), int)
                 else None,
@@ -1502,6 +1510,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "schema_version": "rke_prompt_mutation_release_readiness_v1",
+        "benchmark_run_id": benchmark_run_id,
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
         "blocked_reasons": sorted(set(blocked_reasons)),
         "lifecycle_manifest_status": lifecycle["manifest_status"],
@@ -1683,6 +1692,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     )
     prompt_release = prompt_mutation_release_readiness(
         {
+            "benchmark_run_id": benchmark_run_id,
             "candidates": params.get("candidates"),
             "release_checks": params.get("prompt_mutation_release_checks"),
         }
@@ -2007,6 +2017,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     )
     prompt_release = prompt_mutation_release_readiness(
         {
+            "benchmark_run_id": benchmark_run_id,
             "candidates": effective_params.get("candidates"),
             "release_checks": effective_params.get("prompt_mutation_release_checks"),
         }

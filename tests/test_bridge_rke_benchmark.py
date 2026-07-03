@@ -162,13 +162,18 @@ def _prompt_release_check_from_lifecycle(
 
 
 def _prompt_release_check_for_candidates(
-    candidates: list[dict], **overrides: object
+    candidates: list[dict],
+    benchmark_run_id: str | None = None,
+    **overrides: object,
 ) -> dict:
     lifecycle = dispatch(
         "rke_benchmark.prompt_mutation_lifecycle_manifest",
         {"candidates": candidates},
     )
-    return _prompt_release_check_from_lifecycle(lifecycle, **overrides)
+    row = _prompt_release_check_from_lifecycle(lifecycle, **overrides)
+    if benchmark_run_id is not None:
+        row["benchmark_run_id"] = benchmark_run_id
+    return row
 
 
 def _rollback_evidence_for_candidates(
@@ -1623,6 +1628,40 @@ def test_prompt_mutation_release_readiness_blocks_mismatched_lifecycle_evidence(
     assert manifest["prompt_release_ready"] is False
 
 
+def test_prompt_mutation_release_readiness_blocks_cross_run_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {
+            "benchmark_run_id": "bench-release-ready",
+            "candidates": candidates,
+            "release_checks": [
+                _prompt_release_check_for_candidates(candidates, "other-run")
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "release_check_benchmark_run_id_mismatch" in manifest["blocked_reasons"]
+    assert manifest["prompt_release_ready"] is False
+
+
 def test_prompt_mutation_release_readiness_blocks_candidate_blockers(
     tmp_path: Path, monkeypatch
 ):
@@ -1970,7 +2009,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
-                _prompt_release_check_for_candidates(candidates)
+                _prompt_release_check_for_candidates(candidates, "bench-shadow-ready")
             ],
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
@@ -2078,7 +2117,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
-                _prompt_release_check_for_candidates(candidates)
+                _prompt_release_check_for_candidates(candidates, "bench-paper-ready")
             ],
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
@@ -2158,7 +2197,7 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
             ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
-                _prompt_release_check_for_candidates(candidates)
+                _prompt_release_check_for_candidates(candidates, "bench-paper-ready")
             ],
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
@@ -2261,7 +2300,9 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
-                _prompt_release_check_for_candidates(candidates)
+                _prompt_release_check_for_candidates(
+                    candidates, "bench-promotion-ready"
+                )
             ],
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
@@ -2345,7 +2386,9 @@ def test_promotion_decision_readiness_blocks_cross_run_evidence(
             ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
-                _prompt_release_check_for_candidates(candidates)
+                _prompt_release_check_for_candidates(
+                    candidates, "bench-promotion-ready"
+                )
             ],
             "rollback_evidence": [
                 _rollback_evidence_for_candidates(
@@ -2785,6 +2828,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(
                     candidates,
+                    "bench-delivery-ready",
                     prompt_version_id=51,
                     verify_release_ref="verify-mutation-delivery",
                     leak_drift_check_ref="leak-mutation-delivery",
