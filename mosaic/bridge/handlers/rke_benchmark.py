@@ -1205,30 +1205,16 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
     else:
         raise RpcError(INVALID_PARAMS, "'patch_activation_evidence' must be a list")
 
-    evidence_by_candidate: dict[str, dict[str, Any]] = {}
-    evidence_failures: list[str] = []
-    for index, row in enumerate(evidence_rows, 1):
-        if not isinstance(row, dict):
-            evidence_failures.append(
-                f"patch_activation_evidence[{index}]: must be an object"
-            )
-            continue
-        forbidden_paths = _forbidden_paths(row)
-        if forbidden_paths:
-            evidence_failures.append(
-                f"patch_activation_evidence[{index}]: forbidden private/prose fields "
-                + ", ".join(forbidden_paths[:5])
-            )
-            continue
-        candidate_id = _clean_str(row.get("mutation_candidate_id"))
-        if candidate_id:
-            evidence_by_candidate[candidate_id] = row
-
     patch_candidates = [
         item
         for item in candidate_manifest["candidate_summaries"]
         if "refusal" not in item["candidate_type"]
     ]
+    evidence_by_candidate, evidence_failures = _candidate_evidence_by_id(
+        evidence_rows,
+        label="patch_activation_evidence",
+        expected_candidate_ids={item["mutation_candidate_id"] for item in patch_candidates},
+    )
     records: list[dict[str, Any]] = []
     for item in patch_candidates:
         candidate_id = item["mutation_candidate_id"]
@@ -1485,28 +1471,17 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
     else:
         raise RpcError(INVALID_PARAMS, "'release_checks' must be a list")
 
-    release_by_candidate: dict[str, dict[str, Any]] = {}
-    evidence_failures: list[str] = []
-    for index, row in enumerate(release_rows, 1):
-        if not isinstance(row, dict):
-            evidence_failures.append(f"release_checks[{index}]: must be an object")
-            continue
-        privacy_row = dict(row)
-        privacy_row.pop("overwrite_target_paths", None)
-        if _forbidden_paths(privacy_row):
-            evidence_failures.append(
-                f"release_checks[{index}]: forbidden private/prose fields"
-            )
-            continue
-        candidate_id = _clean_str(row.get("mutation_candidate_id"))
-        if candidate_id:
-            release_by_candidate[candidate_id] = row
-
     branch_records = [
         record
         for record in lifecycle["lifecycle_records"]
         if record["candidate_action"] == "private_prompt_branch_after_blockers_clear"
     ]
+    release_by_candidate, evidence_failures = _candidate_evidence_by_id(
+        release_rows,
+        label="release_checks",
+        expected_candidate_ids={record["mutation_candidate_id"] for record in branch_records},
+        ignore_forbidden_keys=("overwrite_target_paths",),
+    )
     records: list[dict[str, Any]] = []
     for record in branch_records:
         candidate_id = record["mutation_candidate_id"]
@@ -1667,29 +1642,17 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
     else:
         raise RpcError(INVALID_PARAMS, "'rollback_evidence' must be a list")
 
-    evidence_by_candidate: dict[str, dict[str, Any]] = {}
-    evidence_failures: list[str] = []
-    for index, row in enumerate(evidence_rows, 1):
-        if not isinstance(row, dict):
-            evidence_failures.append(f"rollback_evidence[{index}]: must be an object")
-            continue
-        forbidden_paths = _forbidden_paths(row)
-        if forbidden_paths:
-            evidence_failures.append(
-                f"rollback_evidence[{index}]: forbidden private/prose fields "
-                + ", ".join(forbidden_paths[:5])
-            )
-            continue
-        candidate_id = _clean_str(row.get("mutation_candidate_id"))
-        if candidate_id:
-            evidence_by_candidate[candidate_id] = row
-
     records: list[dict[str, Any]] = []
     branch_records = [
         record
         for record in lifecycle["lifecycle_records"]
         if record["candidate_action"] == "private_prompt_branch_after_blockers_clear"
     ]
+    evidence_by_candidate, evidence_failures = _candidate_evidence_by_id(
+        evidence_rows,
+        label="rollback_evidence",
+        expected_candidate_ids={record["mutation_candidate_id"] for record in branch_records},
+    )
     for record in branch_records:
         candidate_id = record["mutation_candidate_id"]
         evidence = evidence_by_candidate.get(candidate_id, {})
@@ -2551,6 +2514,43 @@ def _candidate_contract_failures(row: dict[str, Any], index: int) -> list[str]:
     if not _safe_str_list(row.get("validation_requirements")):
         failures.append(f"{prefix}: validation_requirements are required")
     return failures
+
+
+def _candidate_evidence_by_id(
+    rows: list[Any],
+    *,
+    label: str,
+    expected_candidate_ids: set[str],
+    ignore_forbidden_keys: tuple[str, ...] = (),
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    evidence_by_candidate: dict[str, dict[str, Any]] = {}
+    failures: list[str] = []
+    for index, row in enumerate(rows, 1):
+        if not isinstance(row, dict):
+            failures.append(f"{label}[{index}]: must be an object")
+            continue
+        privacy_row = dict(row)
+        for key in ignore_forbidden_keys:
+            privacy_row.pop(key, None)
+        forbidden_paths = _forbidden_paths(privacy_row)
+        if forbidden_paths:
+            failures.append(
+                f"{label}[{index}]: forbidden private/prose fields "
+                + ", ".join(forbidden_paths[:5])
+            )
+            continue
+        candidate_id = _clean_str(row.get("mutation_candidate_id"))
+        if not candidate_id:
+            failures.append(f"{label}[{index}]: mutation_candidate_id required")
+            continue
+        if candidate_id not in expected_candidate_ids:
+            failures.append(f"{label}[{index}]: unknown mutation_candidate_id")
+            continue
+        if candidate_id in evidence_by_candidate:
+            failures.append(f"{label}[{index}]: duplicate mutation_candidate_id")
+            continue
+        evidence_by_candidate[candidate_id] = row
+    return evidence_by_candidate, failures
 
 
 def _outcome_metrics_ready(metrics: dict[str, Any]) -> bool:

@@ -1990,6 +1990,43 @@ def test_patch_activation_readiness_blocks_cross_run_evidence():
     assert manifest["patch_activation_ready"] is False
 
 
+def test_patch_activation_readiness_blocks_extra_candidate_evidence():
+    benchmark_run_id = "bench-patch-extra"
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    evidence = _patch_activation_evidence(benchmark_run_id)
+
+    manifest = dispatch(
+        "rke_benchmark.patch_activation_readiness",
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "candidates": candidates,
+            "patch_activation_evidence": [
+                evidence,
+                {**evidence, "mutation_candidate_id": "PMUT-GHOST"},
+                dict(evidence),
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert (
+        "patch_activation_evidence[2]: unknown mutation_candidate_id"
+        in manifest["blocked_reasons"]
+    )
+    assert (
+        "patch_activation_evidence[3]: duplicate mutation_candidate_id"
+        in manifest["blocked_reasons"]
+    )
+    assert manifest["patch_activation_ready"] is False
+
+
 def test_patch_activation_readiness_keeps_candidate_blockers():
     candidates = [
         _mutation_candidate(
@@ -2257,6 +2294,46 @@ def test_prompt_mutation_release_readiness_blocks_cross_run_evidence(
     assert manifest["prompt_release_ready"] is False
 
 
+def test_prompt_mutation_release_readiness_blocks_extra_candidate_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    release_check = _prompt_release_check_for_candidates(candidates)
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {
+            "candidates": candidates,
+            "release_checks": [
+                release_check,
+                {**release_check, "mutation_candidate_id": "PMUT-GHOST"},
+                dict(release_check),
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "release_checks[2]: unknown mutation_candidate_id" in manifest[
+        "blocked_reasons"
+    ]
+    assert "release_checks[3]: duplicate mutation_candidate_id" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["prompt_release_ready"] is False
+
+
 def test_prompt_mutation_release_readiness_blocks_candidate_blockers(
     tmp_path: Path, monkeypatch
 ):
@@ -2477,6 +2554,48 @@ def test_prompt_mutation_rollback_readiness_blocks_cross_run_evidence(
 
     assert manifest["readiness_status"] == "blocked_preflight"
     assert "rollback_evidence_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["rollback_gate_ready"] is False
+
+
+def test_prompt_mutation_rollback_readiness_blocks_extra_candidate_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    benchmark_run_id = "bench-rollback-extra"
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    evidence = _rollback_evidence_for_candidates(candidates, benchmark_run_id)
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_rollback_readiness",
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "candidates": candidates,
+            "rollback_evidence": [
+                evidence,
+                {**evidence, "mutation_candidate_id": "PMUT-GHOST"},
+                dict(evidence),
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "rollback_evidence[2]: unknown mutation_candidate_id" in manifest[
+        "blocked_reasons"
+    ]
+    assert "rollback_evidence[3]: duplicate mutation_candidate_id" in manifest[
         "blocked_reasons"
     ]
     assert manifest["rollback_gate_ready"] is False
