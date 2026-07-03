@@ -3268,6 +3268,40 @@ def test_delivery_readiness_blocks_private_direct_input_refs(
     )
 
 
+def test_delivery_readiness_surfaces_private_paper_promotion_refs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-private-paper-promotion",
+            "paper_trading_plan": _paper_trading_plan(
+                "bench-delivery-private-paper-promotion",
+                paper_trading_plan_ref=(
+                    "registry/report_intelligence/markdown/private.md"
+                ),
+            ),
+            "promotion_evidence": _promotion_evidence(
+                "bench-delivery-private-paper-promotion",
+                source_span_ids=["SRC:p1"],
+            ),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "paper_trading_entry:private_or_source_prose_ref_detected" in manifest[
+        "blocked_reasons"
+    ]
+    assert "promotion_decision:private_or_source_prose_ref_detected" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["delivery_ready"] is False
+
+
 def test_delivery_readiness_blocks_cross_run_direct_input(
     tmp_path: Path, monkeypatch
 ):
