@@ -231,7 +231,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
         ):
             if not _clean_str(release.get(key)):
                 blockers.append(f"{key}_missing")
-        for key in ("prompt_repo_id", "prompt_repo_revision"):
+        for key in ("prompt_repo_id", "prompt_repo_revision", "prompt_file_path"):
             if not _clean_str(release.get(key)):
                 blockers.append(f"{key}_missing")
             elif _clean_str(release.get(key)) != _clean_str(row.get(key)):
@@ -2299,6 +2299,10 @@ def _forbidden_paths(value: Any, path: str = "$") -> list[str]:
         for key, child in value.items():
             key_text = str(key)
             child_path = f"{path}.{key_text}"
+            if key_text == "prompt_file_path":
+                if not _safe_prompt_file_path(child):
+                    paths.append(child_path)
+                continue
             if key_text in _FORBIDDEN_CAPTURE_FIELDS or key_text.endswith("_path"):
                 paths.append(child_path)
             paths.extend(_forbidden_paths(child, child_path))
@@ -2311,6 +2315,20 @@ def _forbidden_paths(value: Any, path: str = "$") -> list[str]:
     if isinstance(value, str) and _looks_private(value):
         return [path]
     return []
+
+
+def _safe_prompt_file_path(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    path = value.strip()
+    parts = path.split("/")
+    return (
+        path.startswith("prompts/mosaic/")
+        and path.endswith(".md")
+        and not path.startswith("/")
+        and "\\" not in path
+        and all(part not in {"", ".", ".."} for part in parts)
+    )
 
 
 def _looks_private(value: str) -> bool:
