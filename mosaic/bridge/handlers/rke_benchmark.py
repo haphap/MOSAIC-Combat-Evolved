@@ -413,6 +413,16 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         or _forbidden_paths(quality_summary)
     ):
         blocked_reasons.append("private_or_source_prose_ref_detected")
+    for source_name, source in (
+        ("evidence_refs", evidence_refs),
+        ("benchmark_quality_summary", quality_summary),
+        ("manual_review", manual_review),
+    ):
+        source_run_id = _clean_str(source.get("benchmark_run_id"))
+        if not source_run_id:
+            blocked_reasons.append(f"{source_name}_benchmark_run_id_missing")
+        elif source_run_id != benchmark_run_id:
+            blocked_reasons.append(f"{source_name}_benchmark_run_id_mismatch")
 
     return {
         "schema_version": "rke_fixed_episode_benchmark_evidence_v1",
@@ -435,6 +445,7 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
             for model_id in required_model_ids
         },
         "benchmark_quality_summary": {
+            "benchmark_run_id": _clean_str(quality_summary.get("benchmark_run_id")),
             "quality_gate_ref": _clean_str(quality_summary.get("quality_gate_ref")),
             "schema_failure_gate_passed": quality_summary.get(
                 "schema_failure_gate_passed"
@@ -452,6 +463,7 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         },
         "prompt_source_status": manifest["prompt_preflight"].get("source_status", {}),
         "evidence_refs": {
+            "benchmark_run_id": _clean_str(evidence_refs.get("benchmark_run_id")),
             "episode_manifest_ref": _clean_str(
                 evidence_refs.get("episode_manifest_ref")
             ),
@@ -475,6 +487,7 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
             ),
         },
         "manual_review": {
+            "benchmark_run_id": _clean_str(manual_review.get("benchmark_run_id")),
             "decision": _clean_str(manual_review.get("decision")),
             "reviewer_timestamp": _clean_str(manual_review.get("reviewer_timestamp")),
         },

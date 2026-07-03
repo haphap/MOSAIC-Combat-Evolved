@@ -251,9 +251,10 @@ Status 2026-07-03:
   configs, fixed episode/as-of-date/model-config manifest refs, schema validation
   report, deterministic score table, investment outcome table, benchmark quality
   gate summary, and approved manual review timestamp before marking evidence
-  ready. The quality summary blocks severe safety violations, fallback prompt
-  runs, current-data confirmation violations, and failed schema-failure gate; it
-  never enables promotion by itself.
+  ready. Evidence refs, quality summary, and manual review must bind to the same
+  `benchmark_run_id`. The quality summary blocks severe safety violations,
+  fallback prompt runs, current-data confirmation violations, and failed
+  schema-failure gate; it never enables promotion by itself.
 - This implements the episode/model/input manifest and benchmark-evidence proof
   object preflight. E2 is not complete until real paired LLM outputs, schema
   validation, deterministic score tables, investment outcome tables, and manual

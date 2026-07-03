@@ -59,8 +59,11 @@ def _model_config_output_counts(count: int = 425) -> dict:
     }
 
 
-def _benchmark_quality_summary(**overrides: object) -> dict:
+def _benchmark_quality_summary(
+    benchmark_run_id: str = "bench-ready", **overrides: object
+) -> dict:
     row = {
+        "benchmark_run_id": benchmark_run_id,
         "quality_gate_ref": "benchmark-quality-gate-1",
         "schema_failure_gate_passed": True,
         "severe_safety_violation_count": 0,
@@ -71,15 +74,24 @@ def _benchmark_quality_summary(**overrides: object) -> dict:
     return row
 
 
-def _benchmark_evidence_refs(prefix: str = "bench-ready") -> dict:
+def _benchmark_evidence_refs(benchmark_run_id: str = "bench-ready") -> dict:
     return {
-        "episode_manifest_ref": f"{prefix}-episode-manifest",
-        "as_of_date_manifest_ref": f"{prefix}-as-of-dates",
-        "model_config_manifest_ref": f"{prefix}-model-configs",
-        "paired_output_manifest_ref": f"{prefix}-paired-output-manifest",
-        "output_schema_validation_report_ref": f"{prefix}-schema-report",
-        "deterministic_score_table_ref": f"{prefix}-score-table",
-        "investment_outcome_table_ref": f"{prefix}-investment-outcomes",
+        "benchmark_run_id": benchmark_run_id,
+        "episode_manifest_ref": f"{benchmark_run_id}-episode-manifest",
+        "as_of_date_manifest_ref": f"{benchmark_run_id}-as-of-dates",
+        "model_config_manifest_ref": f"{benchmark_run_id}-model-configs",
+        "paired_output_manifest_ref": f"{benchmark_run_id}-paired-output-manifest",
+        "output_schema_validation_report_ref": f"{benchmark_run_id}-schema-report",
+        "deterministic_score_table_ref": f"{benchmark_run_id}-score-table",
+        "investment_outcome_table_ref": f"{benchmark_run_id}-investment-outcomes",
+    }
+
+
+def _manual_review(benchmark_run_id: str = "bench-ready") -> dict:
+    return {
+        "benchmark_run_id": benchmark_run_id,
+        "decision": "approved",
+        "reviewer_timestamp": "2026-07-03T12:00:00Z",
     }
 
 
@@ -404,10 +416,7 @@ def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
             "evidence_refs": _benchmark_evidence_refs(),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "manual_review": _manual_review(),
         },
     )
 
@@ -419,6 +428,35 @@ def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
     assert result["prompt_source_status"]["prompt_repo_dirty_count"] == 0
     assert result["manual_review"]["decision"] == "approved"
     assert result["promotion_allowed"] is False
+
+
+def test_fixed_episode_benchmark_evidence_blocks_cross_run_proof_refs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "rke_benchmark.fixed_episode_benchmark_evidence",
+        {
+            "benchmark_run_id": "bench-ready",
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary("other-run"),
+            "evidence_refs": _benchmark_evidence_refs("other-run"),
+            "manual_review": _manual_review("other-run"),
+        },
+    )
+
+    assert result["evidence_status"] == "blocked_preflight"
+    assert "benchmark_quality_summary_benchmark_run_id_mismatch" in result[
+        "blocked_reasons"
+    ]
+    assert "evidence_refs_benchmark_run_id_mismatch" in result["blocked_reasons"]
+    assert "manual_review_benchmark_run_id_mismatch" in result["blocked_reasons"]
 
 
 def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
@@ -438,12 +476,11 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
             "benchmark_run_id": "bench-missing-model",
             "paired_output_count": 1275,
             "model_config_output_counts": counts,
-            "benchmark_quality_summary": _benchmark_quality_summary(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-missing-model"
+            ),
             "evidence_refs": _benchmark_evidence_refs("bench-missing-model"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "manual_review": _manual_review("bench-missing-model"),
         },
     )
 
@@ -472,13 +509,11 @@ def test_fixed_episode_benchmark_evidence_blocks_quality_gate_failures(
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-quality-fail",
                 severe_safety_violation_count=1
             ),
             "evidence_refs": _benchmark_evidence_refs("bench-quality-fail"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "manual_review": _manual_review("bench-quality-fail"),
         },
     )
 
@@ -1625,12 +1660,11 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
-            "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-shadow"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-shadow-ready"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-shadow-ready"),
+            "manual_review": _manual_review("bench-shadow-ready"),
             "downstream_outcome_metrics": {
                 "risk_adjusted_return": 0.11,
                 "alpha": 0.02,
@@ -1740,12 +1774,11 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
-            "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-paper"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-paper-ready"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-paper-ready"),
+            "manual_review": _manual_review("bench-paper-ready"),
             "downstream_outcome_metrics": {
                 "risk_adjusted_return": 0.11,
                 "alpha": 0.02,
@@ -1852,12 +1885,13 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
-            "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-promotion"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-promotion-ready"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-promotion-ready"
+            ),
+            "manual_review": _manual_review("bench-promotion-ready"),
             "downstream_outcome_metrics": {
                 "risk_adjusted_return": 0.11,
                 "alpha": 0.02,
@@ -1979,10 +2013,7 @@ def test_delivery_evidence_audit_reports_recorded_and_missing_keys(
         {
             "benchmark_run_id": "bench-delivery-audit",
             "paired_output_count": 1275,
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "manual_review": _manual_review("bench-delivery-audit"),
         },
     )
     partial = dispatch(
@@ -2086,11 +2117,10 @@ def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypat
         "rke_benchmark.record_delivery_evidence",
         {
             "benchmark_run_id": "bench-delivery-incremental",
-            "benchmark_evidence_refs": _benchmark_evidence_refs("recorded"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-delivery-incremental"
+            ),
+            "manual_review": _manual_review("bench-delivery-incremental"),
         },
     )
 
@@ -2205,12 +2235,13 @@ def test_delivery_readiness_loads_recorded_private_evidence(
             "benchmark_run_id": "bench-delivery-recorded",
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
-            "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": _benchmark_evidence_refs("recorded"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-delivery-recorded"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-delivery-recorded"
+            ),
+            "manual_review": _manual_review("bench-delivery-recorded"),
         },
     )
 
@@ -2302,12 +2333,13 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             "all_agent_prompt_release_checks": all_prompt_release_checks,
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
-            "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-delivery"),
-            "manual_review": {
-                "decision": "approved",
-                "reviewer_timestamp": "2026-07-03T12:00:00Z",
-            },
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-delivery-ready"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-delivery-ready"
+            ),
+            "manual_review": _manual_review("bench-delivery-ready"),
             "profile_evidence": {
                 "profile_update_ref": "profile-delivery",
                 "evolution_input_ref": "evolution-delivery",
