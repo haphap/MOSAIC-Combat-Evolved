@@ -1305,6 +1305,8 @@ def test_rke_runtime_context_preflight_blocks_bad_recipe_tool_gap_ids():
                     "statistical_reliability_bucket": "limited",
                     "n_effective": 3.0,
                     "known_failure_mode_tags": [],
+                    "recipe_ids": [""],
+                    "tool_gap_ids": [3],
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                     "ranking_reason_codes": ["agent_specific_match"],

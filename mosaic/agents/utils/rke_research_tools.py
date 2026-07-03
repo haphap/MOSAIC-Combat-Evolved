@@ -202,6 +202,7 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("known_failure_mode_tags_missing")
     if items and any(
         not isinstance(item.get(field), (list, tuple))
+        or not all(isinstance(value, str) and value for value in item.get(field, []))
         for item in items
         for field in ("recipe_ids", "tool_gap_ids")
     ):
