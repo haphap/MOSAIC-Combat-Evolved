@@ -2676,6 +2676,13 @@ def _sanitize_claim_footprint_row(
     row_benchmark_run_id = _clean_str(row.get("benchmark_run_id"))
     if row_benchmark_run_id and row_benchmark_run_id != benchmark_run_id:
         raise ValueError("benchmark_run_id does not match request")
+    for key in (
+        "private_text_included",
+        "source_prose_included",
+        "production_signal_allowed",
+    ):
+        if key in row and row.get(key) is not False:
+            raise ValueError(f"{key} must be false")
     agent = _clean_str(row.get("agent"))
     if agent not in _LAYER_BY_AGENT:
         raise ValueError(f"unknown agent {agent!r}")

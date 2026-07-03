@@ -862,6 +862,43 @@ def test_capture_agent_claim_footprints_blocks_private_text_fields(
     assert not (project_root / result["private_rows_path"]).exists()
 
 
+def test_capture_agent_claim_footprints_blocks_unsafe_flags(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    for flag in (
+        "private_text_included",
+        "source_prose_included",
+        "production_signal_allowed",
+    ):
+        result = dispatch(
+            "rke_benchmark.capture_agent_claim_footprints",
+            {
+                "benchmark_run_id": f"bench-unsafe-{flag}",
+                "rows": [
+                    {
+                        "agent": "dollar",
+                        "as_of_date": "2026-06-18",
+                        "claim_type": "macro_series_claim",
+                        "target": {
+                            "target_type": "macro_series",
+                            "target_id": "USDCNY",
+                        },
+                        flag: True,
+                    }
+                ],
+            },
+        )
+
+        assert result["capture_status"] == "blocked"
+        assert result["captured_count"] == 0
+        assert f"{flag} must be false" in result["failures"][0]
+    assert not (project_root / result["private_rows_path"]).exists()
+
+
 def test_capture_agent_claim_footprints_blocks_cross_run_rows(
     tmp_path: Path, monkeypatch
 ):
