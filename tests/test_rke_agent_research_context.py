@@ -1017,10 +1017,10 @@ def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
                     "recipe_ids": [],
                     "tool_gap_ids": [],
                     "outcome_label_summary": {
-                        "label_count": 1,
+                        "label_count": 2,
                         "directional_hit_count": 1,
-                        "pending_label_count": 2,
-                        "pending_share": 0.5,
+                        "pending_label_count": 1,
+                        "pending_share": 0.25,
                         "label_types": ["macro_series_directional"],
                         "latest_completed_exit_date": "2026-06-20",
                     },

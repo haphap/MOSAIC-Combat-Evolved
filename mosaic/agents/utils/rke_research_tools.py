@@ -233,6 +233,15 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         or isinstance(summary.get("pending_share"), bool)
         or summary.get("pending_share") < 0
         or summary.get("pending_share") > 1
+        or (
+            summary.get("pending_share")
+            != round(
+                summary.get("pending_label_count") / summary.get("label_count"),
+                4,
+            )
+            if summary.get("label_count")
+            else summary.get("pending_share") != 0
+        )
         or not isinstance(summary.get("label_types"), (list, tuple))
         or "latest_completed_exit_date" not in summary
         for summary in outcome_summaries
