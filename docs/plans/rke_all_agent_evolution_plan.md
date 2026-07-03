@@ -338,6 +338,20 @@ private prompt mutation, benchmark, replay, and rollback flows.
   actionability from Part 1 must remain visible to benchmark/replay and cannot be
   erased by prompt mutation.
 
+Status 2026-07-03:
+
+- Public bridge now exposes `rke_benchmark.candidate_consumption_manifest`, a
+  no-body consumer view over Part 1 `prompt_mutation_candidates.jsonl`. It
+  returns safe candidate summaries and aggregate counts while omitting
+  `proposed_change` and evidence bodies; `blocked_by` reasons such as
+  `missing_pit_outcome`, `missing_validation_target`, and
+  `source_dependent_cluster` remain visible for benchmark/replay. Production
+  prompt changes, missing manual review, private text, or non-shadow promotion
+  state block the manifest.
+- This implements the E6 candidate/refusal consumption boundary. E6 is not
+  complete until private prompt mutation, benchmark, replay, and rollback flows
+  actually consume this manifest.
+
 ## E7: Delivery Conditions
 
 This plan is complete only when:

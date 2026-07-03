@@ -598,6 +598,43 @@ export interface RkeDarwinianAutoresearchInputManifestResult {
   promotion_allowed: boolean;
 }
 
+export interface RkeCandidateConsumptionSummary {
+  mutation_candidate_id: string;
+  candidate_type: string;
+  target_scope: string;
+  target_component: string;
+  severity: string;
+  blocked_by: string[];
+  promotion_state: string;
+  manual_review_required: boolean;
+  production_prompt_change_allowed: boolean;
+  private_text_included: boolean;
+  trigger_sources: string[];
+  validation_requirements: string[];
+}
+
+export interface RkeCandidateConsumptionManifestResult {
+  schema_version: "rke_candidate_consumption_manifest_v1";
+  manifest_status: "ready_for_private_prompt_lifecycle" | "blocked_preflight";
+  artifact_path: string;
+  candidate_count: number;
+  refusal_count: number;
+  candidate_type_counts: Record<string, number>;
+  target_scope_counts: Record<string, number>;
+  blocked_reason_counts: Record<string, number>;
+  candidate_summaries: RkeCandidateConsumptionSummary[];
+  manifest_blockers: string[];
+  missing_artifact: boolean;
+  private_prompt_mutation_required: boolean;
+  production_prompt_change_allowed: boolean;
+  candidate_consumption_policy: string;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1199,6 +1236,15 @@ export class BridgeApi {
   }): Promise<RkeDarwinianAutoresearchInputManifestResult> {
     return this.client.call<RkeDarwinianAutoresearchInputManifestResult>(
       "rke_benchmark.darwinian_autoresearch_input_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkCandidateConsumptionManifest(params?: {
+    candidates?: Array<Record<string, unknown>>;
+  }): Promise<RkeCandidateConsumptionManifestResult> {
+    return this.client.call<RkeCandidateConsumptionManifestResult>(
+      "rke_benchmark.candidate_consumption_manifest",
       params ?? {},
     );
   }

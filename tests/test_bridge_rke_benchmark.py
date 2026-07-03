@@ -336,3 +336,98 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
         ]
         == 0.03
     )
+
+
+def _mutation_candidate(**overrides):
+    row = {
+        "mutation_candidate_id": "PMUT-1",
+        "run_id": "run-1",
+        "schema_version": "report_intelligence_prompt_mutation_candidate_v1",
+        "candidate_type": "macro_prior_rule_parameter_refusal",
+        "target_scope": "macro",
+        "target_component": "macro.dollar",
+        "proposed_change": "redacted aggregate rule evidence only",
+        "trigger_sources": ["rke_prior_compiler"],
+        "evidence_refs": [{"artifact": "prompt_mutation_candidates"}],
+        "severity": "medium",
+        "validation_requirements": ["pit_outcome_replay_pass"],
+        "blocked_by": ["missing_pit_outcome", "source_dependent_cluster"],
+        "promotion_state": "shadow_candidate_only",
+        "manual_review_required": True,
+        "production_prompt_change_allowed": False,
+        "private_text_included": False,
+        "policy": "shadow only",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_candidate_consumption_manifest_blocks_missing_artifact(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch("rke_benchmark.candidate_consumption_manifest", {})
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert manifest["missing_artifact"] is True
+    assert manifest["candidate_count"] == 0
+    assert manifest["manifest_blockers"] == ["prompt_mutation_candidates_missing"]
+
+
+def test_candidate_consumption_manifest_preserves_refusal_blockers():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(),
+                _mutation_candidate(
+                    mutation_candidate_id="PMUT-2",
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=["missing_validation_target"],
+                ),
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "ready_for_private_prompt_lifecycle"
+    assert manifest["candidate_count"] == 2
+    assert manifest["refusal_count"] == 1
+    assert manifest["blocked_reason_counts"] == {
+        "missing_pit_outcome": 1,
+        "missing_validation_target": 1,
+        "source_dependent_cluster": 1,
+    }
+    assert manifest["production_prompt_change_allowed"] is False
+    assert manifest["private_prompt_mutation_required"] is True
+    payload = json.dumps(manifest, ensure_ascii=False)
+    assert "redacted aggregate rule evidence only" not in payload
+    assert "evidence_refs" not in payload
+
+
+def test_candidate_consumption_manifest_rejects_prompt_bypass():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    production_prompt_change_allowed=True,
+                    promotion_state="ready_for_production",
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert any(
+        "production_prompt_change_allowed must be false" in failure
+        for failure in manifest["manifest_blockers"]
+    )
+    assert any(
+        "promotion_state must remain shadow_candidate_only" in failure
+        for failure in manifest["manifest_blockers"]
+    )

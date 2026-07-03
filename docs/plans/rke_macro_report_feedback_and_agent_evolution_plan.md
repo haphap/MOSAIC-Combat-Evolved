@@ -2269,6 +2269,10 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   turnover/cost 和 prompt provenance 拆成独立输入，并明确
   `rke_prior_treated_as_current_data=false`；真实 autoresearch/Darwinian replay
   消费和权重更新仍未完成。
+- `rke_benchmark.candidate_consumption_manifest` 已能读取 Part 1
+  `prompt_mutation_candidates.jsonl` 并保留 candidate/refusal blocker reason，
+  同时阻断 production/private-text/manual-review/promotion-state 违规；真实 private
+  prompt mutation、benchmark、replay 和 rollback 消费仍未完成。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
 - agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution 闭环。
 - Layer-3 roster preflight：当前分支已完成 public runtime、fallback prompt、RKE style-fit、

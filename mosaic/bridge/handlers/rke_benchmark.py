@@ -115,6 +115,9 @@ _SCORING_METRICS = (
 )
 
 _CAPTURE_REL_PATH = Path(".mosaic/rke/all_agent_evolution/agent_claim_footprints.jsonl")
+_PROMPT_MUTATION_CANDIDATES_REL_PATH = Path(
+    "registry/report_intelligence/prompt_mutation_candidates.jsonl"
+)
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
     "macro": ("macro_regime_claim", "macro_series_claim", "macro_asset_claim"),
     "sector": ("sector_claim", "ticker_metric_claim"),
@@ -446,6 +449,144 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
         "privacy_scan": summary["privacy_scan"],
         "promotion_allowed": False,
     }
+
+
+@method("rke_benchmark.candidate_consumption_manifest")
+def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
+    """Summarize Part 1 mutation candidates for Part 2 private lifecycle use."""
+    supplied_candidates = params.get("candidates")
+    if supplied_candidates is None:
+        candidates, load_failures = _read_prompt_mutation_candidate_rows()
+    elif isinstance(supplied_candidates, list):
+        candidates, load_failures = supplied_candidates, []
+    else:
+        raise RpcError(INVALID_PARAMS, "'candidates' must be a list when provided")
+
+    failures = list(load_failures)
+    summaries: list[dict[str, Any]] = []
+    candidate_type_counts: dict[str, int] = {}
+    target_scope_counts: dict[str, int] = {}
+    blocked_reason_counts: dict[str, int] = {}
+    refusal_count = 0
+    for index, row in enumerate(candidates, 1):
+        if not isinstance(row, dict):
+            failures.append(f"candidate {index}: must be an object")
+            continue
+        forbidden_paths = _forbidden_paths(row)
+        if forbidden_paths:
+            failures.append(
+                f"candidate {index}: forbidden private/prose fields "
+                + ", ".join(forbidden_paths[:5])
+            )
+            continue
+        row_failures = _candidate_contract_failures(row, index)
+        if row_failures:
+            failures.extend(row_failures)
+            continue
+        candidate_type = _clean_str(row.get("candidate_type")) or "unknown"
+        target_scope = _clean_str(row.get("target_scope")) or "unknown"
+        blocked_by = _safe_str_list(row.get("blocked_by"))
+        summaries.append(
+            {
+                "mutation_candidate_id": _clean_str(row.get("mutation_candidate_id")),
+                "candidate_type": candidate_type,
+                "target_scope": target_scope,
+                "target_component": _clean_str(row.get("target_component")),
+                "severity": _clean_str(row.get("severity")),
+                "blocked_by": blocked_by,
+                "promotion_state": _clean_str(row.get("promotion_state")),
+                "manual_review_required": row.get("manual_review_required") is True,
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+                "trigger_sources": _safe_str_list(row.get("trigger_sources")),
+                "validation_requirements": _safe_str_list(
+                    row.get("validation_requirements")
+                ),
+            }
+        )
+        _increment(candidate_type_counts, candidate_type)
+        _increment(target_scope_counts, target_scope)
+        if "refusal" in candidate_type:
+            refusal_count += 1
+        for reason in blocked_by:
+            _increment(blocked_reason_counts, reason)
+
+    missing_artifact = "prompt_mutation_candidates_missing" in failures
+    manifest_status = (
+        "blocked_preflight"
+        if failures or not summaries
+        else "ready_for_private_prompt_lifecycle"
+    )
+    return {
+        "schema_version": "rke_candidate_consumption_manifest_v1",
+        "manifest_status": manifest_status,
+        "artifact_path": _PROMPT_MUTATION_CANDIDATES_REL_PATH.as_posix(),
+        "candidate_count": len(summaries),
+        "refusal_count": refusal_count,
+        "candidate_type_counts": dict(sorted(candidate_type_counts.items())),
+        "target_scope_counts": dict(sorted(target_scope_counts.items())),
+        "blocked_reason_counts": dict(sorted(blocked_reason_counts.items())),
+        "candidate_summaries": summaries,
+        "manifest_blockers": failures,
+        "missing_artifact": missing_artifact,
+        "private_prompt_mutation_required": True,
+        "production_prompt_change_allowed": False,
+        "candidate_consumption_policy": (
+            "part1_candidates_are_evidence_only_no_direct_prompt_write"
+        ),
+        "privacy_scan": {
+            "private_text_included": False,
+            "source_prose_included": False,
+            "forbidden_field_violation_count": len(failures),
+        },
+    }
+
+
+def _read_prompt_mutation_candidate_rows() -> tuple[list[dict[str, Any]], list[str]]:
+    path = _repo_root() / _PROMPT_MUTATION_CANDIDATES_REL_PATH
+    if not path.exists():
+        return [], ["prompt_mutation_candidates_missing"]
+    rows: list[dict[str, Any]] = []
+    failures: list[str] = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                failures.append(f"line {line_number}: invalid json")
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+            else:
+                failures.append(f"line {line_number}: row must be object")
+    return rows, failures
+
+
+def _candidate_contract_failures(row: dict[str, Any], index: int) -> list[str]:
+    failures: list[str] = []
+    prefix = f"candidate {index}"
+    if row.get("private_text_included") is not False:
+        failures.append(f"{prefix}: private_text_included must be false")
+    if row.get("production_prompt_change_allowed") is not False:
+        failures.append(f"{prefix}: production_prompt_change_allowed must be false")
+    if row.get("manual_review_required") is not True:
+        failures.append(f"{prefix}: manual_review_required must be true")
+    if _clean_str(row.get("promotion_state")) != "shadow_candidate_only":
+        failures.append(f"{prefix}: promotion_state must remain shadow_candidate_only")
+    for key in (
+        "mutation_candidate_id",
+        "candidate_type",
+        "target_scope",
+        "target_component",
+        "severity",
+    ):
+        if not _clean_str(row.get(key)):
+            failures.append(f"{prefix}: {key} is required")
+    if not _safe_str_list(row.get("validation_requirements")):
+        failures.append(f"{prefix}: validation_requirements are required")
+    return failures
 
 
 def _outcome_metrics_ready(metrics: dict[str, Any]) -> bool:
