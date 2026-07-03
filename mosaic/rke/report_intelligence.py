@@ -19425,6 +19425,7 @@ def build_domain_claim_ratings(
         rating_bucket = _domain_rating_bucket(label)
         if not rating_bucket:
             continue
+        n_effective = round(_label_weight(label), 6)
         row = {
             "rating_id": _stable_id(
                 "DCR",
@@ -19438,6 +19439,11 @@ def build_domain_claim_ratings(
             "domain": "stock" if label_type == "stock_price_proxy" else "industry",
             "label_type": label_type,
             "rating_bucket": rating_bucket,
+            "n_effective": n_effective,
+            "statistical_reliability_bucket": _performance_reliability_bucket(
+                n_effective
+            ),
+            "pending_share": 1.0 if rating_bucket == "pending_or_unrated" else 0.0,
             "benchmark_family": str(label.get("benchmark_family") or "unknown_benchmark_family"),
             "cost_model_id": str(label.get("cost_model_id") or "unknown_cost_model"),
             "holding_window_bucket": str(label.get("window_role") or "unknown"),

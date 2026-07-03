@@ -16033,6 +16033,11 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
         "industry_cycle_regime",
         "inventory_to_sales",
     }
+    assert {row["n_effective"] for row in domain_ratings} == {0.5}
+    assert {
+        row["statistical_reliability_bucket"] for row in domain_ratings
+    } == {"insufficient_data"}
+    assert {row["pending_share"] for row in domain_ratings} == {0.0}
     assert "claim_text" not in json.dumps(domain_ratings, ensure_ascii=False)
     assert "source_span_ids" not in json.dumps(domain_ratings, ensure_ascii=False)
 
@@ -16046,6 +16051,26 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     assert "label_type, benchmark_family, and cost_model_id" in viewpoint_support[
         "layering_policy"
     ]
+
+
+def test_domain_claim_ratings_preserve_pending_share():
+    ratings = build_domain_claim_ratings(
+        [
+            {
+                "outcome_id": "OUT-PENDING",
+                "forecast_claim_id": "FC-PENDING",
+                "label_type": "stock_price_proxy",
+                "entry_datetime": "2026-01-03",
+                "exit_datetime": "2026-01-30",
+                "effective_n_weight": 0.25,
+            }
+        ]
+    )
+
+    assert ratings[0]["rating_bucket"] == "pending_or_unrated"
+    assert ratings[0]["n_effective"] == 0.25
+    assert ratings[0]["statistical_reliability_bucket"] == "insufficient_data"
+    assert ratings[0]["pending_share"] == 1.0
 
 
 def test_report_intelligence_method_profiles_use_direct_outcome_layers():
