@@ -25470,6 +25470,245 @@ def _outcome_coverage_counts(
     }
 
 
+def _prior_compiler_refusal_reasons(
+    *,
+    unique_claim_count: int,
+    gap_counts: Mapping[str, int],
+    source_dependent_cluster_count: int = 0,
+) -> list[str]:
+    reasons: list[str] = []
+    gap_keys = " ".join(str(key) for key in gap_counts)
+    if unique_claim_count < 3:
+        reasons.append("insufficient_effective_n")
+    if any(token in gap_keys for token in ("pit", "series", "calendar", "price")):
+        reasons.append("missing_pit_outcome")
+    if any(token in gap_keys for token in ("mapping", "target", "assignment")):
+        reasons.append("missing_validation_target")
+    if source_dependent_cluster_count:
+        reasons.append("source_dependent_cluster")
+    return reasons or ["missing_validation_target"]
+
+
+def _source_dependent_cluster_count(
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+) -> int:
+    count = 0
+    for row in _iter_context_retrieved_claims(weighted_research_context_rows):
+        copying_risk = str(row.get("copying_risk_bucket") or "")
+        source_dependency = _float_or_none(row.get("source_dependency_score")) or 0.0
+        if copying_risk in {"source_dependent", "high"} or source_dependency >= 0.5:
+            count += 1
+    return count
+
+
+def _add_prior_candidate_compiler_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    run_id: str,
+    outcome_labeling_readiness: Mapping[str, Any],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    macro_agent_research_prior_rows: Sequence[Mapping[str, Any]],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+) -> None:
+    labels_by_type: dict[str, list[Mapping[str, Any]]] = {}
+    for row in outcome_label_rows:
+        labels_by_type.setdefault(str(row.get("label_type") or ""), []).append(row)
+    source_dependent_count = _source_dependent_cluster_count(
+        weighted_research_context_rows
+    )
+    for domain, label_type, target_component in (
+        ("stock", "stock_price_proxy", "stock_prior_recipe_rule_compiler"),
+        ("industry", "industry_etf_proxy", "industry_prior_recipe_rule_compiler"),
+    ):
+        labels = labels_by_type.get(label_type, [])
+        unique_claim_count = len(
+            {
+                str(row.get("forecast_claim_id") or "")
+                for row in labels
+                if str(row.get("forecast_claim_id") or "").strip()
+            }
+        )
+        domain_readiness = _ensure_mapping(
+            outcome_labeling_readiness.get(f"{label_type}_readiness")
+        )
+        gap_counts = _count_mapping_values(
+            _ensure_mapping(domain_readiness.get("data_gap_counts"))
+        )
+        refusal_reasons = _prior_compiler_refusal_reasons(
+            unique_claim_count=unique_claim_count,
+            gap_counts=gap_counts,
+            source_dependent_cluster_count=source_dependent_count,
+        )
+        if unique_claim_count >= 3 and "source_dependent_cluster" not in refusal_reasons:
+            _add_prompt_mutation_candidate(
+                candidates,
+                run_id=run_id,
+                candidate_type=f"{domain}_prior_recipe_rule_candidate",
+                target_scope="report_intelligence.prior_candidate_compiler",
+                target_component=target_component,
+                proposed_change=(
+                    f"Compile redacted {domain} prior performance into a "
+                    "shadow recipe/rule candidate with current-data validation "
+                    "requirements before any agent can use it beyond research context."
+                ),
+                trigger_sources=[
+                    "report_outcome_labels",
+                    "outcome_labeling_readiness",
+                    "weighted_research_contexts",
+                ],
+                evidence_refs=[
+                    {
+                        "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
+                        "field": label_type,
+                        "domain": domain,
+                        "candidate_kind": "recipe_rule_candidate",
+                        "unique_claim_count": unique_claim_count,
+                        "label_count": len(labels),
+                        "refusal_reasons": [],
+                    }
+                ],
+                severity="medium",
+                blocked_by=[
+                    "shadow_validation_required",
+                    "current_data_confirmation_required",
+                ],
+            )
+            continue
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type=f"{domain}_prior_recipe_rule_refusal",
+            target_scope="report_intelligence.prior_candidate_compiler",
+            target_component=target_component,
+            proposed_change=(
+                f"Refuse {domain} prior recipe/rule compilation until PIT "
+                "outcome coverage, validation targets, sample size, and source "
+                "independence are sufficient."
+            ),
+            trigger_sources=[
+                "report_outcome_labels",
+                "outcome_labeling_readiness",
+                "weighted_research_contexts",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": f"{label_type}_readiness.data_gap_counts",
+                    "domain": domain,
+                    "candidate_kind": "recipe_rule_refusal",
+                    "unique_claim_count": unique_claim_count,
+                    "label_count": len(labels),
+                    "gap_counts": dict(gap_counts),
+                    "source_dependent_cluster_count": source_dependent_count,
+                    "refusal_reasons": refusal_reasons,
+                }
+            ],
+            severity="medium",
+            blocked_by=refusal_reasons,
+        )
+
+    macro_by_agent: dict[str, list[Mapping[str, Any]]] = {}
+    for prior in macro_agent_research_prior_rows:
+        agent_id = str(prior.get("agent_id") or "")
+        if agent_id.startswith("macro.") and prior.get("private_text_included") is not True:
+            macro_by_agent.setdefault(agent_id, []).append(prior)
+    for agent_id, priors in sorted(macro_by_agent.items()):
+        qualified = [
+            prior
+            for prior in priors
+            if (_float_or_none(prior.get("n_effective")) or 0.0) >= 3.0
+            and str(prior.get("rating_bucket") or "") != "pending_or_unrated"
+        ]
+        if not qualified:
+            refusal_reasons = _prior_compiler_refusal_reasons(
+                unique_claim_count=0,
+                gap_counts={},
+                source_dependent_cluster_count=source_dependent_count,
+            )
+            _add_prompt_mutation_candidate(
+                candidates,
+                run_id=run_id,
+                candidate_type="macro_prior_rule_parameter_refusal",
+                target_scope="report_intelligence.prior_candidate_compiler",
+                target_component="macro_prior_rule_parameter_compiler",
+                proposed_change=(
+                    "Refuse macro rule/parameter compilation until redacted "
+                    "macro priors have sufficient PIT-backed evidence and "
+                    "validation targets."
+                ),
+                trigger_sources=[
+                    "macro_agent_research_priors",
+                    "weighted_research_contexts",
+                ],
+                evidence_refs=[
+                    {
+                        "artifact_path": "registry/report_intelligence/macro_agent_research_priors.jsonl",
+                        "field": "agent_id",
+                        "agent_id": agent_id,
+                        "candidate_kind": "macro_rule_parameter_refusal",
+                        "prior_count": len(priors),
+                        "qualified_prior_count": 0,
+                        "source_dependent_cluster_count": source_dependent_count,
+                        "refusal_reasons": refusal_reasons,
+                    }
+                ],
+                severity="medium",
+                blocked_by=refusal_reasons,
+            )
+            continue
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="macro_prior_rule_parameter_candidate",
+            target_scope="report_intelligence.prior_candidate_compiler",
+            target_component="macro_prior_rule_parameter_compiler",
+            proposed_change=(
+                "Compile redacted macro priors into shadow macro rule and "
+                "parameter-prior candidates; validation must remain PIT-only "
+                "and cannot read report prose."
+            ),
+            trigger_sources=[
+                "macro_agent_research_priors",
+                "weighted_research_contexts",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/macro_agent_research_priors.jsonl",
+                    "field": "agent_id",
+                    "agent_id": agent_id,
+                    "candidate_kind": "macro_rule_parameter_candidate",
+                    "prior_count": len(priors),
+                    "qualified_prior_count": len(qualified),
+                    "redacted_prior_ids": [
+                        str(prior.get("prior_id") or "")
+                        for prior in qualified[:10]
+                        if str(prior.get("prior_id") or "").strip()
+                    ],
+                    "metric_families": sorted(
+                        {
+                            str(prior.get("metric_family") or "")
+                            for prior in qualified
+                            if str(prior.get("metric_family") or "").strip()
+                        }
+                    ),
+                    "rating_buckets": sorted(
+                        {
+                            str(prior.get("rating_bucket") or "")
+                            for prior in qualified
+                            if str(prior.get("rating_bucket") or "").strip()
+                        }
+                    ),
+                    "refusal_reasons": [],
+                }
+            ],
+            severity="medium",
+            blocked_by=[
+                "shadow_validation_required",
+                "current_data_confirmation_required",
+            ],
+        )
+
+
 def _evolution_gate_check_by_id(
     evolution_readiness_gate: Mapping[str, Any],
     check_id: str,
@@ -25513,6 +25752,8 @@ def build_prompt_mutation_candidates(
     industry_etf_proxy_pit_availability: Mapping[str, Any],
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] = (),
     recipe_paper_trading_summary: Mapping[str, Any] | None = None,
     evolution_readiness_gate: Mapping[str, Any] | None = None,
     gold_review_summary: Mapping[str, Any] | None = None,
@@ -25569,6 +25810,14 @@ def build_prompt_mutation_candidates(
                 outcome_counts[key] = int(outcome_gate_evidence.get(key) or 0)
             except (TypeError, ValueError):
                 pass
+    _add_prior_candidate_compiler_candidates(
+        candidates,
+        run_id=run_id,
+        outcome_labeling_readiness=readiness,
+        outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+    )
     outcome_threshold_gaps = {
         "unique_outcome_claim_count": max(
             EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS
@@ -26552,6 +26801,16 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="analytical_footprint_review_summary",
         blockers=blockers,
     )
+    macro_agent_research_prior_rows = _read_registry_jsonl(
+        registry_path / "macro_agent_research_priors.jsonl",
+        label="macro_agent_research_priors",
+        blockers=blockers,
+    )
+    weighted_research_context_rows = _read_registry_jsonl(
+        registry_path / "weighted_research_contexts.jsonl",
+        label="weighted_research_contexts",
+        blockers=blockers,
+    )
     forecast_rows = _read_registry_jsonl(
         registry_path / "report_forecast_ledger.jsonl",
         label="report_forecast_ledger",
@@ -26583,6 +26842,8 @@ def write_report_intelligence_prompt_mutation_candidates(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         footprint_review_summary=footprint_review_summary,
@@ -32877,6 +33138,7 @@ def run_report_intelligence_derived_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
@@ -33079,6 +33341,8 @@ def run_report_intelligence_derived_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
@@ -34009,6 +34273,9 @@ def run_report_intelligence_refresh(
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
@@ -34210,6 +34477,8 @@ def run_report_intelligence_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,

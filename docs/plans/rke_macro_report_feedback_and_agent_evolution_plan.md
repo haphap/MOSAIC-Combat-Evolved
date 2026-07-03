@@ -2165,10 +2165,18 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
 
 Part 1 未完成条件当前状态：
 
-- 条件 11：未完成。已记录 ranking policy 设计，但 agent-facing context 仍需实际落地
-  retrieval ranking 和 truncation audit。
-- 条件 12：未完成。stock/industry/macro prior 到通用 rule/parameter/recipe candidate
-  compiler 仍需抽象和实现。
+- 条件 11：代码路径已落地。`build_rke_agent_research_context_from_rows()` 已按
+  `agent_target_specificity_bucket`、`performance_context_match`、
+  `combined_research_prior_weight`、reliability、freshness 和 input index 排序后截断，
+  并输出 `retrieval_rank`、`priority_bucket`、`ranking_policy_id`、
+  `ranking_reason_codes`、`matched_item_count` 和 `truncated_item_count`。仍需在完整
+  report-intelligence refresh / downstream runtime preflight 中保留该排序证据。
+- 条件 12：部分完成。`prompt_mutation_candidates.jsonl` 已接入 redacted prior-to-candidate
+  compiler 路径：macro prior 可生成 `macro_prior_rule_parameter_candidate` 或 refusal；
+  stock/industry prior 可生成 `*_prior_recipe_rule_candidate` 或带
+  `missing_pit_outcome`、`missing_validation_target`、`insufficient_effective_n`、
+  `source_dependent_cluster` 的 refusal。仍需完整 registry refresh 和 gate 证据证明当前
+  corpus 中三域 prior/candidate/refusal 分布满足 exit criterion。
 
 Part 2 handoff notes，不计入 Part 1 完成判定：
 
@@ -2210,16 +2218,12 @@ prompt repo 版本的 RKE 驱动演化仍未完成。
 
 当前下一步聚焦仍未完成的三域 agent-facing 闭环：
 
-1. 先做条件 11：落地 agent-facing retrieval ranking 和 truncation audit。实现位置优先在
-   `mosaic/rke/agent_research_context.py::build_rke_agent_research_context_from_rows()`，
-   必要时复用 `mosaic/rke/report_intelligence.py::build_weighted_research_contexts()` 和
-   `build_macro_agent_research_priors()` 的已计算权重，不新建第三套 research-prior 语义。
-   ranking 输入必须覆盖 stock、industry、macro prior，并分别服务 macro、sector、
-   superinvestor、decision agents。这里的 Part 1 范围是 redacted ranked context/export
-   contract；agent runtime preflight、private prompt loading 和 benchmark wiring 仍在 Part 2。
-2. 再做条件 12：实现 stock/industry/macro prior -> rule/recipe/parameter candidate compiler。
-   compiler 只接收 redacted prior、rating/profile summary、tool gap 和 refusal reason，不读取
-   claim text 或 source span。
+1. 先验证条件 11/12 的完整 refresh 证据：ranked context 是否在真实
+   `weighted_research_contexts.jsonl` / runtime tool 输出中保留排序和截断审计；prior compiler
+   是否在 `prompt_mutation_candidates.jsonl` 中产生三域 candidate/refusal 分布。
+2. 再补条件 12 的 gate 证据：compiler 只接收 redacted prior、rating/profile summary、
+   tool gap 和 refusal reason，不读取 claim text 或 source span；candidate/refusal 必须进入
+   evolution readiness evidence，仍保持 shadow-only。
 3. 同步补三域评级缺口：stock/industry 的 agent target ranking 与 no-prior reason，
    macro 的 `cross_asset_consistency` 计算规则，以及 target 已清洗但无 owning agent 的
    `blocked_assignment` readiness。

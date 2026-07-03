@@ -10287,6 +10287,126 @@ def test_report_intelligence_prompt_mutation_candidates_track_aggregate_calibrat
     assert calibration[0]["production_prompt_change_allowed"] is False
 
 
+def test_report_intelligence_prompt_mutation_candidates_compile_macro_priors():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        macro_agent_research_prior_rows=[
+            {
+                "prior_id": "MAP-CB",
+                "agent_id": "macro.central_bank",
+                "metric_family": "policy_rate_level",
+                "rating_bucket": "supportive_evidence",
+                "n_effective": 4.0,
+                "private_text_included": False,
+            },
+            {
+                "prior_id": "MAP-YC",
+                "agent_id": "macro.yield_curve",
+                "metric_family": "bond_yield_level",
+                "rating_bucket": "mixed_evidence",
+                "n_effective": 5.0,
+                "private_text_included": False,
+            },
+        ],
+    )
+
+    macro_candidates = [
+        row
+        for row in candidates
+        if row["candidate_type"] == "macro_prior_rule_parameter_candidate"
+    ]
+    assert {row["evidence_refs"][0]["agent_id"] for row in macro_candidates} == {
+        "macro.central_bank",
+        "macro.yield_curve",
+    }
+    for row in macro_candidates:
+        evidence = row["evidence_refs"][0]
+        assert evidence["candidate_kind"] == "macro_rule_parameter_candidate"
+        assert evidence["qualified_prior_count"] == 1
+        assert evidence["refusal_reasons"] == []
+        assert row["production_prompt_change_allowed"] is False
+        assert row["private_text_included"] is False
+
+
+def test_report_intelligence_prompt_mutation_candidates_prior_refusal_reasons():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {
+                "data_gap_counts": {
+                    "sector_etf_mapping_missing": 2,
+                    "proxy_series_missing": 1,
+                }
+            },
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        outcome_label_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-1",
+                "label_type": "stock_price_proxy",
+            },
+            {
+                "forecast_claim_id": "FC-STOCK-2",
+                "label_type": "stock_price_proxy",
+            },
+            {
+                "forecast_claim_id": "FC-STOCK-3",
+                "label_type": "stock_price_proxy",
+            },
+        ],
+        weighted_research_context_rows=[
+            {
+                "agent_id": "research.general",
+                "retrieved_claims": [
+                    {
+                        "forecast_claim_id": "FC-DEPENDENT",
+                        "copying_risk_bucket": "source_dependent",
+                    }
+                ],
+            }
+        ],
+    )
+
+    stock = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "stock_prior_recipe_rule_refusal"
+    )
+    industry = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "industry_prior_recipe_rule_refusal"
+    )
+    assert "source_dependent_cluster" in stock["evidence_refs"][0]["refusal_reasons"]
+    refusal_reasons = set(industry["evidence_refs"][0]["refusal_reasons"])
+    assert {
+        "insufficient_effective_n",
+        "missing_pit_outcome",
+        "missing_validation_target",
+        "source_dependent_cluster",
+    } <= refusal_reasons
+    assert industry["private_text_included"] is False
+    assert "claim_text" not in json.dumps(industry, ensure_ascii=False)
+
+
 def test_report_intelligence_can_select_historical_sources_by_date(
     tmp_path: Path,
 ):
