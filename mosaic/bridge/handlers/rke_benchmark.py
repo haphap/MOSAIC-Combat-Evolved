@@ -705,9 +705,7 @@ def _runtime_context_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             _increment(priority_bucket_counts, priority_bucket)
         if _optional_positive_int(row.get("retrieval_rank")) is not None:
             retrieval_rank_count += 1
-        if isinstance(row.get("truncated_item_count"), int) and not isinstance(
-            row.get("truncated_item_count"), bool
-        ):
+        if _optional_non_negative_int(row.get("truncated_item_count")) is not None:
             truncation_audit_count += 1
     return {
         "ranking_policy_id_counts": dict(sorted(ranking_policy_id_counts.items())),
@@ -2343,6 +2341,9 @@ def _sanitize_claim_footprint_row(
     priority_bucket = _clean_str(row.get("priority_bucket"))
     if priority_bucket and priority_bucket not in _PRIORITY_BUCKETS:
         raise ValueError("priority_bucket must be high, medium, or low")
+    truncated_item_count = _optional_non_negative_int(row.get("truncated_item_count"))
+    if row.get("truncated_item_count") is not None and truncated_item_count is None:
+        raise ValueError("truncated_item_count must be a non-negative integer")
     record_key = "|".join(
         [
             benchmark_run_id,
@@ -2369,9 +2370,7 @@ def _sanitize_claim_footprint_row(
         "ranking_policy_id": ranking_policy_id,
         "retrieval_rank": retrieval_rank,
         "priority_bucket": priority_bucket,
-        "truncated_item_count": _optional_non_negative_int(
-            row.get("truncated_item_count")
-        ),
+        "truncated_item_count": truncated_item_count,
         "rke_prior_usage_quality": _clean_str(row.get("rke_prior_usage_quality"))
         or "not_evaluated",
         "current_data_confirmed": row.get("current_data_confirmed") is True,

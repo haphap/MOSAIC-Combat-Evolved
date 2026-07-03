@@ -79,6 +79,14 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("production_signal_not_disabled")
     summary = context.get("summary")
     summary_map = summary if isinstance(summary, Mapping) else {}
+    truncated_item_count = _optional_non_negative_int(
+        summary_map.get("truncated_item_count")
+    )
+    if (
+        summary_map.get("truncated_item_count") is not None
+        and truncated_item_count is None
+    ):
+        failures.append("truncated_item_count_invalid")
     return {
         "runtime_preflight_status": "blocked" if failures else "passed",
         "preflight_failures": failures,
@@ -93,9 +101,15 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         ).hexdigest(),
         "retrieval_ranks": ",".join(str(rank) for rank in ranks) or "none",
         "priority_buckets": ",".join(priority_buckets) or "none",
-        "truncated_item_count": int(summary_map.get("truncated_item_count") or 0),
+        "truncated_item_count": truncated_item_count or 0,
         "current_data_required": summary_map.get("current_data_required") is True,
     }
+
+
+def _optional_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
 
 
 @tool

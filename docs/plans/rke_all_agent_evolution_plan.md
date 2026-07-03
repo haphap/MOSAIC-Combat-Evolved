@@ -165,7 +165,8 @@ Status 2026-07-03:
 - Agent footprint capture and shadow replay gates now require every consumed
   RKE context hash to carry canonical Part 1 `ranking_policy_id`, positive
   integer `retrieval_rank`, canonical `priority_bucket` (`high`/`medium`/`low`),
-  and truncation audit metadata before shadow replay can be marked ready.
+  and non-negative truncation audit metadata before shadow replay can be marked
+  ready.
 - This closes the public runtime consumption audit for the Python tool path only.
   Formal benchmark/replay still requires E0 private prompt provenance and the E2
   fixed-episode benchmark evidence.

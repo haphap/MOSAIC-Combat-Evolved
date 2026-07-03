@@ -864,6 +864,38 @@ def test_capture_agent_claim_footprints_blocks_unsupported_priority_bucket(
     assert not (project_root / result["private_rows_path"]).exists()
 
 
+def test_capture_agent_claim_footprints_blocks_invalid_truncation_count(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    result = dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-invalid-truncation-count",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "truncated_item_count": -1,
+                }
+            ],
+        },
+    )
+
+    assert result["capture_status"] == "blocked"
+    assert result["captured_count"] == 0
+    assert "truncated_item_count must be a non-negative integer" in result[
+        "failures"
+    ][0]
+    assert not (project_root / result["private_rows_path"]).exists()
+
+
 def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
     tmp_path: Path, monkeypatch
 ):
