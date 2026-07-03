@@ -555,6 +555,9 @@ def test_sector_context_uses_available_industry_snapshot():
     assert item["known_proxy_limitations"] == [
         "broad_etf_proxy_not_direct_industry_portfolio"
     ]
+    assert "broad_etf_proxy_not_direct_industry_portfolio" in item[
+        "known_failure_mode_tags"
+    ]
     assert "industry_context_snapshot_missing" not in item["ranking_reason_codes"]
 
 

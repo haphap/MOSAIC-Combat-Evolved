@@ -627,6 +627,17 @@ def _public_claim_item(
             }
         )
     if industry_context_snapshot:
+        known_proxy_limitations = _ensure_str_list(
+            industry_context_snapshot.get("known_proxy_limitations")
+        )
+        item["known_failure_mode_tags"] = list(
+            dict.fromkeys(
+                [
+                    *_ensure_str_list(item.get("known_failure_mode_tags")),
+                    *known_proxy_limitations,
+                ]
+            )
+        )
         item.update(
             {
                 "context_snapshot_id": str(
@@ -649,9 +660,7 @@ def _public_claim_item(
                 "benchmark_family": _safe_token(
                     industry_context_snapshot.get("benchmark_family") or "unknown"
                 ),
-                "known_proxy_limitations": _ensure_str_list(
-                    industry_context_snapshot.get("known_proxy_limitations")
-                ),
+                "known_proxy_limitations": known_proxy_limitations,
                 "context_snapshot_feature_missing_reasons": _ensure_str_list(
                     industry_context_snapshot.get("missing_feature_reasons")
                 ),
