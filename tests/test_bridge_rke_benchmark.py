@@ -55,6 +55,10 @@ def test_fixed_episode_manifest_blocks_without_private_prompt_source():
     assert result["prompt_preflight"]["blocked_reasons"] == [
         "private_prompt_unavailable"
     ]
+    assert result["prompt_preflight"]["source_status"]["blocked_reason"] == (
+        "private_prompt_unavailable"
+    )
+    assert result["prompt_preflight"]["source_status"]["prompt_repo_dirty_count"] == 0
     assert result["promotion_allowed"] is False
     assert result["manual_review"]["status"] == "not_run"
 
@@ -76,6 +80,16 @@ def test_fixed_episode_manifest_is_ready_with_all_private_prompts(
         "row_count": 50,
         "blocked_count": 0,
         "blocked_reasons": [],
+        "source_status": {
+            "ready": True,
+            "blocked_reason": "",
+            "resolved_source": "private_repo",
+            "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+            "prompt_repo_revision": result["prompt_preflight"]["source_status"][
+                "prompt_repo_revision"
+            ],
+            "prompt_repo_dirty_count": 0,
+        },
         "fallback_used": False,
     }
     assert set(result["agents_by_layer"]) == {
@@ -95,6 +109,9 @@ def test_all_agent_prompt_provenance_readiness_blocks_missing_source():
     assert result["readiness_status"] == "blocked_preflight"
     assert result["prompt_row_count"] == 50
     assert result["release_check_count"] == 0
+    assert result["prompt_source_status"]["blocked_reason"] == (
+        "private_prompt_unavailable"
+    )
     assert "prompt_preflight_not_ready" in result["blocked_reasons"]
     assert "release_check_missing" in result["blocked_reasons"]
     assert result["all_agent_prompt_provenance_ready"] is False

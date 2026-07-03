@@ -96,7 +96,9 @@ Status 2026-07-03:
 - Public bridge now exposes `rke_benchmark.all_agent_prompt_provenance_readiness`,
   a no-write all-agent gate that requires all 25 agents × 2 languages to have
   private prompt pins plus per-prompt release/leak-drift evidence before formal
-  benchmark/replay can treat prompt provenance as ready.
+  benchmark/replay can treat prompt provenance as ready. It preserves the
+  `prompts.preflight` source summary so E7 blockers include repo-level dirty
+  state, not only repeated row-level prompt blockers.
 - This implements the public E0 preflight mechanism. E0 is not fully closed
   until the private prompt repo has ready rows for all benchmark/replay agents
   and leak/drift/release checks have passed.
@@ -234,8 +236,9 @@ Status 2026-07-03:
   manifest/preflight that fixes the 8 regime episodes, 17 as-of dates, all 25
   agents, four model config slots, input requirements, deterministic scoring
   fields, and manual-review-required state. It reuses `prompts.preflight`; if
-  private prompt provenance is missing, the benchmark remains `blocked_preflight`
-  and bundled prompts do not count.
+  private prompt provenance is missing or dirty, the benchmark remains
+  `blocked_preflight`, keeps the prompt source blocker summary, and bundled
+  prompts do not count.
 - Public bridge now also exposes `rke_benchmark.fixed_episode_benchmark_evidence`,
   a no-body gate for formal benchmark evidence refs. It requires enough paired
   outputs for the three required model configs, schema validation report,

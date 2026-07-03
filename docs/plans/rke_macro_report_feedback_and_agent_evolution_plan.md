@@ -2263,7 +2263,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   leak/drift/release checks 和 benchmark 仍属于 Part 2。
 - `rke_benchmark.all_agent_prompt_provenance_readiness` 已能把全 25 agents × 2
   languages 的 private prompt pins 与 release/leak-drift evidence 聚合成 formal
-  benchmark/replay 前置 gate；真实 private prompt release 仍需在 private prompt repo 中完成。
+  benchmark/replay 前置 gate，并保留 prompt source summary/dirty blocker；真实 private
+  prompt release 仍需在 private prompt repo 中完成。
 - `rke_benchmark.fixed_episode_manifest` 已提供 E2 fixed-episode manifest/preflight：
   8 个 regime episodes、17 个 as-of dates、全 25 agents、4 类 model config slot、
   input/scoring contract 和 manual-review-required 状态。真实 LLM paired outputs、

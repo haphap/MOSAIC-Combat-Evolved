@@ -261,6 +261,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
         "prompt_row_count": len(rows),
         "ready_prompt_row_count": sum(1 for row in rows if row["ready"]),
         "release_check_count": len(release_by_prompt),
+        "prompt_source_status": prompt_preflight.get("source_status", {}),
         "prompt_rows": rows,
         "all_agent_prompt_provenance_ready": bool(rows) and not blocked_reasons,
         "fallback_used": any(row["fallback_used"] for row in rows),
@@ -310,6 +311,7 @@ def fixed_episode_manifest(params: dict[str, Any]) -> dict[str, Any]:
             "row_count": prompt_preflight["row_count"],
             "blocked_count": prompt_preflight["blocked_count"],
             "blocked_reasons": blocked_reasons,
+            "source_status": prompt_preflight.get("source_status", {}),
             "fallback_used": False,
         },
         "manual_review": {

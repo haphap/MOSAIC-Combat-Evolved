@@ -497,6 +497,7 @@ export interface RkeBenchmarkPromptPreflightSummary {
   row_count: number;
   blocked_count: number;
   blocked_reasons: string[];
+  source_status: PromptPreflightResult["source_status"];
   fallback_used: boolean;
 }
 
@@ -525,6 +526,7 @@ export interface RkeAllAgentPromptProvenanceReadinessResult {
   prompt_row_count: number;
   ready_prompt_row_count: number;
   release_check_count: number;
+  prompt_source_status: PromptPreflightResult["source_status"];
   prompt_rows: RkeAllAgentPromptProvenanceRow[];
   all_agent_prompt_provenance_ready: boolean;
   fallback_used: boolean;
