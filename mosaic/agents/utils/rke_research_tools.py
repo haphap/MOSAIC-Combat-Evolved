@@ -223,6 +223,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         or not isinstance(summary.get("pending_label_count"), int)
         or isinstance(summary.get("pending_label_count"), bool)
         or summary.get("pending_label_count") < 0
+        or summary.get("pending_label_count") > summary.get("label_count")
+        or summary.get("directional_hit_count") > summary.get("label_count")
         or not isinstance(summary.get("pending_share"), (int, float))
         or isinstance(summary.get("pending_share"), bool)
         or summary.get("pending_share") < 0

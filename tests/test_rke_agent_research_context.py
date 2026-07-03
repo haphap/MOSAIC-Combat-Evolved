@@ -1013,8 +1013,8 @@ def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
                     "outcome_label_summary": {
                         "label_count": 1,
                         "directional_hit_count": 1,
-                        "pending_label_count": 0,
-                        "pending_share": 1.5,
+                        "pending_label_count": 2,
+                        "pending_share": 0.5,
                         "label_types": ["macro_series_directional"],
                         "latest_completed_exit_date": "2026-06-20",
                     },
