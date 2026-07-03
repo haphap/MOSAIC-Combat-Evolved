@@ -227,6 +227,10 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
     else:
         raise RpcError(INVALID_PARAMS, "'release_checks' must be a list")
 
+    expected_prompts = {
+        (_clean_str(row.get("agent")), _clean_str(row.get("lang")))
+        for row in prompt_preflight["rows"]
+    }
     release_by_prompt: dict[tuple[str, str], dict[str, Any]] = {}
     evidence_failures: list[str] = []
     for index, row in enumerate(release_rows, 1):
@@ -240,8 +244,17 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
             continue
         agent = _clean_str(row.get("agent"))
         lang = _clean_str(row.get("lang"))
-        if agent and lang:
-            release_by_prompt[(agent, lang)] = row
+        prompt_key = (agent, lang)
+        if not agent or not lang:
+            evidence_failures.append(f"release_checks[{index}]: agent/lang required")
+            continue
+        if prompt_key not in expected_prompts:
+            evidence_failures.append(f"release_checks[{index}]: unknown agent/lang")
+            continue
+        if prompt_key in release_by_prompt:
+            evidence_failures.append(f"release_checks[{index}]: duplicate agent/lang")
+            continue
+        release_by_prompt[prompt_key] = row
 
     rows: list[dict[str, Any]] = []
     for row in prompt_preflight["rows"]:

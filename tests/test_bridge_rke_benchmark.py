@@ -521,6 +521,31 @@ def test_all_agent_prompt_provenance_readiness_blocks_release_path_mismatch(
     assert result["all_agent_prompt_provenance_ready"] is False
 
 
+def test_all_agent_prompt_provenance_readiness_blocks_extra_release_rows(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    release_checks = _all_prompt_release_checks(preflight["rows"])
+    release_checks.append({**release_checks[0], "agent": "ghost"})
+    release_checks.append(dict(release_checks[1]))
+
+    result = dispatch(
+        "rke_benchmark.all_agent_prompt_provenance_readiness",
+        {"release_checks": release_checks},
+    )
+
+    assert result["readiness_status"] == "blocked_preflight"
+    assert "release_checks[51]: unknown agent/lang" in result["blocked_reasons"]
+    assert "release_checks[52]: duplicate agent/lang" in result["blocked_reasons"]
+    assert result["ready_prompt_row_count"] == 50
+    assert result["all_agent_prompt_provenance_ready"] is False
+
+
 def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
     tmp_path: Path, monkeypatch
 ):
