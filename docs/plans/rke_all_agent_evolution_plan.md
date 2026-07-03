@@ -459,6 +459,7 @@ Status 2026-07-03:
   benchmark run merge by evidence key, so staged benchmark/replay/promotion runs
   can append proof refs incrementally. The stored run context includes `cohort`,
   so non-default benchmark cohorts can be re-audited by `benchmark_run_id`.
+  Record responses count proof-object keys separately from run context keys.
 - Public bridge now exposes `rke_benchmark.delivery_evidence_audit`, a no-body
   audit over that private store that reports recorded and missing proof-object
   keys per benchmark run, plus the aggregate delivery readiness status so

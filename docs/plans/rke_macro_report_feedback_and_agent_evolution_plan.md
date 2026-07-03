@@ -2321,7 +2321,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   写入 private-local `.mosaic/rke/all_agent_evolution/delivery_evidence.jsonl`，后续
   `delivery_readiness` 可按 `benchmark_run_id` 复查；同一 run 的多次记录按 evidence key
   增量合并，便于 benchmark、replay、paper-trading 和 promotion 分阶段追加；该私有 evidence
-  store 会记录 `cohort`，支持非默认 cohort 按 run id 复查；该私有 evidence store 不提交。
+  store 会记录 `cohort`，支持非默认 cohort 按 run id 复查；写入返回值会把 proof-object key
+  count 和 run context key count 分开统计；该私有 evidence store 不提交。
 - `rke_benchmark.delivery_evidence_audit` 已能按 `benchmark_run_id` 审计该私有 store
   已记录和仍缺失的 proof-object keys，并返回 aggregate delivery readiness status，避免把
   key-complete evidence 误读为 E7 ready；同时透传 condition-level readiness summaries；

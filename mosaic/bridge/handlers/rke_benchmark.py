@@ -1329,7 +1329,12 @@ def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
                 "forbidden private/prose fields " + ", ".join(forbidden_paths[:5])
             ],
             "recorded_key_count": 0,
+            "recorded_context_key_count": 0,
         }
+    recorded_key_count = sum(1 for key in _DELIVERY_EVIDENCE_KEYS if key in evidence)
+    recorded_context_key_count = sum(
+        1 for key in _DELIVERY_CONTEXT_KEYS if key in evidence
+    )
 
     record = {
         "schema_version": "rke_delivery_evidence_v1",
@@ -1344,7 +1349,8 @@ def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
         "record_status": "recorded",
         "benchmark_run_id": benchmark_run_id,
         "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
-        "recorded_key_count": len(evidence),
+        "recorded_key_count": recorded_key_count,
+        "recorded_context_key_count": recorded_context_key_count,
         "failures": [],
     }
 

@@ -1238,6 +1238,7 @@ def test_record_delivery_evidence_blocks_private_fields(tmp_path: Path, monkeypa
 
     assert result["record_status"] == "blocked"
     assert result["recorded_key_count"] == 0
+    assert result["recorded_context_key_count"] == 0
     assert result["failures"]
 
 
@@ -1337,6 +1338,8 @@ def test_delivery_evidence_audit_records_prompt_source_status_context(
     )
 
     assert record["record_status"] == "recorded"
+    assert record["recorded_key_count"] == 0
+    assert record["recorded_context_key_count"] == 1
     assert audit["evidence_status"] == "missing"
     assert audit["recorded_context_keys"] == ["prompt_source_status"]
     assert audit["recorded_keys"] == []
@@ -1399,7 +1402,7 @@ def test_delivery_readiness_uses_recorded_cohort(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
-    dispatch(
+    record = dispatch(
         "rke_benchmark.record_delivery_evidence",
         {
             "benchmark_run_id": "bench-delivery-cohort",
@@ -1417,6 +1420,8 @@ def test_delivery_readiness_uses_recorded_cohort(tmp_path: Path, monkeypatch):
         {"benchmark_run_id": "bench-delivery-cohort"},
     )
 
+    assert record["recorded_key_count"] == 1
+    assert record["recorded_context_key_count"] == 1
     assert audit["cohort"] == "cohort_custom"
     assert manifest["cohort"] == "cohort_custom"
     assert audit["recorded_context_keys"] == ["cohort"]
@@ -1498,6 +1503,8 @@ def test_delivery_readiness_loads_recorded_private_evidence(
     )
 
     assert record["record_status"] == "recorded"
+    assert record["recorded_key_count"] == 3
+    assert record["recorded_context_key_count"] == 0
     assert manifest["recorded_evidence_loaded"] is True
     assert all(
         "fixed_episode_benchmark:paired_output_count_below_required" != reason

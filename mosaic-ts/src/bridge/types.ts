@@ -911,6 +911,7 @@ export interface RkeDeliveryEvidenceRecordResult {
   benchmark_run_id: string;
   private_rows_path: string;
   recorded_key_count: number;
+  recorded_context_key_count: number;
   failures: string[];
 }
 
