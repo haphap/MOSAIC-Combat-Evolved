@@ -1,8 +1,6 @@
 /**
  * Wire-level type definitions for the JSON-RPC methods exposed by
- * `mosaic.bridge` (62 RPC methods across 13 namespaces: tools / config / cache /
- * calendar / paper / backtest / scorecard / darwinian / prompts / autoresearch /
- * prism / janus / mirofish).
+ * `mosaic.bridge`.
  *
  * Keep this file as the single source of truth for the wire-level shapes.
  * If a method's params/result change on the Python side, update the type
@@ -466,6 +464,52 @@ export interface PromptReleaseCheckResult {
     prompt_commit_hash?: string | null;
     prompt_sha256?: string | null;
   };
+}
+
+// --------------------------------------------------------- rke_benchmark (Part 2 E2)
+
+export interface RkeBenchmarkEpisode {
+  episode_id: string;
+  regime: string;
+  as_of_dates: string[];
+}
+
+export interface RkeBenchmarkModelConfig {
+  model_config_id: string;
+  runner: string;
+  model_family?: string;
+  required: boolean;
+}
+
+export interface RkeBenchmarkPromptPreflightSummary {
+  ready: boolean;
+  row_count: number;
+  blocked_count: number;
+  blocked_reasons: string[];
+  fallback_used: boolean;
+}
+
+export interface RkeFixedEpisodeManifestResult {
+  schema_version: "rke_fixed_episode_benchmark_manifest_v1";
+  benchmark_status: "ready_to_run" | "blocked_preflight";
+  cohort: string;
+  episode_count: number;
+  as_of_date_count: number;
+  agent_count: number;
+  model_config_count: number;
+  planned_run_count: number;
+  episodes: RkeBenchmarkEpisode[];
+  agents_by_layer: Record<string, string[]>;
+  model_configs: RkeBenchmarkModelConfig[];
+  input_requirements: string[];
+  scoring_metrics: string[];
+  prompt_preflight: RkeBenchmarkPromptPreflightSummary;
+  manual_review: {
+    status: "not_run";
+    required: boolean;
+    reviewer_timestamp: string | null;
+  };
+  promotion_allowed: boolean;
 }
 
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
@@ -1026,6 +1070,16 @@ export class BridgeApi {
     require_kept?: boolean;
   }): Promise<PromptReleaseCheckResult> {
     return this.client.call<PromptReleaseCheckResult>("prompts.verify_release", params);
+  }
+
+  // rke_benchmark.* (Part 2 E2)
+  rkeBenchmarkFixedEpisodeManifest(params?: {
+    cohort?: string;
+  }): Promise<RkeFixedEpisodeManifestResult> {
+    return this.client.call<RkeFixedEpisodeManifestResult>(
+      "rke_benchmark.fixed_episode_manifest",
+      params ?? {},
+    );
   }
 
   // autoresearch.* (Phase 4C/4D)

@@ -219,6 +219,18 @@ Manual review gate:
 - If investment outcomes are inconclusive, expand the episode set instead of
   advancing.
 
+Status 2026-07-03:
+
+- Public bridge now exposes `rke_benchmark.fixed_episode_manifest`, a no-run E2
+  manifest/preflight that fixes the 8 regime episodes, 17 as-of dates, all 25
+  agents, four model config slots, input requirements, deterministic scoring
+  fields, and manual-review-required state. It reuses `prompts.preflight`; if
+  private prompt provenance is missing, the benchmark remains `blocked_preflight`
+  and bundled prompts do not count.
+- This implements the episode/model/input manifest proof object. E2 is not
+  complete until real paired LLM outputs, schema validation, deterministic score
+  tables, investment outcome tables, and manual review decisions exist.
+
 ## E3: Agent Claim And Footprint Capture
 
 All agents should emit redacted claim/footprint records:
