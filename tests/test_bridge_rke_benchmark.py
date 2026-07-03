@@ -3203,6 +3203,10 @@ def test_delivery_evidence_audit_keeps_context_out_of_proof_keys(
         "rke_benchmark.delivery_evidence_audit",
         {"benchmark_run_id": "bench-delivery-context-only"},
     )
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": "bench-delivery-context-only"},
+    )
 
     assert audit["cohort"] == "cohort_context_only"
     assert audit["evidence_status"] == "missing"
@@ -3210,6 +3214,8 @@ def test_delivery_evidence_audit_keeps_context_out_of_proof_keys(
     assert audit["recorded_keys"] == []
     assert audit["recorded_key_count"] == 0
     assert audit["delivery_readiness_can_load"] is False
+    assert manifest["cohort"] == "cohort_context_only"
+    assert manifest["recorded_evidence_loaded"] is False
 
 
 def test_delivery_evidence_audit_records_prompt_source_status_context(

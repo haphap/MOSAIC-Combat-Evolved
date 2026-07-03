@@ -2021,6 +2021,9 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Aggregate E7 delivery readiness without running or promoting anything."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
     recorded_evidence, evidence_failures = _read_delivery_evidence(benchmark_run_id)
+    recorded_proof_keys = [
+        key for key in _DELIVERY_EVIDENCE_KEYS if key in recorded_evidence
+    ]
     effective_params = dict(recorded_evidence)
     for key in _DELIVERY_RECORD_KEYS:
         if key in params:
@@ -2209,7 +2212,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
         ),
         "blocked_reasons": blocked_reasons,
         "conditions": conditions,
-        "recorded_evidence_loaded": bool(recorded_evidence),
+        "recorded_evidence_loaded": bool(recorded_proof_keys),
         "delivery_ready": not blocked_reasons,
         "production_allowed": False,
         "promotion_allowed": False,
