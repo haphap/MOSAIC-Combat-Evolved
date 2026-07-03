@@ -450,7 +450,12 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                     "- Tool gaps: "
                     f"{', '.join(_ensure_str_list(item_map.get('tool_gap_ids'))) or 'none'}"
                 ),
-                "- Current data required: true",
+                (
+                    "- Current data required: "
+                    f"{str(item_map.get('current_data_required') is True).lower()}; "
+                    "fields="
+                    f"{', '.join(_ensure_str_list(item_map.get('current_data_required_fields'))) or 'none'}"
+                ),
             ]
         )
         if item_map.get("ticker"):

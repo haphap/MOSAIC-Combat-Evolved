@@ -713,6 +713,32 @@ def test_rke_runtime_context_preflight_blocks_invalid_truncation_count():
     assert "truncated_item_count_invalid" in output
 
 
+def test_rke_runtime_context_preflight_blocks_missing_current_data_guard():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "current_data_required_missing" in output
+    assert "current_data_required_fields_missing" in output
+    assert "current_data_required=false" in output
+    assert "- Current data required: false; fields=none" in output
+
+
 def test_normalize_agent_id_accepts_ts_and_rke_forms():
     assert normalize_agent_id("dollar", "macro") == "macro.dollar"
     assert normalize_agent_id("sector.semiconductor") == "sector.semiconductor"

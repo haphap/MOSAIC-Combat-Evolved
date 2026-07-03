@@ -75,6 +75,10 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("priority_bucket_missing")
     elif any(bucket not in _PRIORITY_BUCKETS for bucket in priority_buckets):
         failures.append("priority_bucket_unsupported")
+    if items and any(item.get("current_data_required") is not True for item in items):
+        failures.append("current_data_required_missing")
+    if items and any(not item.get("current_data_required_fields") for item in items):
+        failures.append("current_data_required_fields_missing")
     if context.get("production_signal_allowed") is not False:
         failures.append("production_signal_not_disabled")
     summary = context.get("summary")
@@ -102,7 +106,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         "retrieval_ranks": ",".join(str(rank) for rank in ranks) or "none",
         "priority_buckets": ",".join(priority_buckets) or "none",
         "truncated_item_count": truncated_item_count or 0,
-        "current_data_required": summary_map.get("current_data_required") is True,
+        "current_data_required": summary_map.get("current_data_required") is True
+        and not any(item.get("current_data_required") is not True for item in items),
     }
 
 
