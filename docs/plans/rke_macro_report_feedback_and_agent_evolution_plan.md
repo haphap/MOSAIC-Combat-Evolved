@@ -2357,11 +2357,12 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   消费和权重更新仍未完成。
 - `rke_benchmark.candidate_consumption_manifest` 已能读取 Part 1
   `prompt_mutation_candidates.jsonl` 并保留 candidate/refusal blocker reason，
-  同时阻断 production/private-text/manual-review/promotion-state 违规；真实 private
+  同时阻断 production/private-text/manual-review/promotion-state 违规，并把
+  tooling/data-acquisition queue candidate 标记为 no-prompt-branch 消费；真实 private
   prompt mutation、benchmark、replay 和 rollback 消费仍未完成。
 - `rke_benchmark.prompt_mutation_lifecycle_manifest` 已能把 safe candidate/refusal
-  摘要转成 private prompt branch 生命周期预检；refusal-only row 只记录 blocker，不创建
-  prompt branch，也不能作为条件 12 的完成证据。
+  摘要转成 private prompt branch 生命周期预检；refusal-only row 和 tooling/data-acquisition
+  queue candidate 只记录 blocker，不创建 prompt branch，也不能作为条件 12 的完成证据。
 - `rke_benchmark.prompt_mutation_release_readiness` 已能检查 prompt version id 正整数、
   private prompt repo commit/hash、lifecycle private branch、base prompt repo revision、
   overwrite target paths、audit-version ref、`prompts.verify_release` 和 leak/drift

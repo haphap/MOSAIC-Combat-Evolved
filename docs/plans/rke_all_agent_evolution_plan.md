@@ -342,8 +342,9 @@ Status 2026-07-03:
   into private prompt mutation lifecycle records. Non-refusal candidates record
   the planned private prompt branch, overwrite target paths, prompt pins,
   rollback rule, benchmark/manual-review requirements, and shadow-only promotion
-  guard. Refusal rows only preserve the blocker reason and create no prompt
-  branch; refusal-only input remains `blocked_preflight`.
+  guard only when the candidate is prompt-branch actionable. Refusal rows and
+  tooling/data-acquisition queue candidates only preserve blocker visibility and
+  create no prompt branch; no-branch-only input remains `blocked_preflight`.
 - Public bridge now exposes `rke_benchmark.prompt_mutation_release_readiness`,
   a no-write gate that requires positive integer prompt version id, prompt
   repo/commit/hash, lifecycle private branch, base prompt repo revision,
@@ -419,7 +420,9 @@ Status 2026-07-03:
   `missing_pit_outcome`, `missing_validation_target`, and
   `source_dependent_cluster` remain visible for benchmark/replay. Production
   prompt changes, missing manual review, private text, or non-shadow promotion
-  state block the manifest.
+  state block the manifest. It also classifies tooling/data-acquisition queue
+  candidates as no-prompt-branch records so they are not mistaken for private
+  prompt writes or patch activation candidates.
 - This implements the E6 candidate/refusal consumption boundary. E6 is not
   complete until private prompt mutation, benchmark, replay, and rollback flows
   actually consume this manifest.

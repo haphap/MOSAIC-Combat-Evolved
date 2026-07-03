@@ -1136,10 +1136,12 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
         candidate_type = _clean_str(row.get("candidate_type")) or "unknown"
         target_scope = _clean_str(row.get("target_scope")) or "unknown"
         blocked_by = _safe_str_list(row.get("blocked_by"))
+        consumption_action = _candidate_consumption_action(candidate_type)
         summaries.append(
             {
                 "mutation_candidate_id": _clean_str(row.get("mutation_candidate_id")),
                 "candidate_type": candidate_type,
+                "consumption_action": consumption_action,
                 "target_scope": target_scope,
                 "target_component": _clean_str(row.get("target_component")),
                 "severity": _clean_str(row.get("severity")),
@@ -1212,7 +1214,7 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
     patch_candidates = [
         item
         for item in candidate_manifest["candidate_summaries"]
-        if "refusal" not in item["candidate_type"]
+        if item["consumption_action"] == "private_prompt_branch_after_blockers_clear"
     ]
     evidence_by_candidate, evidence_failures = _candidate_evidence_by_id(
         evidence_rows,
@@ -1317,10 +1319,15 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
         if "candidates" in params
         else {}
     )
+    branch_items = [
+        item
+        for item in candidate_manifest["candidate_summaries"]
+        if item["consumption_action"] == "private_prompt_branch_after_blockers_clear"
+    ]
     affected_agents = sorted(
         {
             agent
-            for item in candidate_manifest["candidate_summaries"]
+            for item in branch_items
             for agent in _affected_agents_from_candidate(item)
         }
     )
@@ -1337,7 +1344,7 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
     records: list[dict[str, Any]] = []
     for item in candidate_manifest["candidate_summaries"]:
         candidate_agents = _affected_agents_from_candidate(item)
-        is_refusal = "refusal" in item["candidate_type"]
+        consumption_action = item["consumption_action"]
         prompt_pins = [
             {
                 "agent": _clean_str(row.get("agent")),
@@ -1352,19 +1359,19 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
             for row in prompt_rows_by_agent.get(agent, [])
             if row.get("status") == "ready"
         ]
-        if is_refusal:
+        if consumption_action != "private_prompt_branch_after_blockers_clear":
             records.append(
                 {
                     "mutation_candidate_id": item["mutation_candidate_id"],
                     "candidate_type": item["candidate_type"],
                     "target_component": item["target_component"],
                     "affected_agents": candidate_agents,
-                    "candidate_action": "record_refusal_no_prompt_branch",
+                    "candidate_action": consumption_action,
                     "private_prompt_branch": "",
                     "overwrite_target_paths": [],
                     "prompt_pins": [],
                     "lifecycle_stages": [
-                        "refusal_recorded",
+                        "candidate_recorded",
                         "benchmark_replay_visibility",
                         "no_prompt_write",
                     ],
@@ -1427,9 +1434,9 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
     blocked_reasons: list[str] = []
     if candidate_manifest["manifest_status"] != "ready_for_private_prompt_lifecycle":
         blocked_reasons.append("candidate_consumption_manifest_not_ready")
-    if not affected_agents:
+    if branch_items and not affected_agents:
         blocked_reasons.append("affected_agent_resolution_missing")
-    if not prompt_preflight.get("ready"):
+    if branch_items and not prompt_preflight.get("ready"):
         blocked_reasons.append("private_prompt_preflight_not_ready")
     if any(pin.get("fallback_used") for record in records for pin in record["prompt_pins"]):
         blocked_reasons.append("fallback_prompt_used")
@@ -1438,6 +1445,8 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
         for record in records
     ):
         blocked_reasons.append("refusal_only_no_prompt_branch_candidate")
+    elif records and not branch_items:
+        blocked_reasons.append("no_prompt_branch_candidate_only")
 
     return {
         "schema_version": "rke_prompt_mutation_lifecycle_manifest_v1",
@@ -2466,6 +2475,17 @@ def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
     if component in _LAYER_BY_AGENT:
         return [component]
     return []
+
+
+def _candidate_consumption_action(candidate_type: str) -> str:
+    if "refusal" in candidate_type:
+        return "record_refusal_no_prompt_branch"
+    if candidate_type in {
+        "data_acquisition_prioritization_rule",
+        "tool_gap_prioritization_rule",
+    }:
+        return "record_tooling_gap_no_prompt_branch"
+    return "private_prompt_branch_after_blockers_clear"
 
 
 def _slug(value: str) -> str:

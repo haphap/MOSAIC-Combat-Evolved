@@ -1897,6 +1897,27 @@ def test_candidate_consumption_manifest_preserves_refusal_blockers():
     assert "evidence_refs" not in payload
 
 
+def test_candidate_consumption_manifest_classifies_data_acquisition_no_prompt():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="data_acquisition_prioritization_rule",
+                    target_scope="report_intelligence.data_acquisition",
+                    target_component="data_acquisition_review_queue",
+                    blocked_by=["data_engineering_review_required"],
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "ready_for_private_prompt_lifecycle"
+    summary = manifest["candidate_summaries"][0]
+    assert summary["consumption_action"] == "record_tooling_gap_no_prompt_branch"
+    assert summary["blocked_by"] == ["data_engineering_review_required"]
+
+
 def test_candidate_consumption_manifest_rejects_prompt_bypass():
     manifest = dispatch(
         "rke_benchmark.candidate_consumption_manifest",
@@ -2084,6 +2105,31 @@ def test_patch_activation_readiness_keeps_candidate_blockers():
     assert manifest["patch_activation_ready"] is False
 
 
+def test_patch_activation_readiness_ignores_data_acquisition_no_prompt_candidate():
+    manifest = dispatch(
+        "rke_benchmark.patch_activation_readiness",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="data_acquisition_prioritization_rule",
+                    target_scope="report_intelligence.data_acquisition",
+                    target_component="data_acquisition_review_queue",
+                    blocked_by=["data_engineering_review_required"],
+                )
+            ],
+            "patch_activation_evidence": [],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert manifest["patch_candidate_count"] == 0
+    assert "patch_candidate_missing" in manifest["blocked_reasons"]
+    assert "candidate_blocked_by:data_engineering_review_required" not in manifest[
+        "blocked_reasons"
+    ]
+    assert "patch_activation_evidence_missing" not in manifest["blocked_reasons"]
+
+
 def test_prompt_mutation_lifecycle_manifest_blocks_missing_candidates(
     tmp_path: Path, monkeypatch
 ):
@@ -2157,6 +2203,33 @@ def test_prompt_mutation_lifecycle_manifest_keeps_refusal_out_of_prompt_branch(
     assert record["private_prompt_branch"] == ""
     assert record["overwrite_target_paths"] == []
     assert "missing_pit_outcome" in record["blocked_by"]
+
+
+def test_prompt_mutation_lifecycle_manifest_keeps_data_acquisition_out_of_prompt_branch():
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_lifecycle_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="data_acquisition_prioritization_rule",
+                    target_scope="report_intelligence.data_acquisition",
+                    target_component="data_acquisition_review_queue",
+                    blocked_by=["data_engineering_review_required"],
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "no_prompt_branch_candidate_only" in manifest["blocked_reasons"]
+    assert "affected_agent_resolution_missing" not in manifest["blocked_reasons"]
+    assert "private_prompt_preflight_not_ready" not in manifest["blocked_reasons"]
+    record = manifest["lifecycle_records"][0]
+    assert record["candidate_action"] == "record_tooling_gap_no_prompt_branch"
+    assert record["private_prompt_branch"] == ""
+    assert record["overwrite_target_paths"] == []
+    assert record["prompt_pins"] == []
+    assert "data_engineering_review_required" in record["blocked_by"]
 
 
 def test_prompt_mutation_release_readiness_blocks_missing_release_check(
