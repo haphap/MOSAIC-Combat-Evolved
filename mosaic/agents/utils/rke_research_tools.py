@@ -27,6 +27,7 @@ from mosaic.rke.agent_research_context import (
     build_rke_agent_research_context,
     format_rke_agent_research_context,
     normalize_agent_id,
+    RATING_BUCKETS,
 )
 
 _PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
@@ -152,6 +153,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for field in ("source_performance_bucket", "viewpoint_performance_bucket")
     ):
         failures.append("item_performance_bucket_missing")
+    if items and any(
+        item.get(field) not in RATING_BUCKETS
+        for item in items
+        for field in ("source_performance_bucket", "viewpoint_performance_bucket")
+    ):
+        failures.append("item_performance_bucket_invalid")
     if items and any(
         not item.get(field)
         for item in items

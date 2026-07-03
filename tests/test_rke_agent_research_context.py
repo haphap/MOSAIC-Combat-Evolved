@@ -204,6 +204,7 @@ def test_macro_context_redacts_private_claim_text_and_maps_agent():
     assert item["target_id"] == "USDCNY"
     assert item["metric_family"] == "fx_rate"
     assert item["regime_types"] == ["fx_usd_cycle"]
+    assert item["source_performance_bucket"] == "pending_or_unrated"
     assert item["viewpoint_performance_bucket"] == "supportive_evidence"
     assert item["outcome_label_summary"]["pending_label_count"] == 1
     assert item["outcome_label_summary"]["pending_share"] == 0.5
@@ -1214,7 +1215,7 @@ def test_rke_runtime_context_preflight_blocks_missing_ranking_metadata():
     assert "item_combined_weight_invalid" in output
 
 
-def test_rke_runtime_context_preflight_blocks_missing_performance_buckets():
+def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
     output = rke_research_tools.format_rke_runtime_context(
         {
             "agent_id": "macro.dollar",
@@ -1236,6 +1237,8 @@ def test_rke_runtime_context_preflight_blocks_missing_performance_buckets():
                     "horizon_bucket": "medium",
                     "regime_bucket": "fx_usd_cycle",
                     "regime_types": ["fx_usd_cycle"],
+                    "source_performance_bucket": "buy_now",
+                    "viewpoint_performance_bucket": "sell_now",
                     "statistical_reliability_bucket": "limited",
                     "n_effective": 3.0,
                     "known_failure_mode_tags": [],
@@ -1265,7 +1268,7 @@ def test_rke_runtime_context_preflight_blocks_missing_performance_buckets():
     )
 
     assert "runtime_preflight_status=blocked" in output
-    assert "item_performance_bucket_missing" in output
+    assert "item_performance_bucket_invalid" in output
 
 
 def test_rke_runtime_context_preflight_blocks_missing_context_metadata():

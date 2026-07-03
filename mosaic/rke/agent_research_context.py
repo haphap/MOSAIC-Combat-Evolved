@@ -23,6 +23,14 @@ RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
 RANKING_POLICY_ID = "rke_agent_research_context_rank_v1"
 FORBIDDEN_FIELD_POLICY = "source_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
+RATING_BUCKETS = frozenset(
+    {
+        "supportive_evidence",
+        "mixed_evidence",
+        "contradictory_evidence",
+        "pending_or_unrated",
+    }
+)
 
 MACRO_AGENTS = frozenset(
     {
@@ -568,11 +576,11 @@ def _public_claim_item(
         ),
         "regime_bucket": "|".join(regime_types) if regime_types else "unknown",
         "regime_types": regime_types,
-        "source_performance_bucket": _safe_token(
-            source_profile.get("shrunk_performance_bucket") or "insufficient_data"
+        "source_performance_bucket": _rating_bucket(
+            source_profile.get("shrunk_performance_bucket")
         ),
-        "viewpoint_performance_bucket": _safe_token(
-            viewpoint_profile.get("shrunk_performance_bucket") or "insufficient_data"
+        "viewpoint_performance_bucket": _rating_bucket(
+            viewpoint_profile.get("shrunk_performance_bucket")
         ),
         "n_effective": _round_float(
             viewpoint_profile.get("n_effective") or source_profile.get("n_effective")
@@ -1175,6 +1183,11 @@ def _freshness_bucket(*, latest_completed_exit_date: str, as_of_date: str) -> st
     if as_of_date and latest_completed_exit_date >= as_of_date:
         return "completed_exit_after_prior_as_of"
     return "historical_completed_exit"
+
+
+def _rating_bucket(value: Any) -> str:
+    bucket = _safe_token(value or "pending_or_unrated")
+    return bucket if bucket in RATING_BUCKETS else "pending_or_unrated"
 
 
 def _current_data_required_fields(agent_id: str) -> list[str]:
