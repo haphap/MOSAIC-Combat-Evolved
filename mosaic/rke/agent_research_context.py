@@ -456,6 +456,13 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                     "fields="
                     f"{', '.join(_ensure_str_list(item_map.get('current_data_required_fields'))) or 'none'}"
                 ),
+                (
+                    "- Prior guard: "
+                    f"use_policy={item_map.get('use_policy')}; "
+                    f"actionability_guard={item_map.get('actionability_guard')}; "
+                    "production_signal_allowed="
+                    f"{str(item_map.get('production_signal_allowed')).lower()}"
+                ),
             ]
         )
         if item_map.get("ticker"):

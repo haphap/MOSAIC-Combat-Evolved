@@ -3,6 +3,7 @@ import json
 import pytest
 
 from mosaic.rke.agent_research_context import (
+    RESEARCH_PRIOR_USE_POLICY,
     SAFE_ACTIONABILITY,
     assert_public_safe_context,
     build_rke_agent_research_context_from_rows,
@@ -737,6 +738,67 @@ def test_rke_runtime_context_preflight_blocks_missing_current_data_guard():
     assert "current_data_required_fields_missing" in output
     assert "current_data_required=false" in output
     assert "- Current data required: false; fields=none" in output
+
+
+def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": True,
+                    "use_policy": "production_signal",
+                    "actionability_guard": "none",
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "item_production_signal_not_disabled" in output
+    assert "item_use_policy_invalid" in output
+    assert "item_actionability_guard_invalid" in output
+    assert "use_policy=production_signal" in output
+
+
+def test_rke_runtime_context_formats_good_item_shadow_policy():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
+                    "actionability_guard": SAFE_ACTIONABILITY,
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=passed" in output
+    assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
+    assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
+    assert "production_signal_allowed=false" in output
 
 
 def test_normalize_agent_id_accepts_ts_and_rke_forms():
