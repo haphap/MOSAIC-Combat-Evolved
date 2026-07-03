@@ -178,3 +178,72 @@ def test_capture_agent_claim_footprints_blocks_private_text_fields(
     assert result["privacy_scan"]["forbidden_field_violation_count"] == 1
     assert "claim_text" in result["failures"][0]
     assert not (project_root / result["private_rows_path"]).exists()
+
+
+def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-003",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                    "stale_prior_rejected": True,
+                },
+                {
+                    "agent": "semiconductor",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "sector_claim",
+                    "target": {"target_type": "sector", "target_id": "半导体"},
+                    "rke_prior_usage_quality": "not_used_missing_current_data",
+                    "contradictory_prior_handled": True,
+                },
+            ],
+        },
+    )
+
+    summary = dispatch(
+        "rke_benchmark.agent_footprint_summary",
+        {"benchmark_run_id": "bench-003"},
+    )
+
+    assert summary["summary_status"] == "ready"
+    assert summary["row_count"] == 2
+    assert summary["layer_counts"] == {"macro": 1, "sector": 1}
+    assert summary["claim_type_counts"] == {"macro_series_claim": 1, "sector_claim": 1}
+    assert summary["rke_prior_usage_quality_counts"] == {
+        "not_used_missing_current_data": 1,
+        "used_ranked_prior": 1,
+    }
+    assert summary["current_data_confirmed_count"] == 1
+    assert summary["stale_prior_rejected_count"] == 1
+    assert summary["contradictory_prior_handled_count"] == 1
+    assert summary["privacy_scan"]["forbidden_field_violation_count"] == 0
+    payload = json.dumps(summary, ensure_ascii=False)
+    assert "agent_claim_footprint_id" not in payload
+    assert "USDCNY" not in payload
+    assert "半导体" not in payload
+
+
+def test_agent_footprint_summary_is_empty_without_private_rows(tmp_path: Path, monkeypatch):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    summary = dispatch(
+        "rke_benchmark.agent_footprint_summary",
+        {"benchmark_run_id": "bench-missing"},
+    )
+
+    assert summary["summary_status"] == "empty"
+    assert summary["row_count"] == 0

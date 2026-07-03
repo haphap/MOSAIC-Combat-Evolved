@@ -2261,8 +2261,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - autoresearch / Darwinian replay 还没有系统读取 RKE prior usage quality、agent claim outcome、
   retrieval ranking quality 和 rollback feedback。
 - `rke_benchmark.capture_agent_claim_footprints` 已提供 redacted private-local
-  agent claim/footprint capture contract；真实 benchmark/replay agent rows 和从真实
-  rows 生成的 aggregate profile summary 仍未完成。
+  agent claim/footprint capture contract，`rke_benchmark.agent_footprint_summary`
+  已能从 private rows 输出 redacted aggregate profile summary；真实 benchmark/replay
+  agent rows 仍未完成。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
 - agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution 闭环。
 - Layer-3 roster preflight：当前分支已完成 public runtime、fallback prompt、RKE style-fit、

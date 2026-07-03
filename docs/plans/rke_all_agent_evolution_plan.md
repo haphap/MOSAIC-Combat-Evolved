@@ -251,11 +251,14 @@ Status 2026-07-03:
   rejects prompt/report prose fields such as `claim_text`, `source_span_ids`,
   raw `text`, prompt body, URLs, and local paths; successful rows are written
   only under `.mosaic/rke/all_agent_evolution/agent_claim_footprints.jsonl` and
-  the RPC returns aggregate layer/type counts plus a no-source-prose privacy
-  scan.
-- This implements the redacted capture contract and private row sink. E3 is not
-  complete until benchmark/replay agents actually emit these rows and a redacted
-  aggregate profile summary is generated from real runs.
+  the RPC returns aggregate layer/type counts plus a no-source-prose privacy scan.
+  `rke_benchmark.agent_footprint_summary` reads the private rows and returns only
+  redacted aggregate counts for layer, claim type, RKE prior usage quality,
+  current-data confirmation, stale-prior rejection, contradictory-prior handling,
+  and context-hash coverage.
+- This implements the redacted capture contract, private row sink, and aggregate
+  profile summary reader. E3 is not complete until benchmark/replay agents
+  actually emit these rows from real runs.
 
 ## E4: Private Prompt Mutation Lifecycle
 

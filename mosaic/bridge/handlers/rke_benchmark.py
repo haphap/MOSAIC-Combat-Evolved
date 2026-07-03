@@ -272,6 +272,98 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.agent_footprint_summary")
+def agent_footprint_summary(params: dict[str, Any]) -> dict[str, Any]:
+    """Summarize private captured rows without returning row bodies."""
+    benchmark_run_id = _clean_str(params.get("benchmark_run_id"))
+    path = _repo_root() / _CAPTURE_REL_PATH
+    if not path.exists():
+        return _empty_footprint_summary(benchmark_run_id)
+
+    rows: list[dict[str, Any]] = []
+    failures: list[str] = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                failures.append(f"line {line_number}: invalid json")
+                continue
+            if not isinstance(row, dict):
+                failures.append(f"line {line_number}: row must be object")
+                continue
+            if benchmark_run_id and row.get("benchmark_run_id") != benchmark_run_id:
+                continue
+            forbidden_paths = _forbidden_paths(row)
+            if forbidden_paths:
+                failures.append(
+                    f"line {line_number}: forbidden private/prose fields "
+                    + ", ".join(forbidden_paths[:5])
+                )
+                continue
+            rows.append(row)
+
+    layer_counts: dict[str, int] = {}
+    claim_type_counts: dict[str, int] = {}
+    prior_quality_counts: dict[str, int] = {}
+    for row in rows:
+        _increment(layer_counts, _clean_str(row.get("layer")) or "unknown")
+        _increment(claim_type_counts, _clean_str(row.get("claim_type")) or "unknown")
+        _increment(
+            prior_quality_counts,
+            _clean_str(row.get("rke_prior_usage_quality")) or "unknown",
+        )
+    return {
+        "summary_status": "blocked" if failures else "ready",
+        "private_rows_path": _CAPTURE_REL_PATH.as_posix(),
+        "benchmark_run_id": benchmark_run_id,
+        "row_count": len(rows),
+        "layer_counts": dict(sorted(layer_counts.items())),
+        "claim_type_counts": dict(sorted(claim_type_counts.items())),
+        "rke_prior_usage_quality_counts": dict(sorted(prior_quality_counts.items())),
+        "current_data_confirmed_count": sum(
+            1 for row in rows if row.get("current_data_confirmed") is True
+        ),
+        "stale_prior_rejected_count": sum(
+            1 for row in rows if row.get("stale_prior_rejected") is True
+        ),
+        "contradictory_prior_handled_count": sum(
+            1 for row in rows if row.get("contradictory_prior_handled") is True
+        ),
+        "rke_context_hash_count": sum(1 for row in rows if row.get("rke_context_hash")),
+        "privacy_scan": {
+            "private_text_included": False,
+            "source_prose_included": False,
+            "forbidden_field_violation_count": len(failures),
+        },
+        "failures": failures,
+    }
+
+
+def _empty_footprint_summary(benchmark_run_id: str) -> dict[str, Any]:
+    return {
+        "summary_status": "empty",
+        "private_rows_path": _CAPTURE_REL_PATH.as_posix(),
+        "benchmark_run_id": benchmark_run_id,
+        "row_count": 0,
+        "layer_counts": {},
+        "claim_type_counts": {},
+        "rke_prior_usage_quality_counts": {},
+        "current_data_confirmed_count": 0,
+        "stale_prior_rejected_count": 0,
+        "contradictory_prior_handled_count": 0,
+        "rke_context_hash_count": 0,
+        "privacy_scan": {
+            "private_text_included": False,
+            "source_prose_included": False,
+            "forbidden_field_violation_count": 0,
+        },
+        "failures": [],
+    }
+
+
 def _sanitize_claim_footprint_row(
     benchmark_run_id: str, row: dict[str, Any], index: int
 ) -> dict[str, Any]:

@@ -563,6 +563,26 @@ export interface RkeAgentClaimFootprintCaptureResult {
   };
 }
 
+export interface RkeAgentFootprintSummaryResult {
+  summary_status: "ready" | "blocked" | "empty";
+  private_rows_path: string;
+  benchmark_run_id: string;
+  row_count: number;
+  layer_counts: Record<string, number>;
+  claim_type_counts: Record<string, number>;
+  rke_prior_usage_quality_counts: Record<string, number>;
+  current_data_confirmed_count: number;
+  stale_prior_rejected_count: number;
+  contradictory_prior_handled_count: number;
+  rke_context_hash_count: number;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+  failures: string[];
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1140,6 +1160,15 @@ export class BridgeApi {
     return this.client.call<RkeAgentClaimFootprintCaptureResult>(
       "rke_benchmark.capture_agent_claim_footprints",
       params,
+    );
+  }
+
+  rkeBenchmarkAgentFootprintSummary(params?: {
+    benchmark_run_id?: string;
+  }): Promise<RkeAgentFootprintSummaryResult> {
+    return this.client.call<RkeAgentFootprintSummaryResult>(
+      "rke_benchmark.agent_footprint_summary",
+      params ?? {},
     );
   }
 
