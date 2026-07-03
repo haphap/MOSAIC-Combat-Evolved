@@ -53,6 +53,7 @@ from mosaic.rke.report_intelligence import (
     build_macro_curve_directional_outcome_labels,
     build_macro_curve_directional_readiness,
     build_industry_etf_proxy_pit_availability,
+    build_industry_context_snapshots,
     build_macro_market_series_catalog,
     build_macro_regime_snapshots,
     build_macro_series_directional_outcome_labels,
@@ -67,6 +68,7 @@ from mosaic.rke.report_intelligence import (
     build_report_intelligence_extraction_provenance_audit,
     build_report_intelligence_statistical_robustness_audit,
     build_source_performance_profiles,
+    build_stock_context_snapshots,
     build_data_acquisition_proposals,
     build_tool_design_proposals,
     build_viewpoint_performance_profiles,
@@ -1104,6 +1106,153 @@ def test_report_intelligence_builds_public_safe_macro_regime_snapshots():
     assert "claim_text" not in snapshot_dump
     assert "source_span_ids" not in snapshot_dump
     assert "FC-MACRO-TRACE-1" not in snapshot_dump
+
+
+def test_report_intelligence_builds_public_safe_stock_context_snapshots():
+    metadata_rows = [
+        {
+            "source_id": "SRC-STOCK-1",
+            "report_id": "RPT-STOCK-1",
+            "report_type": "个股研报",
+            "ts_code": "600519.SH",
+            "sector": "食品饮料",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-STOCK-1",
+            "source_id": "SRC-STOCK-1",
+            "claim_text": "private prose",
+            "target": {"target_type": "stock", "target_id": "600519.SH"},
+            "direction": "positive",
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+        }
+    ]
+    outcome_rows = [
+        {
+            "forecast_claim_id": "FC-STOCK-1",
+            "label_type": "stock_price_proxy",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "entry_liquidity_check": "positive_volume_and_limit_lock_screen",
+            "exit_liquidity_check": "positive_volume_and_limit_lock_screen",
+        }
+    ]
+
+    snapshots = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        stock_price_proxy_readiness={
+            "labelable_forecast_claim_ids": ["FC-STOCK-1"],
+            "eligible_forecast_claim_ids": ["FC-STOCK-1"],
+            "benchmark_family": "CSI300_ETF_PROXY",
+        },
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["schema_version"] == "stock_context_snapshot_v1"
+    assert snapshot["as_of_date"] == "2026-01-10"
+    assert snapshot["stock_symbol"] == "600519.SH"
+    assert snapshot["sector"] == "食品饮料"
+    assert snapshot["liquidity_bucket"] == "tradable_proxy_observed"
+    assert snapshot["stock_outcome_age_bucket"] == "stock_outcome_pending"
+    assert snapshot["benchmark_family"] == "CSI300_ETF_PROXY"
+    assert snapshot["background_only"] is True
+    assert snapshot["claim_validation_allowed"] is False
+    assert snapshot["private_text_included"] is False
+    assert "market_cap_bucket_missing" in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private prose" not in snapshot_dump
+    assert "private title" not in snapshot_dump
+    assert "FC-STOCK-1" not in snapshot_dump
+
+
+def test_report_intelligence_builds_public_safe_industry_context_snapshots():
+    metadata_rows = [
+        {
+            "source_id": "SRC-IND-1",
+            "report_id": "RPT-IND-1",
+            "report_type": "行业研报",
+            "sector": "半导体",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-IND-1",
+            "source_id": "SRC-IND-1",
+            "claim_text": "private prose",
+            "target": {"target_type": "sector", "target_id": "半导体"},
+            "direction": "positive",
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+        }
+    ]
+    mapping_rows = [
+        {
+            "mapping_id": "IETF-MAP-SEMI",
+            "mapping_version": 1,
+            "sector_name": "半导体",
+            "sector_aliases": ["半导体"],
+            "taxonomy": "operator_seeded_tushare_industry",
+            "etf_symbol": "512480.SH",
+            "etf_name": "半导体ETF",
+            "benchmark_symbol": "510300.SH",
+            "benchmark_source": "qlib_cn_etf",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "industry_etf_round_trip_10bps_v1",
+            "mapping_confidence": "operator_seeded_exact_sector",
+            "mapping_rationale": "test mapping",
+            "status": "primary",
+            "review_required": False,
+        }
+    ]
+
+    snapshots = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=[
+            {
+                "forecast_claim_id": "FC-IND-1",
+                "label_type": "industry_etf_proxy",
+                "benchmark_family": "CSI300_ETF_PROXY",
+            }
+        ],
+        industry_etf_proxy_map_rows=mapping_rows,
+        industry_etf_proxy_readiness={"benchmark_family": "CSI300_ETF_PROXY"},
+        industry_etf_proxy_pit_availability={
+            "mapping_records": [
+                {"mapping_id": "IETF-MAP-SEMI", "pit_available": True}
+            ]
+        },
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["schema_version"] == "industry_context_snapshot_v1"
+    assert snapshot["as_of_date"] == "2026-01-10"
+    assert snapshot["canonical_sector"] == "半导体"
+    assert snapshot["proxy_symbol"] == "512480.SH"
+    assert snapshot["mapping_confidence"] == "operator_seeded_exact_sector"
+    assert snapshot["proxy_liquidity_bucket"] == "proxy_outcome_observed"
+    assert snapshot["benchmark_family"] == "CSI300_ETF_PROXY"
+    assert "broad_etf_proxy_not_direct_industry_portfolio" in snapshot[
+        "known_proxy_limitations"
+    ]
+    assert "operator_seeded_proxy_mapping" in snapshot["known_proxy_limitations"]
+    assert snapshot["missing_feature_reasons"] == ["industry_cycle_bucket_missing"]
+    assert snapshot["background_only"] is True
+    assert snapshot["claim_validation_allowed"] is False
+    assert snapshot["private_text_included"] is False
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private prose" not in snapshot_dump
+    assert "private title" not in snapshot_dump
+    assert "FC-IND-1" not in snapshot_dump
 
 
 def test_report_intelligence_builds_deferred_snapshot_for_candidate_macro_agent():

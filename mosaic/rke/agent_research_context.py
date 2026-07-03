@@ -291,6 +291,12 @@ def build_rke_agent_research_context(
         "weighted_research_contexts": _read_jsonl(
             registry_path / "weighted_research_contexts.jsonl"
         ),
+        "stock_context_snapshots": _read_jsonl(
+            registry_path / "stock_context_snapshots.jsonl"
+        ),
+        "industry_context_snapshots": _read_jsonl(
+            registry_path / "industry_context_snapshots.jsonl"
+        ),
     }
     return build_rke_agent_research_context_from_rows(
         agent_id=agent_id,
@@ -314,6 +320,8 @@ def build_rke_agent_research_context_from_rows(
     recipes: Sequence[Mapping[str, Any]] = (),
     tool_gaps: Sequence[Mapping[str, Any]] = (),
     weighted_research_contexts: Sequence[Mapping[str, Any]] = (),
+    stock_context_snapshots: Sequence[Mapping[str, Any]] = (),
+    industry_context_snapshots: Sequence[Mapping[str, Any]] = (),
     as_of_date: str = "",
     layer: str = "",
     ticker: str = "",
@@ -354,6 +362,8 @@ def build_rke_agent_research_context_from_rows(
             outcomes=outcomes_by_claim.get(claim_id, []),
             recipes=recipes,
             tool_gaps=tool_gaps,
+            stock_context_snapshots=stock_context_snapshots,
+            industry_context_snapshots=industry_context_snapshots,
         )
         items.append(item)
     ranked_items = _rank_context_items(items)
@@ -473,8 +483,11 @@ def _public_claim_item(
     outcomes: Sequence[Mapping[str, Any]],
     recipes: Sequence[Mapping[str, Any]],
     tool_gaps: Sequence[Mapping[str, Any]],
+    stock_context_snapshots: Sequence[Mapping[str, Any]],
+    industry_context_snapshots: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     target = _ensure_mapping(claim.get("target"))
+    domain = _claim_domain(claim, report_meta)
     metric_families = _claim_metric_families(claim)
     regime_types = _claim_regime_types(claim, agent_id)
     source_profile = _best_source_profile(report_meta, source_profiles)
@@ -488,15 +501,33 @@ def _public_claim_item(
     performance_context_match = _safe_token(
         weighted_claim.get("performance_context_match") or "insufficient_data"
     )
+    stock_context_snapshot = (
+        _matching_stock_context_snapshot(claim, report_meta, stock_context_snapshots)
+        if domain == "stock"
+        else {}
+    )
+    industry_context_snapshot = (
+        _matching_industry_context_snapshot(
+            claim,
+            report_meta,
+            industry_context_snapshots,
+        )
+        if domain == "industry"
+        else {}
+    )
     context_snapshot_missing_reasons = _context_snapshot_missing_reasons(
-        agent_id, claim, report_meta
+        agent_id,
+        claim,
+        report_meta,
+        stock_context_snapshot=stock_context_snapshot,
+        industry_context_snapshot=industry_context_snapshot,
     )
     item = {
         "redacted_claim_id": _redacted_id(
             "FCRED",
             claim.get("forecast_claim_id") or claim.get("claim_id") or "",
         ),
-        "domain": _claim_domain(claim, report_meta),
+        "domain": domain,
         "target_type": _safe_token(target.get("target_type") or "unknown"),
         "target_id": _safe_token(target.get("target_id") or target.get("target_name") or "unknown"),
         "metric_family": metric_families[0] if metric_families else "unknown",
@@ -549,9 +580,11 @@ def _public_claim_item(
         ),
         "current_data_required": True,
         "current_data_required_fields": _current_data_required_fields(agent_id),
-        "context_snapshot_status": "missing"
-        if context_snapshot_missing_reasons
-        else "not_required",
+        "context_snapshot_status": _context_snapshot_status(
+            stock_context_snapshot,
+            industry_context_snapshot,
+            context_snapshot_missing_reasons,
+        ),
         "context_snapshot_missing_reasons": context_snapshot_missing_reasons,
         "actionability": SAFE_ACTIONABILITY,
         "actionability_guard": SAFE_ACTIONABILITY,
@@ -569,6 +602,61 @@ def _public_claim_item(
             report_meta.get("ts_code") or target.get("target_id") or ""
         )
         item["style_fit"] = _style_fit_bucket(agent_id, claim, report_meta)
+    if stock_context_snapshot:
+        item.update(
+            {
+                "context_snapshot_id": str(
+                    stock_context_snapshot.get("snapshot_id") or ""
+                ),
+                "market_cap_bucket": _safe_token(
+                    stock_context_snapshot.get("market_cap_bucket") or "unknown"
+                ),
+                "liquidity_bucket": _safe_token(
+                    stock_context_snapshot.get("liquidity_bucket") or "unknown"
+                ),
+                "stock_outcome_age_bucket": _safe_token(
+                    stock_context_snapshot.get("stock_outcome_age_bucket")
+                    or "unknown"
+                ),
+                "benchmark_family": _safe_token(
+                    stock_context_snapshot.get("benchmark_family") or "unknown"
+                ),
+                "context_snapshot_feature_missing_reasons": _ensure_str_list(
+                    stock_context_snapshot.get("missing_feature_reasons")
+                ),
+            }
+        )
+    if industry_context_snapshot:
+        item.update(
+            {
+                "context_snapshot_id": str(
+                    industry_context_snapshot.get("snapshot_id") or ""
+                ),
+                "industry_cycle_bucket": _safe_token(
+                    industry_context_snapshot.get("industry_cycle_bucket")
+                    or "unknown"
+                ),
+                "proxy_symbol": _safe_token(
+                    industry_context_snapshot.get("proxy_symbol") or "unknown"
+                ),
+                "proxy_liquidity_bucket": _safe_token(
+                    industry_context_snapshot.get("proxy_liquidity_bucket")
+                    or "unknown"
+                ),
+                "mapping_confidence": _safe_token(
+                    industry_context_snapshot.get("mapping_confidence") or "unknown"
+                ),
+                "benchmark_family": _safe_token(
+                    industry_context_snapshot.get("benchmark_family") or "unknown"
+                ),
+                "known_proxy_limitations": _ensure_str_list(
+                    industry_context_snapshot.get("known_proxy_limitations")
+                ),
+                "context_snapshot_feature_missing_reasons": _ensure_str_list(
+                    industry_context_snapshot.get("missing_feature_reasons")
+                ),
+            }
+        )
     return item
 
 
@@ -1094,10 +1182,114 @@ def _current_data_required_fields(agent_id: str) -> list[str]:
     return ["current_data_confirmation"]
 
 
+def _claim_context_as_of_date(
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+) -> str:
+    return _date_key(
+        claim.get("signal_datetime")
+        or claim.get("as_of_datetime")
+        or report_meta.get("publish_datetime")
+        or report_meta.get("accessible_datetime")
+        or report_meta.get("publish_date")
+    )
+
+
+def _latest_snapshot_on_or_before(
+    snapshots: Sequence[Mapping[str, Any]],
+    as_of_date: str,
+) -> Mapping[str, Any]:
+    if not snapshots:
+        return {}
+    if not as_of_date:
+        return sorted(
+            snapshots,
+            key=lambda row: str(row.get("as_of_date") or ""),
+            reverse=True,
+        )[0]
+    exact = [row for row in snapshots if str(row.get("as_of_date") or "") == as_of_date]
+    if exact:
+        return exact[0]
+    eligible = [
+        row
+        for row in snapshots
+        if str(row.get("as_of_date") or "") <= as_of_date
+    ]
+    return sorted(
+        eligible,
+        key=lambda row: str(row.get("as_of_date") or ""),
+        reverse=True,
+    )[0] if eligible else {}
+
+
+def _matching_stock_context_snapshot(
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+    snapshots: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    target = _ensure_mapping(claim.get("target"))
+    stock_symbol = str(
+        report_meta.get("ts_code") or target.get("target_id") or ""
+    ).strip().upper()
+    if not stock_symbol:
+        return {}
+    candidates = [
+        row
+        for row in snapshots
+        if str(row.get("stock_symbol") or "").strip().upper() == stock_symbol
+    ]
+    return _latest_snapshot_on_or_before(
+        candidates,
+        _claim_context_as_of_date(claim, report_meta),
+    )
+
+
+def _matching_industry_context_snapshot(
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+    snapshots: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    target = _ensure_mapping(claim.get("target"))
+    sector = str(
+        report_meta.get("sector")
+        or report_meta.get("industry")
+        or target.get("target_id")
+        or target.get("target_name")
+        or ""
+    ).strip()
+    if not sector:
+        return {}
+    candidates = [
+        row
+        for row in snapshots
+        if sector in str(row.get("canonical_sector") or "")
+        or str(row.get("canonical_sector") or "") in sector
+    ]
+    return _latest_snapshot_on_or_before(
+        candidates,
+        _claim_context_as_of_date(claim, report_meta),
+    )
+
+
+def _context_snapshot_status(
+    stock_context_snapshot: Mapping[str, Any],
+    industry_context_snapshot: Mapping[str, Any],
+    missing_reasons: Sequence[str],
+) -> str:
+    if missing_reasons:
+        return "missing"
+    if stock_context_snapshot or industry_context_snapshot:
+        return "available"
+    return "not_required"
+
+
 def _context_snapshot_missing_reasons(
     agent_id: str,
     claim: Mapping[str, Any],
     report_meta: Mapping[str, Any],
+    *,
+    stock_context_snapshot: Mapping[str, Any] | None = None,
+    industry_context_snapshot: Mapping[str, Any] | None = None,
 ) -> list[str]:
     domain = _claim_domain(claim, report_meta)
     if domain == "stock" and (
@@ -1105,10 +1297,14 @@ def _context_snapshot_missing_reasons(
         or agent_id.startswith("decision.")
         or agent_id == "sector.relationship_mapper"
     ):
+        if stock_context_snapshot:
+            return []
         return ["stock_context_snapshot_missing"]
     if domain == "industry" and (
         agent_id.startswith("sector.") or agent_id.startswith("decision.")
     ):
+        if industry_context_snapshot:
+            return []
         return ["industry_context_snapshot_missing"]
     return []
 

@@ -117,6 +117,7 @@ registry/report_intelligence/confidence_impact_observations.jsonl
 registry/report_intelligence/data_acquisition_proposals.jsonl
 registry/report_intelligence/forecast_claims.jsonl
 registry/report_intelligence/gap_distribution_history.jsonl
+registry/report_intelligence/industry_context_snapshots.jsonl
 registry/report_intelligence/macro_agent_research_priors.jsonl
 registry/report_intelligence/macro_regime_snapshots.jsonl
 registry/report_intelligence/method_patterns.jsonl
@@ -131,6 +132,7 @@ registry/report_intelligence/report_metadata.jsonl
 registry/report_intelligence/report_outcome_labels.jsonl
 registry/report_intelligence/runtime_tool_gap_observations.jsonl
 registry/report_intelligence/source_performance_profiles.jsonl
+registry/report_intelligence/stock_context_snapshots.jsonl
 registry/report_intelligence/tool_coverage_matches.jsonl
 registry/report_intelligence/tool_design_proposals.jsonl
 registry/report_intelligence/tool_gaps.jsonl

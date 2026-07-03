@@ -58,6 +58,8 @@ REQUIRED_SCHEMA_FILES = {
     "report_intelligence_macro_regime_snapshot.schema.json",
     "report_intelligence_macro_agent_research_prior.schema.json",
     "report_intelligence_macro_market_series_catalog.schema.json",
+    "report_intelligence_stock_context_snapshot.schema.json",
+    "report_intelligence_industry_context_snapshot.schema.json",
     "report_intelligence_method_performance_profile.schema.json",
     "report_intelligence_metric_candidate.schema.json",
     "report_intelligence_monitoring_report.schema.json",

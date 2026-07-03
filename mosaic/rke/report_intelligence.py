@@ -152,6 +152,12 @@ REPORT_INTELLIGENCE_MACRO_REGIME_SNAPSHOTS_PATH = (
 REPORT_INTELLIGENCE_MACRO_AGENT_RESEARCH_PRIORS_PATH = (
     "registry/report_intelligence/macro_agent_research_priors.jsonl"
 )
+REPORT_INTELLIGENCE_STOCK_CONTEXT_SNAPSHOTS_PATH = (
+    "registry/report_intelligence/stock_context_snapshots.jsonl"
+)
+REPORT_INTELLIGENCE_INDUSTRY_CONTEXT_SNAPSHOTS_PATH = (
+    "registry/report_intelligence/industry_context_snapshots.jsonl"
+)
 REPORT_INTELLIGENCE_MACRO_MARKET_SERIES_CATALOG_PATH = (
     "registry/report_intelligence/macro_market_series_catalog.jsonl"
 )
@@ -183,6 +189,7 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/gap_distribution_history.jsonl",
+        REPORT_INTELLIGENCE_INDUSTRY_CONTEXT_SNAPSHOTS_PATH,
         REPORT_INTELLIGENCE_MACRO_AGENT_RESEARCH_PRIORS_PATH,
         REPORT_INTELLIGENCE_MACRO_REGIME_SNAPSHOTS_PATH,
         "registry/report_intelligence/method_patterns.jsonl",
@@ -197,6 +204,7 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/report_outcome_labels.jsonl",
         "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
         "registry/report_intelligence/source_performance_profiles.jsonl",
+        REPORT_INTELLIGENCE_STOCK_CONTEXT_SNAPSHOTS_PATH,
         "registry/report_intelligence/tool_coverage_matches.jsonl",
         "registry/report_intelligence/tool_design_proposals.jsonl",
         "registry/report_intelligence/tool_gaps.jsonl",
@@ -1268,6 +1276,8 @@ class ReportIntelligenceRunResult:
     source_performance_profile_rows: int
     viewpoint_performance_profile_rows: int
     macro_market_series_catalog_rows: int
+    stock_context_snapshot_rows: int
+    industry_context_snapshot_rows: int
     macro_regime_snapshot_rows: int
     macro_agent_research_prior_rows: int
     method_performance_profile_rows: int
@@ -1805,6 +1815,8 @@ def _blocked_report_intelligence_derived_refresh_result(
         source_performance_profile_rows=0,
         viewpoint_performance_profile_rows=0,
         macro_market_series_catalog_rows=0,
+        stock_context_snapshot_rows=0,
+        industry_context_snapshot_rows=0,
         macro_regime_snapshot_rows=0,
         macro_agent_research_prior_rows=0,
         method_performance_profile_rows=0,
@@ -19591,6 +19603,8 @@ MACRO_REGIME_SNAPSHOT_USE_POLICY = "background_only_not_claim_validation"
 MACRO_AGENT_RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
 MACRO_AGENT_RESEARCH_PRIOR_SCHEMA_VERSION = "macro_agent_research_prior_v1"
 MACRO_REGIME_SNAPSHOT_SCHEMA_VERSION = "macro_regime_snapshot_v1"
+STOCK_CONTEXT_SNAPSHOT_SCHEMA_VERSION = "stock_context_snapshot_v1"
+INDUSTRY_CONTEXT_SNAPSHOT_SCHEMA_VERSION = "industry_context_snapshot_v1"
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
     "money_market_rate": ("macro.central_bank",),
@@ -19727,6 +19741,447 @@ def _claim_trace_as_of_date(claim: Mapping[str, Any]) -> str:
         claim.get("as_of_datetime")
         or claim.get("publish_datetime")
         or claim.get("publish_date")
+    )
+
+
+def _metadata_by_report_or_source(
+    metadata_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Mapping[str, Any]]:
+    rows: dict[str, Mapping[str, Any]] = {}
+    for row in metadata_rows:
+        for key in (row.get("source_id"), row.get("report_id")):
+            text = str(key or "").strip()
+            if text:
+                rows[text] = row
+    return rows
+
+
+def _claim_metadata_row(
+    claim: Mapping[str, Any],
+    metadata_by_key: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    for key in (claim.get("source_id"), claim.get("report_id")):
+        text = str(key or "").strip()
+        if text and text in metadata_by_key:
+            return metadata_by_key[text]
+    return {}
+
+
+def _claim_snapshot_as_of_date(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> str:
+    return _date_key(
+        claim.get("signal_datetime")
+        or claim.get("as_of_datetime")
+        or metadata.get("publish_datetime")
+        or metadata.get("accessible_datetime")
+        or metadata.get("publish_date")
+    )
+
+
+def _clean_context_bucket(value: Any, *, default: str = "unknown") -> str:
+    text = str(value or "").strip()
+    if text.casefold() in {"", "nan", "none", "null"}:
+        return default
+    return text
+
+
+def _first_sorted(values: set[str], *, default: str = "unknown") -> str:
+    cleaned = sorted(value for value in values if value)
+    return cleaned[0] if cleaned else default
+
+
+def _stock_market_cap_bucket(metadata_rows: Sequence[Mapping[str, Any]]) -> str:
+    for row in metadata_rows:
+        for field in (
+            "market_cap_bucket",
+            "float_market_cap_bucket",
+            "total_market_cap_bucket",
+        ):
+            bucket = _clean_context_bucket(row.get(field), default="")
+            if bucket:
+                return bucket
+    return "unknown"
+
+
+def _stock_liquidity_bucket(
+    *,
+    claim_ids: set[str],
+    outcome_rows: Sequence[Mapping[str, Any]],
+    readiness: Mapping[str, Any],
+) -> str:
+    if any(
+        row.get("entry_liquidity_check") == STOCK_PRICE_PROXY_TRADABILITY_CHECK
+        and row.get("exit_liquidity_check") == STOCK_PRICE_PROXY_TRADABILITY_CHECK
+        for row in outcome_rows
+    ):
+        return "tradable_proxy_observed"
+    labelable_ids = {
+        str(value)
+        for value in _ensure_list(readiness.get("labelable_forecast_claim_ids"))
+    }
+    eligible_ids = {
+        str(value) for value in _ensure_list(readiness.get("eligible_forecast_claim_ids"))
+    }
+    if claim_ids & labelable_ids:
+        return "stock_proxy_labelable"
+    if claim_ids & eligible_ids:
+        return "stock_proxy_eligible_unlabelable"
+    return "unknown"
+
+
+def _stock_context_missing_reasons(
+    *,
+    market_cap_bucket: str,
+    liquidity_bucket: str,
+    stock_outcome_age_bucket: str,
+    outcome_label_count: int,
+) -> list[str]:
+    reasons: list[str] = []
+    if market_cap_bucket == "unknown":
+        reasons.append("market_cap_bucket_missing")
+    if liquidity_bucket == "unknown":
+        reasons.append("liquidity_bucket_missing")
+    if stock_outcome_age_bucket in {
+        "stock_report_date_missing",
+        "stock_outcome_age_unbucketed",
+        "stock_ts_code_missing",
+        "non_stock_report",
+    }:
+        reasons.append("stock_outcome_age_bucket_missing")
+    if outcome_label_count <= 0:
+        reasons.append("stock_price_proxy_outcome_missing")
+    return reasons
+
+
+def build_stock_context_snapshots(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    stock_price_proxy_readiness: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    metadata_by_key = _metadata_by_report_or_source(metadata_rows)
+    outcomes_by_claim: dict[str, list[Mapping[str, Any]]] = {}
+    for row in outcome_label_rows:
+        if row.get("label_type") != "stock_price_proxy":
+            continue
+        outcomes_by_claim.setdefault(str(row.get("forecast_claim_id") or ""), []).append(
+            row
+        )
+    corpus_as_of = _coverage_corpus_as_of(metadata_rows)
+    aggregates: dict[tuple[str, str], dict[str, Any]] = {}
+    for claim in forecast_rows:
+        metadata = _claim_metadata_row(claim, metadata_by_key)
+        if not _is_stock_forecast_claim(claim, metadata):
+            continue
+        resolution = _stock_target_resolution(claim, metadata)
+        if resolution["gap"]:
+            continue
+        as_of_date = _claim_snapshot_as_of_date(claim, metadata)
+        stock_symbol = resolution["ts_code"]
+        if not as_of_date or not stock_symbol:
+            continue
+        key = (stock_symbol, as_of_date)
+        aggregate = aggregates.setdefault(
+            key,
+            {
+                "_claim_ids": set(),
+                "_report_keys": set(),
+                "_metadata_rows": [],
+                "_outcome_rows": [],
+                "_sectors": set(),
+            },
+        )
+        claim_id = str(claim.get("forecast_claim_id") or "")
+        if claim_id:
+            aggregate["_claim_ids"].add(claim_id)
+            aggregate["_outcome_rows"].extend(outcomes_by_claim.get(claim_id, ()))
+        report_key = str(claim.get("source_id") or claim.get("report_id") or "")
+        if report_key:
+            aggregate["_report_keys"].add(report_key)
+        if metadata:
+            aggregate["_metadata_rows"].append(metadata)
+        sector = _clean_industry_sector_value(metadata.get("sector"))
+        if sector:
+            aggregate["_sectors"].add(sector)
+
+    readiness = _ensure_mapping(stock_price_proxy_readiness)
+    rows: list[dict[str, Any]] = []
+    for (stock_symbol, as_of_date), aggregate in sorted(aggregates.items()):
+        metadata_group = list(aggregate["_metadata_rows"])
+        representative_metadata = (
+            metadata_group[0]
+            if metadata_group
+            else {"ts_code": stock_symbol, "publish_datetime": as_of_date}
+        )
+        outcome_rows = list(aggregate["_outcome_rows"])
+        market_cap_bucket = _stock_market_cap_bucket(metadata_group)
+        liquidity_bucket = _stock_liquidity_bucket(
+            claim_ids=set(aggregate["_claim_ids"]),
+            outcome_rows=outcome_rows,
+            readiness=readiness,
+        )
+        stock_outcome_age_bucket = _coverage_stock_outcome_age_bucket(
+            representative_metadata,
+            corpus_as_of=corpus_as_of,
+        )
+        benchmark_family = next(
+            (
+                str(row.get("benchmark_family") or "").strip()
+                for row in outcome_rows
+                if str(row.get("benchmark_family") or "").strip()
+            ),
+            str(readiness.get("benchmark_family") or STOCK_PRICE_PROXY_BENCHMARK_FAMILY),
+        )
+        record = {
+            "snapshot_id": _stable_id(
+                "SCS",
+                {"stock_symbol": stock_symbol, "as_of_date": as_of_date},
+            ),
+            "schema_version": STOCK_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
+            "as_of_date": as_of_date,
+            "stock_symbol": stock_symbol,
+            "sector": _first_sorted(set(aggregate["_sectors"])),
+            "market_cap_bucket": market_cap_bucket,
+            "liquidity_bucket": liquidity_bucket,
+            "stock_outcome_age_bucket": stock_outcome_age_bucket,
+            "benchmark_family": benchmark_family,
+            "source_claim_count": len(aggregate["_claim_ids"]),
+            "report_count": len(aggregate["_report_keys"]),
+            "outcome_label_count": len(outcome_rows),
+            "missing_feature_reasons": _stock_context_missing_reasons(
+                market_cap_bucket=market_cap_bucket,
+                liquidity_bucket=liquidity_bucket,
+                stock_outcome_age_bucket=stock_outcome_age_bucket,
+                outcome_label_count=len(outcome_rows),
+            ),
+            "background_only": True,
+            "claim_validation_allowed": False,
+            "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
+            "use_policy": MACRO_REGIME_SNAPSHOT_USE_POLICY,
+            "data_vintage_hash": _stable_id(
+                "SCV",
+                {
+                    "stock_symbol": stock_symbol,
+                    "as_of_date": as_of_date,
+                    "claim_count": len(aggregate["_claim_ids"]),
+                    "outcome_label_count": len(outcome_rows),
+                },
+            ),
+        }
+        record["private_text_included"] = _public_payload_private_text_included(record)
+        rows.append(record)
+    return rows
+
+
+def _industry_proxy_liquidity_bucket(
+    *,
+    mapping: Mapping[str, Any] | None,
+    outcome_rows: Sequence[Mapping[str, Any]],
+    availability_by_mapping_id: Mapping[str, Mapping[str, Any]],
+) -> str:
+    if outcome_rows:
+        return "proxy_outcome_observed"
+    if mapping is None:
+        return "unknown"
+    availability = availability_by_mapping_id.get(str(mapping.get("mapping_id") or ""))
+    if availability.get("pit_available") is True:
+        return "pit_available"
+    if availability:
+        return "pit_unavailable"
+    return "unknown"
+
+
+def _industry_known_proxy_limitations(
+    *,
+    mapping: Mapping[str, Any] | None,
+    proxy_liquidity_bucket: str,
+) -> list[str]:
+    limitations = ["broad_etf_proxy_not_direct_industry_portfolio"]
+    if mapping is None:
+        limitations.append("sector_etf_mapping_missing")
+    else:
+        if _is_operator_seeded_default_industry_mapping(mapping):
+            limitations.append("operator_seeded_proxy_mapping")
+        if bool(mapping.get("review_required")):
+            limitations.append("mapping_review_required")
+    if proxy_liquidity_bucket in {"unknown", "pit_unavailable"}:
+        limitations.append("proxy_pit_unavailable")
+    return list(dict.fromkeys(limitations))
+
+
+def build_industry_context_snapshots(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    industry_etf_proxy_map_rows: Sequence[Mapping[str, Any]] = (),
+    industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
+    industry_etf_proxy_pit_availability: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    metadata_by_key = _metadata_by_report_or_source(metadata_rows)
+    mapping_rows = tuple(
+        industry_etf_proxy_map_rows or build_default_industry_etf_proxy_map_rows()
+    )
+    availability_by_mapping_id = _industry_pit_availability_by_mapping_id(
+        industry_etf_proxy_pit_availability
+    )
+    outcomes_by_claim: dict[str, list[Mapping[str, Any]]] = {}
+    for row in outcome_label_rows:
+        if row.get("label_type") != "industry_etf_proxy":
+            continue
+        outcomes_by_claim.setdefault(str(row.get("forecast_claim_id") or ""), []).append(
+            row
+        )
+    aggregates: dict[tuple[str, str], dict[str, Any]] = {}
+    for claim in forecast_rows:
+        metadata = _claim_metadata_row(claim, metadata_by_key)
+        if not _is_industry_research_report(metadata.get("report_type")):
+            continue
+        sector = _industry_claim_sector(claim, metadata)
+        as_of_date = _claim_snapshot_as_of_date(claim, metadata)
+        if not sector or not as_of_date:
+            continue
+        key = (sector, as_of_date)
+        aggregate = aggregates.setdefault(
+            key,
+            {
+                "_claim_ids": set(),
+                "_report_keys": set(),
+                "_outcome_rows": [],
+                "_mapping": _industry_etf_proxy_for_sector(
+                    sector,
+                    mapping_rows,
+                    as_of_datetime=str(claim.get("signal_datetime") or ""),
+                ),
+            },
+        )
+        claim_id = str(claim.get("forecast_claim_id") or "")
+        if claim_id:
+            aggregate["_claim_ids"].add(claim_id)
+            aggregate["_outcome_rows"].extend(outcomes_by_claim.get(claim_id, ()))
+        report_key = str(claim.get("source_id") or claim.get("report_id") or "")
+        if report_key:
+            aggregate["_report_keys"].add(report_key)
+
+    readiness = _ensure_mapping(industry_etf_proxy_readiness)
+    rows: list[dict[str, Any]] = []
+    for (sector, as_of_date), aggregate in sorted(aggregates.items()):
+        mapping = aggregate["_mapping"]
+        outcome_rows = list(aggregate["_outcome_rows"])
+        proxy_liquidity_bucket = _industry_proxy_liquidity_bucket(
+            mapping=mapping,
+            outcome_rows=outcome_rows,
+            availability_by_mapping_id=availability_by_mapping_id,
+        )
+        benchmark_family = next(
+            (
+                str(row.get("benchmark_family") or "").strip()
+                for row in outcome_rows
+                if str(row.get("benchmark_family") or "").strip()
+            ),
+            str(
+                (mapping or {}).get("benchmark_family")
+                or readiness.get("benchmark_family")
+                or INDUSTRY_ETF_BENCHMARK_FAMILY
+            ),
+        )
+        proxy_symbol = str((mapping or {}).get("etf_symbol") or "")
+        mapping_confidence = str((mapping or {}).get("mapping_confidence") or "missing")
+        missing_feature_reasons = ["industry_cycle_bucket_missing"]
+        if not proxy_symbol:
+            missing_feature_reasons.append("proxy_symbol_missing")
+        if mapping_confidence == "missing":
+            missing_feature_reasons.append("mapping_confidence_missing")
+        if proxy_liquidity_bucket == "unknown":
+            missing_feature_reasons.append("proxy_liquidity_bucket_missing")
+        record = {
+            "snapshot_id": _stable_id(
+                "ICS",
+                {"canonical_sector": sector, "as_of_date": as_of_date},
+            ),
+            "schema_version": INDUSTRY_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
+            "as_of_date": as_of_date,
+            "canonical_sector": sector,
+            "industry_cycle_bucket": "unknown",
+            "proxy_symbol": proxy_symbol,
+            "mapping_confidence": mapping_confidence,
+            "proxy_liquidity_bucket": proxy_liquidity_bucket,
+            "benchmark_family": benchmark_family,
+            "known_proxy_limitations": _industry_known_proxy_limitations(
+                mapping=mapping,
+                proxy_liquidity_bucket=proxy_liquidity_bucket,
+            ),
+            "source_claim_count": len(aggregate["_claim_ids"]),
+            "report_count": len(aggregate["_report_keys"]),
+            "outcome_label_count": len(outcome_rows),
+            "missing_feature_reasons": missing_feature_reasons,
+            "background_only": True,
+            "claim_validation_allowed": False,
+            "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
+            "use_policy": MACRO_REGIME_SNAPSHOT_USE_POLICY,
+            "data_vintage_hash": _stable_id(
+                "ICV",
+                {
+                    "canonical_sector": sector,
+                    "as_of_date": as_of_date,
+                    "claim_count": len(aggregate["_claim_ids"]),
+                    "outcome_label_count": len(outcome_rows),
+                },
+            ),
+        }
+        record["private_text_included"] = _public_payload_private_text_included(record)
+        rows.append(record)
+    return rows
+
+
+def _registry_output_path(
+    root: str | Path,
+    registry_dir: str | Path,
+    relative_path: str,
+) -> Path:
+    root_path = Path(root).expanduser().resolve()
+    registry_path = Path(registry_dir)
+    if not registry_path.is_absolute():
+        registry_path = root_path / registry_path
+    return _report_intelligence_registry_path(
+        root_path=root_path,
+        registry_dir=registry_path,
+        relative_path=relative_path,
+    )
+
+
+def write_stock_context_snapshots(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+) -> dict[str, Any]:
+    return _write_jsonl(
+        _registry_output_path(
+            root,
+            registry_dir,
+            REPORT_INTELLIGENCE_STOCK_CONTEXT_SNAPSHOTS_PATH,
+        ),
+        rows,
+    )
+
+
+def write_industry_context_snapshots(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+) -> dict[str, Any]:
+    return _write_jsonl(
+        _registry_output_path(
+            root,
+            registry_dir,
+            REPORT_INTELLIGENCE_INDUSTRY_CONTEXT_SNAPSHOTS_PATH,
+        ),
+        rows,
     )
 
 
@@ -33609,6 +34064,20 @@ def run_report_intelligence_derived_refresh(
         macro_curve_directional_readiness=macro_curve_directional_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
+    stock_context_snapshot_rows = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        stock_price_proxy_readiness=stock_price_proxy_readiness,
+    )
+    industry_context_snapshot_rows = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
+        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+    )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
         forecast_rows=forecast_rows,
@@ -34003,6 +34472,18 @@ def run_report_intelligence_derived_refresh(
                 macro_market_series_catalog_rows,
             )["path"]
         ),
+        "stock_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "stock_context_snapshots.jsonl",
+                stock_context_snapshot_rows,
+            )["path"]
+        ),
+        "industry_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "industry_context_snapshots.jsonl",
+                industry_context_snapshot_rows,
+            )["path"]
+        ),
         "macro_regime_snapshots": str(
             _write_jsonl(
                 registry_dir / "macro_regime_snapshots.jsonl",
@@ -34252,6 +34733,8 @@ def run_report_intelligence_derived_refresh(
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
         macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
+        stock_context_snapshot_rows=len(stock_context_snapshot_rows),
+        industry_context_snapshot_rows=len(industry_context_snapshot_rows),
         macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
         macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
@@ -34773,6 +35256,20 @@ def run_report_intelligence_refresh(
         macro_curve_directional_readiness=macro_curve_directional_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
+    stock_context_snapshot_rows = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        stock_price_proxy_readiness=stock_price_proxy_readiness,
+    )
+    industry_context_snapshot_rows = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
+        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+    )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
         forecast_rows=forecast_rows,
@@ -35165,6 +35662,18 @@ def run_report_intelligence_refresh(
                 macro_market_series_catalog_rows,
             )["path"]
         ),
+        "stock_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "stock_context_snapshots.jsonl",
+                stock_context_snapshot_rows,
+            )["path"]
+        ),
+        "industry_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "industry_context_snapshots.jsonl",
+                industry_context_snapshot_rows,
+            )["path"]
+        ),
         "macro_regime_snapshots": str(
             _write_jsonl(
                 registry_dir / "macro_regime_snapshots.jsonl",
@@ -35416,6 +35925,8 @@ def run_report_intelligence_refresh(
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
         macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
+        stock_context_snapshot_rows=len(stock_context_snapshot_rows),
+        industry_context_snapshot_rows=len(industry_context_snapshot_rows),
         macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
         macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),

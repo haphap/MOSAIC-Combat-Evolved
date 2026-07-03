@@ -899,17 +899,17 @@ evolution candidate 归因，不能用于抽取阶段判断 claim 对错。
 
 ### P4.S 个股 context snapshot
 
-状态：降级 contract 已落地，builder/schema 尚未实现；当前 stock context 仍主要通过
-outcome/readiness/profile 和 generic RKE research context 间接表达。本节是后续条件 11/12 的
-设计目标。
+状态：builder/schema/write path 已落地；clean private validation corpus 当前生成 74 条
+`stock_context_snapshots.jsonl` rows。agent context 在 snapshot 存在时输出
+`context_snapshot_status=available`，缺失时仍保留降级 contract。
 
-实施规模：M。它不是条件 11 的前置 blocker；若暂不实现，agent prior 仍可从
+实施规模：M。它不是条件 11 的前置 blocker；若私有 snapshot artifact 缺失，agent prior 仍可从
 `stock_price_proxy` outcome/readiness/profile 和 generic RKE research context 降级读取，但必须输出
 `stock_context_snapshot_missing` 或等价 no-prior reason，不能伪造 market-cap/liquidity 背景。
-当前 `build_rke_agent_research_context_from_rows()` 已在 stock prior context item 中输出
+当前 `build_rke_agent_research_context_from_rows()` 已支持 stock snapshot 可选输入，并在缺失时输出
 `context_snapshot_status=missing` 和 `stock_context_snapshot_missing` ranking reason。
 
-拟新增 builder：
+已新增 builder：
 
 - `build_stock_context_snapshots(...)`
 - `write_stock_context_snapshots(root=...)`
@@ -950,17 +950,17 @@ claim_validation_allowed=false
 
 ### P4.I 行业 context snapshot
 
-状态：降级 contract 已落地，builder/schema 尚未实现；当前 industry context 仍主要通过
-`industry_etf_proxy_map`、PIT availability、outcome/readiness/profile 和 generic RKE research
-context 表达。本节是后续条件 11/12 的设计目标。
+状态：builder/schema/write path 已落地；clean private validation corpus 当前生成 58 条
+`industry_context_snapshots.jsonl` rows。agent context 在 snapshot 存在时输出
+`context_snapshot_status=available`，缺失时仍保留 proxy 降级 contract。
 
-实施规模：M。它不是条件 11 的前置 blocker；若暂不实现，sector/decision agents 仍可从
+实施规模：M。它不是条件 11 的前置 blocker；若私有 snapshot artifact 缺失，sector/decision agents 仍可从
 industry ETF proxy outcome/readiness/profile 降级读取，但必须保留 `industry_context_snapshot_missing`
 和 proxy limitation，不得把 broad ETF proxy 当作直接行业组合收益。
-当前 `build_rke_agent_research_context_from_rows()` 已在 industry prior context item 中输出
+当前 `build_rke_agent_research_context_from_rows()` 已支持 industry snapshot 可选输入，并在缺失时输出
 `context_snapshot_status=missing` 和 `industry_context_snapshot_missing` ranking reason。
 
-拟新增 builder：
+已新增 builder：
 
 - `build_industry_context_snapshots(...)`
 - `write_industry_context_snapshots(root=...)`
@@ -1904,14 +1904,14 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 实施：
 
 - stock context snapshot：sector、liquidity、market-cap、outcome age bucket、tradeability gaps。
-  状态：proposed，尚未实现 builder/schema；实施规模 M。新增
+  状态：已实现 builder/schema/write path；clean private validation corpus 当前生成 74 条 rows。新增
   `build_stock_context_snapshots(...)`、`write_stock_context_snapshots(root=...)` 和
-  `schemas/report_intelligence_stock_context_snapshot.schema.json`。若未启用，agent prior 必须
+  `schemas/report_intelligence_stock_context_snapshot.schema.json`。若私有 snapshot artifact 缺失，agent prior 必须
   降级到 stock outcome/readiness/profile，并输出 snapshot-missing/no-prior reason。
 - industry context snapshot：canonical sector、cycle bucket、mapping confidence、proxy limitation。
-  状态：proposed，尚未实现 builder/schema；实施规模 M。新增
+  状态：已实现 builder/schema/write path；clean private validation corpus 当前生成 58 条 rows。新增
   `build_industry_context_snapshots(...)`、`write_industry_context_snapshots(root=...)` 和
-  `schemas/report_intelligence_industry_context_snapshot.schema.json`。若未启用，sector prior 必须
+  `schemas/report_intelligence_industry_context_snapshot.schema.json`。若私有 snapshot artifact 缺失，sector prior 必须
   降级到 industry ETF proxy outcome/readiness/profile，并保留 proxy limitation。
 - 每个已启用 macro agent 的 PIT snapshot builder。状态：已实现 macro path。
 - snapshot data vintage hash。
@@ -2148,13 +2148,15 @@ shadow-only，不改变生产交易：
   `assignment_gap_counts={}`，并通过 `industry_default_agents` 规则把 8687 条缺显式 owner 的
   claim 路由到 sector/decision owning-agent 候选。clean validation corpus 仍有
   `agent_assignment_missing=33`，作为后续 target-family mapping 扩展项。stock/industry context snapshot
-  仍是 proposed artifact，当前没有 `build_stock_context_snapshots` 或
-  `build_industry_context_snapshots` builder。
+  builder/schema/write path 已落地，clean validation corpus 当前输出 74 条 stock snapshot rows 和
+  58 条 industry snapshot rows；剩余缺口是 market-cap bucket 仍多为 `unknown`、industry cycle
+  bucket 仍为 `industry_cycle_bucket_missing`，需要后续 PIT fundamental/cycle source 补齐。
 - 条件 5：已满足 Part 1 builder contract。宏观已有 7 个 macro agents 的 redacted research priors：
   `macro.central_bank`、`macro.china`、`macro.commodities`、`macro.dollar`、
   `macro.emerging_markets`、`macro.geopolitical`、`macro.yield_curve`；`macro.volatility`
   当前因缺少可评价 volatility claim leg 无 prior 输出。stock/industry prior 可以进入
-  generic RKE research context，并且 stock/industry context item 已带
+  generic RKE research context；当私有 snapshot artifact 存在时，stock/industry context item 已能输出
+  `context_snapshot_status=available` 和 safe bucket/proxy 字段，缺失时仍带
   `stock_context_snapshot_missing` / `industry_context_snapshot_missing` 降级原因。Munger、
   Burry、Ackman、Druckenmiller 的 stock prior 已输出不同 `role_filter_*` reason codes；
   removed superinvestor agent 得到 explicit `unsupported_superinvestor_agent` no-prior reason。
@@ -2274,8 +2276,8 @@ prompt repo 版本的 RKE 驱动演化仍未完成。
 
 1. 保持 clean private validation corpus 的三域 PIT outcome / markdown coverage 样本，
    不把默认 checked-in registry 的 missing private inputs 当作 Part 1 gate 失败。
-2. 同步补剩余三域评级缺口：stock/industry context snapshot 和剩余 target-family
-   owning-agent mapping。`blocked_assignment` 已从 readiness/candidate 证据推进到可复核的
+2. 同步补剩余三域评级缺口：剩余 target-family owning-agent mapping、stock market-cap/fundamental
+   buckets 和 industry cycle buckets。`blocked_assignment` 已从 readiness/candidate 证据推进到可复核的
    aggregate，后续只需随新 target family 扩展映射。
 3. 最后把 compiler 输出接到 P7/P11.6 的 evolution gate，仍保持 shadow-only；all-agent
    benchmark、replay、Darwinian weight 和 private prompt mutation 按

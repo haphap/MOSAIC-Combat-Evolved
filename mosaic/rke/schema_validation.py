@@ -465,6 +465,18 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         True,
     ),
     (
+        "schemas/report_intelligence_stock_context_snapshot.schema.json",
+        "registry/report_intelligence/stock_context_snapshots.jsonl",
+        "jsonl",
+        True,
+    ),
+    (
+        "schemas/report_intelligence_industry_context_snapshot.schema.json",
+        "registry/report_intelligence/industry_context_snapshots.jsonl",
+        "jsonl",
+        True,
+    ),
+    (
         "schemas/report_intelligence_method_performance_profile.schema.json",
         "registry/report_intelligence/method_performance_profiles.jsonl",
         "jsonl",

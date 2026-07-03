@@ -209,6 +209,52 @@ def test_superinvestor_context_uses_role_filtered_reason_codes():
         )
 
 
+def test_superinvestor_context_uses_available_stock_snapshot():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="munger",
+        layer="superinvestor",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-STOCK-SNAPSHOT",
+                "report_id": "RPT-STOCK-SNAPSHOT",
+                "target": {"target_type": "stock", "target_id": "600519.SH"},
+                "metric_proxy_mapping": ["moat", "roic", "free_cash_flow"],
+                "direction": "positive",
+                "signal_datetime": "2026-01-10T09:00:00+08:00",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-STOCK-SNAPSHOT",
+                "report_type": "个股研报",
+                "ts_code": "600519.SH",
+                "sector": "食品饮料",
+                "publish_datetime": "2026-01-10T09:00:00+08:00",
+            }
+        ],
+        stock_context_snapshots=[
+            {
+                "snapshot_id": "SCS-1",
+                "as_of_date": "2026-01-10",
+                "stock_symbol": "600519.SH",
+                "market_cap_bucket": "large_cap",
+                "liquidity_bucket": "tradable_proxy_observed",
+                "stock_outcome_age_bucket": "stock_outcome_pending",
+                "benchmark_family": "CSI300_ETF_PROXY",
+                "missing_feature_reasons": [],
+            }
+        ],
+    )
+
+    item = context["context_items"][0]
+    assert item["context_snapshot_status"] == "available"
+    assert item["context_snapshot_missing_reasons"] == []
+    assert item["context_snapshot_id"] == "SCS-1"
+    assert item["market_cap_bucket"] == "large_cap"
+    assert item["liquidity_bucket"] == "tradable_proxy_observed"
+    assert "stock_context_snapshot_missing" not in item["ranking_reason_codes"]
+
+
 def test_removed_superinvestor_gets_explicit_no_prior_reason():
     context = build_rke_agent_research_context_from_rows(
         agent_id="aschenbrenner",
@@ -367,6 +413,58 @@ def test_sector_context_marks_missing_industry_snapshot_boundary():
         "industry_context_snapshot_missing"
     ]
     assert "industry_context_snapshot_missing" in item["ranking_reason_codes"]
+
+
+def test_sector_context_uses_available_industry_snapshot():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="semiconductor",
+        layer="sector",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-SEMI-SNAPSHOT",
+                "report_id": "RPT-SEMI-SNAPSHOT",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+                "signal_datetime": "2026-01-10T09:00:00+08:00",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-SEMI-SNAPSHOT",
+                "report_type": "行业研报",
+                "sector": "半导体",
+                "publish_datetime": "2026-01-10T09:00:00+08:00",
+            }
+        ],
+        industry_context_snapshots=[
+            {
+                "snapshot_id": "ICS-1",
+                "as_of_date": "2026-01-10",
+                "canonical_sector": "半导体",
+                "industry_cycle_bucket": "unknown",
+                "proxy_symbol": "512480.SH",
+                "mapping_confidence": "operator_seeded_exact_sector",
+                "proxy_liquidity_bucket": "pit_available",
+                "benchmark_family": "CSI300_ETF_PROXY",
+                "known_proxy_limitations": [
+                    "broad_etf_proxy_not_direct_industry_portfolio"
+                ],
+                "missing_feature_reasons": ["industry_cycle_bucket_missing"],
+            }
+        ],
+    )
+
+    item = context["context_items"][0]
+    assert item["context_snapshot_status"] == "available"
+    assert item["context_snapshot_missing_reasons"] == []
+    assert item["context_snapshot_id"] == "ICS-1"
+    assert item["proxy_symbol"] == "512480.SH"
+    assert item["proxy_liquidity_bucket"] == "pit_available"
+    assert item["known_proxy_limitations"] == [
+        "broad_etf_proxy_not_direct_industry_portfolio"
+    ]
+    assert "industry_context_snapshot_missing" not in item["ranking_reason_codes"]
 
 
 def test_context_safety_rejects_forbidden_fields():

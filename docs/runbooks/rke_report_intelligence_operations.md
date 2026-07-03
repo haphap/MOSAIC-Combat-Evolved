@@ -70,7 +70,8 @@ Keep these classes local/gitignored:
   summaries;
 - extracted claim, footprint, metadata, review-aid, and outcome-label files;
 - recipe/method/tool-gap/metric-candidate detail JSONL files;
-- macro regime snapshot and macro agent research-prior detail exports;
+- macro, stock, and industry context snapshot detail exports, plus macro agent
+  research-prior detail exports;
 - audit, monitor, gap-distribution, prompt-mutation, and paper-trading history
   JSONL files.
 
@@ -1480,6 +1481,12 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   longer refusal-only, with 5 macro prior rule/parameter candidates plus stock
   and industry prior recipe/rule candidates. These artifacts remain local and
   shadow-only.
+- `2026-07-03`: Re-ran the clean private corpus after adding stock/industry PIT
+  context snapshots. `extraction_report.json` now records
+  `stock_context_snapshot_rows=74` and `industry_context_snapshot_rows=58`;
+  `evolution_readiness_gate.json` still has `gate_status=passed` and
+  `blocker_count=0`. Snapshot rows are background-only, schema-validated local
+  artifacts and must not be committed.
 - `2026-06-15`: Documented that MinerU/vLLM are already configured locally and
   should be reused before reinstalling.
 - `2026-06-15`: Fixed MinerU command resolution so relative commands such as
