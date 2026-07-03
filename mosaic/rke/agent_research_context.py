@@ -13,6 +13,7 @@ import re
 from collections import defaultdict
 from functools import lru_cache
 from hashlib import sha256
+from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -1508,16 +1509,18 @@ def _date_key(value: Any) -> str:
 
 def _round_float(value: Any) -> float:
     try:
-        return round(float(value), 4)
+        number = float(value)
     except (TypeError, ValueError):
         return 0.0
+    return round(number, 4) if isfinite(number) else 0.0
 
 
 def _safe_float(value: Any, default: float) -> float:
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return default
+    return number if isfinite(number) else default
 
 
 def _int_or_none(value: Any) -> int | None:

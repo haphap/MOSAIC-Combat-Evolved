@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date
 import hashlib
 import json
+from math import isfinite
 from typing import Annotated
 from typing import Any
 from typing import Mapping
@@ -212,16 +213,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     ):
         failures.append("item_freshness_bucket_mismatch")
     if items and any(
-        not isinstance(item.get("combined_research_prior_weight"), (int, float))
-        or isinstance(item.get("combined_research_prior_weight"), bool)
-        or item.get("combined_research_prior_weight") < 0
+        not _is_non_negative_finite_number(item.get("combined_research_prior_weight"))
         for item in items
     ):
         failures.append("item_combined_weight_invalid")
     if items and any(
-        not isinstance(item.get("n_effective"), (int, float))
-        or isinstance(item.get("n_effective"), bool)
-        or item.get("n_effective") < 0
+        not _is_non_negative_finite_number(item.get("n_effective"))
         for item in items
     ):
         failures.append("item_n_effective_invalid")
@@ -285,9 +282,7 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         or summary.get("pending_label_count") < 0
         or summary.get("pending_label_count") > summary.get("label_count")
         or summary.get("directional_hit_count") > summary.get("label_count")
-        or not isinstance(summary.get("pending_share"), (int, float))
-        or isinstance(summary.get("pending_share"), bool)
-        or summary.get("pending_share") < 0
+        or not _is_non_negative_finite_number(summary.get("pending_share"))
         or summary.get("pending_share") > 1
         or (
             summary.get("pending_share")
@@ -419,6 +414,15 @@ def _optional_non_negative_int(value: Any) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
     return None
+
+
+def _is_non_negative_finite_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(value)
+        and value >= 0
+    )
 
 
 def _is_iso_date(value: Any) -> bool:

@@ -1243,12 +1243,20 @@ def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
                     "agent_target_specificity_bucket": "manual_override",
                     "performance_context_match": "perfect_match",
                     "freshness_bucket": "pending_no_completed_exit",
-                    "combined_research_prior_weight": 1.0,
+                    "combined_research_prior_weight": float("inf"),
                     "latest_completed_exit_date": "",
-                    "n_effective": 3.0,
+                    "n_effective": float("nan"),
                     "known_failure_mode_tags": [],
                     "recipe_ids": [],
                     "tool_gap_ids": [],
+                    "outcome_label_summary": {
+                        "label_count": 1,
+                        "directional_hit_count": 0,
+                        "pending_label_count": 1,
+                        "pending_share": float("nan"),
+                        "label_types": ["macro_series_directional"],
+                        "latest_completed_exit_date": "",
+                    },
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                     "ranking_reason_codes": ["agent_specific_match"],
@@ -1276,6 +1284,9 @@ def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
     assert "item_performance_bucket_invalid" in output
     assert "item_reliability_bucket_invalid" in output
     assert "item_ranking_metadata_invalid" in output
+    assert "item_combined_weight_invalid" in output
+    assert "item_n_effective_invalid" in output
+    assert "outcome_label_summary_invalid" in output
 
 
 def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
