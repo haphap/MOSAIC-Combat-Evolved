@@ -598,6 +598,8 @@ def test_rke_research_tool_formats_context(monkeypatch):
             "ranking_policy_id": "rke_agent_research_context_rank_v1",
             "context_items": [],
             "summary": {
+                "item_count": 0,
+                "matched_item_count": 0,
                 "private_text_included": False,
                 "truncated_item_count": 0,
                 "current_data_required": True,
@@ -792,6 +794,8 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                 }
             ],
             "summary": {
+                "item_count": 1,
+                "matched_item_count": 1,
                 "private_text_included": False,
                 "truncated_item_count": 0,
                 "current_data_required": True,
@@ -909,6 +913,41 @@ def test_rke_runtime_context_preflight_blocks_malformed_context_items():
     assert "context_item_not_object" in non_object
     assert "runtime_preflight_status=blocked" in malformed
     assert "runtime_preflight_status=blocked" in non_object
+
+
+def test_rke_runtime_context_preflight_blocks_count_metadata_mismatch():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
+                    "actionability_guard": SAFE_ACTIONABILITY,
+                }
+            ],
+            "summary": {
+                "item_count": 2,
+                "matched_item_count": 1,
+                "private_text_included": False,
+                "truncated_item_count": 1,
+                "current_data_required": True,
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "item_count_mismatch" in output
+    assert "truncated_item_count_mismatch" in output
 
 
 def test_normalize_agent_id_accepts_ts_and_rke_forms():

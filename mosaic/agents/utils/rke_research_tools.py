@@ -108,6 +108,18 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         assert_public_safe_context(context)
     except ValueError:
         failures.append("public_safe_context_violation")
+    item_count = _optional_non_negative_int(summary_map.get("item_count"))
+    if item_count is None:
+        failures.append("item_count_invalid")
+    elif item_count != len(items):
+        failures.append("item_count_mismatch")
+    matched_item_count = _optional_non_negative_int(
+        summary_map.get("matched_item_count")
+    )
+    if matched_item_count is None:
+        failures.append("matched_item_count_invalid")
+    elif matched_item_count < len(items):
+        failures.append("matched_item_count_below_visible")
     truncated_item_count = _optional_non_negative_int(
         summary_map.get("truncated_item_count")
     )
@@ -116,6 +128,9 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         and truncated_item_count is None
     ):
         failures.append("truncated_item_count_invalid")
+    elif matched_item_count is not None and truncated_item_count is not None:
+        if matched_item_count - len(items) != truncated_item_count:
+            failures.append("truncated_item_count_mismatch")
     return {
         "runtime_preflight_status": "blocked" if failures else "passed",
         "preflight_failures": failures,
