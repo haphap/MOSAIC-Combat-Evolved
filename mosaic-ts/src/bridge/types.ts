@@ -635,6 +635,55 @@ export interface RkeCandidateConsumptionManifestResult {
   };
 }
 
+export interface RkePromptMutationPromptPin {
+  agent: string;
+  lang: string;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_file_path: string;
+  prompt_sha256: string;
+  fallback_used: boolean;
+}
+
+export interface RkePromptMutationLifecycleRecord {
+  mutation_candidate_id: string;
+  candidate_type: string;
+  target_component: string;
+  affected_agents: string[];
+  candidate_action:
+    | "private_prompt_branch_after_blockers_clear"
+    | "record_refusal_no_prompt_branch";
+  private_prompt_branch: string;
+  overwrite_target_paths: string[];
+  prompt_pins: RkePromptMutationPromptPin[];
+  lifecycle_stages: string[];
+  rke_prior_usage_hypothesis: string;
+  expected_improvement_metric: string;
+  fallback_rollback_rule: string;
+  benchmark_evidence_required: boolean;
+  manual_review_required: boolean;
+  promotion_allowed: boolean;
+  blocked_by: string[];
+}
+
+export interface RkePromptMutationLifecycleManifestResult {
+  schema_version: "rke_prompt_mutation_lifecycle_manifest_v1";
+  manifest_status: "ready_for_private_branch" | "blocked_preflight";
+  blocked_reasons: string[];
+  candidate_count: number;
+  affected_agents: string[];
+  prompt_preflight: {
+    ready: boolean;
+    row_count: number;
+    blocked_count: number;
+  };
+  lifecycle_records: RkePromptMutationLifecycleRecord[];
+  private_prompt_repo_required: boolean;
+  direct_prompt_write_allowed: boolean;
+  promotion_allowed: boolean;
+  rollback_required_before_promotion: boolean;
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1245,6 +1294,15 @@ export class BridgeApi {
   }): Promise<RkeCandidateConsumptionManifestResult> {
     return this.client.call<RkeCandidateConsumptionManifestResult>(
       "rke_benchmark.candidate_consumption_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkPromptMutationLifecycleManifest(params?: {
+    candidates?: Array<Record<string, unknown>>;
+  }): Promise<RkePromptMutationLifecycleManifestResult> {
+    return this.client.call<RkePromptMutationLifecycleManifestResult>(
+      "rke_benchmark.prompt_mutation_lifecycle_manifest",
       params ?? {},
     );
   }

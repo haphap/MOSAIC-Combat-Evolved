@@ -542,6 +542,169 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.prompt_mutation_lifecycle_manifest")
+def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]:
+    """Plan private prompt mutation lifecycle records without applying prompts."""
+    candidate_manifest = candidate_consumption_manifest(
+        {"candidates": params.get("candidates")}
+        if "candidates" in params
+        else {}
+    )
+    affected_agents = sorted(
+        {
+            agent
+            for item in candidate_manifest["candidate_summaries"]
+            for agent in _affected_agents_from_candidate(item)
+        }
+    )
+    prompt_preflight = (
+        prompts_preflight({"agents": affected_agents, "langs": ["zh", "en"]})
+        if affected_agents
+        else {"ready": False, "rows": [], "blocked_count": 0}
+    )
+    prompt_rows_by_agent: dict[str, list[dict[str, Any]]] = {}
+    for row in prompt_preflight.get("rows", []):
+        if isinstance(row, dict):
+            prompt_rows_by_agent.setdefault(_clean_str(row.get("agent")), []).append(row)
+
+    records: list[dict[str, Any]] = []
+    for item in candidate_manifest["candidate_summaries"]:
+        candidate_agents = _affected_agents_from_candidate(item)
+        is_refusal = "refusal" in item["candidate_type"]
+        prompt_pins = [
+            {
+                "agent": _clean_str(row.get("agent")),
+                "lang": _clean_str(row.get("lang")),
+                "prompt_repo_id": _clean_str(row.get("prompt_repo_id")),
+                "prompt_repo_revision": _clean_str(row.get("prompt_repo_revision")),
+                "prompt_file_path": _clean_str(row.get("prompt_file_path")),
+                "prompt_sha256": _clean_str(row.get("prompt_sha256")),
+                "fallback_used": row.get("fallback_used") is True,
+            }
+            for agent in candidate_agents
+            for row in prompt_rows_by_agent.get(agent, [])
+            if row.get("status") == "ready"
+        ]
+        if is_refusal:
+            records.append(
+                {
+                    "mutation_candidate_id": item["mutation_candidate_id"],
+                    "candidate_type": item["candidate_type"],
+                    "target_component": item["target_component"],
+                    "affected_agents": candidate_agents,
+                    "candidate_action": "record_refusal_no_prompt_branch",
+                    "private_prompt_branch": "",
+                    "overwrite_target_paths": [],
+                    "prompt_pins": [],
+                    "lifecycle_stages": [
+                        "refusal_recorded",
+                        "benchmark_replay_visibility",
+                        "no_prompt_write",
+                    ],
+                    "rke_prior_usage_hypothesis": "preserve_refusal_reason_visibility",
+                    "expected_improvement_metric": "refusal_quality",
+                    "fallback_rollback_rule": "not_applicable_refusal_no_prompt_change",
+                    "benchmark_evidence_required": True,
+                    "manual_review_required": True,
+                    "promotion_allowed": False,
+                    "blocked_by": item["blocked_by"],
+                }
+            )
+            continue
+        records.append(
+            {
+                "mutation_candidate_id": item["mutation_candidate_id"],
+                "candidate_type": item["candidate_type"],
+                "target_component": item["target_component"],
+                "affected_agents": candidate_agents,
+                "candidate_action": "private_prompt_branch_after_blockers_clear",
+                "private_prompt_branch": (
+                    "rke/"
+                    + _slug(item["mutation_candidate_id"])
+                    + "/"
+                    + _slug(item["target_component"])
+                ),
+                "overwrite_target_paths": [
+                    pin["prompt_file_path"] for pin in prompt_pins if pin["prompt_file_path"]
+                ],
+                "prompt_pins": prompt_pins,
+                "lifecycle_stages": [
+                    "candidate",
+                    "private_prompt_branch",
+                    "overwrite_current_private_prompt_file",
+                    "leak_drift_check",
+                    "fixed_episode_benchmark",
+                    "manual_review",
+                    "shadow_replay",
+                    "paper_trading",
+                    "promotion_gate",
+                    "rollback_monitor",
+                ],
+                "rke_prior_usage_hypothesis": (
+                    "improve_rke_prior_usage_or_refusal_quality_without_current_data_bypass"
+                ),
+                "expected_improvement_metric": (
+                    "rke_prior_usage_quality_and_refusal_quality"
+                ),
+                "fallback_rollback_rule": (
+                    "rollback by restoring previous private prompt git revision "
+                    "and prompt_sha256; public repo prompt writes remain forbidden"
+                ),
+                "benchmark_evidence_required": True,
+                "manual_review_required": True,
+                "promotion_allowed": False,
+                "blocked_by": item["blocked_by"],
+            }
+        )
+
+    blocked_reasons: list[str] = []
+    if candidate_manifest["manifest_status"] != "ready_for_private_prompt_lifecycle":
+        blocked_reasons.append("candidate_consumption_manifest_not_ready")
+    if not affected_agents:
+        blocked_reasons.append("affected_agent_resolution_missing")
+    if not prompt_preflight.get("ready"):
+        blocked_reasons.append("private_prompt_preflight_not_ready")
+    if any(pin.get("fallback_used") for record in records for pin in record["prompt_pins"]):
+        blocked_reasons.append("fallback_prompt_used")
+    if records and all(
+        record["candidate_action"] == "record_refusal_no_prompt_branch"
+        for record in records
+    ):
+        blocked_reasons.append("refusal_only_no_prompt_branch_candidate")
+
+    return {
+        "schema_version": "rke_prompt_mutation_lifecycle_manifest_v1",
+        "manifest_status": "blocked_preflight" if blocked_reasons else "ready_for_private_branch",
+        "blocked_reasons": blocked_reasons,
+        "candidate_count": candidate_manifest["candidate_count"],
+        "affected_agents": affected_agents,
+        "prompt_preflight": {
+            "ready": bool(prompt_preflight.get("ready")),
+            "row_count": len(prompt_preflight.get("rows", [])),
+            "blocked_count": int(prompt_preflight.get("blocked_count") or 0),
+        },
+        "lifecycle_records": records,
+        "private_prompt_repo_required": True,
+        "direct_prompt_write_allowed": False,
+        "promotion_allowed": False,
+        "rollback_required_before_promotion": True,
+    }
+
+
+def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
+    component = _clean_str(item.get("target_component"))
+    if "." in component:
+        component = component.rsplit(".", 1)[1]
+    if component in _LAYER_BY_AGENT:
+        return [component]
+    return []
+
+
+def _slug(value: str) -> str:
+    chars = [char.lower() if char.isalnum() else "-" for char in value]
+    return "-".join(part for part in "".join(chars).split("-") if part) or "unknown"
+
+
 def _read_prompt_mutation_candidate_rows() -> tuple[list[dict[str, Any]], list[str]]:
     path = _repo_root() / _PROMPT_MUTATION_CANDIDATES_REL_PATH
     if not path.exists():

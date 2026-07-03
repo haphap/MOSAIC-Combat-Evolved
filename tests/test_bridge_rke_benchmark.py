@@ -431,3 +431,78 @@ def test_candidate_consumption_manifest_rejects_prompt_bypass():
         "promotion_state must remain shadow_candidate_only" in failure
         for failure in manifest["manifest_blockers"]
     )
+
+
+def test_prompt_mutation_lifecycle_manifest_blocks_missing_candidates(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch("rke_benchmark.prompt_mutation_lifecycle_manifest", {})
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "candidate_consumption_manifest_not_ready" in manifest["blocked_reasons"]
+    assert manifest["direct_prompt_write_allowed"] is False
+
+
+def test_prompt_mutation_lifecycle_manifest_records_private_branch(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_lifecycle_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=["paper_trading_gate_pending"],
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "ready_for_private_branch"
+    assert manifest["direct_prompt_write_allowed"] is False
+    assert manifest["rollback_required_before_promotion"] is True
+    record = manifest["lifecycle_records"][0]
+    assert record["candidate_action"] == "private_prompt_branch_after_blockers_clear"
+    assert record["affected_agents"] == ["munger"]
+    assert record["private_prompt_branch"].startswith("rke/pmut-1/")
+    assert record["promotion_allowed"] is False
+    assert "rollback" in record["fallback_rollback_rule"]
+    assert (
+        "prompts/mosaic/cohort_default/superinvestor/munger.zh.md"
+        in record["overwrite_target_paths"]
+    )
+
+
+def test_prompt_mutation_lifecycle_manifest_keeps_refusal_out_of_prompt_branch(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_lifecycle_manifest",
+        {"candidates": [_mutation_candidate()]},
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "refusal_only_no_prompt_branch_candidate" in manifest["blocked_reasons"]
+    record = manifest["lifecycle_records"][0]
+    assert record["candidate_action"] == "record_refusal_no_prompt_branch"
+    assert record["private_prompt_branch"] == ""
+    assert record["overwrite_target_paths"] == []
+    assert "missing_pit_outcome" in record["blocked_by"]

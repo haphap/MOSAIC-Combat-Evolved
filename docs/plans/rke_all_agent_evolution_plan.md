@@ -295,6 +295,20 @@ Each mutation must record:
 - fallback/rollback rule
 - benchmark evidence
 
+Status 2026-07-03:
+
+- Public bridge now exposes `rke_benchmark.prompt_mutation_lifecycle_manifest`,
+  a no-write E4 preflight that converts safe Part 1 candidate/refusal summaries
+  into private prompt mutation lifecycle records. Non-refusal candidates record
+  the planned private prompt branch, overwrite target paths, prompt pins,
+  rollback rule, benchmark/manual-review requirements, and shadow-only promotion
+  guard. Refusal rows only preserve the blocker reason and create no prompt
+  branch; refusal-only input remains `blocked_preflight`.
+- This implements the lifecycle planning proof object. E4 is not complete until
+  actual private prompt branches, leak/drift checks, fixed-episode benchmark
+  evidence, manual review, shadow replay, paper-trading gate, promotion decision,
+  and rollback monitor evidence exist.
+
 ## E5: Darwinian And Autoresearch Inputs
 
 Autoresearch and Darwinian weights must distinguish:
