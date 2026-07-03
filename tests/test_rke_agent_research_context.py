@@ -931,7 +931,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                     "agent_target_specificity_bucket": "direct_agent_target_match",
                     "performance_context_match": "source_and_viewpoint_profile_match",
                     "combined_research_prior_weight": 1.2,
-                    "freshness_bucket": "completed_before_as_of_date",
+                    "freshness_bucket": "historical_completed_exit",
                     "latest_completed_exit_date": "2026-06-20",
                     "statistical_reliability_bucket": "limited",
                     "n_effective": 3.0,
@@ -1009,7 +1009,7 @@ def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
                     "agent_target_specificity_bucket": "direct_agent_target_match",
                     "performance_context_match": "source_and_viewpoint_profile_match",
                     "combined_research_prior_weight": 1.2,
-                    "freshness_bucket": "completed_before_as_of_date",
+                    "freshness_bucket": "historical_completed_exit",
                     "latest_completed_exit_date": "2026-06-20",
                     "statistical_reliability_bucket": "limited",
                     "n_effective": 3.0,
@@ -1049,6 +1049,33 @@ def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
 
     assert "runtime_preflight_status=blocked" in output
     assert "outcome_label_summary_invalid" in output
+
+
+def test_rke_runtime_context_preflight_blocks_future_outcome_freshness():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "as_of_date": "2026-06-27",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "freshness_bucket": "completed_exit_after_prior_as_of",
+                    "latest_completed_exit_date": "2026-06-27",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "item_freshness_bucket_invalid" in output
+    assert "item_latest_exit_date_after_as_of" in output
 
 
 def test_rke_runtime_context_preflight_blocks_bad_snapshot_audit():

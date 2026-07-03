@@ -31,6 +31,7 @@ from mosaic.rke.agent_research_context import (
 
 _PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
 _CONTEXT_SNAPSHOT_STATUSES = frozenset({"available", "missing", "not_required"})
+_FRESHNESS_BUCKETS = frozenset({"historical_completed_exit", "pending_no_completed_exit"})
 
 
 def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
@@ -157,8 +158,16 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         )
     ):
         failures.append("item_ranking_metadata_missing")
+    if items and any(item.get("freshness_bucket") not in _FRESHNESS_BUCKETS for item in items):
+        failures.append("item_freshness_bucket_invalid")
     if items and any("latest_completed_exit_date" not in item for item in items):
         failures.append("item_latest_exit_date_missing")
+    if items and any(
+        item.get("latest_completed_exit_date")
+        and str(item.get("latest_completed_exit_date")) >= as_of_date
+        for item in items
+    ):
+        failures.append("item_latest_exit_date_after_as_of")
     if items and any(
         not isinstance(item.get("combined_research_prior_weight"), (int, float))
         or isinstance(item.get("combined_research_prior_weight"), bool)
