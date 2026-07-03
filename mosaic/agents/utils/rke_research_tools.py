@@ -281,6 +281,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("item_production_signal_not_disabled")
     if items and any(item.get("use_policy") != RESEARCH_PRIOR_USE_POLICY for item in items):
         failures.append("item_use_policy_invalid")
+    if items and any(item.get("actionability") != SAFE_ACTIONABILITY for item in items):
+        failures.append("item_actionability_invalid")
     if items and any(item.get("actionability_guard") != SAFE_ACTIONABILITY for item in items):
         failures.append("item_actionability_guard_invalid")
     if context.get("research_only") is not True:

@@ -890,6 +890,7 @@ def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
                     "current_data_required_fields": ["current_data_confirmation"],
                     "production_signal_allowed": True,
                     "use_policy": "production_signal",
+                    "actionability": "trade_allowed",
                     "actionability_guard": "none",
                 }
             ],
@@ -900,6 +901,7 @@ def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
     assert "runtime_preflight_status=blocked" in output
     assert "item_production_signal_not_disabled" in output
     assert "item_use_policy_invalid" in output
+    assert "item_actionability_invalid" in output
     assert "item_actionability_guard_invalid" in output
     assert "RKE context body withheld: runtime preflight blocked." in output
 
@@ -955,6 +957,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                     "current_data_required_fields": ["current_data_confirmation"],
                     "production_signal_allowed": False,
                     "use_policy": RESEARCH_PRIOR_USE_POLICY,
+                    "actionability": SAFE_ACTIONABILITY,
                     "actionability_guard": SAFE_ACTIONABILITY,
                 }
             ],
