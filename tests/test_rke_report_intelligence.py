@@ -9902,6 +9902,53 @@ def test_report_intelligence_evolution_gate_audits_prior_compiler_paths():
     assert check["evidence"]["private_text_violation_count"] == 0
 
 
+def test_report_intelligence_evolution_gate_blocks_prior_compiler_refusal_only():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-PRIOR-COMPILER-REFUSAL-ONLY",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        prompt_mutation_candidate_rows=[
+            {
+                "candidate_type": "stock_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "stock"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "industry_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "industry"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_refusal",
+                "evidence_refs": [{"agent_id": "macro.central_bank"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_refusal",
+                "evidence_refs": [{"agent_id": "macro.yield_curve"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-08")
+    assert check["passed"] is False
+    assert "prior_compiler_refusal_only" in check["blockers"]
+    assert check["evidence"]["prior_compiler_actionable_candidate_count"] == 0
+    assert gate["gate_status"] == "blocked"
+
+
 def test_report_intelligence_evolution_gate_audits_agent_context_ranking_contract():
     gate = build_report_intelligence_evolution_readiness_gate(
         run_id="RIR-TEST-AGENT-CONTEXT-GATE",

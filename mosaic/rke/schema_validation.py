@@ -5700,6 +5700,35 @@ def _validate_evolution_readiness_gate_contract(
                     f"{row_label}.evidence.coverage_gate_blockers: must be empty"
                 )
 
+    check_08 = checks_by_id.get("RI-EVOL-08")
+    if check_08:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-08]"
+        evidence = evidence_mapping(check_08, row_label)
+        if str(evidence.get("status") or "") != (
+            "not_applicable_prompt_mutation_candidates_not_supplied"
+        ):
+            prior_count = _int_or_none(evidence.get("prior_compiler_candidate_count"))
+            actionable_count = _int_or_none(
+                evidence.get("prior_compiler_actionable_candidate_count")
+            )
+            if prior_count is None:
+                failures.append(
+                    f"{row_label}.evidence.prior_compiler_candidate_count: expected integer"
+                )
+            if actionable_count is None:
+                failures.append(
+                    f"{row_label}.evidence.prior_compiler_actionable_candidate_count: expected integer"
+                )
+            elif (
+                prior_count
+                and actionable_count == 0
+                and "prior_compiler_refusal_only"
+                not in _string_items(check_08.get("blockers"))
+            ):
+                failures.append(
+                    f"{row_label}.blockers: prior_compiler_refusal_only required"
+                )
+
     return len(checks), failures
 
 

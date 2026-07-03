@@ -3912,6 +3912,35 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     )
 
 
+def test_evolution_readiness_gate_contract_rejects_prior_compiler_refusal_only_pass(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-08")
+    check["blockers"] = []
+    check["passed"] = True
+    check["evidence"]["prior_compiler_actionable_candidate_count"] = 0
+    gate["blockers"] = [
+        blocker
+        for blocker in gate["blockers"]
+        if blocker != "prior_compiler_refusal_only"
+    ]
+    gate["blocker_count"] = len(gate["blockers"])
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "prior_compiler_refusal_only required" in item for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_tampered_outcome_thresholds(
     tmp_path: Path,
 ):

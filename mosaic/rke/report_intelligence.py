@@ -25375,6 +25375,13 @@ PRIOR_COMPILER_CANDIDATE_TYPES = frozenset(
         "macro_prior_rule_parameter_refusal",
     }
 )
+PRIOR_COMPILER_ACTIONABLE_CANDIDATE_TYPES = frozenset(
+    {
+        "stock_prior_recipe_rule_candidate",
+        "industry_prior_recipe_rule_candidate",
+        "macro_prior_rule_parameter_candidate",
+    }
+)
 
 
 def _prior_compiler_gate_check(
@@ -25397,8 +25404,12 @@ def _prior_compiler_gate_check(
                 "status": "not_applicable_prompt_mutation_candidates_not_supplied"
             },
             blockers=[],
-        )
+    )
     type_counts = Counter(str(row.get("candidate_type") or "") for row in prior_rows)
+    actionable_candidate_count = sum(
+        type_counts[candidate_type]
+        for candidate_type in PRIOR_COMPILER_ACTIONABLE_CANDIDATE_TYPES
+    )
     macro_agent_ids = sorted(
         {
             str(_ensure_mapping(_ensure_list(row.get("evidence_refs"))[0]).get("agent_id") or "")
@@ -25430,6 +25441,8 @@ def _prior_compiler_gate_check(
         blockers.append("industry_prior_compiler_path_missing")
     if len(macro_agent_ids) < 2:
         blockers.append("macro_prior_compiler_agent_coverage_missing")
+    if prior_rows and actionable_candidate_count == 0:
+        blockers.append("prior_compiler_refusal_only")
     if private_text_violation_count:
         blockers.append("prior_compiler_private_text_violation")
     if signal_violation_count:
@@ -25443,6 +25456,7 @@ def _prior_compiler_gate_check(
         passed=not blockers,
         evidence={
             "prior_compiler_candidate_count": len(prior_rows),
+            "prior_compiler_actionable_candidate_count": actionable_candidate_count,
             "candidate_type_counts": dict(sorted(type_counts.items())),
             "macro_compiler_agent_ids": macro_agent_ids,
             "macro_compiler_agent_count": len(macro_agent_ids),
