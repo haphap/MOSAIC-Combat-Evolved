@@ -131,6 +131,13 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("priority_bucket_missing")
     elif any(bucket not in _PRIORITY_BUCKETS for bucket in priority_buckets):
         failures.append("priority_bucket_unsupported")
+    elif any(
+        isinstance(item.get("retrieval_rank"), int)
+        and not isinstance(item.get("retrieval_rank"), bool)
+        and item.get("priority_bucket") != _expected_priority_bucket(item["retrieval_rank"])
+        for item in items
+    ):
+        failures.append("priority_bucket_rank_mismatch")
     if items and any(not item.get("redacted_claim_id") for item in items):
         failures.append("redacted_claim_id_missing")
     if items and any(
@@ -425,6 +432,14 @@ def _is_non_negative_finite_number(value: Any) -> bool:
         and isfinite(value)
         and value >= 0
     )
+
+
+def _expected_priority_bucket(rank: int) -> str:
+    if rank <= 3:
+        return "high"
+    if rank <= 10:
+        return "medium"
+    return "low"
 
 
 def _is_iso_date(value: Any) -> bool:

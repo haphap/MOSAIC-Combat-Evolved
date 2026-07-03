@@ -823,6 +823,29 @@ def test_rke_runtime_context_preflight_blocks_unsupported_priority_bucket():
     assert "priority_bucket_unsupported" in output
 
 
+def test_rke_runtime_context_preflight_blocks_priority_rank_mismatch():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "medium",
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "priority_bucket_rank_mismatch" in output
+
+
 def test_rke_runtime_context_preflight_blocks_invalid_truncation_count():
     output = rke_research_tools.format_rke_runtime_context(
         {
