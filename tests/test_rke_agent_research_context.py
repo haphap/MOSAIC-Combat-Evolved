@@ -881,6 +881,8 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                     "statistical_reliability_bucket": "limited",
                     "n_effective": 3.0,
                     "known_failure_mode_tags": [],
+                    "recipe_ids": [],
+                    "tool_gap_ids": [],
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                     "ranking_reason_codes": ["agent_specific_match"],
@@ -909,6 +911,54 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
     assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
     assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
     assert "production_signal_allowed=false" in output
+
+
+def test_rke_runtime_context_preflight_blocks_bad_recipe_tool_gap_ids():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "requested_agent_id": "dollar",
+            "schema_version": SCHEMA_VERSION,
+            "layer": "macro",
+            "as_of_date": "2026-06-27",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "target_type": "macro_series",
+                    "target_id": "USDCNY",
+                    "metric_family": "fx_rate",
+                    "statistical_reliability_bucket": "limited",
+                    "n_effective": 3.0,
+                    "known_failure_mode_tags": [],
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "ranking_reason_codes": ["agent_specific_match"],
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
+                    "actionability_guard": SAFE_ACTIONABILITY,
+                }
+            ],
+            "summary": {
+                "item_count": 1,
+                "matched_item_count": 1,
+                "private_text_included": False,
+                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
+                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
+                "truncated_item_count": 0,
+                "current_data_required": True,
+                "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "item_recipe_tool_gap_ids_invalid" in output
 
 
 def test_rke_runtime_context_preflight_blocks_missing_failure_tags():
