@@ -453,6 +453,7 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
         _increment(claim_type_counts, row["claim_type"])
     runtime_context_summary = _runtime_context_summary(sanitized)
     report_claim_ref_count = _report_claim_ref_count(sanitized)
+    report_claim_linked_row_count = _report_claim_linked_row_count(sanitized)
     return {
         "capture_status": "captured",
         "captured_count": len(sanitized),
@@ -468,6 +469,10 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
                 1 for row in sanitized if row.get("rke_context_hash")
             ),
             "report_claim_ref_count": report_claim_ref_count,
+            "report_claim_linked_row_count": report_claim_linked_row_count,
+            "rke_context_report_claim_linked_count": (
+                _rke_context_report_claim_linked_count(sanitized)
+            ),
             **runtime_context_summary,
         },
         "privacy_scan": {
@@ -540,6 +545,10 @@ def agent_footprint_summary(params: dict[str, Any]) -> dict[str, Any]:
         ),
         "rke_context_hash_count": sum(1 for row in rows if row.get("rke_context_hash")),
         "report_claim_ref_count": _report_claim_ref_count(rows),
+        "report_claim_linked_row_count": _report_claim_linked_row_count(rows),
+        "rke_context_report_claim_linked_count": (
+            _rke_context_report_claim_linked_count(rows)
+        ),
         **_runtime_context_summary(rows),
         "privacy_scan": {
             "private_text_included": False,
@@ -564,6 +573,8 @@ def _empty_footprint_summary(benchmark_run_id: str) -> dict[str, Any]:
         "contradictory_prior_handled_count": 0,
         "rke_context_hash_count": 0,
         "report_claim_ref_count": 0,
+        "report_claim_linked_row_count": 0,
+        "rke_context_report_claim_linked_count": 0,
         **_runtime_context_summary([]),
         "privacy_scan": {
             "private_text_included": False,
@@ -606,6 +617,19 @@ def _report_claim_ref_count(rows: list[dict[str, Any]]) -> int:
     return sum(len(_safe_str_list(row.get("report_claim_refs"))) for row in rows)
 
 
+def _report_claim_linked_row_count(rows: list[dict[str, Any]]) -> int:
+    return sum(1 for row in rows if _safe_str_list(row.get("report_claim_refs")))
+
+
+def _rke_context_report_claim_linked_count(rows: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for row in rows
+        if _clean_str(row.get("rke_context_hash"))
+        and _safe_str_list(row.get("report_claim_refs"))
+    )
+
+
 @method("rke_benchmark.agent_profile_evolution_readiness")
 def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate redacted agent footprints before profile/evolution consumption."""
@@ -633,6 +657,8 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("rke_context_hash_missing")
     if not summary["report_claim_ref_count"]:
         blocked_reasons.append("report_claim_link_missing")
+    if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
+        blocked_reasons.append("rke_context_report_claim_link_incomplete")
     for key in (
         "profile_update_ref",
         "evolution_input_ref",
@@ -657,6 +683,10 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "claim_type_counts": summary["claim_type_counts"],
         "rke_context_hash_count": summary["rke_context_hash_count"],
         "report_claim_ref_count": summary["report_claim_ref_count"],
+        "report_claim_linked_row_count": summary["report_claim_linked_row_count"],
+        "rke_context_report_claim_linked_count": summary[
+            "rke_context_report_claim_linked_count"
+        ],
         "privacy_scan": summary["privacy_scan"],
         "profile_evidence": {
             "profile_update_ref": _clean_str(evidence.get("profile_update_ref")),
@@ -693,6 +723,8 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
         blocked_reasons.append("prompt_mutation_provenance_missing")
     if summary["privacy_scan"]["forbidden_field_violation_count"]:
         blocked_reasons.append("agent_footprint_privacy_scan_failed")
+    if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
+        blocked_reasons.append("rke_context_report_claim_link_incomplete")
 
     return {
         "schema_version": "rke_darwinian_autoresearch_input_manifest_v1",
@@ -712,6 +744,9 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
                     "rke_prior_usage_quality_counts"
                 ],
                 "rke_context_hash_count": summary["rke_context_hash_count"],
+                "rke_context_report_claim_linked_count": summary[
+                    "rke_context_report_claim_linked_count"
+                ],
                 "ranking_policy_id_counts": summary["ranking_policy_id_counts"],
                 "retrieval_rank_count": summary["retrieval_rank_count"],
                 "priority_bucket_counts": summary["priority_bucket_counts"],

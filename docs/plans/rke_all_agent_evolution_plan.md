@@ -476,8 +476,9 @@ Status 2026-07-03:
   run context keys such as `cohort` and `prompt_source_status` separate from
   proof-object keys.
 - Agent footprint summary and profile/evolution readiness now carry redacted
-  `report_claim_refs` aggregate counts, so agent-claim profile activation is
-  blocked until benchmark rows prove at least one report-claim link.
+  `report_claim_refs` aggregate counts, and every footprint row that consumed an
+  RKE context hash must also carry a redacted report-claim link before
+  profile/evolution or Darwinian/autoresearch inputs can be marked ready.
 - Prompt mutation release and rollback readiness now retain candidate
   `blocked_by` as hard blockers, preventing shadow-exit proof from overriding
   unresolved PIT/validation/refusal blockers.

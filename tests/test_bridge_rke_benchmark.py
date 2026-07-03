@@ -492,6 +492,47 @@ def test_agent_profile_evolution_readiness_blocks_missing_report_claim_link(
     assert manifest["profile_evolution_ready"] is False
 
 
+def test_agent_profile_evolution_readiness_blocks_partial_report_claim_links(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-profile-partial-report-link",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
+                },
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "b" * 64,
+                },
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {"benchmark_run_id": "bench-profile-partial-report-link"},
+    )
+
+    assert "rke_context_report_claim_link_incomplete" in manifest["blocked_reasons"]
+    assert manifest["rke_context_hash_count"] == 2
+    assert manifest["rke_context_report_claim_linked_count"] == 1
+    assert manifest["profile_evolution_ready"] is False
+
+
 def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
     tmp_path: Path, monkeypatch
 ):
@@ -517,6 +558,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "sector_claim",
                     "target": {"target_type": "sector", "sector": "semiconductor"},
                     "rke_context_hash": "b" * 64,
+                    "report_claim_refs": ["forecast_claim:sector-semi-001"],
                 },
                 {
                     "agent": "munger",
@@ -524,6 +566,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "style_candidate_claim",
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "c" * 64,
+                    "report_claim_refs": ["forecast_claim:stock-000001-001"],
                 },
                 {
                     "agent": "cio",
@@ -531,6 +574,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "portfolio_action_claim",
                     "target": {"target_type": "portfolio", "target_id": "cn_equity"},
                     "rke_context_hash": "d" * 64,
+                    "report_claim_refs": ["forecast_claim:portfolio-cn-equity-001"],
                 },
             ],
         },
@@ -556,7 +600,8 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
         "superinvestor",
     ]
     assert manifest["missing_layers"] == []
-    assert manifest["report_claim_ref_count"] == 1
+    assert manifest["report_claim_ref_count"] == 4
+    assert manifest["rke_context_report_claim_linked_count"] == 4
     assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 0
     assert manifest["profile_evolution_ready"] is True
     assert manifest["production_signal_allowed"] is False
@@ -605,6 +650,7 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "rke_context_hash": "b" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-004"],
                     "current_data_confirmed": True,
                     "stale_prior_rejected": True,
                 }
@@ -643,6 +689,12 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
     assert manifest["skill_inputs"]["research_prior_usage_skill"][
         "rke_prior_usage_quality_counts"
     ] == {"used_ranked_prior": 1}
+    assert (
+        manifest["skill_inputs"]["research_prior_usage_skill"][
+            "rke_context_report_claim_linked_count"
+        ]
+        == 1
+    )
     assert (
         manifest["skill_inputs"]["risk_adjusted_downstream_outcome"]["metrics"][
             "alpha"
@@ -1113,6 +1165,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "d" * 64,
                     **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-shadow"],
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 }
@@ -1227,6 +1280,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "e" * 64,
                     **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-paper"],
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 }
@@ -1338,6 +1392,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "f" * 64,
                     **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-promotion"],
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 }
@@ -1775,6 +1830,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "target": {"target_type": "sector", "sector": "semiconductor"},
                     "rke_context_hash": "b" * 64,
                     **_runtime_context_proof(2),
+                    "report_claim_refs": ["forecast_claim:sector-semi-delivery"],
                 },
                 {
                     "agent": "munger",
@@ -1783,6 +1839,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "c" * 64,
                     **_runtime_context_proof(3),
+                    "report_claim_refs": ["forecast_claim:stock-000001-delivery"],
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 },
@@ -1793,6 +1850,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "target": {"target_type": "portfolio", "target_id": "cn_equity"},
                     "rke_context_hash": "d" * 64,
                     **_runtime_context_proof(4),
+                    "report_claim_refs": ["forecast_claim:portfolio-cn-equity-delivery"],
                 },
             ],
         },
