@@ -1378,6 +1378,7 @@ def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
         "delivery_readiness_status": readiness["readiness_status"],
         "condition_count": readiness["condition_count"],
         "ready_condition_count": readiness["ready_condition_count"],
+        "delivery_conditions": readiness["conditions"],
         "delivery_blocked_reasons": readiness["blocked_reasons"],
     }
 

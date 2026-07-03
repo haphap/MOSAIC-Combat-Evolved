@@ -1386,6 +1386,14 @@ def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
     assert audit["delivery_readiness_status"] == "blocked_preflight"
     assert audit["condition_count"] == 10
     assert audit["ready_condition_count"] < audit["condition_count"]
+    prompt_condition = next(
+        condition
+        for condition in audit["delivery_conditions"]
+        if condition["condition_id"] == "all_agent_prompt_provenance"
+    )
+    assert prompt_condition["evidence_summary"]["prompt_source_status"][
+        "blocked_reason"
+    ] == "private_prompt_unavailable"
     assert audit["delivery_blocked_reasons"]
 
 

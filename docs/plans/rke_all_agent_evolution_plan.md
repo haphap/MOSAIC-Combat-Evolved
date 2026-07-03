@@ -462,7 +462,8 @@ Status 2026-07-03:
 - Public bridge now exposes `rke_benchmark.delivery_evidence_audit`, a no-body
   audit over that private store that reports recorded and missing proof-object
   keys per benchmark run, plus the aggregate delivery readiness status so
-  key-complete evidence cannot be mistaken for E7 readiness.
+  key-complete evidence cannot be mistaken for E7 readiness. It also returns
+  the condition-level readiness summaries from `delivery_readiness`.
 - This implements the rollback proof-object preflight. E7 is not complete until
   real private branch mutations, benchmark/manual-review decisions, shadow or
   paper-trading gate evidence, monitor output, and post-rollback verification

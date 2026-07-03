@@ -928,6 +928,7 @@ export interface RkeDeliveryEvidenceAuditResult {
   delivery_readiness_status: "ready" | "blocked_preflight";
   condition_count: number;
   ready_condition_count: number;
+  delivery_conditions: RkeDeliveryCondition[];
   delivery_blocked_reasons: string[];
 }
 
