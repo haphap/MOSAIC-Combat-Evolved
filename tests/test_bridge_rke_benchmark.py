@@ -3250,6 +3250,48 @@ def test_delivery_evidence_audit_records_prompt_source_status_context(
     assert audit["delivery_readiness_can_load"] is False
 
 
+def test_delivery_evidence_store_blocks_wrong_context_types(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    evidence_dir = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    evidence_dir.mkdir(parents=True)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-context-type",
+            "cohort": 123,
+            "prompt_source_status": [],
+        },
+    )
+    (evidence_dir / "delivery_evidence.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": "rke_delivery_evidence_v1",
+                "benchmark_run_id": "bench-delivery-context-type",
+                "evidence": {"cohort": "   "},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-context-type"},
+    )
+
+    assert record["record_status"] == "blocked"
+    assert "invalid delivery context type cohort: expected str" in record["failures"]
+    assert (
+        "empty delivery context values prompt_source_status" in record["failures"]
+    )
+    assert audit["evidence_status"] == "blocked"
+    assert audit["recorded_context_keys"] == []
+    assert audit["failures"] == ["line 1: empty delivery context values cohort"]
+
+
 def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()

@@ -160,6 +160,10 @@ _DELIVERY_EVIDENCE_VALUE_TYPES = {
     "promotion_evidence": dict,
 }
 _DELIVERY_CONTEXT_KEYS = ("cohort", "prompt_source_status")
+_DELIVERY_CONTEXT_VALUE_TYPES = {
+    "cohort": str,
+    "prompt_source_status": dict,
+}
 _DELIVERY_RECORD_KEYS = _DELIVERY_CONTEXT_KEYS + _DELIVERY_EVIDENCE_KEYS
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
     "macro": ("macro_regime_claim", "macro_series_claim", "macro_asset_claim"),
@@ -2282,6 +2286,17 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
 
 def _invalid_delivery_evidence_values(evidence: dict[str, Any]) -> list[str]:
     failures: list[str] = []
+    for key, expected_type in _DELIVERY_CONTEXT_VALUE_TYPES.items():
+        if key not in evidence:
+            continue
+        value = evidence[key]
+        if not _delivery_evidence_value_present(value):
+            failures.append(f"empty delivery context values {key}")
+            continue
+        if not isinstance(value, expected_type):
+            failures.append(
+                f"invalid delivery context type {key}: expected {expected_type.__name__}"
+            )
     for key, expected_type in _DELIVERY_EVIDENCE_VALUE_TYPES.items():
         if key not in evidence:
             continue
