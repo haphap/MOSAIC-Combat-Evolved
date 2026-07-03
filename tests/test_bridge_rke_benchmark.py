@@ -1107,6 +1107,55 @@ def test_agent_profile_evolution_readiness_blocks_missing_runtime_metadata(
     assert manifest["profile_evolution_ready"] is False
 
 
+def test_agent_profile_evolution_readiness_blocks_partial_current_data_confirmation(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-profile-partial-current-data",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
+                    "current_data_confirmed": True,
+                },
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "b" * 64,
+                    **_runtime_context_proof(2),
+                    "report_claim_refs": ["forecast_claim:stock-000001-001"],
+                    "current_data_confirmed": False,
+                },
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {
+            "benchmark_run_id": "bench-profile-partial-current-data",
+            "profile_evidence": _profile_evidence("bench-profile-partial-current-data"),
+        },
+    )
+
+    assert "current_data_confirmation_missing" in manifest["blocked_reasons"]
+    assert manifest["rke_context_hash_count"] == 2
+    assert manifest["current_data_confirmed_count"] == 1
+    assert manifest["profile_evolution_ready"] is False
+
+
 def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
     tmp_path: Path, monkeypatch
 ):
@@ -1126,6 +1175,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "rke_context_hash": "a" * 64,
                     **_runtime_context_proof(1),
                     "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
+                    "current_data_confirmed": True,
                 },
                 {
                     "agent": "semiconductor",
@@ -1135,6 +1185,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "rke_context_hash": "b" * 64,
                     **_runtime_context_proof(2),
                     "report_claim_refs": ["forecast_claim:sector-semi-001"],
+                    "current_data_confirmed": True,
                 },
                 {
                     "agent": "munger",
@@ -1144,6 +1195,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "rke_context_hash": "c" * 64,
                     **_runtime_context_proof(3),
                     "report_claim_refs": ["forecast_claim:stock-000001-001"],
+                    "current_data_confirmed": True,
                 },
                 {
                     "agent": "cio",
@@ -1153,6 +1205,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "rke_context_hash": "d" * 64,
                     **_runtime_context_proof(4),
                     "report_claim_refs": ["forecast_claim:portfolio-cn-equity-001"],
+                    "current_data_confirmed": True,
                 },
             ],
         },
@@ -1176,6 +1229,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
     assert manifest["missing_layers"] == []
     assert manifest["report_claim_ref_count"] == 4
     assert manifest["rke_context_report_claim_linked_count"] == 4
+    assert manifest["current_data_confirmed_count"] == 4
     assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 0
     assert manifest["profile_evolution_ready"] is True
     assert manifest["production_signal_allowed"] is False

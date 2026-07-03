@@ -771,6 +771,8 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("priority_bucket_missing")
     if summary["truncation_audit_count"] < summary["rke_context_hash_count"]:
         blocked_reasons.append("truncation_audit_missing")
+    if summary["current_data_confirmed_count"] < summary["rke_context_hash_count"]:
+        blocked_reasons.append("current_data_confirmation_missing")
     for key in (
         "profile_update_ref",
         "evolution_input_ref",
@@ -808,6 +810,7 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "retrieval_rank_count": summary["retrieval_rank_count"],
         "priority_bucket_counts": summary["priority_bucket_counts"],
         "truncation_audit_count": summary["truncation_audit_count"],
+        "current_data_confirmed_count": summary["current_data_confirmed_count"],
         "privacy_scan": summary["privacy_scan"],
         "profile_evidence": {
             "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
