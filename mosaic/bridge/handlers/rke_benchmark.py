@@ -170,6 +170,13 @@ _DELIVERY_RUN_BOUND_EVIDENCE_KEYS = frozenset(
     for key in _DELIVERY_EVIDENCE_KEYS
     if key not in {"paired_output_count", "model_config_output_counts", "candidates"}
 )
+_DELIVERY_LIST_ITEM_ID_FIELDS = {
+    "all_agent_prompt_release_checks": ("agent", "lang", "prompt_file_path"),
+    "candidates": ("mutation_candidate_id",),
+    "patch_activation_evidence": ("mutation_candidate_id",),
+    "prompt_mutation_release_checks": ("mutation_candidate_id",),
+    "rollback_evidence": ("mutation_candidate_id",),
+}
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
     "macro": ("macro_regime_claim", "macro_series_claim", "macro_asset_claim"),
     "sector": ("sector_claim", "ticker_metric_claim"),
@@ -2411,6 +2418,12 @@ def _invalid_delivery_evidence_values(evidence: dict[str, Any]) -> list[str]:
                 if not isinstance(item, dict):
                     failures.append(
                         f"invalid delivery evidence item {key}[{index}]: expected object"
+                    )
+                    continue
+                id_fields = _DELIVERY_LIST_ITEM_ID_FIELDS.get(key)
+                if id_fields and not any(_clean_str(item.get(field)) for field in id_fields):
+                    failures.append(
+                        f"delivery evidence item id missing {key}[{index}]"
                     )
     return failures
 
