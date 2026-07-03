@@ -674,6 +674,38 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
     assert result["model_config_output_counts"]["local_qwen_27b"] == 0
 
 
+def test_fixed_episode_benchmark_evidence_blocks_unknown_model_counts(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    counts = _model_config_output_counts()
+    counts["ghost_model"] = 425
+
+    result = dispatch(
+        "rke_benchmark.fixed_episode_benchmark_evidence",
+        {
+            "benchmark_run_id": "bench-unknown-model",
+            "paired_output_count": 1275,
+            "model_config_output_counts": counts,
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-unknown-model"
+            ),
+            "evidence_refs": _benchmark_evidence_refs("bench-unknown-model"),
+            "manual_review": _manual_review("bench-unknown-model"),
+        },
+    )
+
+    assert result["evidence_status"] == "blocked_preflight"
+    assert "model_config_output_count_unknown:ghost_model" in result[
+        "blocked_reasons"
+    ]
+    assert "ghost_model" not in result["model_config_output_counts"]
+
+
 def test_fixed_episode_benchmark_evidence_blocks_incomplete_coverage_counts(
     tmp_path: Path, monkeypatch
 ):

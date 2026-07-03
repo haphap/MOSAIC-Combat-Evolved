@@ -421,6 +421,7 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
     required_model_ids = [
         config["model_config_id"] for config in _MODEL_CONFIGS if config["required"]
     ]
+    known_model_ids = {config["model_config_id"] for config in _MODEL_CONFIGS}
     required_per_model_count = manifest["as_of_date_count"] * manifest["agent_count"]
     required_paired_output_count = (
         required_per_model_count * required_model_count
@@ -430,6 +431,9 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("private_prompt_preflight_not_ready")
     if paired_output_count < required_paired_output_count:
         blocked_reasons.append("paired_output_count_below_required")
+    for model_id in model_config_output_counts:
+        if model_id not in known_model_ids:
+            blocked_reasons.append(f"model_config_output_count_unknown:{model_id}")
     for field, required_count in (
         ("covered_episode_count", manifest["episode_count"]),
         ("covered_as_of_date_count", manifest["as_of_date_count"]),
