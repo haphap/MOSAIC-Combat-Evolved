@@ -364,6 +364,110 @@ def _empty_footprint_summary(benchmark_run_id: str) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.darwinian_autoresearch_input_manifest")
+def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, Any]:
+    """Build the E5 manifest consumed by Darwinian/autoresearch scoring."""
+    benchmark_run_id = _clean_str(params.get("benchmark_run_id"))
+    summary = agent_footprint_summary({"benchmark_run_id": benchmark_run_id})
+    outcome_metrics = params.get("downstream_outcome_metrics")
+    if not isinstance(outcome_metrics, dict):
+        outcome_metrics = {}
+    prompt_provenance = params.get("prompt_mutation_provenance")
+    if not isinstance(prompt_provenance, dict):
+        prompt_provenance = {}
+
+    outcome_ready = _outcome_metrics_ready(outcome_metrics)
+    provenance_ready = _prompt_mutation_provenance_ready(prompt_provenance)
+    blocked_reasons: list[str] = []
+    if summary["summary_status"] != "ready" or summary["row_count"] == 0:
+        blocked_reasons.append("agent_footprint_summary_missing")
+    if not outcome_ready:
+        blocked_reasons.append("downstream_outcome_metrics_missing")
+    if not provenance_ready:
+        blocked_reasons.append("prompt_mutation_provenance_missing")
+    if summary["privacy_scan"]["forbidden_field_violation_count"]:
+        blocked_reasons.append("agent_footprint_privacy_scan_failed")
+
+    return {
+        "schema_version": "rke_darwinian_autoresearch_input_manifest_v1",
+        "manifest_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "blocked_reasons": blocked_reasons,
+        "rke_prior_treated_as_current_data": False,
+        "skill_inputs": {
+            "current_data_skill": {
+                "current_data_confirmed_count": summary[
+                    "current_data_confirmed_count"
+                ],
+                "source": "agent_claim_footprint_summary",
+            },
+            "research_prior_usage_skill": {
+                "rke_prior_usage_quality_counts": summary[
+                    "rke_prior_usage_quality_counts"
+                ],
+                "rke_context_hash_count": summary["rke_context_hash_count"],
+                "source": "agent_claim_footprint_summary",
+            },
+            "stale_prior_rejection_skill": {
+                "stale_prior_rejected_count": summary["stale_prior_rejected_count"],
+                "contradictory_prior_handled_count": summary[
+                    "contradictory_prior_handled_count"
+                ],
+                "source": "agent_claim_footprint_summary",
+            },
+            "schema_contract_reliability": {
+                "summary_status": summary["summary_status"],
+                "privacy_scan": summary["privacy_scan"],
+                "source": "agent_claim_footprint_summary",
+            },
+            "risk_adjusted_downstream_outcome": {
+                "status": "ready" if outcome_ready else "missing",
+                "metrics": _safe_metric_subset(
+                    outcome_metrics,
+                    ("risk_adjusted_return", "alpha", "max_drawdown"),
+                ),
+            },
+            "turnover_cost_discipline": {
+                "status": "ready" if outcome_ready else "missing",
+                "metrics": _safe_metric_subset(outcome_metrics, ("turnover", "cost_bps")),
+            },
+            "prompt_mutation_provenance": {
+                "status": "ready" if provenance_ready else "missing",
+                "prompt_repo_id": _clean_str(prompt_provenance.get("prompt_repo_id")),
+                "prompt_repo_revision": _clean_str(
+                    prompt_provenance.get("prompt_repo_revision")
+                ),
+                "prompt_sha256": _clean_str(prompt_provenance.get("prompt_sha256")),
+                "prompt_commit_hash": _clean_str(
+                    prompt_provenance.get("prompt_commit_hash")
+                ),
+            },
+        },
+        "privacy_scan": summary["privacy_scan"],
+        "promotion_allowed": False,
+    }
+
+
+def _outcome_metrics_ready(metrics: dict[str, Any]) -> bool:
+    required = ("risk_adjusted_return", "alpha", "max_drawdown", "turnover", "cost_bps")
+    return all(isinstance(metrics.get(key), (int, float)) for key in required)
+
+
+def _prompt_mutation_provenance_ready(provenance: dict[str, Any]) -> bool:
+    return all(
+        bool(_clean_str(provenance.get(key)))
+        for key in ("prompt_repo_id", "prompt_repo_revision", "prompt_sha256")
+    )
+
+
+def _safe_metric_subset(metrics: dict[str, Any], keys: tuple[str, ...]) -> dict[str, float]:
+    return {
+        key: float(metrics[key])
+        for key in keys
+        if isinstance(metrics.get(key), (int, float))
+    }
+
+
 def _sanitize_claim_footprint_row(
     benchmark_run_id: str, row: dict[str, Any], index: int
 ) -> dict[str, Any]:

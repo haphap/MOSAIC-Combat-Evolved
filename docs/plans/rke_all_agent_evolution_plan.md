@@ -309,6 +309,19 @@ Autoresearch and Darwinian weights must distinguish:
 
 Darwinian weights must not treat RKE prior as current data.
 
+Status 2026-07-03:
+
+- Public bridge now exposes `rke_benchmark.darwinian_autoresearch_input_manifest`,
+  which packages E3 aggregate footprint evidence into separate inputs for
+  current-data skill, research-prior usage skill, stale/contradictory-prior
+  handling, schema/privacy reliability, downstream risk-adjusted outcome,
+  turnover/cost discipline, and prompt mutation provenance. The manifest sets
+  `rke_prior_treated_as_current_data=false` and remains `blocked_preflight`
+  until real downstream outcome metrics and prompt provenance are supplied.
+- This implements the E5 input manifest contract. E5 is not complete until
+  autoresearch and Darwinian weight updates actually consume the manifest and
+  write replay/run evidence.
+
 ## E6: Candidate Consumption Boundary
 
 Part 1 owns the stock/industry/macro prior-to-rule/recipe/parameter candidate

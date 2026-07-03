@@ -247,3 +247,92 @@ def test_agent_footprint_summary_is_empty_without_private_rows(tmp_path: Path, m
 
     assert summary["summary_status"] == "empty"
     assert summary["row_count"] == 0
+
+
+def test_darwinian_autoresearch_manifest_blocks_missing_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_input_manifest",
+        {"benchmark_run_id": "bench-empty"},
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert manifest["rke_prior_treated_as_current_data"] is False
+    assert manifest["blocked_reasons"] == [
+        "agent_footprint_summary_missing",
+        "downstream_outcome_metrics_missing",
+        "prompt_mutation_provenance_missing",
+    ]
+    assert (
+        manifest["skill_inputs"]["risk_adjusted_downstream_outcome"]["status"]
+        == "missing"
+    )
+
+
+def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_data(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-004",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "rke_context_hash": "b" * 64,
+                    "current_data_confirmed": True,
+                    "stale_prior_rejected": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_input_manifest",
+        {
+            "benchmark_run_id": "bench-004",
+            "downstream_outcome_metrics": {
+                "risk_adjusted_return": 0.12,
+                "alpha": 0.03,
+                "max_drawdown": -0.04,
+                "turnover": 0.8,
+                "cost_bps": 12,
+            },
+            "prompt_mutation_provenance": {
+                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                "prompt_repo_revision": "a" * 40,
+                "prompt_sha256": "c" * 64,
+            },
+        },
+    )
+
+    assert manifest["manifest_status"] == "ready"
+    assert manifest["promotion_allowed"] is False
+    assert manifest["rke_prior_treated_as_current_data"] is False
+    assert (
+        manifest["skill_inputs"]["current_data_skill"][
+            "current_data_confirmed_count"
+        ]
+        == 1
+    )
+    assert manifest["skill_inputs"]["research_prior_usage_skill"][
+        "rke_prior_usage_quality_counts"
+    ] == {"used_ranked_prior": 1}
+    assert (
+        manifest["skill_inputs"]["risk_adjusted_downstream_outcome"]["metrics"][
+            "alpha"
+        ]
+        == 0.03
+    )

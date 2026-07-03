@@ -583,6 +583,21 @@ export interface RkeAgentFootprintSummaryResult {
   failures: string[];
 }
 
+export interface RkeDarwinianAutoresearchInputManifestResult {
+  schema_version: "rke_darwinian_autoresearch_input_manifest_v1";
+  manifest_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  rke_prior_treated_as_current_data: boolean;
+  skill_inputs: Record<string, unknown>;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+  promotion_allowed: boolean;
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1168,6 +1183,22 @@ export class BridgeApi {
   }): Promise<RkeAgentFootprintSummaryResult> {
     return this.client.call<RkeAgentFootprintSummaryResult>(
       "rke_benchmark.agent_footprint_summary",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkDarwinianAutoresearchInputManifest(params?: {
+    benchmark_run_id?: string;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: {
+      prompt_repo_id?: string;
+      prompt_repo_revision?: string;
+      prompt_sha256?: string;
+      prompt_commit_hash?: string;
+    };
+  }): Promise<RkeDarwinianAutoresearchInputManifestResult> {
+    return this.client.call<RkeDarwinianAutoresearchInputManifestResult>(
+      "rke_benchmark.darwinian_autoresearch_input_manifest",
       params ?? {},
     );
   }
