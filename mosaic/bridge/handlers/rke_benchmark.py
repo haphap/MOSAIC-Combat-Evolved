@@ -2673,6 +2673,9 @@ def _safe_metric_subset(metrics: dict[str, Any], keys: tuple[str, ...]) -> dict[
 def _sanitize_claim_footprint_row(
     benchmark_run_id: str, row: dict[str, Any], index: int
 ) -> dict[str, Any]:
+    row_benchmark_run_id = _clean_str(row.get("benchmark_run_id"))
+    if row_benchmark_run_id and row_benchmark_run_id != benchmark_run_id:
+        raise ValueError("benchmark_run_id does not match request")
     agent = _clean_str(row.get("agent"))
     if agent not in _LAYER_BY_AGENT:
         raise ValueError(f"unknown agent {agent!r}")
