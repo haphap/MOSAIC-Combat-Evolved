@@ -20,6 +20,7 @@ from mosaic.rke.agent_research_context import (
     RANKING_POLICY_ID,
     RESEARCH_PRIOR_USE_POLICY,
     SAFE_ACTIONABILITY,
+    SCHEMA_VERSION,
     assert_public_safe_context,
     build_rke_agent_research_context,
     format_rke_agent_research_context,
@@ -70,6 +71,11 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("context_items_malformed")
     elif len(items) != len(item_values):
         failures.append("context_item_not_object")
+    schema_version = str(context.get("schema_version") or "")
+    if not schema_version:
+        failures.append("schema_version_missing")
+    elif schema_version != SCHEMA_VERSION:
+        failures.append("schema_version_mismatch")
     ranking_policy_id = str(context.get("ranking_policy_id") or "")
     if not ranking_policy_id:
         failures.append("ranking_policy_id_missing")
