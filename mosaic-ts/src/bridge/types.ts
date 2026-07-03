@@ -565,16 +565,35 @@ export interface RkeFixedEpisodeBenchmarkEvidenceResult {
   as_of_date_count: number;
   agent_count: number;
   required_model_config_count: number;
+  required_model_config_ids: string[];
+  required_per_model_output_count: number;
   required_paired_output_count: number;
   paired_output_count: number;
+  model_config_output_counts: Record<string, number>;
+  benchmark_quality_summary: {
+    benchmark_run_id: string;
+    quality_gate_ref: string;
+    schema_failure_gate_passed: boolean;
+    severe_safety_violation_count: number | null;
+    current_data_confirmation_violation_count: number | null;
+    fallback_prompt_run_count: number | null;
+    covered_episode_count: number | null;
+    covered_as_of_date_count: number | null;
+    covered_agent_count: number | null;
+  };
   prompt_source_status: PromptPreflightResult["source_status"];
   evidence_refs: {
+    benchmark_run_id: string;
+    episode_manifest_ref: string;
+    as_of_date_manifest_ref: string;
+    model_config_manifest_ref: string;
     paired_output_manifest_ref: string;
     output_schema_validation_report_ref: string;
     deterministic_score_table_ref: string;
     investment_outcome_table_ref: string;
   };
   manual_review: {
+    benchmark_run_id: string;
     decision: string;
     reviewer_timestamp: string;
   };
@@ -933,10 +952,12 @@ export interface RkePaperTradingReadinessResult {
   blocked_reasons: string[];
   shadow_replay_status: "ready" | "blocked_preflight";
   paper_trading_plan: {
+    benchmark_run_id: string;
     paper_trading_plan_ref: string;
     risk_limit_ref: string;
     stop_loss_or_rollback_ref: string;
     operator_review_timestamp: string;
+    operator_review_approved: boolean;
   };
   paper_trading_allowed: boolean;
   promotion_allowed: boolean;
@@ -949,11 +970,13 @@ export interface RkePromotionDecisionReadinessResult {
   blocked_reasons: string[];
   paper_trading_status: "ready" | "blocked_preflight";
   promotion_evidence: {
+    benchmark_run_id: string;
     paper_trading_result_ref: string;
     monitor_summary_ref: string;
     second_review_timestamp: string;
     lockbox_decision_ref: string;
     decision: string;
+    second_review_approved: boolean;
   };
   ready_for_operator_promotion_decision: boolean;
   production_allowed: boolean;
@@ -978,6 +1001,7 @@ export interface RkeDeliveryReadinessResult {
   blocked_reasons: string[];
   conditions: RkeDeliveryCondition[];
   recorded_evidence_loaded: boolean;
+  delivery_input_failures: string[];
   delivery_ready: boolean;
   production_allowed: boolean;
   promotion_allowed: boolean;
