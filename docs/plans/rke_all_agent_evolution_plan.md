@@ -1,0 +1,306 @@
+# Part 2: RKE All-Agent Evolution Plan
+
+## Purpose
+
+This plan owns the follow-up work that starts after the stock, industry, and
+macro report-feedback loops exist: all MOSAIC agents should consume redacted RKE priors, emit
+auditable claims/footprints, and evolve through private prompt repo changes,
+autoresearch, Darwinian weights, replay, and gated rollback.
+
+It intentionally depends on Part 1,
+`docs/plans/rke_macro_report_feedback_and_agent_evolution_plan.md`, for the
+stock/industry/macro report-feedback, rating, PIT label, privacy, redacted ranked
+context/export contract, and prior-to-candidate compiler/refusal contract. That
+plan remains the source of truth for report-derived feedback semantics and
+ranked RKE exports; this plan is the source of truth for all-agent runtime
+consumption, private prompt repo evolution, benchmark, replay, and rollback.
+
+## Non-Negotiable Boundaries
+
+- RKE priors are research context only; they are not current data and cannot
+  directly create trades.
+- LLMs may generate agent reasoning, claims, methods, and structured outputs;
+  they do not label correctness.
+- Correctness comes from deterministic PIT outcome labels, gold sets, or
+  operator-approved review.
+- Report-intelligence derived artifacts are local/private by default. Public
+  repo commits may include code, schemas, tests, docs, and minimal fallback
+  prompts only.
+- Complete prompt content, prompt mutation candidates, prompt hashes, prompt
+  drift review, and prompt evolution live in the private prompt repo.
+
+## Current Status
+
+As of 2026-07-03:
+
+- Stock, industry, and macro report feedback supports PIT outcome/readiness/profile
+  paths; macro additionally supports parent macro claims, macro claim legs,
+  direct series labels, macro agent priors, and RI-MACRO readiness gates.
+- Layer-3 public runtime has been migrated to the canonical roster:
+  `druckenmiller`, `munger`, `burry`, `ackman`.
+- Public fallback prompts exist for `munger` and `burry`, but complete
+  role-specific prompt upgrades are still pending in the private prompt repo.
+- The Python prompt bridge has to stay in sync with the TS canonical roster;
+  this is part of the roster preflight, not an optional cleanup.
+
+## E0: Prompt Repo And Roster Preflight
+
+Before any benchmark or replay:
+
+- Canonical superinvestor roster must be
+  `druckenmiller`, `munger`, `burry`, `ackman` in TS runtime, Python bridge
+  prompt routing, RKE style-fit, tests, docs, and fallback prompts.
+- Canonical private prompt repo identity is
+  `https://github.com/haphap/MOSAIC-Prompts`.
+- Formal benchmark/replay must have git-backed prompt provenance. Prefer
+  `MOSAIC_PROMPTS_REPO` or `MOSAIC_PRIVATE_PROMPT_REPO` pointing at a local clone
+  of `https://github.com/haphap/MOSAIC-Prompts`.
+- `MOSAIC_PROMPTS_ROOT` is allowed for formal runs only if the direct
+  `prompts/mosaic` path is inside a git worktree and the runner records the
+  discovered git top-level as `prompt_repo_id`, the HEAD commit as repo revision,
+  the prompt file path relative to that worktree, and the prompt hash. If those
+  fields cannot be recovered, the row is blocked with `private_prompt_unavailable`
+  or `prompt_provenance_unavailable`.
+- Formal benchmark/replay must use private prompt repo prompts. Bundled prompts
+  are smoke/fallback only.
+- Each resolved prompt must record:
+  `prompt_repo_id`, repo revision, file path, prompt hash, resolved source, and
+  `fallback_used=false`.
+- If a private prompt is missing, the agent/date/model row is blocked with
+  `private_prompt_unavailable`; it cannot count as paired benchmark output.
+
+Prompt freeze mechanics:
+
+- Python bridge writes to private prompt repos through `prompts.write` with
+  `target=private_git`, returning `prompt_commit_hash` and `prompt_sha256`.
+- Release checks use `prompts.verify_release`.
+- Leak/drift checks must pass before a prompt hash can be used in formal
+  benchmark or replay.
+- Replay records the prompt hash and repo revision, not the prompt body.
+
+## E1: Runtime Consumption Of Part 1 Ranked RKE Context
+
+Ownership split:
+
+- Part 1 owns the redacted ranked context/export contract, including ranking
+  keys, rank fields, truncation audit, and stock/industry/macro prior inputs.
+- Part 2 owns all-agent runtime consumption of that ranked context: prompt/tool
+  plumbing, runtime preflight, benchmark wiring, and replay evidence.
+- The Python bridge / agent tools should consume already-ranked RKE context.
+  TS should not re-rank except for display-only sorting.
+
+Required Part 1 inputs consumed by Part 2:
+
+- `retrieval_rank`
+- `priority_bucket`
+- `ranking_policy_id`
+- `ranking_reason_codes`
+- `downweighted_prior_sample` for contradictory or low-confidence priors that
+  must remain auditable
+
+The stable sort policy is defined in Part 1 P6.3/P12 condition 11. Part 2 must
+record the `ranking_policy_id` and input context hash it consumed; it must not
+quietly compute a different rank for execution.
+
+Part 1 sort policy reference:
+
+```text
+agent_target_specificity_bucket
+performance_context_match_rank
+combined_research_prior_weight desc
+statistical_reliability_bucket_rank
+n_effective desc
+freshness_bucket_rank
+latest_completed_exit_date desc
+original_input_index asc
+```
+
+Acceptance:
+
+- Runtime context consumption preserves Part 1 `retrieval_rank` and
+  `priority_bucket`.
+- Any display-only sort records that it is display-only and keeps original rank.
+- High-priority priors cannot be pushed out by low-value earlier rows during
+  runtime truncation.
+- Contradictory or stale priors are downweighted, not deleted.
+- Non-neutral priors still require current-data confirmation before any
+  recommendation field can use them.
+
+## E2: Fixed-Episode LLM Benchmark
+
+Run this before full replay, autoresearch mutation, Darwinian weight updates, or
+RKE profile/retrieval evolution.
+
+Initial benchmark size:
+
+- Start with 8 fixed episodes.
+- Each episode has 1-3 as-of dates.
+- Each selected as-of date runs all macro, sector, superinvestor, and decision
+  agents.
+- Do not substitute representative agents for the full stack.
+
+Initial regime coverage:
+
+- 2009 post-crisis recovery / liquidity expansion.
+- 2011 inflation and tightening pressure.
+- 2015 China equity bubble/crash.
+- 2018 deleveraging / trade friction.
+- 2020 pandemic shock and policy response.
+- 2021 commodity and inflation cycle.
+- 2022 USD strength / rate shock / China stress.
+- 2024-2026 AI/liquidity/sector-rotation regime.
+
+Inputs are fixed:
+
+- private prompt hash and repo revision
+- PIT tool data
+- redacted RKE priors
+- tool summaries
+- output schema
+- context hash
+- model parameters
+
+Compare at least:
+
+- one current baseline model/config
+- local Qwen 27B
+- local Qwen3.6 35B
+- one API model, if available
+
+Deterministic scoring:
+
+- schema validity
+- JSON parse failure
+- timeout/content-empty rate
+- directional hit
+- subsequent after-cost return
+- benchmark-relative alpha
+- drawdown
+- turnover/cost
+- confidence calibration
+- RKE prior usage quality
+- stale/contradictory prior rejection
+- current-data confirmation
+- safety violations
+
+Manual review gate:
+
+- First benchmark may be approved by one operator.
+- Promotion beyond shadow/paper-trading requires a second explicit review or a
+  separate promotion gate.
+- A model/config cannot advance if it has severe safety violations, uses
+  fallback prompts as formal inputs, ignores current-data confirmation, or has
+  systematic schema failures.
+- If investment outcomes are inconclusive, expand the episode set instead of
+  advancing.
+
+## E3: Agent Claim And Footprint Capture
+
+All agents should emit redacted claim/footprint records:
+
+- macro agents: macro regime/series/asset claims and failure modes
+- sector agents: sector/ticker/metric family claims
+- superinvestors: style-filtered candidate claims and rejection reasons
+- decision agents: portfolio/action/risk claims and dissent notes
+
+Public or committed artifacts must not include raw prompt text, report prose,
+source spans, or private report metadata. Detailed claim/footprint rows remain
+local/private unless explicitly promoted as aggregate reports.
+
+## E4: Private Prompt Mutation Lifecycle
+
+Prompt mutation output is not a direct runtime change.
+
+Optimized prompts may directly overwrite the current agent prompt files in
+`https://github.com/haphap/MOSAIC-Prompts`. The overwrite is the intended update
+mode; rollback comes from private git history, not from keeping parallel prompt
+copies in the public repo.
+
+Lifecycle:
+
+```text
+candidate
+  -> private prompt branch
+  -> overwrite current private prompt file
+  -> leak/drift check
+  -> fixed-episode benchmark
+  -> manual review
+  -> shadow replay
+  -> paper-trading
+  -> promotion gate
+  -> rollback monitor
+```
+
+Each mutation must record:
+
+- prompt file path
+- overwrite target path in `https://github.com/haphap/MOSAIC-Prompts`
+- private prompt repo revision/hash
+- affected agents
+- RKE prior usage hypothesis
+- expected improvement metric
+- fallback/rollback rule
+- benchmark evidence
+
+## E5: Darwinian And Autoresearch Inputs
+
+Autoresearch and Darwinian weights must distinguish:
+
+- current-data skill
+- research-prior usage skill
+- stale-prior rejection skill
+- schema/contract reliability
+- risk-adjusted downstream outcome
+- turnover/cost discipline
+- prompt mutation provenance
+
+Darwinian weights must not treat RKE prior as current data.
+
+## E6: Candidate Consumption Boundary
+
+Part 1 owns the stock/industry/macro prior-to-rule/recipe/parameter candidate
+compiler and refusal contract. Part 2 consumes those candidate/refusal records in
+private prompt mutation, benchmark, replay, and rollback flows.
+
+- Macro priors may compile into macro rule packs or parameter priors in Part 1
+  after validation.
+- Stock/industry priors may compile into recipe/rule candidates or refusal
+  reasons in Part 1.
+- Sector/superinvestor/decision prompt changes go through the private prompt
+  mutation lifecycle in Part 2, not directly through the report-prior compiler.
+- Missing PIT proxy, missing validation target, source dependency, or unsafe
+  actionability from Part 1 must remain visible to benchmark/replay and cannot be
+  erased by prompt mutation.
+
+## E7: Delivery Conditions
+
+This plan is complete only when:
+
+- All agents have formal private prompt repo hashes for benchmark/replay.
+  Proof objects: `prompts.audit_versions` rows, `prompts.verify_release` results,
+  prompt file relative path, prompt repo id, prompt repo revision, prompt sha256,
+  and `fallback_used=false`.
+- All-agent runtime consumes Part 1 ranked RKE context without re-ranking it.
+  Proof objects: context hash, `ranking_policy_id`, consumed `retrieval_rank`
+  distribution, truncation audit, and current-data confirmation audit.
+- Fixed-episode LLM benchmark has passed manual review.
+  Proof objects: episode manifest, as-of date list, model/config manifest,
+  output schema validation report, deterministic score table, investment
+  outcome table, manual review decision, and reviewer timestamp.
+- Agent claims and footprints enter RKE profile/evolution paths.
+  Proof objects: private agent claim/footprint rows, redacted aggregate profile
+  summary, privacy scan result, and no-source-prose audit.
+- Autoresearch and Darwinian weights consume RKE usage quality and downstream
+  outcome evidence.
+  Proof objects: replay run id, Darwinian/autoresearch input manifest, RKE prior
+  usage quality metrics, downstream outcome metrics, and rollback readiness
+  report.
+- Prompt mutations are applied only through private prompt repo branches and
+  gated promotion.
+  Proof objects: private prompt branch, prompt version id, leak/drift checks,
+  benchmark evidence link, manual review decision, shadow/paper-trading gate,
+  and promotion decision.
+- Rollback evidence exists for any prompt/rule/parameter that leaves shadow
+  mode.
+  Proof objects: rollback trigger definition, previous prompt hash, rollback
+  command or procedure, monitor output, and post-rollback verification.

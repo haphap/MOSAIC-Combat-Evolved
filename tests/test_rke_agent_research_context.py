@@ -141,6 +141,111 @@ def test_superinvestor_context_filters_by_style_fit():
     assert context["context_items"][0]["style_fit"] in {"medium", "high"}
 
 
+def test_context_ranks_all_matches_before_truncating():
+    forecasts = [
+        {
+            "forecast_claim_id": "FC-LOW",
+            "report_id": "RPT-LOW",
+            "target": {
+                "target_type": "macro_series",
+                "target_id": "USDCNY_LOW",
+                "metric_family": "fx_rate",
+            },
+            "direction": "positive",
+        },
+        {
+            "forecast_claim_id": "FC-HIGH",
+            "report_id": "RPT-HIGH",
+            "target": {
+                "target_type": "macro_series",
+                "target_id": "USDCNY_HIGH",
+                "metric_family": "fx_rate",
+            },
+            "direction": "positive",
+        },
+    ]
+
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="dollar",
+        layer="macro",
+        max_items=1,
+        forecasts=forecasts,
+        metadata=[
+            {
+                "report_id": "RPT-LOW",
+                "report_type": "宏观策略",
+                "publish_datetime": "2026-06-01T00:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-HIGH",
+                "report_type": "宏观策略",
+                "publish_datetime": "2026-06-01T00:00:00+08:00",
+            },
+        ],
+        weighted_research_contexts=[
+            {
+                "agent_id": "macro.dollar",
+                "retrieved_claims": [
+                    {
+                        "forecast_claim_id": "FC-LOW",
+                        "combined_research_prior_weight": 0.9,
+                        "performance_context_match": "insufficient_data",
+                    },
+                    {
+                        "forecast_claim_id": "FC-HIGH",
+                        "combined_research_prior_weight": 1.2,
+                        "performance_context_match": "source_and_viewpoint_profile_match",
+                    },
+                ],
+            }
+        ],
+    )
+
+    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v1"
+    assert context["summary"]["matched_item_count"] == 2
+    assert context["summary"]["truncated_item_count"] == 1
+    item = context["context_items"][0]
+    assert item["target_id"] == "USDCNY_HIGH"
+    assert item["retrieval_rank"] == 1
+    assert item["priority_bucket"] == "high"
+    assert item["combined_research_prior_weight"] == 1.2
+    assert "source_and_viewpoint_profile_match" in item["ranking_reason_codes"]
+    assert "research_prior_weight_above_neutral" in item["ranking_reason_codes"]
+    assert item["current_data_required"] is True
+    assert item["production_signal_allowed"] is False
+
+
+def test_decision_context_reads_redacted_prior_with_current_data_guard():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="cio",
+        layer="decision",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-STOCK-CIO",
+                "report_id": "RPT-STOCK-CIO",
+                "target": {"target_type": "stock", "target_id": "600519.SH"},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-STOCK-CIO",
+                "report_type": "个股研报",
+                "sector": "食品饮料",
+                "ts_code": "600519.SH",
+            }
+        ],
+    )
+
+    item = context["context_items"][0]
+    assert context["agent_id"] == "decision.cio"
+    assert item["domain"] == "stock"
+    assert item["use_policy"] == "shadow_research_prior_only_not_current_signal"
+    assert item["actionability_guard"] == SAFE_ACTIONABILITY
+    assert "portfolio_context" in item["current_data_required_fields"]
+
+
 def test_context_safety_rejects_forbidden_fields():
     with pytest.raises(ValueError, match="forbidden field"):
         assert_public_safe_context({"claim_text": "private prose"})
