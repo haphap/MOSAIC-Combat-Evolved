@@ -8363,10 +8363,23 @@ def _sector_assignment_agent_candidates(record: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(agents))
 
 
+_MACRO_ASSIGNMENT_TARGET_TYPES = frozenset(
+    {
+        "asset_class",
+        "bond",
+        "broad_market",
+        "commodity",
+        "equity_index",
+        "market_index",
+        "style_index",
+    }
+)
+
+
 def _inferred_agent_assignment(record: Mapping[str, Any]) -> tuple[str, list[str]]:
     target = _ensure_mapping(record.get("target"))
     target_type = str(target.get("target_type") or "").strip().lower()
-    if target_type.startswith("macro"):
+    if target_type.startswith("macro") or target_type in _MACRO_ASSIGNMENT_TARGET_TYPES:
         agents = list(_claim_macro_agent_candidates(record))
         return ("macro_target_mapping", agents) if agents else ("", [])
     if target_type in {"stock", "company"}:
