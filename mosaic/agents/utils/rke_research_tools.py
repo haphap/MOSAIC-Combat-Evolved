@@ -30,6 +30,7 @@ from mosaic.rke.agent_research_context import (
 )
 
 _PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
+_CONTEXT_SNAPSHOT_STATUSES = frozenset({"available", "missing", "not_required"})
 
 
 def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
@@ -180,6 +181,36 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for field in ("recipe_ids", "tool_gap_ids")
     ):
         failures.append("item_recipe_tool_gap_ids_invalid")
+    snapshot_statuses = [str(item.get("context_snapshot_status") or "") for item in items]
+    if items and any(status not in _CONTEXT_SNAPSHOT_STATUSES for status in snapshot_statuses):
+        failures.append("context_snapshot_status_invalid")
+    snapshot_missing_reasons = [
+        item.get("context_snapshot_missing_reasons") for item in items
+    ]
+    if items and any(
+        not isinstance(reasons, (list, tuple))
+        or not all(isinstance(reason, str) and reason for reason in reasons)
+        for reasons in snapshot_missing_reasons
+    ):
+        failures.append("context_snapshot_missing_reasons_invalid")
+    if items and any(
+        item.get("context_snapshot_status") == "missing"
+        and not item.get("context_snapshot_missing_reasons")
+        for item in items
+    ):
+        failures.append("context_snapshot_missing_reasons_missing")
+    if items and any(
+        isinstance(item.get("context_snapshot_missing_reasons"), (list, tuple))
+        and all(
+            isinstance(reason, str)
+            for reason in item["context_snapshot_missing_reasons"]
+        )
+        and not set(item["context_snapshot_missing_reasons"]).issubset(
+            set(item.get("ranking_reason_codes") or [])
+        )
+        for item in items
+    ):
+        failures.append("context_snapshot_missing_reason_not_ranked")
     outcome_summaries = [item.get("outcome_label_summary") for item in items]
     if items and any(
         not isinstance(summary, Mapping)

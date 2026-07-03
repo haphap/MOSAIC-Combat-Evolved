@@ -919,6 +919,8 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                     "known_failure_mode_tags": [],
                     "recipe_ids": [],
                     "tool_gap_ids": [],
+                    "context_snapshot_status": "not_required",
+                    "context_snapshot_missing_reasons": [],
                     "outcome_label_summary": {
                         "label_count": 1,
                         "directional_hit_count": 1,
@@ -1015,6 +1017,45 @@ def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
 
     assert "runtime_preflight_status=blocked" in output
     assert "outcome_label_summary_invalid" in output
+
+
+def test_rke_runtime_context_preflight_blocks_bad_snapshot_audit():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "superinvestor.munger",
+            "requested_agent_id": "munger",
+            "schema_version": SCHEMA_VERSION,
+            "layer": "superinvestor",
+            "as_of_date": "2026-06-27",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "ranking_reason_codes": ["agent_specific_match"],
+                },
+                {
+                    "redacted_claim_id": "FCRED-2",
+                    "retrieval_rank": 2,
+                    "priority_bucket": "medium",
+                    "ranking_reason_codes": ["agent_specific_match"],
+                    "context_snapshot_status": "missing",
+                    "context_snapshot_missing_reasons": [
+                        "stock_context_snapshot_missing"
+                    ],
+                },
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "context_snapshot_status_invalid" in output
+    assert "context_snapshot_missing_reason_not_ranked" in output
 
 
 def test_rke_runtime_context_preflight_blocks_missing_ranking_metadata():
