@@ -15934,6 +15934,9 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "performance_value_basis": "directional_after_cost_return",
             "relative_directional_hit": False,
             "target_price_hit": True,
+            "target_family": "stock",
+            "agent_layer": "superinvestor",
+            "regime_bucket": "company_quality",
             "metric_family": "inventory_to_sales",
             "effective_n_weight": 0.5,
             "pit_valid": True,
@@ -15953,6 +15956,9 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "proxy_symbol": "512480.SH",
             "proxy_mapping_confidence": "operator_seeded_exact_sector",
             "pit_availability_status": "unverified",
+            "target_family": "industry",
+            "agent_layer": "sector",
+            "regime_bucket": "industry_cycle",
             "metric_family": "industry_cycle_regime",
             "effective_n_weight": 0.5,
             "pit_valid": True,
@@ -15971,21 +15977,30 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     layer_keys = {
         (
             row["label_type"],
+            row["target_family"],
             row["benchmark_family"],
             row["cost_model_id"],
+            row["agent_layer"],
+            row["regime_bucket"],
         )
         for row in layer_support["layer_summaries"]
     }
     assert layer_keys == {
         (
             "stock_price_proxy",
+            "stock",
             "CSI300_ETF_PROXY",
             "single_stock_round_trip_20bps_v1",
+            "superinvestor",
+            "company_quality",
         ),
         (
             "industry_etf_proxy",
+            "industry",
             "CSI500_ETF_PROXY",
             "industry_etf_round_trip_10bps_v1",
+            "sector",
+            "industry_cycle",
         ),
     }
     stock_layer = next(
@@ -16011,6 +16026,13 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     }
     assert stock_layer["domain_rating_support"]["fundamental_metric_family_counts"] == {
         "inventory_to_sales": 1
+    }
+    assert stock_layer["domain_rating_support"]["target_family_counts"] == {"stock": 1}
+    assert stock_layer["domain_rating_support"]["agent_layer_counts"] == {
+        "superinvestor": 1
+    }
+    assert stock_layer["domain_rating_support"]["regime_bucket_counts"] == {
+        "company_quality": 1
     }
     assert industry_layer["domain_rating_support"]["rating_bucket_counts"] == {
         "contradictory_evidence": 1
@@ -16038,6 +16060,15 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
         row["statistical_reliability_bucket"] for row in domain_ratings
     } == {"insufficient_data"}
     assert {row["pending_share"] for row in domain_ratings} == {0.0}
+    assert {row["target_family"] for row in domain_ratings} == {"stock", "industry"}
+    assert {row["agent_layer"] for row in domain_ratings} == {
+        "sector",
+        "superinvestor",
+    }
+    assert {row["regime_bucket"] for row in domain_ratings} == {
+        "company_quality",
+        "industry_cycle",
+    }
     assert "claim_text" not in json.dumps(domain_ratings, ensure_ascii=False)
     assert "source_span_ids" not in json.dumps(domain_ratings, ensure_ascii=False)
 
@@ -16048,9 +16079,15 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     viewpoint_support = viewpoint_profiles[0]["outcome_layer_support"]
     assert viewpoint_support["mixed_layer_profile"] is True
     assert viewpoint_support["layer_count"] == 2
-    assert "label_type, benchmark_family, and cost_model_id" in viewpoint_support[
-        "layering_policy"
-    ]
+    for field in (
+        "label_type",
+        "target_family",
+        "benchmark_family",
+        "cost_model_id",
+        "agent_layer",
+        "regime_bucket",
+    ):
+        assert field in viewpoint_support["layering_policy"]
 
 
 def test_domain_claim_ratings_preserve_pending_share():
@@ -16144,20 +16181,29 @@ def test_report_intelligence_method_profiles_use_direct_outcome_layers():
     assert {
         (
             row["label_type"],
+            row["target_family"],
             row["benchmark_family"],
             row["cost_model_id"],
+            row["agent_layer"],
+            row["regime_bucket"],
         )
         for row in layered["outcome_layer_support"]["layer_summaries"]
     } == {
         (
             "stock_price_proxy",
+            "stock",
             "CSI300_ETF_PROXY",
             "single_stock_round_trip_20bps_v1",
+            "superinvestor|decision|sector",
+            "unknown",
         ),
         (
             "industry_etf_proxy",
+            "industry",
             "CSI500_ETF_PROXY",
             "industry_etf_round_trip_10bps_v1",
+            "sector|decision",
+            "unknown",
         ),
     }
 

@@ -19346,11 +19346,14 @@ def _shrunk_performance_summary(
     }
 
 
-def _outcome_layer_key(label: Mapping[str, Any]) -> tuple[str, str, str]:
+def _outcome_layer_key(label: Mapping[str, Any]) -> tuple[str, str, str, str, str, str]:
     return (
         str(label.get("label_type") or "standard"),
+        _domain_label_target_family(label),
         str(label.get("benchmark_family") or "unknown_benchmark_family"),
         str(label.get("cost_model_id") or "unknown_cost_model"),
+        _domain_label_agent_layer(label),
+        _domain_label_regime_bucket(label),
     )
 
 
@@ -19406,6 +19409,45 @@ def _domain_label_metric_family(label: Mapping[str, Any]) -> str:
     return "unknown"
 
 
+def _domain_label_target_family(label: Mapping[str, Any]) -> str:
+    for key in ("target_family", "target_type"):
+        value = str(label.get(key) or "").strip()
+        if value:
+            return value
+    target_type = str(_ensure_mapping(label.get("target")).get("target_type") or "").strip()
+    if target_type:
+        return target_type
+    label_type = str(label.get("label_type") or "")
+    if label_type == "stock_price_proxy":
+        return "stock"
+    if label_type == "industry_etf_proxy":
+        return "industry"
+    return "unknown"
+
+
+def _domain_label_agent_layer(label: Mapping[str, Any]) -> str:
+    explicit = str(label.get("agent_layer") or "").strip()
+    if explicit:
+        return explicit
+    agents = [
+        str(agent).split(".", 1)[0]
+        for agent in _ensure_list(label.get("target_agent_candidates"))
+        if str(agent).strip()
+    ]
+    if agents:
+        return "|".join(dict.fromkeys(agents))
+    label_type = str(label.get("label_type") or "")
+    if label_type == "stock_price_proxy":
+        return "superinvestor|decision|sector"
+    if label_type == "industry_etf_proxy":
+        return "sector|decision"
+    return "unknown"
+
+
+def _domain_label_regime_bucket(label: Mapping[str, Any]) -> str:
+    return str(label.get("regime_bucket") or "unknown").strip() or "unknown"
+
+
 def build_domain_claim_ratings(
     outcome_label_rows: Sequence[Mapping[str, Any]],
     *,
@@ -19447,6 +19489,9 @@ def build_domain_claim_ratings(
             "benchmark_family": str(label.get("benchmark_family") or "unknown_benchmark_family"),
             "cost_model_id": str(label.get("cost_model_id") or "unknown_cost_model"),
             "holding_window_bucket": str(label.get("window_role") or "unknown"),
+            "target_family": _domain_label_target_family(label),
+            "agent_layer": _domain_label_agent_layer(label),
+            "regime_bucket": _domain_label_regime_bucket(label),
             "fundamental_metric_family": _domain_label_metric_family(label),
             "failure_mode_tags": _domain_rating_failure_tags(label),
             "after_cost_alpha": _float_or_none(label.get("after_cost_alpha")),
@@ -19479,8 +19524,14 @@ def _domain_rating_support(labels: Sequence[Mapping[str, Any]]) -> dict[str, Any
     failure_mode_counts: dict[str, int] = {}
     mapping_confidence_counts: dict[str, int] = {}
     fundamental_metric_family_counts: dict[str, int] = {}
+    target_family_counts: dict[str, int] = {}
+    agent_layer_counts: dict[str, int] = {}
+    regime_bucket_counts: dict[str, int] = {}
     for rating in ratings:
         _increment_count(rating_bucket_counts, rating.get("rating_bucket"))
+        _increment_count(target_family_counts, rating.get("target_family"))
+        _increment_count(agent_layer_counts, rating.get("agent_layer"))
+        _increment_count(regime_bucket_counts, rating.get("regime_bucket"))
         _increment_count(
             fundamental_metric_family_counts,
             rating.get("fundamental_metric_family"),
@@ -19503,6 +19554,9 @@ def _domain_rating_support(labels: Sequence[Mapping[str, Any]]) -> dict[str, Any
         "fundamental_metric_family_counts": dict(
             sorted(fundamental_metric_family_counts.items())
         ),
+        "target_family_counts": dict(sorted(target_family_counts.items())),
+        "agent_layer_counts": dict(sorted(agent_layer_counts.items())),
+        "regime_bucket_counts": dict(sorted(regime_bucket_counts.items())),
         "mapping_confidence_counts": dict(sorted(mapping_confidence_counts.items())),
         "proxy_limitation_tags": sorted(
             tag
@@ -19516,17 +19570,27 @@ def _domain_rating_support(labels: Sequence[Mapping[str, Any]]) -> dict[str, Any
 def _outcome_layer_support(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    grouped: dict[tuple[str, str, str, str, str, str], list[Mapping[str, Any]]] = {}
     for label in labels:
         grouped.setdefault(_outcome_layer_key(label), []).append(label)
     layer_summaries: list[dict[str, Any]] = []
-    for (label_type, benchmark_family, cost_model_id), rows in sorted(grouped.items()):
+    for (
+        label_type,
+        target_family,
+        benchmark_family,
+        cost_model_id,
+        agent_layer,
+        regime_bucket,
+    ), rows in sorted(grouped.items()):
         summary = _shrunk_performance_summary(rows)
         layer_summaries.append(
             {
                 "label_type": label_type,
+                "target_family": target_family,
                 "benchmark_family": benchmark_family,
                 "cost_model_id": cost_model_id,
+                "agent_layer": agent_layer,
+                "regime_bucket": regime_bucket,
                 "n_nominal": summary["n_nominal"],
                 "n_effective": summary["n_effective"],
                 "mean_after_cost_alpha": summary["mean_after_cost_alpha"],
@@ -19545,8 +19609,11 @@ def _outcome_layer_support(
         "layer_keys": [
             {
                 "label_type": row["label_type"],
+                "target_family": row["target_family"],
                 "benchmark_family": row["benchmark_family"],
                 "cost_model_id": row["cost_model_id"],
+                "agent_layer": row["agent_layer"],
+                "regime_bucket": row["regime_bucket"],
             }
             for row in layer_summaries
         ],
@@ -19554,8 +19621,9 @@ def _outcome_layer_support(
         "domain_rating_support": _domain_rating_support(labels),
         "layering_policy": (
             "overall profile metrics are diagnostic only; compare performance by "
-            "label_type, benchmark_family, and cost_model_id before interpreting "
-            "alpha or hit-rate across heterogeneous proxy channels"
+            "label_type, target_family, benchmark_family, cost_model_id, "
+            "agent_layer, and regime_bucket before interpreting alpha or hit-rate "
+            "across heterogeneous proxy channels"
         ),
     }
 
