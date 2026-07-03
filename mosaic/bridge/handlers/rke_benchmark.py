@@ -2221,6 +2221,19 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     shadow = shadow_replay_readiness(replay_params)
     paper = paper_trading_readiness(replay_params)
     promotion = promotion_decision_readiness(replay_params)
+    runtime_context_blockers = [
+        reason
+        for reason in shadow["blocked_reasons"]
+        if reason
+        in {
+            "runtime_context_hash_missing",
+            "ranking_policy_id_missing",
+            "retrieval_rank_missing",
+            "priority_bucket_missing",
+            "truncation_audit_missing",
+            "current_data_confirmation_missing",
+        }
+    ]
 
     conditions = [
         _delivery_condition(
@@ -2231,20 +2244,8 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
         ),
         _delivery_condition(
             "runtime_ranked_context_consumption",
-            shadow["readiness_status"],
-            [
-                reason
-                for reason in shadow["blocked_reasons"]
-                if reason
-                in {
-                    "runtime_context_hash_missing",
-                    "ranking_policy_id_missing",
-                    "retrieval_rank_missing",
-                    "priority_bucket_missing",
-                    "truncation_audit_missing",
-                    "current_data_confirmation_missing",
-                }
-            ],
+            "blocked_preflight" if runtime_context_blockers else "ready",
+            runtime_context_blockers,
         ),
         _delivery_condition(
             "fixed_episode_benchmark",

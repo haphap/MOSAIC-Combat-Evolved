@@ -3769,6 +3769,44 @@ def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch)
     assert manifest["promotion_allowed"] is False
 
 
+def test_delivery_readiness_marks_runtime_context_condition_independently(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-delivery-runtime-ready",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-runtime"],
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": "bench-delivery-runtime-ready"},
+    )
+
+    by_id = {condition["condition_id"]: condition for condition in manifest["conditions"]}
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert by_id["runtime_ranked_context_consumption"]["ready"] is True
+    assert by_id["runtime_ranked_context_consumption"]["blocked_reasons"] == []
+    assert by_id["fixed_episode_benchmark"]["ready"] is False
+    assert "shadow_replay:benchmark_evidence_not_ready" in manifest["blocked_reasons"]
+
+
 def test_delivery_readiness_blocks_invalid_direct_input_shapes(
     tmp_path: Path, monkeypatch
 ):
