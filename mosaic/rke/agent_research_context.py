@@ -490,6 +490,9 @@ def _public_claim_item(
     performance_context_match = _safe_token(
         weighted_claim.get("performance_context_match") or "insufficient_data"
     )
+    context_snapshot_missing_reasons = _context_snapshot_missing_reasons(
+        agent_id, claim, report_meta
+    )
     item = {
         "redacted_claim_id": _redacted_id(
             "FCRED",
@@ -545,6 +548,10 @@ def _public_claim_item(
         ),
         "current_data_required": True,
         "current_data_required_fields": _current_data_required_fields(agent_id),
+        "context_snapshot_status": "missing"
+        if context_snapshot_missing_reasons
+        else "not_required",
+        "context_snapshot_missing_reasons": context_snapshot_missing_reasons,
         "actionability": SAFE_ACTIONABILITY,
         "actionability_guard": SAFE_ACTIONABILITY,
         "use_policy": RESEARCH_PRIOR_USE_POLICY,
@@ -894,6 +901,7 @@ def _ranking_reason_codes(item: Mapping[str, Any]) -> list[str]:
     outcome_summary = _ensure_mapping(item.get("outcome_label_summary"))
     if _safe_int(outcome_summary.get("label_count"), 0) > 0:
         reasons.append("market_feedback_available")
+    reasons.extend(_ensure_str_list(item.get("context_snapshot_missing_reasons")))
     return list(dict.fromkeys(reasons))
 
 
@@ -1051,6 +1059,25 @@ def _current_data_required_fields(agent_id: str) -> list[str]:
             "prior_conflict_check",
         ]
     return ["current_data_confirmation"]
+
+
+def _context_snapshot_missing_reasons(
+    agent_id: str,
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+) -> list[str]:
+    domain = _claim_domain(claim, report_meta)
+    if domain == "stock" and (
+        agent_id.startswith("superinvestor.")
+        or agent_id.startswith("decision.")
+        or agent_id == "sector.relationship_mapper"
+    ):
+        return ["stock_context_snapshot_missing"]
+    if domain == "industry" and (
+        agent_id.startswith("sector.") or agent_id.startswith("decision.")
+    ):
+        return ["industry_context_snapshot_missing"]
+    return []
 
 
 def _index_metadata(rows: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:

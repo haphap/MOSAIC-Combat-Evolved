@@ -899,12 +899,15 @@ evolution candidate 归因，不能用于抽取阶段判断 claim 对错。
 
 ### P4.S 个股 context snapshot
 
-状态：proposed，尚未实现 builder/schema；当前 stock context 仍主要通过 outcome/readiness/profile
-和 generic RKE research context 间接表达。本节是后续条件 11/12 的设计目标。
+状态：降级 contract 已落地，builder/schema 尚未实现；当前 stock context 仍主要通过
+outcome/readiness/profile 和 generic RKE research context 间接表达。本节是后续条件 11/12 的
+设计目标。
 
 实施规模：M。它不是条件 11 的前置 blocker；若暂不实现，agent prior 仍可从
 `stock_price_proxy` outcome/readiness/profile 和 generic RKE research context 降级读取，但必须输出
 `stock_context_snapshot_missing` 或等价 no-prior reason，不能伪造 market-cap/liquidity 背景。
+当前 `build_rke_agent_research_context_from_rows()` 已在 stock prior context item 中输出
+`context_snapshot_status=missing` 和 `stock_context_snapshot_missing` ranking reason。
 
 拟新增 builder：
 
@@ -947,13 +950,15 @@ claim_validation_allowed=false
 
 ### P4.I 行业 context snapshot
 
-状态：proposed，尚未实现 builder/schema；当前 industry context 仍主要通过
+状态：降级 contract 已落地，builder/schema 尚未实现；当前 industry context 仍主要通过
 `industry_etf_proxy_map`、PIT availability、outcome/readiness/profile 和 generic RKE research
 context 表达。本节是后续条件 11/12 的设计目标。
 
 实施规模：M。它不是条件 11 的前置 blocker；若暂不实现，sector/decision agents 仍可从
 industry ETF proxy outcome/readiness/profile 降级读取，但必须保留 `industry_context_snapshot_missing`
 和 proxy limitation，不得把 broad ETF proxy 当作直接行业组合收益。
+当前 `build_rke_agent_research_context_from_rows()` 已在 industry prior context item 中输出
+`context_snapshot_status=missing` 和 `industry_context_snapshot_missing` ranking reason。
 
 拟新增 builder：
 
@@ -2139,8 +2144,11 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
   `macro.central_bank`、`macro.china`、`macro.commodities`、`macro.dollar`、
   `macro.emerging_markets`、`macro.geopolitical`、`macro.yield_curve`；`macro.volatility`
   当前因缺少可评价 volatility claim leg 无 prior 输出。stock/industry prior 可以进入
-  generic RKE research context，但尚未完成面向 superinvestor、sector、decision agents 的
-  稳定 ranking 和 no-prior reason 审计；Munger/Burry/Ackman/Druckenmiller 的 role-filtered
+  generic RKE research context，并且 stock/industry context item 已带
+  `stock_context_snapshot_missing` / `industry_context_snapshot_missing` 降级原因；但尚未完成面向
+  superinvestor、sector、decision agents 的稳定 role-filtered content 和 no-prior reason 审计；
+  条件 11 的 ranking infrastructure 通过只证明排序和安全 contract，不证明 superinvestor 已收到
+  按角色过滤的可用 stock prior。Munger/Burry/Ackman/Druckenmiller 的 role-filtered
   stock prior 仍是 P11.5 proposed 子任务，不能把 generic context 当作已完成的投资 agent prior。
 - 条件 6：已满足。outcome/readiness 区分 completed、pending window 和 readiness gap；
   RI-MACRO-02 记录 `macro_ready_counts`、`macro_pending_counts` 和 readiness gap counts。
@@ -2153,7 +2161,10 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
   shadow prior；任何 agent-facing summary 必须保留 `n_effective`、reliability bucket、
   pending share 和 current-data confirmation guard。stock/industry 的 row-level logical rating
   仍按 P11.4 作为 internal/profile 扩展实现，不能把 macro prior bucket normalization 视为
-  三域 claim rating 完成。
+  三域 claim rating 完成。独立待办：P5.3/P5.4 定义的 macro
+  `cross_asset_consistency` 计算规则尚未落地；在它能按 parent macro claim 的多 legs 输出
+  `consistent`、`mixed`、`contradictory` 或 `blocked_mapping` 前，parent-level macro rating
+  不能视为完成。
 - 条件 8：部分完成。`schema-status --root . --failures-only --no-write` 为 0 failure；
   `operator-readiness --root .` 为 18/18 passed。当前
   `evolution-readiness --root . --no-write` 已通过 RI-EVOL-03、RI-EVOL-04、
@@ -2162,6 +2173,16 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
   RI-EVOL-07、RI-MACRO-02 和 RI-MACRO-04 阻塞。独立 RI-STOCK-01..04 和
   RI-INDUSTRY-01..04 目前尚未实现；stock/industry 仍通过通用 RI-EVOL、
   schema/PIT/provenance/privacy/readiness/profile 路径覆盖。
+
+  当前 gate blocker 根因表：
+
+  | check | 直接 blocker | 当前证据 | 根因分类 | 下一步 |
+  | --- | --- | --- | --- | --- |
+  | RI-EVOL-01 | `unique_outcome_claim_count_below_threshold`、`stock_proxy_claim_count_below_threshold`、`industry_proxy_claim_count_below_threshold` | unique outcome 0/100，stock proxy 0/30，industry proxy 0/30 | PIT outcome 样本为零；数据/coverage 问题，不是 compiler/ranking 问题 | 生成 stock/industry/macro 非 LLM PIT outcome labels |
+  | RI-EVOL-02 | `paper_trading_validated_recipe_count_below_threshold` | validated recipes 0/20，validation pass 0 | 无可绑定 outcome 的 paper-trading 证据；依赖 RI-EVOL-01 | 把 recipe runs 绑定到 direct PIT outcome 和 after-cost metrics |
+  | RI-EVOL-07 | markdown/P9 覆盖短缺 | markdown ready 0/300，quality pass 0/300，LLM processed 0/100，stock reports 0/80，120d-ready stock reports 0/30，strata missing 9 | 上游私有 PDF/MinerU/Markdown/LLM coverage 问题 | 运行 stratified private extraction，补 quality-gated markdown coverage |
+  | RI-MACRO-02 | `macro_pit_label_coverage_missing` | macro asset/series/curve eligible、labelable、outcome rows 均为 0 | 宏观 PIT label coverage 为零；数据/target mapping/corpus 问题 | 补 macro claim legs 的 direct/proxy PIT outcome labels |
+  | RI-MACRO-04 | `macro_rating_profile_market_feedback_missing` | 无 macro market-feedback labels 可聚合 | 统计证据缺失；依赖 RI-MACRO-02 | 在 macro PIT labels 非零后重建 macro rating/profile |
 - 条件 9：已满足当前边界。report-intelligence 派生报告已按本地私有处理，不作为默认提交内容；
   私有 detail JSONL、review aids、PDF/Markdown/MinerU cache 仍在 gitignore/private registry
   边界内。
@@ -2176,12 +2197,16 @@ Part 1 未完成条件当前状态：
   `agent_target_specificity_bucket`、`performance_context_match`、
   `combined_research_prior_weight`、reliability、freshness 和 input index 排序后截断，
   并输出 `retrieval_rank`、`priority_bucket`、`ranking_policy_id`、
-  `ranking_reason_codes`、`matched_item_count` 和 `truncated_item_count`。`RI-EVOL-09`
+  `ranking_reason_codes`、`matched_item_count`、`truncated_item_count` 和 stock/industry
+  context snapshot missing reasons。`RI-EVOL-09`
   已进入 `evolution_readiness_gate.json`，当前刷新记录 sector/decision ranked context
   evidence、macro/superinvestor no-prior reason evidence，且 private text、current-data
-  guard、shadow policy 和 ranking policy violation 均为 0。Part 2 的全 agent runtime
-  preflight、private prompt resolution 和 benchmark wiring 仍不计入 Part 1 exit criteria。
-- 条件 12：当前 corpus 的 gate 证据已落地。`prompt_mutation_candidates.jsonl` 已接入
+  guard、shadow policy 和 ranking policy violation 均为 0。这只关闭“ranking infrastructure”
+  证据，不关闭条件 5 的 role-filtered superinvestor/sector/decision prior 内容缺口。
+  Part 2 的全 agent runtime preflight、private prompt resolution 和 benchmark wiring 仍不计入
+  Part 1 exit criteria。
+- 条件 12：当前 corpus 的 compiler/refusal contract 证据已落地，但不视为 exit-complete。
+  `prompt_mutation_candidates.jsonl` 已接入
   redacted prior-to-candidate compiler 路径：macro prior 可生成
   `macro_prior_rule_parameter_candidate` 或 refusal；stock/industry prior 可生成
   `*_prior_recipe_rule_candidate` 或带 `missing_pit_outcome`、
@@ -2189,8 +2214,9 @@ Part 1 未完成条件当前状态：
   `source_dependent_cluster` 的 refusal。`RI-EVOL-08` 已进入
   `evolution_readiness_gate.json`，当前刷新记录 7 条 prior compiler/refusal rows，
   覆盖 stock、industry 和 5 个 macro agents，且 private text / shadow policy violation
-  均为 0。当前 corpus 仍因没有 PIT outcome labels 和样本不足只生成 refusal，整体 gate
-  仍被 RI-EVOL-01、RI-EVOL-02、RI-EVOL-07、RI-MACRO-02 和 RI-MACRO-04 阻塞。
+  均为 0。当前 corpus 仍因没有 PIT outcome labels 和样本不足只生成 refusal；在条件 8 的
+  outcome/markdown/paper-trading blocker 解除前，RI-EVOL-08 只能证明 compiler path 可审计，
+  不能证明 compiler 产出有效、可验证的 downstream candidate。
 
 Part 2 handoff notes，不计入 Part 1 完成判定：
 

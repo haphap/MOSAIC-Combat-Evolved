@@ -137,8 +137,14 @@ def test_superinvestor_context_filters_by_style_fit():
     )
 
     assert context["agent_id"] == "superinvestor.munger"
-    assert context["context_items"][0]["ticker"] == "600519.SH"
-    assert context["context_items"][0]["style_fit"] in {"medium", "high"}
+    item = context["context_items"][0]
+    assert item["ticker"] == "600519.SH"
+    assert item["style_fit"] in {"medium", "high"}
+    assert item["context_snapshot_status"] == "missing"
+    assert item["context_snapshot_missing_reasons"] == [
+        "stock_context_snapshot_missing"
+    ]
+    assert "stock_context_snapshot_missing" in item["ranking_reason_codes"]
 
 
 def test_context_ranks_all_matches_before_truncating():
@@ -244,6 +250,41 @@ def test_decision_context_reads_redacted_prior_with_current_data_guard():
     assert item["use_policy"] == "shadow_research_prior_only_not_current_signal"
     assert item["actionability_guard"] == SAFE_ACTIONABILITY
     assert "portfolio_context" in item["current_data_required_fields"]
+    assert item["context_snapshot_missing_reasons"] == [
+        "stock_context_snapshot_missing"
+    ]
+
+
+def test_sector_context_marks_missing_industry_snapshot_boundary():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="semiconductor",
+        layer="sector",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-SEMI",
+                "report_id": "RPT-SEMI",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-SEMI",
+                "report_type": "行业研报",
+                "sector": "半导体",
+            }
+        ],
+    )
+
+    item = context["context_items"][0]
+    assert context["agent_id"] == "sector.semiconductor"
+    assert item["domain"] == "industry"
+    assert item["context_snapshot_status"] == "missing"
+    assert item["context_snapshot_missing_reasons"] == [
+        "industry_context_snapshot_missing"
+    ]
+    assert "industry_context_snapshot_missing" in item["ranking_reason_codes"]
 
 
 def test_context_safety_rejects_forbidden_fields():
