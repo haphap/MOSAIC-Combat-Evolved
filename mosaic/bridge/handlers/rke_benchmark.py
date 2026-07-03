@@ -1939,6 +1939,18 @@ def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
             "recorded_key_count": 0,
             "recorded_context_key_count": 0,
         }
+    run_id_mismatches = _delivery_benchmark_run_id_mismatches(
+        evidence, benchmark_run_id
+    )
+    if run_id_mismatches:
+        return {
+            "record_status": "blocked",
+            "benchmark_run_id": benchmark_run_id,
+            "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
+            "failures": run_id_mismatches,
+            "recorded_key_count": 0,
+            "recorded_context_key_count": 0,
+        }
     invalid_values = _invalid_delivery_evidence_values(evidence)
     if invalid_values:
         return {
@@ -2033,6 +2045,9 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
         direct_input_failures.append(
             "forbidden private/prose fields " + ", ".join(direct_forbidden_paths[:5])
         )
+    direct_input_failures.extend(
+        _delivery_benchmark_run_id_mismatches(direct_evidence, benchmark_run_id)
+    )
     direct_input_failures.extend(_invalid_delivery_evidence_values(direct_evidence))
     effective_params = dict(recorded_evidence)
     for key in _DELIVERY_RECORD_KEYS:
@@ -2285,6 +2300,14 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                     + ", ".join(forbidden_paths[:5])
                 )
                 continue
+            run_id_mismatches = _delivery_benchmark_run_id_mismatches(
+                evidence, benchmark_run_id
+            )
+            if run_id_mismatches:
+                failures.extend(
+                    f"line {line_number}: {failure}" for failure in run_id_mismatches
+                )
+                continue
             invalid_values = _invalid_delivery_evidence_values(evidence)
             if invalid_values:
                 failures.extend(
@@ -2299,6 +2322,36 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                 }
             )
     return latest, failures
+
+
+def _delivery_benchmark_run_id_mismatches(
+    value: Any, benchmark_run_id: str, path: str = "$"
+) -> list[str]:
+    if isinstance(value, dict):
+        failures: list[str] = []
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if str(key) == "benchmark_run_id":
+                child_run_id = _clean_str(child)
+                if child_run_id and child_run_id != benchmark_run_id:
+                    failures.append(f"benchmark_run_id mismatch {child_path}")
+                continue
+            failures.extend(
+                _delivery_benchmark_run_id_mismatches(
+                    child, benchmark_run_id, child_path
+                )
+            )
+        return failures
+    if isinstance(value, list):
+        failures: list[str] = []
+        for index, child in enumerate(value):
+            failures.extend(
+                _delivery_benchmark_run_id_mismatches(
+                    child, benchmark_run_id, f"{path}[{index}]"
+                )
+            )
+        return failures
+    return []
 
 
 def _invalid_delivery_evidence_values(evidence: dict[str, Any]) -> list[str]:

@@ -3183,6 +3183,31 @@ def test_delivery_readiness_blocks_private_direct_input_refs(
     )
 
 
+def test_delivery_readiness_blocks_cross_run_direct_input(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-direct-run",
+            "manual_review": _manual_review("other-run"),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "benchmark_run_id mismatch $.manual_review.benchmark_run_id" in manifest[
+        "delivery_input_failures"
+    ]
+    assert (
+        "delivery_evidence_input:benchmark_run_id mismatch $.manual_review.benchmark_run_id"
+        in manifest["blocked_reasons"]
+    )
+
+
 def test_record_delivery_evidence_blocks_private_fields(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -3523,6 +3548,52 @@ def test_delivery_evidence_store_blocks_wrong_proof_types(
     assert audit["recorded_keys"] == []
     assert audit["failures"] == [
         "line 1: invalid delivery evidence type paired_output_count: expected int"
+    ]
+
+
+def test_delivery_evidence_store_blocks_cross_run_nested_proof(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    evidence_dir = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    evidence_dir.mkdir(parents=True)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-run",
+            "manual_review": _manual_review("other-run"),
+        },
+    )
+    (evidence_dir / "delivery_evidence.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": "rke_delivery_evidence_v1",
+                "benchmark_run_id": "bench-delivery-run",
+                "evidence": {
+                    "prompt_mutation_release_checks": [
+                        {"benchmark_run_id": "other-run"}
+                    ]
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-run"},
+    )
+
+    assert record["record_status"] == "blocked"
+    assert "benchmark_run_id mismatch $.manual_review.benchmark_run_id" in record[
+        "failures"
+    ]
+    assert audit["evidence_status"] == "blocked"
+    assert audit["recorded_keys"] == []
+    assert audit["failures"] == [
+        "line 1: benchmark_run_id mismatch $.prompt_mutation_release_checks[0].benchmark_run_id"
     ]
 
 
