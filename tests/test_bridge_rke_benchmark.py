@@ -72,6 +72,8 @@ def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
             "agent": row["agent"],
             "lang": row["lang"],
             "prompt_version_id": index,
+            "prompt_repo_id": row["prompt_repo_id"],
+            "prompt_repo_revision": row["prompt_repo_revision"],
             "prompt_sha256": row["prompt_sha256"],
             "verify_release_ref": f"verify-all-{index}",
             "leak_drift_check_ref": f"leak-all-{index}",
@@ -180,6 +182,28 @@ def test_all_agent_prompt_provenance_readiness_accepts_private_release_checks(
     assert result["release_check_count"] == 50
     assert result["all_agent_prompt_provenance_ready"] is True
     assert result["fallback_used"] is False
+
+
+def test_all_agent_prompt_provenance_readiness_blocks_release_repo_mismatch(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    release_checks = _all_prompt_release_checks(preflight["rows"])
+    release_checks[0]["prompt_repo_revision"] = "bad-revision"
+
+    result = dispatch(
+        "rke_benchmark.all_agent_prompt_provenance_readiness",
+        {"release_checks": release_checks},
+    )
+
+    assert result["readiness_status"] == "blocked_preflight"
+    assert "prompt_repo_revision_mismatch" in result["blocked_reasons"]
+    assert result["all_agent_prompt_provenance_ready"] is False
 
 
 def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
@@ -1728,19 +1752,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
     preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
-    all_prompt_release_checks = [
-        {
-            "agent": row["agent"],
-            "lang": row["lang"],
-            "prompt_version_id": index,
-            "prompt_sha256": row["prompt_sha256"],
-            "verify_release_ref": f"verify-all-{index}",
-            "leak_drift_check_ref": f"leak-all-{index}",
-            "verify_release_passed": True,
-            "leak_drift_passed": True,
-        }
-        for index, row in enumerate(preflight["rows"], 1)
-    ]
+    all_prompt_release_checks = _all_prompt_release_checks(preflight["rows"])
     dispatch(
         "rke_benchmark.capture_agent_claim_footprints",
         {

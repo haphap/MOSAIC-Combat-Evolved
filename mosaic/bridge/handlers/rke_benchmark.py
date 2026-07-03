@@ -222,6 +222,11 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
         for key in ("prompt_sha256", "verify_release_ref", "leak_drift_check_ref"):
             if not _clean_str(release.get(key)):
                 blockers.append(f"{key}_missing")
+        for key in ("prompt_repo_id", "prompt_repo_revision"):
+            if not _clean_str(release.get(key)):
+                blockers.append(f"{key}_missing")
+            elif _clean_str(release.get(key)) != _clean_str(row.get(key)):
+                blockers.append(f"{key}_mismatch")
         if _clean_str(release.get("prompt_sha256")) and _clean_str(
             release.get("prompt_sha256")
         ) != _clean_str(row.get("prompt_sha256")):
