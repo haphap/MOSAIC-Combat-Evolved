@@ -7,6 +7,7 @@ private report-intelligence registry.
 
 from __future__ import annotations
 
+from datetime import date
 import hashlib
 import json
 from typing import Annotated
@@ -80,6 +81,14 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("layer_missing")
     elif agent_id and "." in agent_id and layer != agent_id.split(".", 1)[0]:
         failures.append("layer_agent_mismatch")
+    as_of_date = str(context.get("as_of_date") or "")
+    if not as_of_date:
+        failures.append("as_of_date_missing")
+    else:
+        try:
+            date.fromisoformat(as_of_date)
+        except ValueError:
+            failures.append("as_of_date_invalid")
     schema_version = str(context.get("schema_version") or "")
     if not schema_version:
         failures.append("schema_version_missing")
