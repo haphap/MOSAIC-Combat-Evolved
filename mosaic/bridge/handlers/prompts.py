@@ -207,6 +207,9 @@ def _formal_prompt_source() -> dict[str, Any]:
                 return {
                     "ready": False,
                     "blocked_reason": "private_prompt_repo_dirty",
+                    "resolved_source": "private_root",
+                    "prompt_repo_id": _formal_prompt_repo_id(),
+                    "prompt_repo_revision": revision,
                     "prompt_repo_dirty_count": dirty_count,
                 }
         except Exception:
@@ -231,6 +234,9 @@ def _formal_prompt_source() -> dict[str, Any]:
             return {
                 "ready": False,
                 "blocked_reason": "private_prompt_repo_dirty",
+                "resolved_source": "private_repo",
+                "prompt_repo_id": _formal_prompt_repo_id(),
+                "prompt_repo_revision": revision,
                 "prompt_repo_dirty_count": dirty_count,
             }
     except Exception:

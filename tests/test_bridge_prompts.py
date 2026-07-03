@@ -367,6 +367,12 @@ def test_preflight_blocks_dirty_private_prompt_repo(
 
     assert result["ready"] is False
     assert result["source_status"]["blocked_reason"] == "private_prompt_repo_dirty"
+    assert result["source_status"]["resolved_source"] == "private_repo"
+    assert (
+        result["source_status"]["prompt_repo_id"]
+        == "https://github.com/haphap/MOSAIC-Prompts"
+    )
+    assert len(result["source_status"]["prompt_repo_revision"]) == 40
     assert result["source_status"]["prompt_repo_dirty_count"] == 1
     assert result["rows"][0]["blocked_reason"] == "private_prompt_repo_dirty"
     assert result["rows"][0]["fallback_used"] is False
@@ -412,6 +418,12 @@ def test_preflight_blocks_dirty_prompts_root(repo: Path, tmp_path: Path, monkeyp
 
     assert result["ready"] is False
     assert result["source_status"]["blocked_reason"] == "private_prompt_repo_dirty"
+    assert result["source_status"]["resolved_source"] == "private_root"
+    assert (
+        result["source_status"]["prompt_repo_id"]
+        == "https://github.com/haphap/MOSAIC-Prompts"
+    )
+    assert len(result["source_status"]["prompt_repo_revision"]) == 40
     assert result["source_status"]["prompt_repo_dirty_count"] == 1
     assert result["rows"][0]["blocked_reason"] == "private_prompt_repo_dirty"
 
