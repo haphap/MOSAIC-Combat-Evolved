@@ -263,6 +263,10 @@ Status 2026-07-03:
   redacted aggregate counts for layer, claim type, RKE prior usage quality,
   current-data confirmation, stale-prior rejection, contradictory-prior handling,
   and context-hash coverage.
+- Public bridge now exposes `rke_benchmark.agent_profile_evolution_readiness`,
+  a no-write gate that requires redacted footprint summary, all four layer
+  coverage, RKE context hashes, privacy/no-source-prose audit, profile update ref,
+  and evolution input ref before footprint aggregates can feed profile/evolution.
 - This implements the redacted capture contract, private row sink, and aggregate
   profile summary reader. E3 is not complete until benchmark/replay agents
   actually emit these rows from real runs.

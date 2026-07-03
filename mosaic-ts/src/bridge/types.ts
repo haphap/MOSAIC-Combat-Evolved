@@ -607,6 +607,33 @@ export interface RkeAgentFootprintSummaryResult {
   failures: string[];
 }
 
+export interface RkeAgentProfileEvolutionReadinessResult {
+  schema_version: "rke_agent_profile_evolution_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  summary_status: "ready" | "blocked" | "empty";
+  row_count: number;
+  required_layers: string[];
+  observed_layers: string[];
+  missing_layers: string[];
+  layer_counts: Record<string, number>;
+  claim_type_counts: Record<string, number>;
+  rke_context_hash_count: number;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+  profile_evidence: {
+    profile_update_ref: string;
+    evolution_input_ref: string;
+    no_source_prose_audit_ref: string;
+  };
+  profile_evolution_ready: boolean;
+  production_signal_allowed: boolean;
+}
+
 export interface RkeDarwinianAutoresearchInputManifestResult {
   schema_version: "rke_darwinian_autoresearch_input_manifest_v1";
   manifest_status: "ready" | "blocked_preflight";
@@ -1410,6 +1437,16 @@ export class BridgeApi {
     return this.client.call<RkeAgentFootprintSummaryResult>(
       "rke_benchmark.agent_footprint_summary",
       params ?? {},
+    );
+  }
+
+  rkeBenchmarkAgentProfileEvolutionReadiness(params: {
+    benchmark_run_id: string;
+    profile_evidence?: Record<string, unknown>;
+  }): Promise<RkeAgentProfileEvolutionReadinessResult> {
+    return this.client.call<RkeAgentProfileEvolutionReadinessResult>(
+      "rke_benchmark.agent_profile_evolution_readiness",
+      params,
     );
   }
 

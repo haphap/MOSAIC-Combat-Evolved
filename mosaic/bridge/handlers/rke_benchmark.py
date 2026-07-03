@@ -439,6 +439,67 @@ def _empty_footprint_summary(benchmark_run_id: str) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.agent_profile_evolution_readiness")
+def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate redacted agent footprints before profile/evolution consumption."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    summary = agent_footprint_summary({"benchmark_run_id": benchmark_run_id})
+    evidence = params.get("profile_evidence")
+    if not isinstance(evidence, dict):
+        evidence = {}
+
+    required_layers = sorted(_AGENTS_BY_LAYER)
+    observed_layers = sorted(
+        layer
+        for layer, count in summary["layer_counts"].items()
+        if isinstance(count, int) and count > 0
+    )
+    missing_layers = sorted(set(required_layers) - set(observed_layers))
+    blocked_reasons: list[str] = []
+    if summary["summary_status"] != "ready" or summary["row_count"] == 0:
+        blocked_reasons.append("agent_footprint_summary_missing")
+    if summary["privacy_scan"]["forbidden_field_violation_count"]:
+        blocked_reasons.append("agent_footprint_privacy_scan_failed")
+    if missing_layers:
+        blocked_reasons.append("layer_coverage_incomplete")
+    if not summary["rke_context_hash_count"]:
+        blocked_reasons.append("rke_context_hash_missing")
+    for key in (
+        "profile_update_ref",
+        "evolution_input_ref",
+        "no_source_prose_audit_ref",
+    ):
+        if not _clean_str(evidence.get(key)):
+            blocked_reasons.append(f"{key}_missing")
+    if _forbidden_paths(evidence):
+        blocked_reasons.append("private_or_source_prose_ref_detected")
+
+    return {
+        "schema_version": "rke_agent_profile_evolution_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "blocked_reasons": blocked_reasons,
+        "summary_status": summary["summary_status"],
+        "row_count": summary["row_count"],
+        "required_layers": required_layers,
+        "observed_layers": observed_layers,
+        "missing_layers": missing_layers,
+        "layer_counts": summary["layer_counts"],
+        "claim_type_counts": summary["claim_type_counts"],
+        "rke_context_hash_count": summary["rke_context_hash_count"],
+        "privacy_scan": summary["privacy_scan"],
+        "profile_evidence": {
+            "profile_update_ref": _clean_str(evidence.get("profile_update_ref")),
+            "evolution_input_ref": _clean_str(evidence.get("evolution_input_ref")),
+            "no_source_prose_audit_ref": _clean_str(
+                evidence.get("no_source_prose_audit_ref")
+            ),
+        },
+        "profile_evolution_ready": not blocked_reasons,
+        "production_signal_allowed": False,
+    }
+
+
 @method("rke_benchmark.darwinian_autoresearch_input_manifest")
 def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, Any]:
     """Build the E5 manifest consumed by Darwinian/autoresearch scoring."""

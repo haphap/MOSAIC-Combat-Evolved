@@ -306,6 +306,93 @@ def test_agent_footprint_summary_is_empty_without_private_rows(tmp_path: Path, m
     assert summary["row_count"] == 0
 
 
+def test_agent_profile_evolution_readiness_blocks_missing_footprints(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {"benchmark_run_id": "bench-profile-missing"},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "agent_footprint_summary_missing" in manifest["blocked_reasons"]
+    assert "layer_coverage_incomplete" in manifest["blocked_reasons"]
+    assert manifest["profile_evolution_ready"] is False
+    assert manifest["production_signal_allowed"] is False
+
+
+def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-profile-ready",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                },
+                {
+                    "agent": "semiconductor",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "sector_claim",
+                    "target": {"target_type": "sector", "sector": "semiconductor"},
+                    "rke_context_hash": "b" * 64,
+                },
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "c" * 64,
+                },
+                {
+                    "agent": "cio",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "portfolio_action_claim",
+                    "target": {"target_type": "portfolio", "target_id": "cn_equity"},
+                    "rke_context_hash": "d" * 64,
+                },
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {
+            "benchmark_run_id": "bench-profile-ready",
+            "profile_evidence": {
+                "profile_update_ref": "profile-update-ready",
+                "evolution_input_ref": "evolution-input-ready",
+                "no_source_prose_audit_ref": "no-source-prose-ready",
+            },
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["observed_layers"] == [
+        "decision",
+        "macro",
+        "sector",
+        "superinvestor",
+    ]
+    assert manifest["missing_layers"] == []
+    assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 0
+    assert manifest["profile_evolution_ready"] is True
+    assert manifest["production_signal_allowed"] is False
+
+
 def test_darwinian_autoresearch_manifest_blocks_missing_evidence(
     tmp_path: Path, monkeypatch
 ):
