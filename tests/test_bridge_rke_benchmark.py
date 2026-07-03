@@ -1926,6 +1926,48 @@ def test_candidate_consumption_manifest_classifies_data_acquisition_no_prompt():
     assert summary["blocked_by"] == ["data_engineering_review_required"]
 
 
+def test_candidate_consumption_manifest_classifies_review_and_coverage_no_prompt():
+    no_prompt_types = [
+        "outcome_coverage_expansion_rule",
+        "forecast_gold_set_review_rule",
+        "evolution_refresh_stability_rule",
+        "industry_proxy_mapping_rule",
+        "recipe_paper_trading_expansion_rule",
+        "markdown_coverage_expansion_rule",
+        "markdown_quality_rule",
+        "calibration_fix_required",
+        "confidence_gate_rule",
+    ]
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    mutation_candidate_id=f"PMUT-NO-PROMPT-{index}",
+                    candidate_type=candidate_type,
+                    target_scope="report_intelligence.non_prompt_queue",
+                    target_component="review_or_gate_queue",
+                    blocked_by=["manual_review_required"],
+                )
+                for index, candidate_type in enumerate(no_prompt_types)
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "ready_for_private_prompt_lifecycle"
+    assert manifest["private_prompt_mutation_required"] is False
+    assert manifest["consumption_action_counts"] == {
+        "record_policy_gate_no_prompt_branch": 1,
+        "record_tooling_gap_no_prompt_branch": 8,
+    }
+    assert {
+        row["consumption_action"] for row in manifest["candidate_summaries"]
+    } == {
+        "record_policy_gate_no_prompt_branch",
+        "record_tooling_gap_no_prompt_branch",
+    }
+
+
 def test_candidate_consumption_manifest_rejects_prompt_bypass():
     manifest = dispatch(
         "rke_benchmark.candidate_consumption_manifest",

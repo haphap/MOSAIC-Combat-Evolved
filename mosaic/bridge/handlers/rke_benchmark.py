@@ -2513,10 +2513,20 @@ def _candidate_consumption_action(candidate_type: str) -> str:
     if "refusal" in candidate_type:
         return "record_refusal_no_prompt_branch"
     if candidate_type in {
+        "calibration_fix_required",
         "data_acquisition_prioritization_rule",
+        "evolution_refresh_stability_rule",
+        "forecast_gold_set_review_rule",
+        "industry_proxy_mapping_rule",
+        "markdown_coverage_expansion_rule",
+        "markdown_quality_rule",
+        "outcome_coverage_expansion_rule",
+        "recipe_paper_trading_expansion_rule",
         "tool_gap_prioritization_rule",
     }:
         return "record_tooling_gap_no_prompt_branch"
+    if candidate_type == "confidence_gate_rule":
+        return "record_policy_gate_no_prompt_branch"
     return "private_prompt_branch_after_blockers_clear"
 
 
