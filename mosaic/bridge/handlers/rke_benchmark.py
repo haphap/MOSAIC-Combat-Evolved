@@ -1223,6 +1223,7 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
         for item in candidate_manifest["candidate_summaries"]
         if item["consumption_action"] == "private_prompt_branch_after_blockers_clear"
     ]
+    no_prompt_only = _candidate_manifest_no_prompt_only(candidate_manifest)
     evidence_by_candidate, evidence_failures = _candidate_evidence_by_id(
         evidence_rows,
         label="patch_activation_evidence",
@@ -1282,11 +1283,11 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
         )
 
     blocked_reasons = list(candidate_manifest["manifest_blockers"]) + evidence_failures
-    if not benchmark_run_id:
+    if not benchmark_run_id and not no_prompt_only:
         blocked_reasons.append("benchmark_run_id_missing")
     if candidate_manifest["manifest_status"] != "ready_for_private_prompt_lifecycle":
         blocked_reasons.append("candidate_consumption_manifest_not_ready")
-    if not patch_candidates:
+    if not patch_candidates and not no_prompt_only:
         blocked_reasons.append("patch_candidate_missing")
     for record in records:
         blocked_reasons.extend(record["blockers"])
@@ -1294,7 +1295,13 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": "rke_patch_activation_readiness_v1",
         "benchmark_run_id": benchmark_run_id,
-        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "readiness_status": (
+            "not_applicable"
+            if no_prompt_only and not blocked_reasons
+            else "blocked_preflight"
+            if blocked_reasons
+            else "ready"
+        ),
         "blocked_reasons": sorted(set(blocked_reasons)),
         "candidate_manifest_status": candidate_manifest["manifest_status"],
         "patch_candidate_count": len(patch_candidates),
@@ -1496,6 +1503,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
         for record in lifecycle["lifecycle_records"]
         if record["candidate_action"] == "private_prompt_branch_after_blockers_clear"
     ]
+    no_prompt_only = _lifecycle_no_prompt_only(lifecycle)
     release_by_candidate, evidence_failures = _candidate_evidence_by_id(
         release_rows,
         label="release_checks",
@@ -1610,10 +1618,12 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    blocked_reasons = list(lifecycle["blocked_reasons"]) + evidence_failures
-    if lifecycle["manifest_status"] != "ready_for_private_branch":
+    blocked_reasons = (
+        [] if no_prompt_only else list(lifecycle["blocked_reasons"])
+    ) + evidence_failures
+    if lifecycle["manifest_status"] != "ready_for_private_branch" and not no_prompt_only:
         blocked_reasons.append("lifecycle_manifest_not_ready")
-    if not branch_records:
+    if not branch_records and not no_prompt_only:
         blocked_reasons.append("prompt_branch_candidate_missing")
     for record in records:
         blocked_reasons.extend(record["blockers"])
@@ -1621,7 +1631,13 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": "rke_prompt_mutation_release_readiness_v1",
         "benchmark_run_id": benchmark_run_id,
-        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "readiness_status": (
+            "not_applicable"
+            if no_prompt_only and not blocked_reasons
+            else "blocked_preflight"
+            if blocked_reasons
+            else "ready"
+        ),
         "blocked_reasons": sorted(set(blocked_reasons)),
         "lifecycle_manifest_status": lifecycle["manifest_status"],
         "branch_candidate_count": len(branch_records),
@@ -1668,6 +1684,7 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
         for record in lifecycle["lifecycle_records"]
         if record["candidate_action"] == "private_prompt_branch_after_blockers_clear"
     ]
+    no_prompt_only = _lifecycle_no_prompt_only(lifecycle)
     evidence_by_candidate, evidence_failures = _candidate_evidence_by_id(
         evidence_rows,
         label="rollback_evidence",
@@ -1733,10 +1750,12 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
             }
         )
 
-    blocked_reasons = list(lifecycle["blocked_reasons"]) + evidence_failures
-    if not benchmark_run_id:
+    blocked_reasons = (
+        [] if no_prompt_only else list(lifecycle["blocked_reasons"])
+    ) + evidence_failures
+    if not benchmark_run_id and not no_prompt_only:
         blocked_reasons.append("benchmark_run_id_missing")
-    if not branch_records:
+    if not branch_records and not no_prompt_only:
         blocked_reasons.append("prompt_branch_candidate_missing")
     for record in records:
         blocked_reasons.extend(record["blockers"])
@@ -1744,7 +1763,13 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
     return {
         "schema_version": "rke_prompt_mutation_rollback_readiness_v1",
         "benchmark_run_id": benchmark_run_id,
-        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "readiness_status": (
+            "not_applicable"
+            if no_prompt_only and not blocked_reasons
+            else "blocked_preflight"
+            if blocked_reasons
+            else "ready"
+        ),
         "blocked_reasons": sorted(set(blocked_reasons)),
         "lifecycle_manifest_status": lifecycle["manifest_status"],
         "branch_candidate_count": len(branch_records),
@@ -1815,9 +1840,9 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("benchmark_evidence_not_ready")
     if darwinian["manifest_status"] != "ready":
         blocked_reasons.append("darwinian_autoresearch_input_not_ready")
-    if prompt_release["readiness_status"] != "ready":
+    if prompt_release["readiness_status"] not in {"ready", "not_applicable"}:
         blocked_reasons.append("prompt_mutation_release_not_ready")
-    if rollback["readiness_status"] != "ready":
+    if rollback["readiness_status"] not in {"ready", "not_applicable"}:
         blocked_reasons.append("rollback_readiness_not_ready")
     context_hash_count = int(prior_usage["rke_context_hash_count"] or 0)
     ranking_policy_count = sum(prior_usage["ranking_policy_id_counts"].values())
@@ -2304,12 +2329,12 @@ def _delivery_condition(
     evidence_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons = list(blocked_reasons)
-    if status != "ready" and not reasons:
+    if status not in {"ready", "not_applicable"} and not reasons:
         reasons.append(f"{condition_id}_not_ready")
     return {
         "condition_id": condition_id,
         "status": status,
-        "ready": status == "ready" and not reasons,
+        "ready": status in {"ready", "not_applicable"} and not reasons,
         "blocked_reasons": reasons,
         "evidence_summary": evidence_summary or {},
     }
@@ -2493,6 +2518,28 @@ def _candidate_consumption_action(candidate_type: str) -> str:
     }:
         return "record_tooling_gap_no_prompt_branch"
     return "private_prompt_branch_after_blockers_clear"
+
+
+def _candidate_manifest_no_prompt_only(manifest: dict[str, Any]) -> bool:
+    action_counts = manifest.get("consumption_action_counts")
+    if not isinstance(action_counts, dict):
+        return False
+    return (
+        int(manifest.get("candidate_count") or 0) > 0
+        and not manifest.get("private_prompt_mutation_required")
+        and action_counts.get("private_prompt_branch_after_blockers_clear", 0) == 0
+    )
+
+
+def _lifecycle_no_prompt_only(lifecycle: dict[str, Any]) -> bool:
+    records = lifecycle.get("lifecycle_records")
+    if not isinstance(records, list) or not records:
+        return False
+    return all(
+        isinstance(record, dict)
+        and record.get("candidate_action") != "private_prompt_branch_after_blockers_clear"
+        for record in records
+    ) and lifecycle.get("blocked_reasons") == ["no_prompt_branch_candidate_only"]
 
 
 def _slug(value: str) -> str:

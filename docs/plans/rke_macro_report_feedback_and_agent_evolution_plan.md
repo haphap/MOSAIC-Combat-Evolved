@@ -2359,8 +2359,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   `prompt_mutation_candidates.jsonl` 并保留 candidate/refusal blocker reason，
   同时阻断 production/private-text/manual-review/promotion-state 违规，并把
   tooling/data-acquisition queue candidate 标记为 no-prompt-branch 消费；no-prompt-only
-  队列不会声明需要 private prompt mutation。真实 private prompt mutation、benchmark、replay
-  和 rollback 消费仍未完成。
+  队列不会声明需要 private prompt mutation，prompt release、rollback 和 patch activation gate
+  对其返回 `not_applicable`。真实 private prompt mutation、benchmark、replay 和 rollback
+  消费仍未完成。
 - `rke_benchmark.prompt_mutation_lifecycle_manifest` 已能把 safe candidate/refusal
   摘要转成 private prompt branch 生命周期预检；refusal-only row 和 tooling/data-acquisition
   queue candidate 只记录 blocker，不创建 prompt branch，也不能作为条件 12 的完成证据。

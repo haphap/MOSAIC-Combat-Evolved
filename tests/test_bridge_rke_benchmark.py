@@ -2129,9 +2129,9 @@ def test_patch_activation_readiness_ignores_data_acquisition_no_prompt_candidate
         },
     )
 
-    assert manifest["readiness_status"] == "blocked_preflight"
+    assert manifest["readiness_status"] == "not_applicable"
     assert manifest["patch_candidate_count"] == 0
-    assert "patch_candidate_missing" in manifest["blocked_reasons"]
+    assert manifest["blocked_reasons"] == []
     assert "candidate_blocked_by:data_engineering_review_required" not in manifest[
         "blocked_reasons"
     ]
@@ -2507,6 +2507,28 @@ def test_prompt_mutation_release_readiness_requires_audit_version(
     assert manifest["prompt_release_ready"] is False
 
 
+def test_prompt_mutation_release_readiness_skips_no_prompt_only_candidate():
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="data_acquisition_prioritization_rule",
+                    target_scope="report_intelligence.data_acquisition",
+                    target_component="data_acquisition_review_queue",
+                    blocked_by=["data_engineering_review_required"],
+                )
+            ]
+        },
+    )
+
+    assert manifest["readiness_status"] == "not_applicable"
+    assert manifest["blocked_reasons"] == []
+    assert manifest["branch_candidate_count"] == 0
+    assert manifest["release_record_count"] == 0
+    assert manifest["prompt_release_ready"] is False
+
+
 def test_prompt_mutation_rollback_readiness_blocks_missing_evidence(
     tmp_path: Path, monkeypatch
 ):
@@ -2747,6 +2769,28 @@ def test_prompt_mutation_rollback_readiness_blocks_candidate_blockers(
     assert manifest["rollback_gate_ready"] is False
 
 
+def test_prompt_mutation_rollback_readiness_skips_no_prompt_only_candidate():
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_rollback_readiness",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="data_acquisition_prioritization_rule",
+                    target_scope="report_intelligence.data_acquisition",
+                    target_component="data_acquisition_review_queue",
+                    blocked_by=["data_engineering_review_required"],
+                )
+            ]
+        },
+    )
+
+    assert manifest["readiness_status"] == "not_applicable"
+    assert manifest["blocked_reasons"] == []
+    assert manifest["branch_candidate_count"] == 0
+    assert manifest["rollback_record_count"] == 0
+    assert manifest["rollback_gate_ready"] is False
+
+
 def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -2766,6 +2810,35 @@ def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatc
     assert manifest["shadow_replay_ready"] is False
     assert manifest["paper_trading_allowed"] is False
     assert manifest["promotion_allowed"] is False
+
+
+def test_shadow_replay_readiness_does_not_block_on_no_prompt_only_candidate(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {
+            "benchmark_run_id": "bench-shadow-data-gap",
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="data_acquisition_prioritization_rule",
+                    target_scope="report_intelligence.data_acquisition",
+                    target_component="data_acquisition_review_queue",
+                    blocked_by=["data_engineering_review_required"],
+                )
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert manifest["prompt_release_readiness_status"] == "not_applicable"
+    assert manifest["rollback_readiness_status"] == "not_applicable"
+    assert "prompt_mutation_release_not_ready" not in manifest["blocked_reasons"]
+    assert "rollback_readiness_not_ready" not in manifest["blocked_reasons"]
 
 
 def test_shadow_replay_blocks_context_without_runtime_ranking_proof(
@@ -3303,6 +3376,45 @@ def test_promotion_decision_readiness_blocks_missing_evidence(
     assert manifest["ready_for_operator_promotion_decision"] is False
     assert manifest["production_allowed"] is False
     assert manifest["promotion_allowed"] is False
+
+
+def test_delivery_readiness_treats_no_prompt_only_candidate_as_not_applicable(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-data-gap",
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="data_acquisition_prioritization_rule",
+                    target_scope="report_intelligence.data_acquisition",
+                    target_component="data_acquisition_review_queue",
+                    blocked_by=["data_engineering_review_required"],
+                )
+            ],
+        },
+    )
+
+    by_id = {row["condition_id"]: row for row in manifest["conditions"]}
+    for condition_id in (
+        "prompt_mutation_release",
+        "patch_activation",
+        "rollback_evidence",
+    ):
+        assert by_id[condition_id]["status"] == "not_applicable"
+        assert by_id[condition_id]["ready"] is True
+        assert by_id[condition_id]["blocked_reasons"] == []
+    assert not any(
+        reason.startswith("prompt_mutation_release:")
+        or reason.startswith("patch_activation:")
+        or reason.startswith("rollback_evidence:")
+        for reason in manifest["blocked_reasons"]
+    )
 
 
 def test_promotion_decision_readiness_blocks_unapproved_second_review(

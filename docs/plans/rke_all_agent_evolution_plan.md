@@ -423,7 +423,8 @@ Status 2026-07-03:
   state block the manifest. It also classifies tooling/data-acquisition queue
   candidates as no-prompt-branch records so they are not mistaken for private
   prompt writes or patch activation candidates; no-prompt-only queues do not
-  report `private_prompt_mutation_required=true`.
+  report `private_prompt_mutation_required=true`, and prompt release, rollback,
+  and patch activation gates treat them as `not_applicable`.
 - This implements the E6 candidate/refusal consumption boundary. E6 is not
   complete until private prompt mutation, benchmark, replay, and rollback flows
   actually consume this manifest.
