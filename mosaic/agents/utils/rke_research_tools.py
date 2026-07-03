@@ -120,6 +120,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("priority_bucket_unsupported")
     if items and any(not item.get("redacted_claim_id") for item in items):
         failures.append("redacted_claim_id_missing")
+    if items and any(
+        not item.get(field)
+        for item in items
+        for field in ("target_type", "target_id", "metric_family")
+    ):
+        failures.append("item_target_metadata_missing")
     if items and any(not item.get("ranking_reason_codes") for item in items):
         failures.append("ranking_reason_codes_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
