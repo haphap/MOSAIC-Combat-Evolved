@@ -373,6 +373,7 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         "required_model_config_count": required_model_count,
         "required_paired_output_count": required_paired_output_count,
         "paired_output_count": paired_output_count,
+        "prompt_source_status": manifest["prompt_preflight"].get("source_status", {}),
         "evidence_refs": {
             "paired_output_manifest_ref": _clean_str(
                 evidence_refs.get("paired_output_manifest_ref")
@@ -1450,6 +1451,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "all_agent_prompt_provenance",
             prompt_provenance["readiness_status"],
             prompt_provenance["blocked_reasons"],
+            {"prompt_source_status": prompt_provenance["prompt_source_status"]},
         ),
         _delivery_condition(
             "runtime_ranked_context_consumption",
@@ -1465,6 +1467,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "fixed_episode_benchmark",
             benchmark["evidence_status"],
             benchmark["blocked_reasons"],
+            {"prompt_source_status": benchmark["prompt_source_status"]},
         ),
         _delivery_condition(
             "agent_profile_evolution",
@@ -1531,7 +1534,10 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _delivery_condition(
-    condition_id: str, status: str, blocked_reasons: list[str]
+    condition_id: str,
+    status: str,
+    blocked_reasons: list[str],
+    evidence_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons = list(blocked_reasons)
     if status != "ready" and not reasons:
@@ -1541,6 +1547,7 @@ def _delivery_condition(
         "status": status,
         "ready": status == "ready" and not reasons,
         "blocked_reasons": reasons,
+        "evidence_summary": evidence_summary or {},
     }
 
 

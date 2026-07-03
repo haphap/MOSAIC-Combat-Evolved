@@ -172,6 +172,9 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
 
     assert result["evidence_status"] == "blocked_preflight"
     assert result["required_paired_output_count"] == 1275
+    assert result["prompt_source_status"]["blocked_reason"] == (
+        "private_prompt_unavailable"
+    )
     assert "private_prompt_preflight_not_ready" in result["blocked_reasons"]
     assert "paired_output_count_below_required" in result["blocked_reasons"]
     assert "manual_review_not_approved" in result["blocked_reasons"]
@@ -208,6 +211,8 @@ def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
     assert result["evidence_status"] == "ready"
     assert result["blocked_reasons"] == []
     assert result["paired_output_count"] == result["required_paired_output_count"]
+    assert result["prompt_source_status"]["ready"] is True
+    assert result["prompt_source_status"]["prompt_repo_dirty_count"] == 0
     assert result["manual_review"]["decision"] == "approved"
     assert result["promotion_allowed"] is False
 
@@ -1198,6 +1203,22 @@ def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch)
         reason.startswith("all_agent_prompt_provenance:")
         for reason in manifest["blocked_reasons"]
     )
+    prompt_condition = next(
+        condition
+        for condition in manifest["conditions"]
+        if condition["condition_id"] == "all_agent_prompt_provenance"
+    )
+    benchmark_condition = next(
+        condition
+        for condition in manifest["conditions"]
+        if condition["condition_id"] == "fixed_episode_benchmark"
+    )
+    assert prompt_condition["evidence_summary"]["prompt_source_status"][
+        "blocked_reason"
+    ] == "private_prompt_unavailable"
+    assert benchmark_condition["evidence_summary"]["prompt_source_status"][
+        "blocked_reason"
+    ] == "private_prompt_unavailable"
     assert manifest["production_allowed"] is False
     assert manifest["promotion_allowed"] is False
 

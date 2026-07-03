@@ -567,6 +567,7 @@ export interface RkeFixedEpisodeBenchmarkEvidenceResult {
   required_model_config_count: number;
   required_paired_output_count: number;
   paired_output_count: number;
+  prompt_source_status: PromptPreflightResult["source_status"];
   evidence_refs: {
     paired_output_manifest_ref: string;
     output_schema_validation_report_ref: string;
@@ -887,6 +888,7 @@ export interface RkeDeliveryCondition {
   status: string;
   ready: boolean;
   blocked_reasons: string[];
+  evidence_summary: Record<string, unknown>;
 }
 
 export interface RkeDeliveryReadinessResult {

@@ -2315,7 +2315,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.delivery_readiness` 已能把 Part 2 E7 的 prompt provenance、runtime
   context、benchmark、profile/evolution、Darwinian/autoresearch、prompt release、
   rollback、shadow replay、paper-trading 和 promotion decision gates 汇总成逐项 blocker
-  审计；真实 benchmark/replay/promotion 仍需实际运行。
+  审计，并把 prompt source blocker 作为 no-body condition evidence summary 透传；
+  真实 benchmark/replay/promotion 仍需实际运行。
 - `rke_benchmark.record_delivery_evidence` 已能把真实 run 产生的 no-body evidence refs
   写入 private-local `.mosaic/rke/all_agent_evolution/delivery_evidence.jsonl`，后续
   `delivery_readiness` 可按 `benchmark_run_id` 复查；同一 run 的多次记录按 evidence key
