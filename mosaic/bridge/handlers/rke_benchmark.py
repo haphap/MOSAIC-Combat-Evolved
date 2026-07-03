@@ -927,6 +927,50 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.paper_trading_readiness")
+def paper_trading_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate paper-trading entry on shadow replay and operator-reviewed controls."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    shadow = shadow_replay_readiness(params)
+    plan = params.get("paper_trading_plan")
+    if not isinstance(plan, dict):
+        plan = {}
+
+    blocked_reasons: list[str] = []
+    if shadow["readiness_status"] != "ready":
+        blocked_reasons.append("shadow_replay_not_ready")
+    for key in (
+        "paper_trading_plan_ref",
+        "risk_limit_ref",
+        "stop_loss_or_rollback_ref",
+        "operator_review_timestamp",
+    ):
+        if not _clean_str(plan.get(key)):
+            blocked_reasons.append(f"{key}_missing")
+    if _forbidden_paths(plan):
+        blocked_reasons.append("private_or_source_prose_ref_detected")
+
+    return {
+        "schema_version": "rke_paper_trading_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "blocked_reasons": blocked_reasons,
+        "shadow_replay_status": shadow["readiness_status"],
+        "paper_trading_plan": {
+            "paper_trading_plan_ref": _clean_str(plan.get("paper_trading_plan_ref")),
+            "risk_limit_ref": _clean_str(plan.get("risk_limit_ref")),
+            "stop_loss_or_rollback_ref": _clean_str(
+                plan.get("stop_loss_or_rollback_ref")
+            ),
+            "operator_review_timestamp": _clean_str(
+                plan.get("operator_review_timestamp")
+            ),
+        },
+        "paper_trading_allowed": not blocked_reasons,
+        "promotion_allowed": False,
+    }
+
+
 def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
     component = _clean_str(item.get("target_component"))
     if "." in component:

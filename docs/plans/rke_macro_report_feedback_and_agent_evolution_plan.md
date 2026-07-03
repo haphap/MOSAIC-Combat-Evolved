@@ -2293,6 +2293,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.shadow_replay_readiness` 已能把 benchmark evidence、Darwinian input、
   runtime RKE context/current-data confirmation 和 rollback readiness 汇总为 shadow replay
   gate；真实 replay/paper-trading run 仍未执行，不能据此 promotion。
+- `rke_benchmark.paper_trading_readiness` 已能检查 shadow replay ready 后进入 paper-trading
+  所需的 reviewed plan、risk limit 和 stop-loss/rollback ref；这只允许 paper-trading entry，
+  不允许 production promotion。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
 - agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution 闭环。
 - Layer-3 roster preflight：当前分支已完成 public runtime、fallback prompt、RKE style-fit、
