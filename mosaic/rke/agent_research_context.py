@@ -425,6 +425,13 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                     f"{item_map.get('target_id')}, "
                     f"metric_family={item_map.get('metric_family')}"
                 ),
+                (
+                    "- Ranking: "
+                    f"rank={item_map.get('retrieval_rank')}; "
+                    f"priority={item_map.get('priority_bucket')}; "
+                    "reasons="
+                    f"{', '.join(_ensure_str_list(item_map.get('ranking_reason_codes'))) or 'none'}"
+                ),
                 f"- Expected direction: {item_map.get('expected_direction')}",
                 f"- Horizon: {item_map.get('horizon_bucket')}",
                 (

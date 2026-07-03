@@ -84,6 +84,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("priority_bucket_missing")
     elif any(bucket not in _PRIORITY_BUCKETS for bucket in priority_buckets):
         failures.append("priority_bucket_unsupported")
+    if items and any(not item.get("ranking_reason_codes") for item in items):
+        failures.append("ranking_reason_codes_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
         failures.append("current_data_required_missing")
     if items and any(not item.get("current_data_required_fields") for item in items):
