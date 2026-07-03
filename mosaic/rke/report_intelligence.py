@@ -27531,6 +27531,7 @@ def build_prompt_mutation_candidates(
     confidence_impact_monitor: Mapping[str, Any],
     markdown_coverage_summary: Mapping[str, Any],
     industry_etf_proxy_pit_availability: Mapping[str, Any],
+    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]] = (),
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     outcome_label_rows: Sequence[Mapping[str, Any]] = (),
     macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
@@ -28219,6 +28220,76 @@ def build_prompt_mutation_candidates(
             severity="medium",
             blocked_by=["data_engineering_review_required"],
         )
+    active_data_proposals = [
+        row
+        for row in data_acquisition_proposal_rows
+        if str(row.get("decision_status") or "pending_review") != "rejected"
+    ]
+    if active_data_proposals:
+        data_priority_counts: dict[str, int] = {}
+        data_pit_counts: dict[str, int] = {}
+        data_license_counts: dict[str, int] = {}
+        for proposal in active_data_proposals:
+            _increment_count(data_priority_counts, proposal.get("business_priority"))
+            _increment_count(
+                data_pit_counts,
+                proposal.get("pit_feasibility_status"),
+            )
+            _increment_count(data_license_counts, proposal.get("license_status"))
+        market_cap_gap_count = sum(
+            1
+            for proposal in active_data_proposals
+            if proposal.get("tool_gap_id")
+            == "stock_context_market_cap_metadata_missing"
+        )
+        blockers = ["data_engineering_review_required"]
+        if any(
+            str(proposal.get("pit_feasibility_status") or "")
+            != "pit_feasible"
+            for proposal in active_data_proposals
+        ):
+            blockers.append("pit_backfill_review_required")
+        if any(
+            str(proposal.get("license_status") or "") != "cleared"
+            for proposal in active_data_proposals
+        ):
+            blockers.append("license_review_required")
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="data_acquisition_prioritization_rule",
+            target_scope="report_intelligence.data_acquisition",
+            target_component="data_acquisition_review_queue",
+            proposed_change=(
+                "Keep agent-facing context gaps as no-prior reasons until "
+                "required PIT datasets, license status, and engineering review "
+                "are explicit in data acquisition proposals."
+            ),
+            trigger_sources=["data_acquisition_proposals"],
+            evidence_refs=[
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/"
+                        "data_acquisition_proposals.jsonl"
+                    ),
+                    "field": "decision_status",
+                    "proposal_count": len(active_data_proposals),
+                    "business_priority_counts": dict(
+                        sorted(data_priority_counts.items())
+                    ),
+                    "pit_feasibility_status_counts": dict(sorted(data_pit_counts.items())),
+                    "license_status_counts": dict(sorted(data_license_counts.items())),
+                    "market_cap_metadata_gap_count": market_cap_gap_count,
+                    "top_tool_gap_ids": [
+                        str(proposal.get("tool_gap_id") or "")
+                        for proposal in active_data_proposals[:10]
+                        if str(proposal.get("tool_gap_id") or "").strip()
+                    ],
+                }
+            ],
+            severity="medium",
+            blocked_by=blockers,
+        )
     paper_diagnostic_evidence = _paper_trading_summary_diagnostic_evidence(
         recipe_paper_trading_summary
     )
@@ -28583,6 +28654,11 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="tool_gaps",
         blockers=blockers,
     )
+    data_acquisition_proposal_rows = _read_registry_jsonl(
+        registry_path / "data_acquisition_proposals.jsonl",
+        label="data_acquisition_proposals",
+        blockers=blockers,
+    )
     recipe_paper_trading_run_rows = _read_registry_jsonl(
         registry_path / "recipe_paper_trading_runs.jsonl",
         label="recipe_paper_trading_runs",
@@ -28652,6 +28728,7 @@ def write_report_intelligence_prompt_mutation_candidates(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -34963,6 +35040,7 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -35170,6 +35248,7 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -36156,6 +36235,7 @@ def run_report_intelligence_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -36362,6 +36442,7 @@ def run_report_intelligence_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,

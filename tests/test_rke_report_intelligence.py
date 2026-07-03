@@ -18655,6 +18655,69 @@ def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
     }
 
 
+def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals():
+    proposals = build_data_acquisition_proposals(
+        [],
+        stock_context_snapshot_rows=[
+            {
+                "snapshot_id": "SCS-MISSING-MV",
+                "missing_feature_reasons": ["market_cap_bucket_missing"],
+            },
+        ],
+    )
+
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-DATA-ACQUISITION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        data_acquisition_proposal_rows=proposals,
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "markdown_quality_gap_counts": {},
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    candidate = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "data_acquisition_prioritization_rule"
+    )
+    assert candidate["target_component"] == "data_acquisition_review_queue"
+    assert "data_engineering_review_required" in candidate["blocked_by"]
+    assert "pit_backfill_review_required" in candidate["blocked_by"]
+    assert "license_review_required" in candidate["blocked_by"]
+    evidence = candidate["evidence_refs"][0]
+    assert (
+        evidence["artifact_path"]
+        == "registry/report_intelligence/data_acquisition_proposals.jsonl"
+    )
+    assert evidence["field"] == "decision_status"
+    assert evidence["proposal_count"] == 1
+    assert evidence["business_priority_counts"] == {"medium": 1}
+    assert evidence["pit_feasibility_status_counts"] == {
+        "requires_pit_backfill_review": 1
+    }
+    assert evidence["license_status_counts"] == {"pending_review": 1}
+    assert evidence["market_cap_metadata_gap_count"] == 1
+    assert evidence["top_tool_gap_ids"] == [
+        "stock_context_market_cap_metadata_missing"
+    ]
+    assert candidate["production_prompt_change_allowed"] is False
+    assert candidate["private_text_included"] is False
+    candidate_dump = json.dumps(candidate, ensure_ascii=False)
+    assert "claim_text" not in candidate_dump
+    assert "source_span_ids" not in candidate_dump
+
+
 def test_report_intelligence_defaults_to_vlm_mineru_backend():
     config = ReportIntelligenceConfig()
 
