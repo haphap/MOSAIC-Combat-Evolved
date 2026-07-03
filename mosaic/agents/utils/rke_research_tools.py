@@ -294,6 +294,7 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("current_data_required_missing")
     if items and any(
         not isinstance(item.get("current_data_required_fields"), (list, tuple))
+        or not item.get("current_data_required_fields")
         or not all(
             isinstance(field, str) and field
             for field in item.get("current_data_required_fields", [])

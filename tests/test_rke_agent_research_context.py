@@ -861,7 +861,7 @@ def test_rke_runtime_context_preflight_blocks_bad_current_data_fields():
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                     "current_data_required": True,
-                    "current_data_required_fields": [""],
+                    "current_data_required_fields": [],
                 }
             ],
             "summary": {"truncated_item_count": 0, "current_data_required": True},
