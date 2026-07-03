@@ -66,6 +66,36 @@ def _prompt_release_check() -> dict:
     }
 
 
+def _prompt_release_check_from_lifecycle(
+    manifest: dict, **overrides: object
+) -> dict:
+    record = manifest["lifecycle_records"][0]
+    prompt_pin = record["prompt_pins"][0]
+    row = _prompt_release_check()
+    row.update(
+        {
+            "mutation_candidate_id": record["mutation_candidate_id"],
+            "prompt_repo_id": prompt_pin["prompt_repo_id"],
+            "private_prompt_branch": record["private_prompt_branch"],
+            "base_prompt_repo_revision": prompt_pin["prompt_repo_revision"],
+            "overwrite_target_paths": record["overwrite_target_paths"],
+            "prompt_sha256": prompt_pin["prompt_sha256"],
+        }
+    )
+    row.update(overrides)
+    return row
+
+
+def _prompt_release_check_for_candidates(
+    candidates: list[dict], **overrides: object
+) -> dict:
+    lifecycle = dispatch(
+        "rke_benchmark.prompt_mutation_lifecycle_manifest",
+        {"candidates": candidates},
+    )
+    return _prompt_release_check_from_lifecycle(lifecycle, **overrides)
+
+
 def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
     return [
         {
@@ -912,18 +942,19 @@ def test_prompt_mutation_release_readiness_accepts_release_and_leak_drift(
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
 
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
     manifest = dispatch(
         "rke_benchmark.prompt_mutation_release_readiness",
         {
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=[],
-                )
-            ],
-            "release_checks": [_prompt_release_check()],
+            "candidates": candidates,
+            "release_checks": [_prompt_release_check_for_candidates(candidates)],
         },
     )
 
@@ -935,6 +966,41 @@ def test_prompt_mutation_release_readiness_accepts_release_and_leak_drift(
     assert record["release_ready"] is True
 
 
+def test_prompt_mutation_release_readiness_blocks_mismatched_lifecycle_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    release_check = _prompt_release_check_for_candidates(
+        candidates,
+        private_prompt_branch="rke/wrong-branch",
+        base_prompt_repo_revision="not-the-lifecycle-base",
+        overwrite_target_paths=["prompts/mosaic/cohort_default/superinvestor/wrong.md"],
+    )
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {"candidates": candidates, "release_checks": [release_check]},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "private_prompt_branch_mismatch" in manifest["blocked_reasons"]
+    assert "base_prompt_repo_revision_mismatch" in manifest["blocked_reasons"]
+    assert "overwrite_target_paths_mismatch" in manifest["blocked_reasons"]
+    assert manifest["prompt_release_ready"] is False
+
+
 def test_prompt_mutation_release_readiness_blocks_candidate_blockers(
     tmp_path: Path, monkeypatch
 ):
@@ -944,18 +1010,19 @@ def test_prompt_mutation_release_readiness_blocks_candidate_blockers(
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
 
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=["missing_pit_outcome"],
+        )
+    ]
     manifest = dispatch(
         "rke_benchmark.prompt_mutation_release_readiness",
         {
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=["missing_pit_outcome"],
-                )
-            ],
-            "release_checks": [_prompt_release_check()],
+            "candidates": candidates,
+            "release_checks": [_prompt_release_check_for_candidates(candidates)],
         },
     )
 
@@ -1173,6 +1240,14 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
         },
     )
 
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
     manifest = dispatch(
         "rke_benchmark.shadow_replay_readiness",
         {
@@ -1203,15 +1278,10 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
                 "prompt_repo_revision": "a" * 40,
                 "prompt_sha256": "b" * 64,
             },
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=[],
-                )
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(candidates)
             ],
-            "prompt_mutation_release_checks": [_prompt_release_check()],
             "rollback_evidence": [
                 {
                     "mutation_candidate_id": "PMUT-1",
@@ -1288,6 +1358,14 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
         },
     )
 
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
     manifest = dispatch(
         "rke_benchmark.paper_trading_readiness",
         {
@@ -1318,15 +1396,10 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
                 "prompt_repo_revision": "a" * 40,
                 "prompt_sha256": "b" * 64,
             },
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=[],
-                )
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(candidates)
             ],
-            "prompt_mutation_release_checks": [_prompt_release_check()],
             "rollback_evidence": [
                 {
                     "mutation_candidate_id": "PMUT-1",
@@ -1400,6 +1473,14 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
         },
     )
 
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
     manifest = dispatch(
         "rke_benchmark.promotion_decision_readiness",
         {
@@ -1430,15 +1511,10 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
                 "prompt_repo_revision": "a" * 40,
                 "prompt_sha256": "b" * 64,
             },
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=[],
-                )
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(candidates)
             ],
-            "prompt_mutation_release_checks": [_prompt_release_check()],
             "rollback_evidence": [
                 {
                     "mutation_candidate_id": "PMUT-1",
@@ -1856,6 +1932,14 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
         },
     )
 
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
     manifest = dispatch(
         "rke_benchmark.delivery_readiness",
         {
@@ -1889,27 +1973,14 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                 "prompt_repo_revision": "a" * 40,
                 "prompt_sha256": "b" * 64,
             },
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=[],
-                )
-            ],
+            "candidates": candidates,
             "prompt_mutation_release_checks": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "prompt_version_id": 51,
-                    "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                    "prompt_commit_hash": "a" * 40,
-                    "prompt_sha256": "b" * 64,
-                    "verify_release_ref": "verify-mutation-delivery",
-                    "leak_drift_check_ref": "leak-mutation-delivery",
-                    "verify_release_passed": True,
-                    "leak_drift_passed": True,
-                    "release_ready": True,
-                }
+                _prompt_release_check_for_candidates(
+                    candidates,
+                    prompt_version_id=51,
+                    verify_release_ref="verify-mutation-delivery",
+                    leak_drift_check_ref="leak-mutation-delivery",
+                )
             ],
             "rollback_evidence": [
                 {

@@ -1055,7 +1055,9 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
             evidence_failures.append(f"release_checks[{index}]: must be an object")
             continue
-        if _forbidden_paths(row):
+        privacy_row = dict(row)
+        privacy_row.pop("overwrite_target_paths", None)
+        if _forbidden_paths(privacy_row):
             evidence_failures.append(
                 f"release_checks[{index}]: forbidden private/prose fields"
             )
@@ -1073,6 +1075,31 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
     for record in branch_records:
         candidate_id = record["mutation_candidate_id"]
         evidence = release_by_candidate.get(candidate_id, {})
+        expected_repo_ids = sorted(
+            {
+                _clean_str(pin.get("prompt_repo_id"))
+                for pin in record["prompt_pins"]
+                if _clean_str(pin.get("prompt_repo_id"))
+            }
+        )
+        expected_base_revisions = sorted(
+            {
+                _clean_str(pin.get("prompt_repo_revision"))
+                for pin in record["prompt_pins"]
+                if _clean_str(pin.get("prompt_repo_revision"))
+            }
+        )
+        expected_overwrite_paths = sorted(
+            _safe_str_list(record.get("overwrite_target_paths"))
+        )
+        prompt_repo_id = _clean_str(evidence.get("prompt_repo_id"))
+        release_private_branch = _clean_str(evidence.get("private_prompt_branch"))
+        base_prompt_repo_revision = _clean_str(
+            evidence.get("base_prompt_repo_revision")
+        )
+        overwrite_target_paths = sorted(
+            _safe_str_list(evidence.get("overwrite_target_paths"))
+        )
         blockers: list[str] = []
         blockers.extend(
             f"candidate_blocked_by:{reason}" for reason in record["blocked_by"]
@@ -1081,6 +1108,8 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
             blockers.append("prompt_version_id_missing")
         for key in (
             "prompt_repo_id",
+            "private_prompt_branch",
+            "base_prompt_repo_revision",
             "prompt_commit_hash",
             "prompt_sha256",
             "verify_release_ref",
@@ -1088,6 +1117,31 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
         ):
             if not _clean_str(evidence.get(key)):
                 blockers.append(f"{key}_missing")
+        if not overwrite_target_paths:
+            blockers.append("overwrite_target_paths_missing")
+        if (
+            prompt_repo_id
+            and expected_repo_ids
+            and prompt_repo_id not in expected_repo_ids
+        ):
+            blockers.append("prompt_repo_id_mismatch")
+        if (
+            release_private_branch
+            and release_private_branch != record["private_prompt_branch"]
+        ):
+            blockers.append("private_prompt_branch_mismatch")
+        if (
+            base_prompt_repo_revision
+            and expected_base_revisions
+            and base_prompt_repo_revision not in expected_base_revisions
+        ):
+            blockers.append("base_prompt_repo_revision_mismatch")
+        if (
+            overwrite_target_paths
+            and expected_overwrite_paths
+            and overwrite_target_paths != expected_overwrite_paths
+        ):
+            blockers.append("overwrite_target_paths_mismatch")
         if evidence.get("verify_release_passed") is not True:
             blockers.append("verify_release_not_passed")
         if evidence.get("leak_drift_passed") is not True:
@@ -1104,7 +1158,10 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_version_id": evidence.get("prompt_version_id")
                 if isinstance(evidence.get("prompt_version_id"), int)
                 else None,
-                "prompt_repo_id": _clean_str(evidence.get("prompt_repo_id")),
+                "prompt_repo_id": prompt_repo_id,
+                "release_private_prompt_branch": release_private_branch,
+                "base_prompt_repo_revision": base_prompt_repo_revision,
+                "overwrite_target_paths": overwrite_target_paths,
                 "prompt_commit_hash": _clean_str(evidence.get("prompt_commit_hash")),
                 "prompt_sha256": _clean_str(evidence.get("prompt_sha256")),
                 "verify_release_ref": _clean_str(evidence.get("verify_release_ref")),
@@ -1133,6 +1190,9 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "required_evidence": [
             "prompt_version_id",
             "prompt_repo_id",
+            "private_prompt_branch",
+            "base_prompt_repo_revision",
+            "overwrite_target_paths",
             "prompt_commit_hash",
             "prompt_sha256",
             "verify_release_ref",
