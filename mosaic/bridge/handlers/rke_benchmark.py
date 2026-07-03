@@ -691,6 +691,113 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
     }
 
 
+@method("rke_benchmark.prompt_mutation_rollback_readiness")
+def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Check rollback proof objects for prompt mutations before shadow exit."""
+    lifecycle = prompt_mutation_lifecycle_manifest(
+        {"candidates": params.get("candidates")}
+        if "candidates" in params
+        else {}
+    )
+    supplied = params.get("rollback_evidence")
+    if supplied is None:
+        evidence_rows: list[Any] = []
+    elif isinstance(supplied, list):
+        evidence_rows = supplied
+    else:
+        raise RpcError(INVALID_PARAMS, "'rollback_evidence' must be a list")
+
+    evidence_by_candidate: dict[str, dict[str, Any]] = {}
+    evidence_failures: list[str] = []
+    for index, row in enumerate(evidence_rows, 1):
+        if not isinstance(row, dict):
+            evidence_failures.append(f"rollback_evidence[{index}]: must be an object")
+            continue
+        forbidden_paths = _forbidden_paths(row)
+        if forbidden_paths:
+            evidence_failures.append(
+                f"rollback_evidence[{index}]: forbidden private/prose fields "
+                + ", ".join(forbidden_paths[:5])
+            )
+            continue
+        candidate_id = _clean_str(row.get("mutation_candidate_id"))
+        if candidate_id:
+            evidence_by_candidate[candidate_id] = row
+
+    records: list[dict[str, Any]] = []
+    branch_records = [
+        record
+        for record in lifecycle["lifecycle_records"]
+        if record["candidate_action"] == "private_prompt_branch_after_blockers_clear"
+    ]
+    for record in branch_records:
+        candidate_id = record["mutation_candidate_id"]
+        evidence = evidence_by_candidate.get(candidate_id, {})
+        previous_hashes = sorted(
+            {
+                _clean_str(pin.get("prompt_sha256"))
+                for pin in record["prompt_pins"]
+                if _clean_str(pin.get("prompt_sha256"))
+            }
+        )
+        blockers: list[str] = []
+        if not previous_hashes:
+            blockers.append("previous_prompt_hash_missing")
+        for key in (
+            "rollback_trigger_definition",
+            "rollback_command_or_procedure",
+            "monitor_output_ref",
+            "post_rollback_verification_ref",
+        ):
+            if not _clean_str(evidence.get(key)):
+                blockers.append(f"{key}_missing")
+        records.append(
+            {
+                "mutation_candidate_id": candidate_id,
+                "private_prompt_branch": record["private_prompt_branch"],
+                "affected_agents": record["affected_agents"],
+                "previous_prompt_hashes": previous_hashes,
+                "rollback_trigger_definition": _clean_str(
+                    evidence.get("rollback_trigger_definition")
+                ),
+                "rollback_command_or_procedure": _clean_str(
+                    evidence.get("rollback_command_or_procedure")
+                ),
+                "monitor_output_ref": _clean_str(evidence.get("monitor_output_ref")),
+                "post_rollback_verification_ref": _clean_str(
+                    evidence.get("post_rollback_verification_ref")
+                ),
+                "rollback_ready": not blockers,
+                "blockers": blockers,
+            }
+        )
+
+    blocked_reasons = list(lifecycle["blocked_reasons"]) + evidence_failures
+    if not branch_records:
+        blocked_reasons.append("prompt_branch_candidate_missing")
+    for record in records:
+        blocked_reasons.extend(record["blockers"])
+
+    return {
+        "schema_version": "rke_prompt_mutation_rollback_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "blocked_reasons": sorted(set(blocked_reasons)),
+        "lifecycle_manifest_status": lifecycle["manifest_status"],
+        "branch_candidate_count": len(branch_records),
+        "rollback_record_count": len(records),
+        "rollback_records": records,
+        "required_evidence": [
+            "rollback_trigger_definition",
+            "previous_prompt_hash",
+            "rollback_command_or_procedure",
+            "monitor_output_ref",
+            "post_rollback_verification_ref",
+        ],
+        "rollback_gate_ready": bool(records) and not blocked_reasons,
+        "promotion_allowed": False,
+    }
+
+
 def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
     component = _clean_str(item.get("target_component"))
     if "." in component:

@@ -2282,6 +2282,10 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.prompt_mutation_lifecycle_manifest` 已能把 safe candidate/refusal
   摘要转成 private prompt branch 生命周期预检；refusal-only row 只记录 blocker，不创建
   prompt branch，也不能作为条件 12 的完成证据。
+- `rke_benchmark.prompt_mutation_rollback_readiness` 已能检查 private prompt branch
+  candidate 离开 shadow 前所需的 rollback trigger、previous prompt hash、rollback
+  procedure、monitor output 和 post-rollback verification evidence；真实 rollback monitor
+  输出仍需由实际 replay/paper-trading run 产生。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
 - agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution 闭环。
 - Layer-3 roster preflight：当前分支已完成 public runtime、fallback prompt、RKE style-fit、

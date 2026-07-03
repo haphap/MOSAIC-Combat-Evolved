@@ -684,6 +684,32 @@ export interface RkePromptMutationLifecycleManifestResult {
   rollback_required_before_promotion: boolean;
 }
 
+export interface RkePromptMutationRollbackRecord {
+  mutation_candidate_id: string;
+  private_prompt_branch: string;
+  affected_agents: string[];
+  previous_prompt_hashes: string[];
+  rollback_trigger_definition: string;
+  rollback_command_or_procedure: string;
+  monitor_output_ref: string;
+  post_rollback_verification_ref: string;
+  rollback_ready: boolean;
+  blockers: string[];
+}
+
+export interface RkePromptMutationRollbackReadinessResult {
+  schema_version: "rke_prompt_mutation_rollback_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
+  branch_candidate_count: number;
+  rollback_record_count: number;
+  rollback_records: RkePromptMutationRollbackRecord[];
+  required_evidence: string[];
+  rollback_gate_ready: boolean;
+  promotion_allowed: boolean;
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1303,6 +1329,16 @@ export class BridgeApi {
   }): Promise<RkePromptMutationLifecycleManifestResult> {
     return this.client.call<RkePromptMutationLifecycleManifestResult>(
       "rke_benchmark.prompt_mutation_lifecycle_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkPromptMutationRollbackReadiness(params?: {
+    candidates?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+  }): Promise<RkePromptMutationRollbackReadinessResult> {
+    return this.client.call<RkePromptMutationRollbackReadinessResult>(
+      "rke_benchmark.prompt_mutation_rollback_readiness",
       params ?? {},
     );
   }

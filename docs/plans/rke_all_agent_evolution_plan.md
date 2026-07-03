@@ -398,3 +398,15 @@ This plan is complete only when:
   mode.
   Proof objects: rollback trigger definition, previous prompt hash, rollback
   command or procedure, monitor output, and post-rollback verification.
+
+Status 2026-07-03:
+
+- Public bridge now exposes `rke_benchmark.prompt_mutation_rollback_readiness`,
+  a no-write E7 rollback gate over prompt mutation lifecycle records. It blocks
+  shadow exit unless each private prompt branch candidate has previous prompt
+  hashes plus rollback trigger, rollback procedure, monitor output ref, and
+  post-rollback verification ref. The gate never enables promotion by itself.
+- This implements the rollback proof-object preflight. E7 is not complete until
+  real private branch mutations, benchmark/manual-review decisions, shadow or
+  paper-trading gate evidence, monitor output, and post-rollback verification
+  are produced by actual runs.
