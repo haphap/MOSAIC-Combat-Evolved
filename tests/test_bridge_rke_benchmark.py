@@ -198,7 +198,9 @@ def _rollback_evidence_for_candidates(
     return row
 
 
-def _patch_activation_evidence(**overrides: object) -> dict:
+def _patch_activation_evidence(
+    benchmark_run_id: str | None = None, **overrides: object
+) -> dict:
     row = {
         "mutation_candidate_id": "PMUT-1",
         "patch_artifact_ref": "patch-artifact-1",
@@ -211,6 +213,8 @@ def _patch_activation_evidence(**overrides: object) -> dict:
         "runtime_proof_passed": True,
         "production_activation_allowed": False,
     }
+    if benchmark_run_id is not None:
+        row["benchmark_run_id"] = benchmark_run_id
     row.update(overrides)
     return row
 
@@ -1387,6 +1391,34 @@ def test_patch_activation_readiness_accepts_shadow_runtime_proof():
     record = manifest["activation_records"][0]
     assert record["runtime_proof_ref"] == "runtime-proof-1"
     assert record["patch_activation_ready"] is True
+
+
+def test_patch_activation_readiness_blocks_cross_run_evidence():
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.patch_activation_readiness",
+        {
+            "benchmark_run_id": "bench-patch-ready",
+            "candidates": candidates,
+            "patch_activation_evidence": [
+                _patch_activation_evidence("other-benchmark-run")
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "patch_activation_evidence_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["patch_activation_ready"] is False
 
 
 def test_patch_activation_readiness_keeps_candidate_blockers():
@@ -2702,7 +2734,9 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                 _darwinian_consumption_evidence("bench-delivery-ready")
             ),
             "candidates": candidates,
-            "patch_activation_evidence": [_patch_activation_evidence()],
+            "patch_activation_evidence": [
+                _patch_activation_evidence("bench-delivery-ready")
+            ],
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(
                     candidates,

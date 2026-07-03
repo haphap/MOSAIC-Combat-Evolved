@@ -1077,6 +1077,7 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
 @method("rke_benchmark.patch_activation_readiness")
 def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate shadow-only patch apply/activation proof without applying patches."""
+    benchmark_run_id = _clean_str(params.get("benchmark_run_id"))
     candidate_manifest = candidate_consumption_manifest(
         {"candidates": params.get("candidates")}
         if "candidates" in params
@@ -1121,6 +1122,12 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blockers = [
             f"candidate_blocked_by:{reason}" for reason in item["blocked_by"]
         ]
+        if benchmark_run_id:
+            evidence_run_id = _clean_str(evidence.get("benchmark_run_id"))
+            if not evidence_run_id:
+                blockers.append("patch_activation_evidence_benchmark_run_id_missing")
+            elif evidence_run_id != benchmark_run_id:
+                blockers.append("patch_activation_evidence_benchmark_run_id_mismatch")
         for key in (
             "patch_artifact_ref",
             "patch_validation_ref",
@@ -1145,6 +1152,7 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 "candidate_type": item["candidate_type"],
                 "target_scope": item["target_scope"],
                 "target_component": item["target_component"],
+                "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
                 "patch_artifact_ref": _clean_str(evidence.get("patch_artifact_ref")),
                 "patch_validation_ref": _clean_str(
                     evidence.get("patch_validation_ref")
@@ -1170,6 +1178,7 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "schema_version": "rke_patch_activation_readiness_v1",
+        "benchmark_run_id": benchmark_run_id,
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
         "blocked_reasons": sorted(set(blocked_reasons)),
         "candidate_manifest_status": candidate_manifest["manifest_status"],
@@ -1994,6 +2003,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     )
     patch_activation = patch_activation_readiness(
         {
+            "benchmark_run_id": benchmark_run_id,
             "candidates": effective_params.get("candidates"),
             "patch_activation_evidence": effective_params.get(
                 "patch_activation_evidence"

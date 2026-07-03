@@ -477,7 +477,9 @@ Status 2026-07-03:
 - Public bridge now exposes `rke_benchmark.delivery_readiness`, a no-write E7
   aggregate audit that maps each delivery condition to its underlying readiness
   gate and returns condition-level blockers plus no-body evidence summaries for
-  prompt source blockers. It does not run benchmark/replay or enable
+  prompt source blockers. Patch activation evidence is checked against the same
+  `benchmark_run_id` when aggregated through this gate. It does not run
+  benchmark/replay or enable
   production.
 - Public bridge now exposes `rke_benchmark.record_delivery_evidence`, a
   private-local no-body evidence sink under `.mosaic/rke/all_agent_evolution/`
