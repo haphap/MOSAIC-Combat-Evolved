@@ -905,6 +905,8 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
     provenance_ready = _prompt_mutation_provenance_ready(prompt_provenance)
     context_hash_count = int(summary["rke_context_hash_count"] or 0)
     current_data_confirmed_count = int(summary["current_data_confirmed_count"] or 0)
+    ranking_policy_count = sum(summary["ranking_policy_id_counts"].values())
+    priority_bucket_count = sum(summary["priority_bucket_counts"].values())
     blocked_reasons: list[str] = []
     if summary["summary_status"] != "ready" or summary["row_count"] == 0:
         blocked_reasons.append("agent_footprint_summary_missing")
@@ -916,6 +918,14 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
         blocked_reasons.append("agent_footprint_privacy_scan_failed")
     if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
         blocked_reasons.append("rke_context_report_claim_link_incomplete")
+    if ranking_policy_count < context_hash_count:
+        blocked_reasons.append("ranking_policy_id_missing")
+    if summary["retrieval_rank_count"] < context_hash_count:
+        blocked_reasons.append("retrieval_rank_missing")
+    if priority_bucket_count < context_hash_count:
+        blocked_reasons.append("priority_bucket_missing")
+    if summary["truncation_audit_count"] < context_hash_count:
+        blocked_reasons.append("truncation_audit_missing")
     if current_data_confirmed_count < context_hash_count:
         blocked_reasons.append("current_data_confirmation_missing")
     for source_name, source in (

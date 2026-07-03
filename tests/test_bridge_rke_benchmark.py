@@ -1458,6 +1458,7 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "rke_context_hash": "b" * 64,
+                    **_runtime_context_proof(1),
                     "report_claim_refs": ["forecast_claim:macro-usdcny-004"],
                     "current_data_confirmed": True,
                     "stale_prior_rejected": True,
@@ -1563,6 +1564,51 @@ def test_darwinian_autoresearch_manifest_blocks_partial_current_data_confirmatio
     )
 
 
+def test_darwinian_autoresearch_manifest_blocks_missing_runtime_metadata(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-darwinian-missing-runtime",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "rke_context_hash": "b" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-004"],
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_input_manifest",
+        {
+            "benchmark_run_id": "bench-darwinian-missing-runtime",
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-darwinian-missing-runtime"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-darwinian-missing-runtime"
+            ),
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "ranking_policy_id_missing" in manifest["blocked_reasons"]
+    assert "retrieval_rank_missing" in manifest["blocked_reasons"]
+    assert "priority_bucket_missing" in manifest["blocked_reasons"]
+    assert "truncation_audit_missing" in manifest["blocked_reasons"]
+
+
 def test_darwinian_autoresearch_manifest_blocks_cross_run_inputs(
     tmp_path: Path, monkeypatch
 ):
@@ -1647,6 +1693,7 @@ def test_darwinian_autoresearch_consumption_accepts_replay_refs(
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "rke_context_hash": "b" * 64,
+                    **_runtime_context_proof(1),
                     "report_claim_refs": ["forecast_claim:macro-usdcny-consumption"],
                     "current_data_confirmed": True,
                 }
