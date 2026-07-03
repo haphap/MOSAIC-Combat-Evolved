@@ -921,6 +921,7 @@ export interface RkeDeliveryEvidenceAuditResult {
   cohort: string;
   private_rows_path: string;
   recorded_key_count: number;
+  recorded_context_keys: string[];
   recorded_keys: string[];
   missing_keys: string[];
   failures: string[];

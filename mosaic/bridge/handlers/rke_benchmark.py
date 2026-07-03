@@ -1353,11 +1353,14 @@ def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
     benchmark_run_id = _require_str(params, "benchmark_run_id")
     evidence, failures = _read_delivery_evidence(benchmark_run_id)
     readiness = delivery_readiness({"benchmark_run_id": benchmark_run_id})
-    recorded_keys = sorted(evidence)
+    recorded_context_keys = sorted(
+        key for key in _DELIVERY_CONTEXT_KEYS if key in evidence
+    )
+    recorded_keys = sorted(key for key in _DELIVERY_EVIDENCE_KEYS if key in evidence)
     missing_keys = [key for key in _DELIVERY_EVIDENCE_KEYS if key not in evidence]
     if failures:
         evidence_status = "blocked"
-    elif not evidence:
+    elif not recorded_keys:
         evidence_status = "missing"
     elif missing_keys:
         evidence_status = "partial"
@@ -1371,10 +1374,11 @@ def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
         "cohort": readiness["cohort"],
         "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
         "recorded_key_count": len(recorded_keys),
+        "recorded_context_keys": recorded_context_keys,
         "recorded_keys": recorded_keys,
         "missing_keys": missing_keys,
         "failures": failures,
-        "delivery_readiness_can_load": bool(evidence),
+        "delivery_readiness_can_load": bool(recorded_keys),
         "delivery_readiness_status": readiness["readiness_status"],
         "condition_count": readiness["condition_count"],
         "ready_condition_count": readiness["ready_condition_count"],

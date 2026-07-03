@@ -1270,10 +1270,44 @@ def test_delivery_evidence_audit_reports_recorded_and_missing_keys(
 
     assert missing["evidence_status"] == "missing"
     assert missing["recorded_key_count"] == 0
+    assert missing["recorded_context_keys"] == []
     assert partial["evidence_status"] == "partial"
     assert partial["recorded_keys"] == ["manual_review", "paired_output_count"]
+    assert partial["recorded_key_count"] == 2
     assert "benchmark_evidence_refs" in partial["missing_keys"]
     assert partial["delivery_readiness_can_load"] is True
+
+
+def test_delivery_evidence_audit_keeps_context_out_of_proof_keys(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    path = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    path.mkdir(parents=True)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    (path / "delivery_evidence.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": "rke_delivery_evidence_v1",
+                "benchmark_run_id": "bench-delivery-context-only",
+                "evidence": {"cohort": "cohort_context_only"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-context-only"},
+    )
+
+    assert audit["cohort"] == "cohort_context_only"
+    assert audit["evidence_status"] == "missing"
+    assert audit["recorded_context_keys"] == ["cohort"]
+    assert audit["recorded_keys"] == []
+    assert audit["recorded_key_count"] == 0
+    assert audit["delivery_readiness_can_load"] is False
 
 
 def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypatch):
@@ -1349,7 +1383,8 @@ def test_delivery_readiness_uses_recorded_cohort(tmp_path: Path, monkeypatch):
 
     assert audit["cohort"] == "cohort_custom"
     assert manifest["cohort"] == "cohort_custom"
-    assert "cohort" in audit["recorded_keys"]
+    assert audit["recorded_context_keys"] == ["cohort"]
+    assert "cohort" not in audit["recorded_keys"]
 
 
 def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
