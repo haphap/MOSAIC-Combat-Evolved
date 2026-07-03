@@ -149,6 +149,106 @@ _FORBIDDEN_CAPTURE_FIELDS = frozenset(
 _TARGET_FIELDS = ("target_type", "target_id", "metric_family", "ticker", "sector")
 
 
+@method("rke_benchmark.all_agent_prompt_provenance_readiness")
+def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate formal all-agent prompt pins before benchmark/replay."""
+    cohort = params.get("cohort") or _DEFAULT_COHORT
+    if not isinstance(cohort, str) or not cohort.strip():
+        cohort = _DEFAULT_COHORT
+    prompt_preflight = prompts_preflight(
+        {"cohort": cohort, "agents": list(_ALL_AGENTS), "langs": ["zh", "en"]}
+    )
+    supplied = params.get("release_checks")
+    if supplied is None:
+        release_rows: list[Any] = []
+    elif isinstance(supplied, list):
+        release_rows = supplied
+    else:
+        raise RpcError(INVALID_PARAMS, "'release_checks' must be a list")
+
+    release_by_prompt: dict[tuple[str, str], dict[str, Any]] = {}
+    evidence_failures: list[str] = []
+    for index, row in enumerate(release_rows, 1):
+        if not isinstance(row, dict):
+            evidence_failures.append(f"release_checks[{index}]: must be an object")
+            continue
+        if _forbidden_paths(row):
+            evidence_failures.append(
+                f"release_checks[{index}]: forbidden private/prose fields"
+            )
+            continue
+        agent = _clean_str(row.get("agent"))
+        lang = _clean_str(row.get("lang"))
+        if agent and lang:
+            release_by_prompt[(agent, lang)] = row
+
+    rows: list[dict[str, Any]] = []
+    for row in prompt_preflight["rows"]:
+        agent = _clean_str(row.get("agent"))
+        lang = _clean_str(row.get("lang"))
+        release = release_by_prompt.get((agent, lang), {})
+        blockers: list[str] = []
+        if row.get("status") != "ready":
+            blockers.append(_clean_str(row.get("blocked_reason")) or "prompt_not_ready")
+        if row.get("fallback_used") is True:
+            blockers.append("fallback_prompt_used")
+        if not release:
+            blockers.append("release_check_missing")
+        if release.get("verify_release_passed") is not True:
+            blockers.append("verify_release_not_passed")
+        if release.get("leak_drift_passed") is not True:
+            blockers.append("leak_drift_not_passed")
+        if not isinstance(release.get("prompt_version_id"), int):
+            blockers.append("prompt_version_id_missing")
+        for key in ("prompt_sha256", "verify_release_ref", "leak_drift_check_ref"):
+            if not _clean_str(release.get(key)):
+                blockers.append(f"{key}_missing")
+        if _clean_str(release.get("prompt_sha256")) and _clean_str(
+            release.get("prompt_sha256")
+        ) != _clean_str(row.get("prompt_sha256")):
+            blockers.append("prompt_sha256_mismatch")
+        rows.append(
+            {
+                "agent": agent,
+                "layer": _clean_str(row.get("layer")),
+                "lang": lang,
+                "prompt_file_path": _clean_str(row.get("prompt_file_path")),
+                "prompt_repo_id": _clean_str(row.get("prompt_repo_id")),
+                "prompt_repo_revision": _clean_str(row.get("prompt_repo_revision")),
+                "prompt_sha256": _clean_str(row.get("prompt_sha256")),
+                "prompt_version_id": release.get("prompt_version_id")
+                if isinstance(release.get("prompt_version_id"), int)
+                else None,
+                "verify_release_ref": _clean_str(release.get("verify_release_ref")),
+                "leak_drift_check_ref": _clean_str(release.get("leak_drift_check_ref")),
+                "fallback_used": row.get("fallback_used") is True,
+                "ready": not blockers,
+                "blockers": blockers,
+            }
+        )
+
+    blocked_reasons = list(evidence_failures)
+    if not prompt_preflight["ready"]:
+        blocked_reasons.append("prompt_preflight_not_ready")
+    for row in rows:
+        blocked_reasons.extend(row["blockers"])
+
+    return {
+        "schema_version": "rke_all_agent_prompt_provenance_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "cohort": cohort,
+        "blocked_reasons": sorted(set(blocked_reasons)),
+        "agent_count": len(_ALL_AGENTS),
+        "prompt_row_count": len(rows),
+        "ready_prompt_row_count": sum(1 for row in rows if row["ready"]),
+        "release_check_count": len(release_by_prompt),
+        "prompt_rows": rows,
+        "all_agent_prompt_provenance_ready": bool(rows) and not blocked_reasons,
+        "fallback_used": any(row["fallback_used"] for row in rows),
+        "production_prompt_change_allowed": False,
+    }
+
+
 @method("rke_benchmark.fixed_episode_manifest")
 def fixed_episode_manifest(params: dict[str, Any]) -> dict[str, Any]:
     """Return the E2 fixed-episode benchmark manifest and prompt preflight."""

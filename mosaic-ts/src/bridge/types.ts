@@ -489,6 +489,37 @@ export interface RkeBenchmarkPromptPreflightSummary {
   fallback_used: boolean;
 }
 
+export interface RkeAllAgentPromptProvenanceRow {
+  agent: string;
+  layer: string;
+  lang: string;
+  prompt_file_path: string;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_sha256: string;
+  prompt_version_id: number | null;
+  verify_release_ref: string;
+  leak_drift_check_ref: string;
+  fallback_used: boolean;
+  ready: boolean;
+  blockers: string[];
+}
+
+export interface RkeAllAgentPromptProvenanceReadinessResult {
+  schema_version: "rke_all_agent_prompt_provenance_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  cohort: string;
+  blocked_reasons: string[];
+  agent_count: number;
+  prompt_row_count: number;
+  ready_prompt_row_count: number;
+  release_check_count: number;
+  prompt_rows: RkeAllAgentPromptProvenanceRow[];
+  all_agent_prompt_provenance_ready: boolean;
+  fallback_used: boolean;
+  production_prompt_change_allowed: boolean;
+}
+
 export interface RkeFixedEpisodeManifestResult {
   schema_version: "rke_fixed_episode_benchmark_manifest_v1";
   benchmark_status: "ready_to_run" | "blocked_preflight";
@@ -1399,6 +1430,16 @@ export class BridgeApi {
   }
 
   // rke_benchmark.* (Part 2 E2)
+  rkeBenchmarkAllAgentPromptProvenanceReadiness(params?: {
+    cohort?: string;
+    release_checks?: Array<Record<string, unknown>>;
+  }): Promise<RkeAllAgentPromptProvenanceReadinessResult> {
+    return this.client.call<RkeAllAgentPromptProvenanceReadinessResult>(
+      "rke_benchmark.all_agent_prompt_provenance_readiness",
+      params ?? {},
+    );
+  }
+
   rkeBenchmarkFixedEpisodeManifest(params?: {
     cohort?: string;
   }): Promise<RkeFixedEpisodeManifestResult> {

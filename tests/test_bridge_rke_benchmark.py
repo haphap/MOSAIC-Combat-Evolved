@@ -89,6 +89,55 @@ def test_fixed_episode_manifest_is_ready_with_all_private_prompts(
     assert "private_prompt_hash_and_repo_revision" in result["input_requirements"]
 
 
+def test_all_agent_prompt_provenance_readiness_blocks_missing_source():
+    result = dispatch("rke_benchmark.all_agent_prompt_provenance_readiness", {})
+
+    assert result["readiness_status"] == "blocked_preflight"
+    assert result["prompt_row_count"] == 50
+    assert result["release_check_count"] == 0
+    assert "prompt_preflight_not_ready" in result["blocked_reasons"]
+    assert "release_check_missing" in result["blocked_reasons"]
+    assert result["all_agent_prompt_provenance_ready"] is False
+    assert result["production_prompt_change_allowed"] is False
+
+
+def test_all_agent_prompt_provenance_readiness_accepts_private_release_checks(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    release_checks = [
+        {
+            "agent": row["agent"],
+            "lang": row["lang"],
+            "prompt_version_id": index,
+            "prompt_sha256": row["prompt_sha256"],
+            "verify_release_ref": f"verify-release-{index}",
+            "leak_drift_check_ref": f"leak-drift-{index}",
+            "verify_release_passed": True,
+            "leak_drift_passed": True,
+        }
+        for index, row in enumerate(preflight["rows"], 1)
+    ]
+
+    result = dispatch(
+        "rke_benchmark.all_agent_prompt_provenance_readiness",
+        {"release_checks": release_checks},
+    )
+
+    assert result["readiness_status"] == "ready"
+    assert result["agent_count"] == 25
+    assert result["prompt_row_count"] == 50
+    assert result["ready_prompt_row_count"] == 50
+    assert result["release_check_count"] == 50
+    assert result["all_agent_prompt_provenance_ready"] is True
+    assert result["fallback_used"] is False
+
+
 def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
     tmp_path: Path, monkeypatch
 ):

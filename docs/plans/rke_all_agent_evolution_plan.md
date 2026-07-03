@@ -88,6 +88,10 @@ Status 2026-07-03:
 - Missing private prompts or missing git provenance return blocked rows with
   `private_prompt_unavailable` or `prompt_provenance_unavailable`; bundled
   prompts are not used as fallback for formal rows.
+- Public bridge now exposes `rke_benchmark.all_agent_prompt_provenance_readiness`,
+  a no-write all-agent gate that requires all 25 agents × 2 languages to have
+  private prompt pins plus per-prompt release/leak-drift evidence before formal
+  benchmark/replay can treat prompt provenance as ready.
 - This implements the public E0 preflight mechanism. E0 is not fully closed
   until the private prompt repo has ready rows for all benchmark/replay agents
   and leak/drift/release checks have passed.
