@@ -126,6 +126,15 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for field in ("target_type", "target_id", "metric_family")
     ):
         failures.append("item_target_metadata_missing")
+    if items and any(not item.get("statistical_reliability_bucket") for item in items):
+        failures.append("item_reliability_bucket_missing")
+    if items and any(
+        not isinstance(item.get("n_effective"), (int, float))
+        or isinstance(item.get("n_effective"), bool)
+        or item.get("n_effective") < 0
+        for item in items
+    ):
+        failures.append("item_n_effective_invalid")
     if items and any(not item.get("ranking_reason_codes") for item in items):
         failures.append("ranking_reason_codes_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
