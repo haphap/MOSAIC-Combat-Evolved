@@ -179,6 +179,20 @@ def test_macro_context_redacts_private_claim_text_and_maps_agent():
                 "metric_name": "fx_rate_forward_points",
             }
         ],
+        outcomes=[
+            {
+                "forecast_claim_id": "FC-PRIVATE-1",
+                "label_status": "completed",
+                "directional_hit": True,
+                "label_type": "macro_series_directional",
+                "exit_date": "2026-06-25",
+            },
+            {
+                "forecast_claim_id": "FC-PRIVATE-1",
+                "label_status": "pending",
+                "label_type": "macro_series_directional",
+            },
+        ],
     )
 
     assert context["agent_id"] == "macro.dollar"
@@ -191,6 +205,8 @@ def test_macro_context_redacts_private_claim_text_and_maps_agent():
     assert item["metric_family"] == "fx_rate"
     assert item["regime_types"] == ["fx_usd_cycle"]
     assert item["viewpoint_performance_bucket"] == "supportive_evidence"
+    assert item["outcome_label_summary"]["pending_label_count"] == 1
+    assert item["outcome_label_summary"]["pending_share"] == 0.5
     assert item["recipe_ids"] == ["AR-USDCNY-DIRECTIONAL"]
     assert item["tool_gap_ids"] == ["TG-CNH-FORWARD-POINTS"]
 
@@ -924,6 +940,8 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                     "outcome_label_summary": {
                         "label_count": 1,
                         "directional_hit_count": 1,
+                        "pending_label_count": 0,
+                        "pending_share": 0.0,
                         "label_types": ["macro_series_directional"],
                         "latest_completed_exit_date": "2026-06-20",
                     },
@@ -955,6 +973,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
     assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
     assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
     assert "production_signal_allowed=false" in output
+    assert "- Outcome labels: count=1; pending_share=0.0" in output
 
 
 def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
@@ -991,7 +1010,14 @@ def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
                     "known_failure_mode_tags": [],
                     "recipe_ids": [],
                     "tool_gap_ids": [],
-                    "outcome_label_summary": {"label_count": "1"},
+                    "outcome_label_summary": {
+                        "label_count": 1,
+                        "directional_hit_count": 1,
+                        "pending_label_count": 0,
+                        "pending_share": 1.5,
+                        "label_types": ["macro_series_directional"],
+                        "latest_completed_exit_date": "2026-06-20",
+                    },
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                     "ranking_reason_codes": ["agent_specific_match"],

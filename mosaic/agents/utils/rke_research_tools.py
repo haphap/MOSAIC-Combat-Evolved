@@ -220,6 +220,13 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         or not isinstance(summary.get("directional_hit_count"), int)
         or isinstance(summary.get("directional_hit_count"), bool)
         or summary.get("directional_hit_count") < 0
+        or not isinstance(summary.get("pending_label_count"), int)
+        or isinstance(summary.get("pending_label_count"), bool)
+        or summary.get("pending_label_count") < 0
+        or not isinstance(summary.get("pending_share"), (int, float))
+        or isinstance(summary.get("pending_share"), bool)
+        or summary.get("pending_share") < 0
+        or summary.get("pending_share") > 1
         or not isinstance(summary.get("label_types"), (list, tuple))
         or "latest_completed_exit_date" not in summary
         for summary in outcome_summaries

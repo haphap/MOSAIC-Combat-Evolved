@@ -417,6 +417,7 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
         return "\n".join(lines)
     for item in items:
         item_map = _ensure_mapping(item)
+        outcome_summary = _ensure_mapping(item_map.get("outcome_label_summary"))
         lines.extend(
             [
                 "",
@@ -449,6 +450,11 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                 (
                     "- Failure tags: "
                     f"{', '.join(_ensure_str_list(item_map.get('known_failure_mode_tags'))) or 'none'}"
+                ),
+                (
+                    "- Outcome labels: "
+                    f"count={outcome_summary.get('label_count')}; "
+                    f"pending_share={outcome_summary.get('pending_share')}"
                 ),
                 (
                     "- Recipes: "
@@ -1126,9 +1132,17 @@ def _outcome_summary(outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         return {
             "label_count": 0,
             "directional_hit_count": 0,
+            "pending_label_count": 0,
+            "pending_share": 0.0,
             "label_types": [],
             "latest_completed_exit_date": "",
         }
+    pending_count = sum(
+        1
+        for row in outcomes
+        if str(row.get("label_status") or row.get("status") or "completed")
+        == "pending"
+    )
     completed_exit_dates = [
         _date_key(row.get("exit_datetime") or row.get("exit_date") or "")
         for row in outcomes
@@ -1138,6 +1152,8 @@ def _outcome_summary(outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {
         "label_count": len(outcomes),
         "directional_hit_count": sum(1 for row in outcomes if row.get("directional_hit") is True),
+        "pending_label_count": pending_count,
+        "pending_share": round(pending_count / len(outcomes), 4),
         "label_types": sorted(
             {
                 str(row.get("label_type") or "")
