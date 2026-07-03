@@ -2354,7 +2354,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.shadow_replay_readiness` 已能把 all-agent prompt provenance、
   benchmark evidence、Darwinian input、prompt mutation release/leak-drift readiness、
   runtime RKE context/current-data confirmation 和 rollback readiness 汇总为 shadow replay
-  gate；真实 replay/paper-trading run 仍未执行，不能据此 promotion。
+  gate；current-data confirmation 必须覆盖每个 consumed RKE context hash。真实
+  replay/paper-trading run 仍未执行，不能据此 promotion。
 - `rke_benchmark.paper_trading_readiness` 已能检查 shadow replay ready 后进入 paper-trading
   所需的同一 `benchmark_run_id` reviewed plan、risk limit 和 stop-loss/rollback ref；
   这只允许 paper-trading entry，不允许 production promotion。

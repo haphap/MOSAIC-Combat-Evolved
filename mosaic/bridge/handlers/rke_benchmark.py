@@ -1754,7 +1754,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("priority_bucket_missing")
     if prior_usage["truncation_audit_count"] < context_hash_count:
         blocked_reasons.append("truncation_audit_missing")
-    if not current_data["current_data_confirmed_count"]:
+    if current_data["current_data_confirmed_count"] < context_hash_count:
         blocked_reasons.append("current_data_confirmation_missing")
 
     return {

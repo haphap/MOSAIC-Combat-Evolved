@@ -2274,6 +2274,100 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
     assert manifest["current_data_confirmed_count"] == 1
 
 
+def test_shadow_replay_blocks_partial_current_data_confirmation(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-shadow-partial-current-data",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "d" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-shadow"],
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                },
+                {
+                    "agent": "burry",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000002.SZ"},
+                    "rke_context_hash": "e" * 64,
+                    **_runtime_context_proof(2),
+                    "report_claim_refs": ["forecast_claim:stock-000002-shadow"],
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": False,
+                },
+            ],
+        },
+    )
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {
+            "benchmark_run_id": "bench-shadow-partial-current-data",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"], "bench-shadow-partial-current-data"
+            ),
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-shadow-partial-current-data"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-shadow-partial-current-data"
+            ),
+            "manual_review": _manual_review("bench-shadow-partial-current-data"),
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-shadow-partial-current-data"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-shadow-partial-current-data"
+            ),
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(
+                    candidates, "bench-shadow-partial-current-data"
+                )
+            ],
+            "rollback_evidence": [
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    "bench-shadow-partial-current-data",
+                    rollback_trigger_definition="shadow replay regression",
+                    monitor_output_ref="monitor-shadow-partial-current-data",
+                    post_rollback_verification_ref="verify-shadow-partial-current-data",
+                )
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "current_data_confirmation_missing" in manifest["blocked_reasons"]
+    assert manifest["rke_context_hash_count"] == 2
+    assert manifest["current_data_confirmed_count"] == 1
+
+
 def test_paper_trading_readiness_blocks_missing_shadow_and_plan(
     tmp_path: Path, monkeypatch
 ):
