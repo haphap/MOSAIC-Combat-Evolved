@@ -1287,6 +1287,33 @@ def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypat
     )
 
 
+def test_delivery_readiness_uses_recorded_cohort(tmp_path: Path, monkeypatch):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-cohort",
+            "cohort": "cohort_custom",
+            "paired_output_count": 1275,
+        },
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-cohort"},
+    )
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": "bench-delivery-cohort"},
+    )
+
+    assert audit["cohort"] == "cohort_custom"
+    assert manifest["cohort"] == "cohort_custom"
+    assert "cohort" in audit["recorded_keys"]
+
+
 def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
     tmp_path: Path, monkeypatch
 ):

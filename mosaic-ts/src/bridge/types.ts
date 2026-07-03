@@ -880,6 +880,7 @@ export interface RkeDeliveryReadinessResult {
   schema_version: "rke_all_agent_delivery_readiness_v1";
   readiness_status: "ready" | "blocked_preflight";
   benchmark_run_id: string;
+  cohort: string;
   condition_count: number;
   ready_condition_count: number;
   blocked_reasons: string[];
@@ -902,6 +903,7 @@ export interface RkeDeliveryEvidenceAuditResult {
   schema_version: "rke_delivery_evidence_audit_v1";
   evidence_status: "missing" | "partial" | "complete" | "blocked";
   benchmark_run_id: string;
+  cohort: string;
   private_rows_path: string;
   recorded_key_count: number;
   recorded_keys: string[];
@@ -1646,6 +1648,7 @@ export class BridgeApi {
 
   rkeBenchmarkRecordDeliveryEvidence(params: {
     benchmark_run_id: string;
+    cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     benchmark_evidence_refs?: Record<string, unknown>;

@@ -135,6 +135,8 @@ _DELIVERY_EVIDENCE_KEYS = (
     "paper_trading_plan",
     "promotion_evidence",
 )
+_DELIVERY_CONTEXT_KEYS = ("cohort",)
+_DELIVERY_RECORD_KEYS = _DELIVERY_CONTEXT_KEYS + _DELIVERY_EVIDENCE_KEYS
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
     "macro": ("macro_regime_claim", "macro_series_claim", "macro_asset_claim"),
     "sector": ("sector_claim", "ticker_metric_claim"),
@@ -1309,8 +1311,8 @@ def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
 def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
     """Persist no-body delivery evidence refs in the private local store."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
-    evidence = {key: params[key] for key in _DELIVERY_EVIDENCE_KEYS if key in params}
-    if not evidence:
+    evidence = {key: params[key] for key in _DELIVERY_RECORD_KEYS if key in params}
+    if not any(key in params for key in _DELIVERY_EVIDENCE_KEYS):
         raise RpcError(INVALID_PARAMS, "delivery evidence fields are required")
     forbidden_paths = _forbidden_paths(evidence)
     if forbidden_paths:
@@ -1363,6 +1365,7 @@ def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
         "schema_version": "rke_delivery_evidence_audit_v1",
         "evidence_status": evidence_status,
         "benchmark_run_id": benchmark_run_id,
+        "cohort": readiness["cohort"],
         "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
         "recorded_key_count": len(recorded_keys),
         "recorded_keys": recorded_keys,
@@ -1382,19 +1385,25 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     benchmark_run_id = _require_str(params, "benchmark_run_id")
     recorded_evidence, evidence_failures = _read_delivery_evidence(benchmark_run_id)
     effective_params = dict(recorded_evidence)
-    for key in _DELIVERY_EVIDENCE_KEYS + ("cohort",):
+    for key in _DELIVERY_RECORD_KEYS:
         if key in params:
             effective_params[key] = params[key]
+    cohort = effective_params.get("cohort")
+    if not isinstance(cohort, str) or not cohort.strip():
+        cohort = _DEFAULT_COHORT
+    else:
+        cohort = cohort.strip()
+    effective_params["cohort"] = cohort
     prompt_provenance = all_agent_prompt_provenance_readiness(
         {
-            "cohort": effective_params.get("cohort"),
+            "cohort": cohort,
             "release_checks": effective_params.get("all_agent_prompt_release_checks"),
         }
     )
     benchmark = fixed_episode_benchmark_evidence(
         {
             "benchmark_run_id": benchmark_run_id,
-            "cohort": effective_params.get("cohort"),
+            "cohort": cohort,
             "paired_output_count": effective_params.get("paired_output_count"),
             "evidence_refs": effective_params.get("benchmark_evidence_refs"),
             "manual_review": effective_params.get("manual_review"),
@@ -1505,6 +1514,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "schema_version": "rke_all_agent_delivery_readiness_v1",
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
         "benchmark_run_id": benchmark_run_id,
+        "cohort": cohort,
         "condition_count": len(conditions),
         "ready_condition_count": sum(
             1 for condition in conditions if condition["ready"]
@@ -1566,7 +1576,7 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
             latest.update(
                 {
                     key: evidence[key]
-                    for key in _DELIVERY_EVIDENCE_KEYS
+                    for key in _DELIVERY_RECORD_KEYS
                     if key in evidence
                 }
             )
