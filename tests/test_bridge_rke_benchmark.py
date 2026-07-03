@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import json
 from pathlib import Path
 
 from mosaic.bridge import handlers as _handlers_pkg  # noqa: F401
@@ -86,3 +87,94 @@ def test_fixed_episode_manifest_is_ready_with_all_private_prompts(
     assert "rke_prior_usage_quality" in result["scoring_metrics"]
     assert "current_data_confirmation" in result["scoring_metrics"]
     assert "private_prompt_hash_and_repo_revision" in result["input_requirements"]
+
+
+def test_capture_agent_claim_footprints_writes_private_redacted_rows(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    result = dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-001",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {
+                        "target_type": "macro_series",
+                        "target_id": "USDCNY",
+                        "metric_family": "fx_rate",
+                    },
+                    "direction": "positive",
+                    "rke_context_hash": "a" * 64,
+                    "retrieval_rank": 1,
+                    "reason_codes": ["used_ranked_rke_prior"],
+                    "current_data_confirmed": True,
+                },
+                {
+                    "agent": "cio",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "portfolio_action_claim",
+                    "target": {"target_type": "portfolio", "target_id": "cn_equity"},
+                    "reason_codes": ["kept_shadow_only"],
+                    "current_data_confirmed": False,
+                },
+            ],
+        },
+    )
+
+    assert result["capture_status"] == "captured"
+    assert result["captured_count"] == 2
+    assert result["aggregate_profile_summary"]["layer_counts"] == {
+        "decision": 1,
+        "macro": 1,
+    }
+    assert result["privacy_scan"]["forbidden_field_violation_count"] == 0
+    private_path = project_root / result["private_rows_path"]
+    rows = [
+        json.loads(line)
+        for line in private_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(rows) == 2
+    assert rows[0]["private_text_included"] is False
+    assert rows[0]["production_signal_allowed"] is False
+    payload = json.dumps(rows, ensure_ascii=False)
+    assert "claim_text" not in payload
+    assert "source_span_ids" not in payload
+    assert "used_ranked_rke_prior" in payload
+
+
+def test_capture_agent_claim_footprints_blocks_private_text_fields(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    result = dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-002",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "claim_text": "private source prose",
+                    "source_span_ids": ["SRC:p1"],
+                }
+            ],
+        },
+    )
+
+    assert result["capture_status"] == "blocked"
+    assert result["captured_count"] == 0
+    assert result["privacy_scan"]["forbidden_field_violation_count"] == 1
+    assert "claim_text" in result["failures"][0]
+    assert not (project_root / result["private_rows_path"]).exists()

@@ -512,6 +512,57 @@ export interface RkeFixedEpisodeManifestResult {
   promotion_allowed: boolean;
 }
 
+export interface RkeAgentClaimFootprintInput {
+  agent: string;
+  layer?: string;
+  as_of_date: string;
+  claim_type:
+    | "macro_regime_claim"
+    | "macro_series_claim"
+    | "macro_asset_claim"
+    | "sector_claim"
+    | "ticker_metric_claim"
+    | "style_candidate_claim"
+    | "rejection_reason"
+    | "portfolio_action_claim"
+    | "risk_claim"
+    | "dissent_note";
+  target: Partial<
+    Record<"target_type" | "target_id" | "metric_family" | "ticker" | "sector", string>
+  >;
+  direction?: string;
+  horizon_bucket?: string;
+  confidence_bucket?: string;
+  rke_context_hash?: string;
+  retrieval_rank?: number;
+  rke_prior_usage_quality?: string;
+  current_data_confirmed?: boolean;
+  stale_prior_rejected?: boolean;
+  contradictory_prior_handled?: boolean;
+  reason_codes?: string[];
+  failure_mode_tags?: string[];
+  tool_refs?: string[];
+}
+
+export interface RkeAgentClaimFootprintCaptureResult {
+  capture_status: "captured" | "blocked";
+  captured_count: number;
+  private_rows_path: string;
+  failures?: string[];
+  aggregate_profile_summary?: {
+    benchmark_run_id: string;
+    layer_counts: Record<string, number>;
+    claim_type_counts: Record<string, number>;
+    current_data_confirmed_count: number;
+    rke_context_hash_count: number;
+  };
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1079,6 +1130,16 @@ export class BridgeApi {
     return this.client.call<RkeFixedEpisodeManifestResult>(
       "rke_benchmark.fixed_episode_manifest",
       params ?? {},
+    );
+  }
+
+  rkeBenchmarkCaptureAgentClaimFootprints(params: {
+    benchmark_run_id: string;
+    rows: RkeAgentClaimFootprintInput[];
+  }): Promise<RkeAgentClaimFootprintCaptureResult> {
+    return this.client.call<RkeAgentClaimFootprintCaptureResult>(
+      "rke_benchmark.capture_agent_claim_footprints",
+      params,
     );
   }
 

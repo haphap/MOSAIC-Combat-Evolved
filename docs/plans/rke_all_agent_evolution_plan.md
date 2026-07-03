@@ -244,6 +244,19 @@ Public or committed artifacts must not include raw prompt text, report prose,
 source spans, or private report metadata. Detailed claim/footprint rows remain
 local/private unless explicitly promoted as aggregate reports.
 
+Status 2026-07-03:
+
+- Public bridge now exposes `rke_benchmark.capture_agent_claim_footprints`, a
+  private-local capture path for redacted all-agent claim/footprint rows. It
+  rejects prompt/report prose fields such as `claim_text`, `source_span_ids`,
+  raw `text`, prompt body, URLs, and local paths; successful rows are written
+  only under `.mosaic/rke/all_agent_evolution/agent_claim_footprints.jsonl` and
+  the RPC returns aggregate layer/type counts plus a no-source-prose privacy
+  scan.
+- This implements the redacted capture contract and private row sink. E3 is not
+  complete until benchmark/replay agents actually emit these rows and a redacted
+  aggregate profile summary is generated from real runs.
+
 ## E4: Private Prompt Mutation Lifecycle
 
 Prompt mutation output is not a direct runtime change.
