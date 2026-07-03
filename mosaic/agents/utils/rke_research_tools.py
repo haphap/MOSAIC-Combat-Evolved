@@ -21,6 +21,8 @@ from mosaic.rke.agent_research_context import (
     format_rke_agent_research_context,
 )
 
+_PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
+
 
 def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
     """Format RKE context with the runtime audit required before agent use."""
@@ -71,6 +73,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("retrieval_rank_order_changed")
     if any(not bucket for bucket in priority_buckets):
         failures.append("priority_bucket_missing")
+    elif any(bucket not in _PRIORITY_BUCKETS for bucket in priority_buckets):
+        failures.append("priority_bucket_unsupported")
     if context.get("production_signal_allowed") is not False:
         failures.append("production_signal_not_disabled")
     summary = context.get("summary")

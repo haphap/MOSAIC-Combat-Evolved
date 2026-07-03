@@ -172,6 +172,7 @@ _FORBIDDEN_CAPTURE_FIELDS = frozenset(
     }
 )
 _TARGET_FIELDS = ("target_type", "target_id", "metric_family", "ticker", "sector")
+_PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
 
 
 @method("rke_benchmark.all_agent_prompt_provenance_readiness")
@@ -700,7 +701,7 @@ def _runtime_context_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if ranking_policy_id:
             _increment(ranking_policy_id_counts, ranking_policy_id)
         priority_bucket = _clean_str(row.get("priority_bucket"))
-        if priority_bucket:
+        if priority_bucket in _PRIORITY_BUCKETS:
             _increment(priority_bucket_counts, priority_bucket)
         if _optional_positive_int(row.get("retrieval_rank")) is not None:
             retrieval_rank_count += 1
@@ -2339,6 +2340,9 @@ def _sanitize_claim_footprint_row(
     ranking_policy_id = _clean_str(row.get("ranking_policy_id"))
     if ranking_policy_id and ranking_policy_id != RANKING_POLICY_ID:
         raise ValueError(f"ranking_policy_id must be {RANKING_POLICY_ID}")
+    priority_bucket = _clean_str(row.get("priority_bucket"))
+    if priority_bucket and priority_bucket not in _PRIORITY_BUCKETS:
+        raise ValueError("priority_bucket must be high, medium, or low")
     record_key = "|".join(
         [
             benchmark_run_id,
@@ -2364,7 +2368,7 @@ def _sanitize_claim_footprint_row(
         "rke_context_hash": rke_context_hash,
         "ranking_policy_id": ranking_policy_id,
         "retrieval_rank": retrieval_rank,
-        "priority_bucket": _clean_str(row.get("priority_bucket")),
+        "priority_bucket": priority_bucket,
         "truncated_item_count": _optional_non_negative_int(
             row.get("truncated_item_count")
         ),

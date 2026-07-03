@@ -2315,8 +2315,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   runtime ranking metadata、profile update ref 和 evolution input ref，并要求 profile
   evidence 绑定同一个 `benchmark_run_id`；其中每个 consumed RKE context hash 都必须对应
   redacted report claim ref、canonical Part 1 `ranking_policy_id`、正整数
-  `retrieval_rank`、`priority_bucket` 和 truncation audit，避免未绑定研报 claim 或 ranking
-  proof 的 agent footprint 进入 profile/evolution。真实
+  `retrieval_rank`、canonical `priority_bucket`（`high`/`medium`/`low`）和 truncation
+  audit，避免未绑定研报 claim 或 ranking proof 的 agent footprint 进入 profile/evolution。真实
   profile/evolution 写入仍需由实际 benchmark/replay run 产生。
 - `rke_benchmark.darwinian_autoresearch_input_manifest` 已把 RKE prior usage、
   current-data confirmation、stale/contradictory prior handling、downstream outcome、

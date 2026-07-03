@@ -43,10 +43,11 @@ def _private_prompt_repo(tmp_path: Path) -> Path:
 
 
 def _runtime_context_proof(rank: int = 1) -> dict:
+    priority_bucket = "high" if rank <= 3 else "medium" if rank <= 10 else "low"
     return {
         "ranking_policy_id": "rke_agent_research_context_rank_v1",
         "retrieval_rank": rank,
-        "priority_bucket": "agent_specific",
+        "priority_bucket": priority_bucket,
         "truncated_item_count": 0,
     }
 
@@ -833,6 +834,36 @@ def test_capture_agent_claim_footprints_blocks_wrong_ranking_policy(
     assert not (project_root / result["private_rows_path"]).exists()
 
 
+def test_capture_agent_claim_footprints_blocks_unsupported_priority_bucket(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    result = dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-wrong-priority-bucket",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "priority_bucket": "agent_specific",
+                }
+            ],
+        },
+    )
+
+    assert result["capture_status"] == "blocked"
+    assert result["captured_count"] == 0
+    assert "priority_bucket must be high, medium, or low" in result["failures"][0]
+    assert not (project_root / result["private_rows_path"]).exists()
+
+
 def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
     tmp_path: Path, monkeypatch
 ):
@@ -889,7 +920,7 @@ def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
         "rke_agent_research_context_rank_v1": 1
     }
     assert summary["retrieval_rank_count"] == 1
-    assert summary["priority_bucket_counts"] == {"agent_specific": 1}
+    assert summary["priority_bucket_counts"] == {"high": 1}
     assert summary["truncation_audit_count"] == 1
     assert summary["privacy_scan"]["forbidden_field_violation_count"] == 0
     payload = json.dumps(summary, ensure_ascii=False)
@@ -2206,7 +2237,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
         "rke_agent_research_context_rank_v1": 1
     }
     assert manifest["retrieval_rank_count"] == 1
-    assert manifest["priority_bucket_counts"] == {"agent_specific": 1}
+    assert manifest["priority_bucket_counts"] == {"high": 1}
     assert manifest["truncation_audit_count"] == 1
     assert manifest["current_data_confirmed_count"] == 1
 
