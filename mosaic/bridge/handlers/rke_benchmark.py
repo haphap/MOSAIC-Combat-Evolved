@@ -760,6 +760,11 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
     ):
         if not _clean_str(evidence.get(key)):
             blocked_reasons.append(f"{key}_missing")
+    evidence_run_id = _clean_str(evidence.get("benchmark_run_id"))
+    if not evidence_run_id:
+        blocked_reasons.append("profile_evidence_benchmark_run_id_missing")
+    elif evidence_run_id != benchmark_run_id:
+        blocked_reasons.append("profile_evidence_benchmark_run_id_mismatch")
     if _forbidden_paths(evidence):
         blocked_reasons.append("private_or_source_prose_ref_detected")
 
@@ -783,6 +788,7 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         ],
         "privacy_scan": summary["privacy_scan"],
         "profile_evidence": {
+            "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
             "profile_update_ref": _clean_str(evidence.get("profile_update_ref")),
             "evolution_input_ref": _clean_str(evidence.get("evolution_input_ref")),
             "no_source_prose_audit_ref": _clean_str(

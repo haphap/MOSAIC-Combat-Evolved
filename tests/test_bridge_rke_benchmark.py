@@ -95,6 +95,15 @@ def _manual_review(benchmark_run_id: str = "bench-ready") -> dict:
     }
 
 
+def _profile_evidence(benchmark_run_id: str = "bench-profile-ready") -> dict:
+    return {
+        "benchmark_run_id": benchmark_run_id,
+        "profile_update_ref": f"{benchmark_run_id}-profile-update",
+        "evolution_input_ref": f"{benchmark_run_id}-evolution-input",
+        "no_source_prose_audit_ref": f"{benchmark_run_id}-no-source-prose",
+    }
+
+
 def _prompt_release_check() -> dict:
     return {
         "mutation_candidate_id": "PMUT-1",
@@ -838,11 +847,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
         "rke_benchmark.agent_profile_evolution_readiness",
         {
             "benchmark_run_id": "bench-profile-ready",
-            "profile_evidence": {
-                "profile_update_ref": "profile-update-ready",
-                "evolution_input_ref": "evolution-input-ready",
-                "no_source_prose_audit_ref": "no-source-prose-ready",
-            },
+            "profile_evidence": _profile_evidence("bench-profile-ready"),
         },
     )
 
@@ -859,6 +864,68 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
     assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 0
     assert manifest["profile_evolution_ready"] is True
     assert manifest["production_signal_allowed"] is False
+
+
+def test_agent_profile_evolution_readiness_blocks_cross_run_profile_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-profile-ready",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
+                },
+                {
+                    "agent": "semiconductor",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "sector_claim",
+                    "target": {"target_type": "sector", "sector": "semiconductor"},
+                    "rke_context_hash": "b" * 64,
+                    "report_claim_refs": ["forecast_claim:sector-semi-001"],
+                },
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "c" * 64,
+                    "report_claim_refs": ["forecast_claim:stock-000001-001"],
+                },
+                {
+                    "agent": "cio",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "portfolio_action_claim",
+                    "target": {"target_type": "portfolio", "target_id": "cn_equity"},
+                    "rke_context_hash": "d" * 64,
+                    "report_claim_refs": ["forecast_claim:portfolio-cn-equity-001"],
+                },
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {
+            "benchmark_run_id": "bench-profile-ready",
+            "profile_evidence": _profile_evidence("other-run"),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "profile_evidence_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["profile_evolution_ready"] is False
 
 
 def test_darwinian_autoresearch_manifest_blocks_missing_evidence(
@@ -2340,11 +2407,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                 "bench-delivery-ready"
             ),
             "manual_review": _manual_review("bench-delivery-ready"),
-            "profile_evidence": {
-                "profile_update_ref": "profile-delivery",
-                "evolution_input_ref": "evolution-delivery",
-                "no_source_prose_audit_ref": "no-source-delivery",
-            },
+            "profile_evidence": _profile_evidence("bench-delivery-ready"),
             "downstream_outcome_metrics": {
                 "risk_adjusted_return": 0.11,
                 "alpha": 0.02,

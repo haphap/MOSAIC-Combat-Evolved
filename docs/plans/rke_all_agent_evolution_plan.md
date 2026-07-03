@@ -289,6 +289,8 @@ Status 2026-07-03:
   a no-write gate that requires redacted footprint summary, all four layer
   coverage, RKE context hashes, privacy/no-source-prose audit, profile update ref,
   and evolution input ref before footprint aggregates can feed profile/evolution.
+  Profile evidence must bind to the same `benchmark_run_id` as the captured
+  footprint summary.
 - This implements the redacted capture contract, private row sink, and aggregate
   profile summary reader. E3 is not complete until benchmark/replay agents
   actually emit these rows from real runs.
