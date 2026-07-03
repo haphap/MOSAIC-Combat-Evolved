@@ -21169,6 +21169,8 @@ def _tool_gap_engineering_effort(gap: Mapping[str, Any]) -> str:
 
 def build_data_acquisition_proposals(
     tool_gap_rows: Sequence[Mapping[str, Any]],
+    *,
+    stock_context_snapshot_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     proposals: list[dict[str, Any]] = []
     for gap in tool_gap_rows:
@@ -21207,6 +21209,58 @@ def build_data_acquisition_proposals(
                 "business_priority": str(gap.get("priority_bucket") or "low"),
                 "source_tool_gap_priority": str(gap.get("priority_bucket") or "low"),
                 "decision_status": "pending_review",
+            }
+        )
+    market_cap_missing_count = sum(
+        1
+        for row in stock_context_snapshot_rows
+        if "market_cap_bucket_missing" in _ensure_list(row.get("missing_feature_reasons"))
+    )
+    if market_cap_missing_count:
+        proposals.append(
+            {
+                "data_proposal_id": _stable_id(
+                    "DAP",
+                    {"tool_gap_id": "stock_context_market_cap_metadata_missing"},
+                ),
+                "tool_gap_id": "stock_context_market_cap_metadata_missing",
+                "owner": "data_engineering",
+                "requested_dataset": "stock_market_cap_pit_metadata",
+                "required_fields": [
+                    "stock_symbol",
+                    "as_of_date",
+                    "total_market_cap_cny",
+                    "float_market_cap_cny",
+                    "source_timestamp",
+                    "quality_flags",
+                ],
+                "pit_requirements": {
+                    "timestamp_required": True,
+                    "revision_tracking_required": True,
+                    "minimum_history_years": 5,
+                    "survivorship_issue": True,
+                },
+                "license_requirements": {
+                    "internal_model_use": True,
+                    "derived_metric_storage": True,
+                    "external_redistribution": False,
+                },
+                "license_status": "pending_review",
+                "pit_feasibility_status": "requires_pit_backfill_review",
+                "expected_use_cases": [
+                    "stock_context_market_cap_bucket",
+                    "superinvestor_stock_prior_stratification",
+                    "decision_agent_risk_context",
+                ],
+                "estimated_engineering_effort": "medium",
+                "estimated_vendor_cost_bucket": "unknown",
+                "business_priority": "medium",
+                "source_tool_gap_priority": "medium",
+                "decision_status": "pending_review",
+                "evidence_summary": {
+                    "missing_feature": "market_cap_bucket_missing",
+                    "affected_stock_context_snapshot_count": market_cap_missing_count,
+                },
             }
         )
     return proposals
@@ -34762,6 +34816,7 @@ def run_report_intelligence_derived_refresh(
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
     data_acquisition_proposal_rows = build_data_acquisition_proposals(
         tool_gap_rows,
+        stock_context_snapshot_rows=stock_context_snapshot_rows,
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
@@ -35954,6 +36009,7 @@ def run_report_intelligence_refresh(
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
     data_acquisition_proposal_rows = build_data_acquisition_proposals(
         tool_gap_rows,
+        stock_context_snapshot_rows=stock_context_snapshot_rows,
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)

@@ -18507,6 +18507,34 @@ def test_report_intelligence_retires_tool_gaps_with_existing_coverage():
     assert build_tool_design_proposals(rows) == []
 
 
+def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
+    proposals = build_data_acquisition_proposals(
+        [],
+        stock_context_snapshot_rows=[
+            {
+                "snapshot_id": "SCS-MISSING-MV",
+                "missing_feature_reasons": ["market_cap_bucket_missing"],
+            },
+            {
+                "snapshot_id": "SCS-COVERED",
+                "missing_feature_reasons": [],
+            },
+        ],
+    )
+
+    assert len(proposals) == 1
+    proposal = proposals[0]
+    assert proposal["tool_gap_id"] == "stock_context_market_cap_metadata_missing"
+    assert proposal["requested_dataset"] == "stock_market_cap_pit_metadata"
+    assert "total_market_cap_cny" in proposal["required_fields"]
+    assert proposal["pit_requirements"]["survivorship_issue"] is True
+    assert proposal["decision_status"] == "pending_review"
+    assert proposal["evidence_summary"] == {
+        "missing_feature": "market_cap_bucket_missing",
+        "affected_stock_context_snapshot_count": 1,
+    }
+
+
 def test_report_intelligence_defaults_to_vlm_mineru_backend():
     config = ReportIntelligenceConfig()
 
