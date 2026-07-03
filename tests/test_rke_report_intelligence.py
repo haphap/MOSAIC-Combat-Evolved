@@ -1172,6 +1172,51 @@ def test_report_intelligence_builds_public_safe_stock_context_snapshots():
     assert "FC-STOCK-1" not in snapshot_dump
 
 
+def test_report_intelligence_stock_context_buckets_tushare_market_cap():
+    metadata_rows = [
+        {
+            "source_id": "SRC-STOCK-MV",
+            "report_id": "RPT-STOCK-MV",
+            "report_type": "个股研报",
+            "ts_code": "600519.SH",
+            "sector": "食品饮料",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "total_mv": 15_000_000,
+            "title": "private title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-STOCK-MV",
+            "source_id": "SRC-STOCK-MV",
+            "claim_text": "private prose",
+            "target": {"target_type": "stock", "target_id": "600519.SH"},
+            "direction": "positive",
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+        }
+    ]
+
+    snapshots = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-MV",
+                "label_type": "stock_price_proxy",
+            }
+        ],
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["market_cap_bucket"] == "large_cap"
+    assert "market_cap_bucket_missing" not in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private prose" not in snapshot_dump
+    assert "FC-STOCK-MV" not in snapshot_dump
+
+
 def test_report_intelligence_builds_public_safe_industry_context_snapshots():
     metadata_rows = [
         {

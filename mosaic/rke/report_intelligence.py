@@ -19937,6 +19937,30 @@ def _first_sorted(values: set[str], *, default: str = "unknown") -> str:
     return cleaned[0] if cleaned else default
 
 
+def _context_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    text = str(value or "").replace(",", "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _stock_market_cap_bucket_from_billion_cny(value: float | None) -> str:
+    if value is None or value <= 0:
+        return "unknown"
+    if value >= 500:
+        return "mega_cap"
+    if value >= 100:
+        return "large_cap"
+    if value >= 30:
+        return "mid_cap"
+    return "small_cap"
+
+
 def _stock_market_cap_bucket(metadata_rows: Sequence[Mapping[str, Any]]) -> str:
     for row in metadata_rows:
         for field in (
@@ -19946,6 +19970,30 @@ def _stock_market_cap_bucket(metadata_rows: Sequence[Mapping[str, Any]]) -> str:
         ):
             bucket = _clean_context_bucket(row.get(field), default="")
             if bucket:
+                return bucket
+        for field in (
+            "market_cap_cny_billion",
+            "total_market_cap_cny_billion",
+            "float_market_cap_cny_billion",
+        ):
+            bucket = _stock_market_cap_bucket_from_billion_cny(
+                _context_float(row.get(field))
+            )
+            if bucket != "unknown":
+                return bucket
+        for field in ("market_cap_cny", "total_market_cap_cny", "float_market_cap_cny"):
+            value = _context_float(row.get(field))
+            bucket = _stock_market_cap_bucket_from_billion_cny(
+                None if value is None else value / 1_000_000_000
+            )
+            if bucket != "unknown":
+                return bucket
+        for field in ("total_mv", "circ_mv", "float_mv"):
+            value = _context_float(row.get(field))
+            bucket = _stock_market_cap_bucket_from_billion_cny(
+                None if value is None else value / 100_000
+            )
+            if bucket != "unknown":
                 return bucket
     return "unknown"
 
@@ -20111,6 +20159,7 @@ def build_stock_context_snapshots(
                 {
                     "stock_symbol": stock_symbol,
                     "as_of_date": as_of_date,
+                    "market_cap_bucket": market_cap_bucket,
                     "claim_count": len(aggregate["_claim_ids"]),
                     "outcome_label_count": len(outcome_rows),
                 },
