@@ -1663,6 +1663,8 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
         )
 
     blocked_reasons = list(lifecycle["blocked_reasons"]) + evidence_failures
+    if not benchmark_run_id:
+        blocked_reasons.append("benchmark_run_id_missing")
     if not branch_records:
         blocked_reasons.append("prompt_branch_candidate_missing")
     for record in records:

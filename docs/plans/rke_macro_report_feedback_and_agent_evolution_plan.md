@@ -2349,8 +2349,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.prompt_mutation_rollback_readiness` 已能检查 private prompt branch
   candidate 离开 shadow 前所需的 rollback trigger、与 lifecycle prompt pins 匹配的
   previous prompt hashes、rollback procedure、monitor output 和 post-rollback verification
-  evidence；在 shadow/delivery 聚合中使用时，rollback evidence 必须绑定同一个
-  `benchmark_run_id`；candidate `blocked_by` 未清空时仍阻断 rollback gate；真实 rollback
+  evidence；rollback evidence 必须绑定同一个 `benchmark_run_id`，在 shadow/delivery
+  聚合中复查时也沿用该绑定；candidate `blocked_by` 未清空时仍阻断 rollback gate；真实 rollback
   monitor 输出仍需由实际 replay/paper-trading run 产生。
 - `rke_benchmark.shadow_replay_readiness` 已能把 all-agent prompt provenance、
   benchmark evidence、Darwinian input、prompt mutation release/leak-drift readiness、

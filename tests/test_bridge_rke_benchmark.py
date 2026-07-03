@@ -2199,6 +2199,45 @@ def test_prompt_mutation_rollback_readiness_accepts_complete_evidence(
     private_repo = _private_prompt_repo(tmp_path)
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    benchmark_run_id = "bench-rollback-ready"
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_rollback_readiness",
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "candidates": candidates,
+            "rollback_evidence": [
+                _rollback_evidence_for_candidates(candidates, benchmark_run_id)
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["rollback_gate_ready"] is True
+    assert manifest["promotion_allowed"] is False
+    record = manifest["rollback_records"][0]
+    assert record["rollback_ready"] is True
+    assert len(record["previous_prompt_hashes"]) == 2
+    assert record["rollback_previous_prompt_hashes"] == record["previous_prompt_hashes"]
+
+
+def test_prompt_mutation_rollback_readiness_blocks_missing_benchmark_run_id(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
     candidates = [
         _mutation_candidate(
             candidate_type="stock_prior_recipe_rule_candidate",
@@ -2216,13 +2255,9 @@ def test_prompt_mutation_rollback_readiness_accepts_complete_evidence(
         },
     )
 
-    assert manifest["readiness_status"] == "ready"
-    assert manifest["rollback_gate_ready"] is True
-    assert manifest["promotion_allowed"] is False
-    record = manifest["rollback_records"][0]
-    assert record["rollback_ready"] is True
-    assert len(record["previous_prompt_hashes"]) == 2
-    assert record["rollback_previous_prompt_hashes"] == record["previous_prompt_hashes"]
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "benchmark_run_id_missing" in manifest["blocked_reasons"]
+    assert manifest["rollback_gate_ready"] is False
 
 
 def test_prompt_mutation_rollback_readiness_blocks_previous_hash_mismatch(
