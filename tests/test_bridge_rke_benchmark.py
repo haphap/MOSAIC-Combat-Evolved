@@ -70,6 +70,9 @@ def _benchmark_quality_summary(
         "severe_safety_violation_count": 0,
         "current_data_confirmation_violation_count": 0,
         "fallback_prompt_run_count": 0,
+        "covered_episode_count": 8,
+        "covered_as_of_date_count": 17,
+        "covered_agent_count": 25,
     }
     row.update(overrides)
     return row
@@ -644,6 +647,39 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
         in result["blocked_reasons"]
     )
     assert result["model_config_output_counts"]["local_qwen_27b"] == 0
+
+
+def test_fixed_episode_benchmark_evidence_blocks_incomplete_coverage_counts(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "rke_benchmark.fixed_episode_benchmark_evidence",
+        {
+            "benchmark_run_id": "bench-coverage-gap",
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-coverage-gap",
+                covered_episode_count=7,
+                covered_as_of_date_count=16,
+                covered_agent_count=24,
+            ),
+            "evidence_refs": _benchmark_evidence_refs("bench-coverage-gap"),
+            "manual_review": _manual_review("bench-coverage-gap"),
+        },
+    )
+
+    assert result["evidence_status"] == "blocked_preflight"
+    assert "paired_output_count_below_required" not in result["blocked_reasons"]
+    assert "covered_episode_count_below_required" in result["blocked_reasons"]
+    assert "covered_as_of_date_count_below_required" in result["blocked_reasons"]
+    assert "covered_agent_count_below_required" in result["blocked_reasons"]
 
 
 def test_fixed_episode_benchmark_evidence_blocks_quality_gate_failures(

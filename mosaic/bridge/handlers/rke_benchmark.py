@@ -417,6 +417,16 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("private_prompt_preflight_not_ready")
     if paired_output_count < required_paired_output_count:
         blocked_reasons.append("paired_output_count_below_required")
+    for field, required_count in (
+        ("covered_episode_count", manifest["episode_count"]),
+        ("covered_as_of_date_count", manifest["as_of_date_count"]),
+        ("covered_agent_count", manifest["agent_count"]),
+    ):
+        count = _optional_non_negative_int(quality_summary.get(field))
+        if count is None:
+            blocked_reasons.append(f"{field}_missing")
+        elif count < required_count:
+            blocked_reasons.append(f"{field}_below_required")
     for model_id in required_model_ids:
         count = model_config_output_counts.get(model_id)
         if not isinstance(count, int) or isinstance(count, bool):
@@ -504,6 +514,15 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
             ),
             "fallback_prompt_run_count": _optional_non_negative_int(
                 quality_summary.get("fallback_prompt_run_count")
+            ),
+            "covered_episode_count": _optional_non_negative_int(
+                quality_summary.get("covered_episode_count")
+            ),
+            "covered_as_of_date_count": _optional_non_negative_int(
+                quality_summary.get("covered_as_of_date_count")
+            ),
+            "covered_agent_count": _optional_non_negative_int(
+                quality_summary.get("covered_agent_count")
             ),
         },
         "prompt_source_status": manifest["prompt_preflight"].get("source_status", {}),
