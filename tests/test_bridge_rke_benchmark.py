@@ -3376,6 +3376,43 @@ def test_delivery_evidence_store_blocks_empty_proof_values(
     ]
 
 
+def test_delivery_evidence_store_rejects_schema_mismatch(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    evidence_dir = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    evidence_dir.mkdir(parents=True)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    rows = [
+        {
+            "schema_version": "legacy_delivery_evidence_v0",
+            "benchmark_run_id": "other-run",
+            "evidence": {"paired_output_count": 1275},
+        },
+        {
+            "schema_version": "legacy_delivery_evidence_v0",
+            "benchmark_run_id": "bench-delivery-schema",
+            "evidence": {"paired_output_count": 1275},
+        },
+    ]
+    (evidence_dir / "delivery_evidence.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-schema"},
+    )
+
+    assert audit["evidence_status"] == "blocked"
+    assert audit["recorded_keys"] == []
+    assert audit["failures"] == ["line 2: schema_version mismatch"]
+    assert "delivery_evidence_store:line 2: schema_version mismatch" in audit[
+        "delivery_blocked_reasons"
+    ]
+
+
 def test_delivery_readiness_loads_recorded_private_evidence(
     tmp_path: Path, monkeypatch
 ):

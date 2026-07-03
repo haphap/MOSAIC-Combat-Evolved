@@ -2236,6 +2236,9 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                 continue
             if row.get("benchmark_run_id") != benchmark_run_id:
                 continue
+            if row.get("schema_version") != "rke_delivery_evidence_v1":
+                failures.append(f"line {line_number}: schema_version mismatch")
+                continue
             evidence = row.get("evidence")
             if not isinstance(evidence, dict):
                 failures.append(f"line {line_number}: evidence must be object")
