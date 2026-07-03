@@ -1219,8 +1219,24 @@ def _seed_profile_outcome_layer(profile):
         "agent_layer": "superinvestor",
         "regime_bucket": "company_quality",
     }
+    domain_support = {
+        "rating_row_count": 1,
+        "rating_bucket_counts": {"supportive_evidence": 1},
+        "failure_mode_counts": {},
+        "tradeability_blocker_count": 0,
+        "target_price_hit_count": 0,
+        "fundamental_metric_family_counts": {"inventory_to_sales": 1},
+        "target_family_counts": {"stock": 1},
+        "agent_layer_counts": {"superinvestor": 1},
+        "regime_bucket_counts": {"company_quality": 1},
+        "mapping_confidence_counts": {},
+        "proxy_limitation_tags": [],
+        "privacy_policy": "redacted_internal_rating_aggregate_only",
+    }
+    summary["domain_rating_support"] = dict(domain_support)
     support["layer_summaries"] = [summary]
     support["layer_keys"] = [key]
+    support["domain_rating_support"] = dict(domain_support)
     return support, summary, key
 
 
@@ -1283,6 +1299,34 @@ def test_profile_outcome_layer_contract_rejects_incomplete_extended_keys(
     assert not record.accepted
     assert any("target_family" in failure for failure in record.failures)
     assert any("agent_layer" in failure for failure in record.failures)
+
+
+def test_profile_outcome_layer_contract_rejects_bad_domain_rating_support(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    profiles_path = registry / "source_performance_profiles.jsonl"
+    profiles = [
+        json.loads(line)
+        for line in profiles_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    support, summary, _key = _seed_profile_outcome_layer(profiles[0])
+    support["domain_rating_support"]["rating_bucket_counts"] = {"generic_good": 1}
+    summary["domain_rating_support"].pop("target_family_counts")
+    profiles_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) for row in profiles
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _profile_outcome_layer_record(tmp_path)
+
+    assert not record.accepted
+    assert any("unsupported rating bucket" in failure for failure in record.failures)
+    assert any("target_family_counts: expected object" in failure for failure in record.failures)
 
 
 def test_extraction_report_contract_accepts_current_public_artifact(tmp_path: Path):

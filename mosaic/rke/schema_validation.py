@@ -7055,6 +7055,23 @@ PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS = (
     "regime_bucket",
 )
 
+DOMAIN_RATING_SUPPORT_REQUIRED_COUNT_FIELDS = (
+    "rating_bucket_counts",
+    "failure_mode_counts",
+    "fundamental_metric_family_counts",
+    "target_family_counts",
+    "agent_layer_counts",
+    "regime_bucket_counts",
+    "mapping_confidence_counts",
+)
+
+DOMAIN_RATING_ALLOWED_BUCKETS = {
+    "supportive_evidence",
+    "mixed_evidence",
+    "contradictory_evidence",
+    "pending_or_unrated",
+}
+
 
 def _profile_layer_expected_effective_n(
     profile: Mapping[str, Any],
@@ -7089,6 +7106,32 @@ def _profile_layer_key(
     fields: Sequence[str],
 ) -> tuple[str, ...]:
     return tuple(str(row.get(field) or "") for field in fields)
+
+
+def _validate_domain_rating_support(value: Any, *, row_label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, Mapping):
+        return [f"{row_label}: expected object"]
+    failures = _public_forbidden_text_failures(value, path=row_label)
+    if value.get("privacy_policy") != "redacted_internal_rating_aggregate_only":
+        failures.append(
+            f"{row_label}.privacy_policy: must be redacted_internal_rating_aggregate_only"
+        )
+    for field in DOMAIN_RATING_SUPPORT_REQUIRED_COUNT_FIELDS:
+        counts = value.get(field)
+        if not isinstance(counts, Mapping):
+            failures.append(f"{row_label}.{field}: expected object")
+            continue
+        for key, count in counts.items():
+            if not str(key).strip():
+                failures.append(f"{row_label}.{field}: blank key forbidden")
+            int_count = _int_or_none(count)
+            if int_count is None or int_count < 0:
+                failures.append(f"{row_label}.{field}.{key}: count must be nonnegative")
+            if field == "rating_bucket_counts" and key not in DOMAIN_RATING_ALLOWED_BUCKETS:
+                failures.append(f"{row_label}.{field}.{key}: unsupported rating bucket")
+    return failures
 
 
 def _validate_profile_outcome_layer_support(
@@ -7165,6 +7208,12 @@ def _validate_profile_outcome_layer_support(
                     failures.append(
                         f"{row_label}.outcome_layer_support.layering_policy: must mention {required_text}"
                     )
+            failures.extend(
+                _validate_domain_rating_support(
+                    support.get("domain_rating_support"),
+                    row_label=f"{row_label}.outcome_layer_support.domain_rating_support",
+                )
+            )
             summary_keys: list[tuple[str, ...]] = []
             n_effective_sum = 0.0
             for summary_index, summary in enumerate(summaries, 1):
@@ -7177,6 +7226,12 @@ def _validate_profile_outcome_layer_support(
                 for field in PROFILE_OUTCOME_LAYER_REQUIRED_SUMMARY_FIELDS:
                     if field not in summary:
                         failures.append(f"{summary_label}.{field}: required")
+                failures.extend(
+                    _validate_domain_rating_support(
+                        summary.get("domain_rating_support"),
+                        row_label=f"{summary_label}.domain_rating_support",
+                    )
+                )
                 key = _profile_layer_key(summary, key_fields)
                 if not all(key):
                     failures.append(
