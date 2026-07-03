@@ -3175,7 +3175,8 @@ def test_delivery_readiness_blocks_private_direct_input_refs(
 
     assert manifest["readiness_status"] == "blocked_preflight"
     assert manifest["delivery_input_failures"] == [
-        "forbidden private/prose fields $.benchmark_evidence_refs.source_url"
+        "forbidden private/prose fields $.benchmark_evidence_refs.source_url",
+        "benchmark_run_id missing $.benchmark_evidence_refs.benchmark_run_id",
     ]
     assert (
         "delivery_evidence_input:forbidden private/prose fields $.benchmark_evidence_refs.source_url"
@@ -3204,6 +3205,34 @@ def test_delivery_readiness_blocks_cross_run_direct_input(
     ]
     assert (
         "delivery_evidence_input:benchmark_run_id mismatch $.manual_review.benchmark_run_id"
+        in manifest["blocked_reasons"]
+    )
+
+
+def test_delivery_readiness_blocks_missing_run_bound_direct_input(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-direct-run-missing",
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "benchmark_run_id missing $.manual_review.benchmark_run_id" in manifest[
+        "delivery_input_failures"
+    ]
+    assert (
+        "delivery_evidence_input:benchmark_run_id missing $.manual_review.benchmark_run_id"
         in manifest["blocked_reasons"]
     )
 
@@ -3594,6 +3623,55 @@ def test_delivery_evidence_store_blocks_cross_run_nested_proof(
     assert audit["recorded_keys"] == []
     assert audit["failures"] == [
         "line 1: benchmark_run_id mismatch $.prompt_mutation_release_checks[0].benchmark_run_id"
+    ]
+
+
+def test_delivery_evidence_store_blocks_missing_run_bound_proof(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    evidence_dir = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    evidence_dir.mkdir(parents=True)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-run-missing",
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+        },
+    )
+    (evidence_dir / "delivery_evidence.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": "rke_delivery_evidence_v1",
+                "benchmark_run_id": "bench-delivery-run-missing",
+                "evidence": {
+                    "prompt_mutation_release_checks": [
+                        {"mutation_candidate_id": "PMUT-1"}
+                    ]
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-run-missing"},
+    )
+
+    assert record["record_status"] == "blocked"
+    assert "benchmark_run_id missing $.manual_review.benchmark_run_id" in record[
+        "failures"
+    ]
+    assert audit["evidence_status"] == "blocked"
+    assert audit["recorded_keys"] == []
+    assert audit["failures"] == [
+        "line 1: benchmark_run_id missing $.prompt_mutation_release_checks[0].benchmark_run_id"
     ]
 
 

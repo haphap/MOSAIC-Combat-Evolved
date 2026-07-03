@@ -165,6 +165,11 @@ _DELIVERY_CONTEXT_VALUE_TYPES = {
     "prompt_source_status": dict,
 }
 _DELIVERY_RECORD_KEYS = _DELIVERY_CONTEXT_KEYS + _DELIVERY_EVIDENCE_KEYS
+_DELIVERY_RUN_BOUND_EVIDENCE_KEYS = frozenset(
+    key
+    for key in _DELIVERY_EVIDENCE_KEYS
+    if key not in {"paired_output_count", "model_config_output_counts", "candidates"}
+)
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
     "macro": ("macro_regime_claim", "macro_series_claim", "macro_asset_claim"),
     "sector": ("sector_claim", "ticker_metric_claim"),
@@ -2331,6 +2336,10 @@ def _delivery_benchmark_run_id_mismatches(
         failures: list[str] = []
         for key, child in value.items():
             child_path = f"{path}.{key}"
+            if path == "$" and key in _DELIVERY_RUN_BOUND_EVIDENCE_KEYS:
+                failures.extend(
+                    _delivery_benchmark_run_id_missing(child, child_path)
+                )
             if str(key) == "benchmark_run_id":
                 child_run_id = _clean_str(child)
                 if child_run_id and child_run_id != benchmark_run_id:
@@ -2350,6 +2359,22 @@ def _delivery_benchmark_run_id_mismatches(
                     child, benchmark_run_id, f"{path}[{index}]"
                 )
             )
+        return failures
+    return []
+
+
+def _delivery_benchmark_run_id_missing(value: Any, path: str) -> list[str]:
+    if isinstance(value, dict):
+        if not _clean_str(value.get("benchmark_run_id")):
+            return [f"benchmark_run_id missing {path}.benchmark_run_id"]
+        return []
+    if isinstance(value, list):
+        failures: list[str] = []
+        for index, child in enumerate(value):
+            if isinstance(child, dict) and not _clean_str(child.get("benchmark_run_id")):
+                failures.append(
+                    f"benchmark_run_id missing {path}[{index}].benchmark_run_id"
+                )
         return failures
     return []
 
