@@ -856,6 +856,35 @@ def test_prompt_mutation_release_readiness_accepts_release_and_leak_drift(
     assert record["release_ready"] is True
 
 
+def test_prompt_mutation_release_readiness_blocks_candidate_blockers(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=["missing_pit_outcome"],
+                )
+            ],
+            "release_checks": [_prompt_release_check()],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "candidate_blocked_by:missing_pit_outcome" in manifest["blocked_reasons"]
+    assert manifest["prompt_release_ready"] is False
+
+
 def test_prompt_mutation_rollback_readiness_blocks_missing_evidence(
     tmp_path: Path, monkeypatch
 ):
@@ -923,6 +952,46 @@ def test_prompt_mutation_rollback_readiness_accepts_complete_evidence(
     record = manifest["rollback_records"][0]
     assert record["rollback_ready"] is True
     assert len(record["previous_prompt_hashes"]) == 2
+
+
+def test_prompt_mutation_rollback_readiness_blocks_candidate_blockers(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_rollback_readiness",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=["missing_validation_target"],
+                )
+            ],
+            "rollback_evidence": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "rollback_trigger_definition": "manual review or monitor breach",
+                    "rollback_command_or_procedure": "restore previous prompt commit",
+                    "monitor_output_ref": "monitor-run-1",
+                    "post_rollback_verification_ref": "verify-run-1",
+                }
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert (
+        "candidate_blocked_by:missing_validation_target"
+        in manifest["blocked_reasons"]
+    )
+    assert manifest["rollback_gate_ready"] is False
 
 
 def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatch):

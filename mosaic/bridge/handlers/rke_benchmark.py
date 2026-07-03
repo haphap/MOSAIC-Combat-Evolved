@@ -1034,6 +1034,9 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
         candidate_id = record["mutation_candidate_id"]
         evidence = release_by_candidate.get(candidate_id, {})
         blockers: list[str] = []
+        blockers.extend(
+            f"candidate_blocked_by:{reason}" for reason in record["blocked_by"]
+        )
         if not isinstance(evidence.get("prompt_version_id"), int):
             blockers.append("prompt_version_id_missing")
         for key in (
@@ -1151,6 +1154,9 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
             }
         )
         blockers: list[str] = []
+        blockers.extend(
+            f"candidate_blocked_by:{reason}" for reason in record["blocked_by"]
+        )
         if not previous_hashes:
             blockers.append("previous_prompt_hash_missing")
         for key in (

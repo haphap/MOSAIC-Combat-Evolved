@@ -2301,11 +2301,13 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   prompt branch，也不能作为条件 12 的完成证据。
 - `rke_benchmark.prompt_mutation_release_readiness` 已能检查 prompt version id、
   private prompt repo commit/hash、`prompts.verify_release` 和 leak/drift evidence；
-  真实 private prompt 写入与 release 仍需在 private prompt repo 中执行。
+  candidate `blocked_by` 未清空时仍阻断 release；真实 private prompt 写入与 release
+  仍需在 private prompt repo 中执行。
 - `rke_benchmark.prompt_mutation_rollback_readiness` 已能检查 private prompt branch
   candidate 离开 shadow 前所需的 rollback trigger、previous prompt hash、rollback
-  procedure、monitor output 和 post-rollback verification evidence；真实 rollback monitor
-  输出仍需由实际 replay/paper-trading run 产生。
+  procedure、monitor output 和 post-rollback verification evidence；candidate `blocked_by`
+  未清空时仍阻断 rollback gate；真实 rollback monitor 输出仍需由实际 replay/paper-trading
+  run 产生。
 - `rke_benchmark.shadow_replay_readiness` 已能把 benchmark evidence、Darwinian input、
   prompt mutation release/leak-drift readiness、runtime RKE context/current-data
   confirmation 和 rollback readiness 汇总为 shadow replay gate；真实 replay/paper-trading

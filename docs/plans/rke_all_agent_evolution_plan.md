@@ -436,7 +436,8 @@ Status 2026-07-03:
   a no-write E7 rollback gate over prompt mutation lifecycle records. It blocks
   shadow exit unless each private prompt branch candidate has previous prompt
   hashes plus rollback trigger, rollback procedure, monitor output ref, and
-  post-rollback verification ref. The gate never enables promotion by itself.
+  post-rollback verification ref, and now keeps candidate `blocked_by` reasons
+  blocking rollback. The gate never enables promotion by itself.
 - Public bridge now exposes `rke_benchmark.shadow_replay_readiness`, a no-write
   gate that requires fixed-episode benchmark evidence, Darwinian/autoresearch
   input readiness, prompt mutation release/leak-drift readiness, runtime RKE
@@ -475,6 +476,9 @@ Status 2026-07-03:
 - Agent footprint summary and profile/evolution readiness now carry redacted
   `report_claim_refs` aggregate counts, so agent-claim profile activation is
   blocked until benchmark rows prove at least one report-claim link.
+- Prompt mutation release and rollback readiness now retain candidate
+  `blocked_by` as hard blockers, preventing shadow-exit proof from overriding
+  unresolved PIT/validation/refusal blockers.
 - This implements the rollback proof-object preflight. E7 is not complete until
   real private branch mutations, benchmark/manual-review decisions, shadow or
   paper-trading gate evidence, monitor output, and post-rollback verification
