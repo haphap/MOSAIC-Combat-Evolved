@@ -4468,6 +4468,30 @@ def test_prompt_mutation_candidate_contract_requires_full_validation_matrix(
     assert any("shadow_paper_trading_pass" in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_rejects_prior_refusal_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    refusal = next(
+        row for row in candidates if str(row["candidate_type"]).endswith("_refusal")
+    )
+    refusal["blocked_by"] = []
+    evidence = refusal["evidence_refs"][0]
+    assert isinstance(evidence, dict)
+    evidence["candidate_kind"] = "macro_rule_parameter_candidate"
+    evidence["refusal_reasons"] = ["unsupported_refusal"]
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("unsupported unsupported_refusal" in item for item in record.failures)
+    assert any("blocked_by: must include refusal reasons" in item for item in record.failures)
+    assert any("candidate_kind: must be refusal" in item for item in record.failures)
+
+
 def test_prompt_mutation_candidate_contract_requires_existing_public_evidence(
     tmp_path: Path,
 ):

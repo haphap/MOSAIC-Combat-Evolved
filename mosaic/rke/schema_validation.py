@@ -1296,6 +1296,22 @@ PROMPT_MUTATION_REQUIRED_VALIDATION_REQUIREMENTS = (
     "statistical_robustness_audit_pass",
     "shadow_paper_trading_pass",
 )
+PRIOR_COMPILER_REFUSAL_CANDIDATE_TYPES = {
+    "stock_prior_recipe_rule_refusal",
+    "industry_prior_recipe_rule_refusal",
+    "macro_prior_rule_parameter_refusal",
+}
+PRIOR_COMPILER_CANDIDATE_TYPES = {
+    "stock_prior_recipe_rule_candidate",
+    "industry_prior_recipe_rule_candidate",
+    "macro_prior_rule_parameter_candidate",
+}
+PRIOR_COMPILER_ALLOWED_REFUSAL_REASONS = {
+    "insufficient_effective_n",
+    "missing_pit_outcome",
+    "missing_validation_target",
+    "source_dependent_cluster",
+}
 PROMPT_MUTATION_PUBLIC_EVIDENCE_PREFIXES = (
     "registry/report_intelligence/",
     "registry/gold_sets/",
@@ -6939,6 +6955,57 @@ def _validate_prompt_mutation_governed_evidence(
     return failures
 
 
+def _validate_prior_compiler_candidate_contract(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+) -> list[str]:
+    candidate_type = str(row.get("candidate_type") or "")
+    if candidate_type not in (
+        PRIOR_COMPILER_REFUSAL_CANDIDATE_TYPES | PRIOR_COMPILER_CANDIDATE_TYPES
+    ):
+        return []
+    failures: list[str] = []
+    blocked_by = set(_string_items(row.get("blocked_by")))
+    evidence_refs = row.get("evidence_refs")
+    if not isinstance(evidence_refs, Sequence) or isinstance(evidence_refs, str):
+        return failures
+    refusal_reasons: set[str] = set()
+    candidate_kinds: set[str] = set()
+    for evidence in evidence_refs:
+        if not isinstance(evidence, Mapping):
+            continue
+        candidate_kind = str(evidence.get("candidate_kind") or "").strip()
+        if candidate_kind:
+            candidate_kinds.add(candidate_kind)
+        refusal_reasons.update(_string_items(evidence.get("refusal_reasons")))
+    if candidate_type in PRIOR_COMPILER_REFUSAL_CANDIDATE_TYPES:
+        if not refusal_reasons:
+            failures.append(f"{row_label}.evidence_refs.refusal_reasons: required")
+        unsupported = sorted(refusal_reasons - PRIOR_COMPILER_ALLOWED_REFUSAL_REASONS)
+        if unsupported:
+            failures.append(
+                f"{row_label}.evidence_refs.refusal_reasons: unsupported "
+                + ", ".join(unsupported)
+            )
+        missing_blockers = sorted(refusal_reasons - blocked_by)
+        if missing_blockers:
+            failures.append(
+                f"{row_label}.blocked_by: must include refusal reasons "
+                + ", ".join(missing_blockers)
+            )
+        if not any(kind.endswith("_refusal") for kind in candidate_kinds):
+            failures.append(f"{row_label}.evidence_refs.candidate_kind: must be refusal")
+    else:
+        if refusal_reasons:
+            failures.append(
+                f"{row_label}.evidence_refs.refusal_reasons: must be empty for candidate"
+            )
+        if not any(kind.endswith("_candidate") for kind in candidate_kinds):
+            failures.append(f"{row_label}.evidence_refs.candidate_kind: must be candidate")
+    return failures
+
+
 def _validate_prompt_mutation_candidate_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -7024,6 +7091,9 @@ def _validate_prompt_mutation_candidate_contract(
                 gate=gate or {},
                 root_path=root_path,
             )
+        )
+        failures.extend(
+            _validate_prior_compiler_candidate_contract(row, row_label=row_label)
         )
         failures.extend(_public_forbidden_text_failures(row, path=row_label))
 
