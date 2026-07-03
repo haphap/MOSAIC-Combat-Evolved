@@ -682,10 +682,11 @@ def agent_footprint_summary(params: dict[str, Any]) -> dict[str, Any]:
     for row in rows:
         _increment(layer_counts, _clean_str(row.get("layer")) or "unknown")
         _increment(claim_type_counts, _clean_str(row.get("claim_type")) or "unknown")
-        _increment(
-            prior_quality_counts,
-            _clean_str(row.get("rke_prior_usage_quality")) or "unknown",
-        )
+        if row.get("rke_context_hash"):
+            _increment(
+                prior_quality_counts,
+                _clean_str(row.get("rke_prior_usage_quality")) or "unknown",
+            )
     return {
         "summary_status": "blocked" if failures else "ready",
         "private_rows_path": _CAPTURE_REL_PATH.as_posix(),
@@ -700,10 +701,15 @@ def agent_footprint_summary(params: dict[str, Any]) -> dict[str, Any]:
             if row.get("rke_context_hash") and row.get("current_data_confirmed") is True
         ),
         "stale_prior_rejected_count": sum(
-            1 for row in rows if row.get("stale_prior_rejected") is True
+            1
+            for row in rows
+            if row.get("rke_context_hash") and row.get("stale_prior_rejected") is True
         ),
         "contradictory_prior_handled_count": sum(
-            1 for row in rows if row.get("contradictory_prior_handled") is True
+            1
+            for row in rows
+            if row.get("rke_context_hash")
+            and row.get("contradictory_prior_handled") is True
         ),
         "rke_context_hash_count": sum(1 for row in rows if row.get("rke_context_hash")),
         "report_claim_ref_count": _report_claim_ref_count(rows),

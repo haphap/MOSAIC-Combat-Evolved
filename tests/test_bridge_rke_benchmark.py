@@ -1005,13 +1005,10 @@ def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
     assert summary["row_count"] == 2
     assert summary["layer_counts"] == {"macro": 1, "sector": 1}
     assert summary["claim_type_counts"] == {"macro_series_claim": 1, "sector_claim": 1}
-    assert summary["rke_prior_usage_quality_counts"] == {
-        "not_used_missing_current_data": 1,
-        "used_ranked_prior": 1,
-    }
+    assert summary["rke_prior_usage_quality_counts"] == {"used_ranked_prior": 1}
     assert summary["current_data_confirmed_count"] == 1
     assert summary["stale_prior_rejected_count"] == 1
-    assert summary["contradictory_prior_handled_count"] == 1
+    assert summary["contradictory_prior_handled_count"] == 0
     assert summary["report_claim_ref_count"] == 1
     assert summary["ranking_policy_id_counts"] == {
         "rke_agent_research_context_rank_v1": 1
