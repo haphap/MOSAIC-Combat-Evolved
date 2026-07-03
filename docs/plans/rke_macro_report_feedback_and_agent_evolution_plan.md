@@ -1569,7 +1569,7 @@ mosaic-rke export-macro-agent-priors \
   --no-source-prose
 ```
 
-后续再接 TS bridge：
+TS bridge 已接入同一 redacted builder：
 
 ```text
 rke.agentResearchContext
@@ -1994,7 +1994,7 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 - agent prior retrieval ranking policy。
 - `export-macro-agent-priors` CLI。
 - redacted public/private boundary。
-- 后续可选 TS bridge handler。
+- `rke.agentResearchContext` / `rke.macroAgentPriors` TS bridge wrapper。
 
 stock prior for superinvestors 子任务：
 

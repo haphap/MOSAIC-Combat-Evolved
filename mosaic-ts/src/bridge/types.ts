@@ -6,10 +6,9 @@
  * If a method's params/result change on the Python side, update the type
  * here in the same commit.
  *
- * The :class:`BridgeApi` helper at the bottom provides typed wrappers for all
- * 13 namespaces (incl. the Phase 8 paper-trading write surface and the
- * `mirofish.{save,get}_context` pair wrapped in 7M Step 2). The only registered
- * method without a typed wrapper today is `cache.details` — reachable via
+ * The :class:`BridgeApi` helper at the bottom provides typed wrappers for the
+ * bridge namespaces used by the TS runtime. The only registered method without
+ * a typed wrapper today is `cache.details` — reachable via
  * ``client.call(method, params)``.
  */
 
@@ -475,6 +474,36 @@ export interface PromptReleaseCheckResult {
     prompt_commit_hash?: string | null;
     prompt_sha256?: string | null;
   };
+}
+
+// --------------------------------------------------------- rke (Part 1 context/export)
+
+export interface RkeAgentResearchContextResult {
+  schema_version: "rke_agent_research_context_v1";
+  agent_id: string;
+  layer: string;
+  as_of_date: string;
+  ranking_policy_id: string;
+  research_only: boolean;
+  production_signal_allowed: boolean;
+  actionability: string;
+  summary: Record<string, unknown>;
+  context_items: Array<Record<string, unknown>>;
+  no_prior_reasons: string[];
+}
+
+export interface RkeMacroAgentPriorsResult {
+  accepted: boolean;
+  schema_version: string;
+  agent_id: string;
+  as_of_date: string;
+  prior_count: number;
+  priors: Array<Record<string, unknown>>;
+  gap_reasons: string[];
+  no_source_prose: boolean;
+  source_policy: string;
+  use_policy: string;
+  production_signal_allowed: boolean;
 }
 
 // --------------------------------------------------------- rke_benchmark (Part 2 E2)
@@ -1618,6 +1647,30 @@ export class BridgeApi {
     require_kept?: boolean;
   }): Promise<PromptReleaseCheckResult> {
     return this.client.call<PromptReleaseCheckResult>("prompts.verify_release", params);
+  }
+
+  // rke.* (Part 1 context/export)
+  rkeAgentResearchContext(params: {
+    agent_id: string;
+    root?: string;
+    registry_dir?: string;
+    as_of_date?: string;
+    layer?: string;
+    ticker?: string;
+    sector?: string;
+    max_items?: number;
+  }): Promise<RkeAgentResearchContextResult> {
+    return this.client.call<RkeAgentResearchContextResult>("rke.agentResearchContext", params);
+  }
+
+  rkeMacroAgentPriors(params?: {
+    root?: string;
+    registry_dir?: string;
+    as_of_date?: string;
+    agent_id?: string;
+    no_source_prose?: boolean;
+  }): Promise<RkeMacroAgentPriorsResult> {
+    return this.client.call<RkeMacroAgentPriorsResult>("rke.macroAgentPriors", params ?? {});
   }
 
   // rke_benchmark.* (Part 2 E2)
