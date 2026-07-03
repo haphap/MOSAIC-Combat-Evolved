@@ -765,6 +765,24 @@ export interface RkePaperTradingReadinessResult {
   promotion_allowed: boolean;
 }
 
+export interface RkePromotionDecisionReadinessResult {
+  schema_version: "rke_promotion_decision_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  paper_trading_status: "ready" | "blocked_preflight";
+  promotion_evidence: {
+    paper_trading_result_ref: string;
+    monitor_summary_ref: string;
+    second_review_timestamp: string;
+    lockbox_decision_ref: string;
+    decision: string;
+  };
+  ready_for_operator_promotion_decision: boolean;
+  production_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1442,6 +1460,25 @@ export class BridgeApi {
   }): Promise<RkePaperTradingReadinessResult> {
     return this.client.call<RkePaperTradingReadinessResult>(
       "rke_benchmark.paper_trading_readiness",
+      params,
+    );
+  }
+
+  rkeBenchmarkPromotionDecisionReadiness(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    paired_output_count?: number;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+    paper_trading_plan?: Record<string, unknown>;
+    promotion_evidence?: Record<string, unknown>;
+  }): Promise<RkePromotionDecisionReadinessResult> {
+    return this.client.call<RkePromotionDecisionReadinessResult>(
+      "rke_benchmark.promotion_decision_readiness",
       params,
     );
   }

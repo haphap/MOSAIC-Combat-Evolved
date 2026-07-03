@@ -971,6 +971,54 @@ def paper_trading_readiness(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.promotion_decision_readiness")
+def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate operator promotion decision after paper-trading evidence."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    paper = paper_trading_readiness(params)
+    evidence = params.get("promotion_evidence")
+    if not isinstance(evidence, dict):
+        evidence = {}
+
+    blocked_reasons: list[str] = []
+    if paper["readiness_status"] != "ready":
+        blocked_reasons.append("paper_trading_not_ready")
+    for key in (
+        "paper_trading_result_ref",
+        "monitor_summary_ref",
+        "second_review_timestamp",
+        "lockbox_decision_ref",
+    ):
+        if not _clean_str(evidence.get(key)):
+            blocked_reasons.append(f"{key}_missing")
+    if _clean_str(evidence.get("decision")) != "approved_for_promotion_review":
+        blocked_reasons.append("promotion_review_decision_not_approved")
+    if _forbidden_paths(evidence):
+        blocked_reasons.append("private_or_source_prose_ref_detected")
+
+    return {
+        "schema_version": "rke_promotion_decision_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "blocked_reasons": blocked_reasons,
+        "paper_trading_status": paper["readiness_status"],
+        "promotion_evidence": {
+            "paper_trading_result_ref": _clean_str(
+                evidence.get("paper_trading_result_ref")
+            ),
+            "monitor_summary_ref": _clean_str(evidence.get("monitor_summary_ref")),
+            "second_review_timestamp": _clean_str(
+                evidence.get("second_review_timestamp")
+            ),
+            "lockbox_decision_ref": _clean_str(evidence.get("lockbox_decision_ref")),
+            "decision": _clean_str(evidence.get("decision")),
+        },
+        "ready_for_operator_promotion_decision": not blocked_reasons,
+        "production_allowed": False,
+        "promotion_allowed": False,
+    }
+
+
 def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
     component = _clean_str(item.get("target_component"))
     if "." in component:

@@ -2296,6 +2296,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.paper_trading_readiness` 已能检查 shadow replay ready 后进入 paper-trading
   所需的 reviewed plan、risk limit 和 stop-loss/rollback ref；这只允许 paper-trading entry，
   不允许 production promotion。
+- `rke_benchmark.promotion_decision_readiness` 已能检查 paper-trading result、monitor
+  summary、second review 和 lockbox decision refs；它只标记 ready for operator promotion
+  decision，不执行也不允许 production promotion。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
 - agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution 闭环。
 - Layer-3 roster preflight：当前分支已完成 public runtime、fallback prompt、RKE style-fit、

@@ -837,3 +837,116 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
     assert manifest["shadow_replay_status"] == "ready"
     assert manifest["paper_trading_allowed"] is True
     assert manifest["promotion_allowed"] is False
+
+
+def test_promotion_decision_readiness_blocks_missing_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.promotion_decision_readiness",
+        {"benchmark_run_id": "bench-promotion-missing"},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "paper_trading_not_ready" in manifest["blocked_reasons"]
+    assert "paper_trading_result_ref_missing" in manifest["blocked_reasons"]
+    assert manifest["ready_for_operator_promotion_decision"] is False
+    assert manifest["production_allowed"] is False
+    assert manifest["promotion_allowed"] is False
+
+
+def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-promotion-ready",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "f" * 64,
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.promotion_decision_readiness",
+        {
+            "benchmark_run_id": "bench-promotion-ready",
+            "paired_output_count": 1275,
+            "benchmark_evidence_refs": {
+                "paired_output_manifest_ref": "bench-promotion-paired",
+                "output_schema_validation_report_ref": "bench-promotion-schema",
+                "deterministic_score_table_ref": "bench-promotion-scores",
+                "investment_outcome_table_ref": "bench-promotion-outcomes",
+            },
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+            "downstream_outcome_metrics": {
+                "risk_adjusted_return": 0.11,
+                "alpha": 0.02,
+                "max_drawdown": -0.03,
+                "turnover": 0.5,
+                "cost_bps": 8,
+            },
+            "prompt_mutation_provenance": {
+                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                "prompt_repo_revision": "a" * 40,
+                "prompt_sha256": "b" * 64,
+            },
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                )
+            ],
+            "rollback_evidence": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "rollback_trigger_definition": "promotion monitor breach",
+                    "rollback_command_or_procedure": "restore previous prompt commit",
+                    "monitor_output_ref": "monitor-promotion-ready",
+                    "post_rollback_verification_ref": "verify-promotion-ready",
+                }
+            ],
+            "paper_trading_plan": {
+                "paper_trading_plan_ref": "paper-plan-promotion",
+                "risk_limit_ref": "paper-risk-promotion",
+                "stop_loss_or_rollback_ref": "paper-stop-promotion",
+                "operator_review_timestamp": "2026-07-03T12:30:00Z",
+            },
+            "promotion_evidence": {
+                "paper_trading_result_ref": "paper-results-promotion",
+                "monitor_summary_ref": "monitor-summary-promotion",
+                "second_review_timestamp": "2026-07-03T13:00:00Z",
+                "lockbox_decision_ref": "lockbox-promotion",
+                "decision": "approved_for_promotion_review",
+            },
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["paper_trading_status"] == "ready"
+    assert manifest["ready_for_operator_promotion_decision"] is True
+    assert manifest["production_allowed"] is False
+    assert manifest["promotion_allowed"] is False
