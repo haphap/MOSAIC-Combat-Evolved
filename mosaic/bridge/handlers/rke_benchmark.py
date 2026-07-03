@@ -124,6 +124,7 @@ _PROMPT_MUTATION_CANDIDATES_REL_PATH = Path(
 _DELIVERY_EVIDENCE_KEYS = (
     "all_agent_prompt_release_checks",
     "paired_output_count",
+    "model_config_output_counts",
     "benchmark_evidence_refs",
     "manual_review",
     "profile_evidence",
@@ -344,16 +345,29 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
     paired_output_count = params.get("paired_output_count")
     if not isinstance(paired_output_count, int) or isinstance(paired_output_count, bool):
         paired_output_count = 0
+    model_config_output_counts = params.get("model_config_output_counts")
+    if not isinstance(model_config_output_counts, dict):
+        model_config_output_counts = {}
 
     required_model_count = sum(1 for config in _MODEL_CONFIGS if config["required"])
+    required_model_ids = [
+        config["model_config_id"] for config in _MODEL_CONFIGS if config["required"]
+    ]
+    required_per_model_count = manifest["as_of_date_count"] * manifest["agent_count"]
     required_paired_output_count = (
-        manifest["as_of_date_count"] * manifest["agent_count"] * required_model_count
+        required_per_model_count * required_model_count
     )
     blocked_reasons: list[str] = []
     if manifest["benchmark_status"] != "ready_to_run":
         blocked_reasons.append("private_prompt_preflight_not_ready")
     if paired_output_count < required_paired_output_count:
         blocked_reasons.append("paired_output_count_below_required")
+    for model_id in required_model_ids:
+        count = model_config_output_counts.get(model_id)
+        if not isinstance(count, int) or isinstance(count, bool):
+            count = 0
+        if count < required_per_model_count:
+            blocked_reasons.append(f"model_config_output_count_below_required:{model_id}")
     for key in (
         "paired_output_manifest_ref",
         "output_schema_validation_report_ref",
@@ -378,8 +392,17 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         "as_of_date_count": manifest["as_of_date_count"],
         "agent_count": manifest["agent_count"],
         "required_model_config_count": required_model_count,
+        "required_model_config_ids": required_model_ids,
+        "required_per_model_output_count": required_per_model_count,
         "required_paired_output_count": required_paired_output_count,
         "paired_output_count": paired_output_count,
+        "model_config_output_counts": {
+            model_id: int(model_config_output_counts.get(model_id) or 0)
+            if isinstance(model_config_output_counts.get(model_id), int)
+            and not isinstance(model_config_output_counts.get(model_id), bool)
+            else 0
+            for model_id in required_model_ids
+        },
         "prompt_source_status": manifest["prompt_preflight"].get("source_status", {}),
         "evidence_refs": {
             "paired_output_manifest_ref": _clean_str(
@@ -1521,6 +1544,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "benchmark_run_id": benchmark_run_id,
             "cohort": params.get("cohort"),
             "paired_output_count": params.get("paired_output_count"),
+            "model_config_output_counts": params.get("model_config_output_counts"),
             "evidence_refs": params.get("benchmark_evidence_refs"),
             "manual_review": params.get("manual_review"),
         }
@@ -1802,6 +1826,9 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "benchmark_run_id": benchmark_run_id,
             "cohort": cohort,
             "paired_output_count": effective_params.get("paired_output_count"),
+            "model_config_output_counts": effective_params.get(
+                "model_config_output_counts"
+            ),
             "evidence_refs": effective_params.get("benchmark_evidence_refs"),
             "manual_review": effective_params.get("manual_review"),
         }

@@ -246,11 +246,11 @@ Status 2026-07-03:
   `blocked_preflight`, keeps the prompt source blocker summary, and bundled
   prompts do not count.
 - Public bridge now also exposes `rke_benchmark.fixed_episode_benchmark_evidence`,
-  a no-body gate for formal benchmark evidence refs. It requires enough paired
-  outputs for the three required model configs, schema validation report,
-  deterministic score table, investment outcome table, and approved manual
-  review timestamp before marking evidence ready; it never enables promotion by
-  itself.
+  a no-body gate for formal benchmark evidence refs. It requires total paired
+  output count and per-required-model output counts for the three required model
+  configs, schema validation report, deterministic score table, investment
+  outcome table, and approved manual review timestamp before marking evidence
+  ready; it never enables promotion by itself.
 - This implements the episode/model/input manifest and benchmark-evidence proof
   object preflight. E2 is not complete until real paired LLM outputs, schema
   validation, deterministic score tables, investment outcome tables, and manual
