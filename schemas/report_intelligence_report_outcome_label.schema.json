@@ -282,6 +282,7 @@
     "survivorship_safe": {"type": "boolean"},
     "claim_window_set_id": {"type": "string"},
     "label_type": {"enum": ["stock_price_proxy", "industry_etf_proxy", "macro_asset_proxy", "macro_series_directional", "macro_curve_directional"]},
+    "metric_family": {"type": "string"},
     "proxy_symbol": {"type": "string"},
     "proxy_label": {"type": "string"},
     "proxy_sector": {"type": "string"},

@@ -11265,6 +11265,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
                             "benchmark_id": "CSI300",
                         },
                         "direction": "positive",
+                        "metric_proxy_mapping": ["inventory_to_sales"],
                         "horizon": {
                             "min_days": 20,
                             "max_days": 120,
@@ -11301,6 +11302,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     )
     assert {row["horizon_days"] for row in outcome_labels} == {20, 60, 120}
     assert {row["label_type"] for row in outcome_labels} == {"industry_etf_proxy"}
+    assert {row["metric_family"] for row in outcome_labels} == {"inventory_to_sales"}
     assert {row["proxy_symbol"] for row in outcome_labels} == {"SH560860"}
     assert {row["proxy_sector"] for row in outcome_labels} == {"工业金属"}
     assert {row["benchmark_symbol"] for row in outcome_labels} == {"SH510300"}
@@ -12519,6 +12521,7 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
                         },
                         "benchmark": {},
                         "direction": "positive",
+                        "metric_proxy_mapping": ["earnings_growth"],
                         "horizon": {
                             "min_days": 5,
                             "max_days": 120,
@@ -12554,6 +12557,7 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
         key=lambda row: row["horizon_days"],
     )
     assert {row["label_type"] for row in outcome_labels} == {"stock_price_proxy"}
+    assert {row["metric_family"] for row in outcome_labels} == {"earnings_growth"}
     assert [row["horizon_days"] for row in outcome_labels] == [5, 20, 60, 120]
     assert [row["effective_n_weight"] for row in outcome_labels] == [
         0.2,
@@ -15843,6 +15847,7 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "performance_value_basis": "directional_after_cost_return",
             "relative_directional_hit": False,
             "target_price_hit": True,
+            "metric_family": "inventory_to_sales",
             "effective_n_weight": 0.5,
             "pit_valid": True,
         },
@@ -15861,6 +15866,7 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "proxy_symbol": "512480.SH",
             "proxy_mapping_confidence": "operator_seeded_exact_sector",
             "pit_availability_status": "unverified",
+            "metric_family": "industry_cycle_regime",
             "effective_n_weight": 0.5,
             "pit_valid": True,
         },
@@ -15916,8 +15922,14 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     assert stock_layer["domain_rating_support"]["failure_mode_counts"] == {
         "fundamental_without_relative_followthrough": 1
     }
+    assert stock_layer["domain_rating_support"]["fundamental_metric_family_counts"] == {
+        "inventory_to_sales": 1
+    }
     assert industry_layer["domain_rating_support"]["rating_bucket_counts"] == {
         "contradictory_evidence": 1
+    }
+    assert industry_layer["domain_rating_support"]["fundamental_metric_family_counts"] == {
+        "industry_cycle_regime": 1
     }
     assert industry_layer["domain_rating_support"]["mapping_confidence_counts"] == {
         "operator_seeded_exact_sector": 1
@@ -15930,6 +15942,10 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     ]
     domain_ratings = build_domain_claim_ratings(outcome_rows)
     assert {row["domain"] for row in domain_ratings} == {"stock", "industry"}
+    assert {row["fundamental_metric_family"] for row in domain_ratings} == {
+        "industry_cycle_regime",
+        "inventory_to_sales",
+    }
     assert "claim_text" not in json.dumps(domain_ratings, ensure_ascii=False)
     assert "source_span_ids" not in json.dumps(domain_ratings, ensure_ascii=False)
 

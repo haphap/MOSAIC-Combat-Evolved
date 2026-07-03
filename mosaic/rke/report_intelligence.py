@@ -17926,6 +17926,30 @@ def build_macro_curve_directional_readiness(
     }
 
 
+_DOMAIN_MARKET_PROXY_METRIC_FAMILIES = frozenset(
+    {
+        "stock_forward_return",
+        "stock_relative_alpha",
+        "target_price_path",
+        "industry_etf_forward_return",
+    }
+)
+
+
+def _domain_claim_metric_family(claim: Mapping[str, Any]) -> str:
+    target = _ensure_mapping(claim.get("target"))
+    values = [
+        *_ensure_list(claim.get("metric_proxy_mapping")),
+        *_ensure_list(target.get("metric_proxy_mapping")),
+        target.get("metric_family") or "",
+    ]
+    cleaned = [str(value).strip() for value in values if str(value or "").strip()]
+    for value in cleaned:
+        if value not in _DOMAIN_MARKET_PROXY_METRIC_FAMILIES:
+            return value
+    return cleaned[0] if cleaned else "unknown"
+
+
 def build_industry_etf_proxy_outcome_labels(
     *,
     root_path: Path,
@@ -17992,6 +18016,7 @@ def build_industry_etf_proxy_outcome_labels(
         claim_horizon = _ensure_mapping(claim.get("horizon"))
         source_horizon_days = _horizon_preferred_days(claim_horizon)
         source_horizon_bucket = _horizon_bucket(claim_horizon)
+        metric_family = _domain_claim_metric_family(claim)
         market_regime_fields = _as_of_date_market_regime_fields(
             claim.get("signal_datetime")
         )
@@ -18104,6 +18129,7 @@ def build_industry_etf_proxy_outcome_labels(
                     "pit_valid": True,
                     "survivorship_safe": True,
                     "label_type": "industry_etf_proxy",
+                    "metric_family": metric_family,
                     "proxy_symbol": etf_symbol,
                     "proxy_label": proxy.get("mapping_label")
                     or proxy.get("etf_name")
@@ -18293,6 +18319,7 @@ def build_stock_price_proxy_outcome_labels(
         claim_horizon = _ensure_mapping(claim.get("horizon"))
         source_horizon_days = _horizon_preferred_days(claim_horizon)
         source_horizon_bucket = _horizon_bucket(claim_horizon)
+        metric_family = _domain_claim_metric_family(claim)
         target = _ensure_mapping(claim.get("target"))
         target_price_info = _stock_target_price_info(claim)
         market_regime_fields = _as_of_date_market_regime_fields(
@@ -18415,6 +18442,7 @@ def build_stock_price_proxy_outcome_labels(
                 "pit_valid": True,
                 "survivorship_safe": False,
                 "label_type": "stock_price_proxy",
+                "metric_family": metric_family,
                 "proxy_symbol": ts_code,
                 "proxy_label": str(target.get("target_name") or ts_code),
                 "proxy_return": round(stock_return, 8),
@@ -19352,6 +19380,19 @@ def _domain_rating_failure_tags(label: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(tags))
 
 
+def _domain_label_metric_family(label: Mapping[str, Any]) -> str:
+    for key in ("fundamental_metric_family", "metric_family"):
+        value = str(label.get(key) or "").strip()
+        if value:
+            return value
+    for key in ("metric_proxy_mapping", "metric_families"):
+        for value in _ensure_list(label.get(key)):
+            text = str(value).strip()
+            if text:
+                return text
+    return "unknown"
+
+
 def build_domain_claim_ratings(
     outcome_label_rows: Sequence[Mapping[str, Any]],
     *,
@@ -19387,6 +19428,7 @@ def build_domain_claim_ratings(
             "benchmark_family": str(label.get("benchmark_family") or "unknown_benchmark_family"),
             "cost_model_id": str(label.get("cost_model_id") or "unknown_cost_model"),
             "holding_window_bucket": str(label.get("window_role") or "unknown"),
+            "fundamental_metric_family": _domain_label_metric_family(label),
             "failure_mode_tags": _domain_rating_failure_tags(label),
             "after_cost_alpha": _float_or_none(label.get("after_cost_alpha")),
             "directional_after_cost_return": _float_or_none(
@@ -19417,8 +19459,13 @@ def _domain_rating_support(labels: Sequence[Mapping[str, Any]]) -> dict[str, Any
     rating_bucket_counts: dict[str, int] = {}
     failure_mode_counts: dict[str, int] = {}
     mapping_confidence_counts: dict[str, int] = {}
+    fundamental_metric_family_counts: dict[str, int] = {}
     for rating in ratings:
         _increment_count(rating_bucket_counts, rating.get("rating_bucket"))
+        _increment_count(
+            fundamental_metric_family_counts,
+            rating.get("fundamental_metric_family"),
+        )
         for tag in _ensure_list(rating.get("failure_mode_tags")):
             _increment_count(failure_mode_counts, tag)
         mapping_confidence = str(rating.get("mapping_confidence") or "").strip()
@@ -19433,6 +19480,9 @@ def _domain_rating_support(labels: Sequence[Mapping[str, Any]]) -> dict[str, Any
         ),
         "target_price_hit_count": sum(
             1 for rating in ratings if rating.get("target_price_hit") is True
+        ),
+        "fundamental_metric_family_counts": dict(
+            sorted(fundamental_metric_family_counts.items())
         ),
         "mapping_confidence_counts": dict(sorted(mapping_confidence_counts.items())),
         "proxy_limitation_tags": sorted(
