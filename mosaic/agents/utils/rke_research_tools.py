@@ -138,7 +138,11 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for field in ("expected_direction", "horizon_bucket", "regime_bucket")
     ):
         failures.append("item_context_metadata_missing")
-    if items and any(not isinstance(item.get("regime_types"), (list, tuple)) for item in items):
+    if items and any(
+        not isinstance(item.get("regime_types"), (list, tuple))
+        or not all(isinstance(tag, str) and tag for tag in item.get("regime_types", []))
+        for item in items
+    ):
         failures.append("item_regime_types_invalid")
     if items and any(not item.get("statistical_reliability_bucket") for item in items):
         failures.append("item_reliability_bucket_missing")
@@ -268,6 +272,10 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
             else summary.get("pending_share") != 0
         )
         or not isinstance(summary.get("label_types"), (list, tuple))
+        or not all(
+            isinstance(label_type, str) and label_type
+            for label_type in summary.get("label_types", [])
+        )
         or "latest_completed_exit_date" not in summary
         for summary in outcome_summaries
     ):
