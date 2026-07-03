@@ -2098,12 +2098,16 @@ stock、industry、macro 三域执行项。`docs/plans/rke_stock_report_outcome_
    agent layer、metric family 和 regime bucket 分层；禁止把 stock、industry、macro outcome
    当作同质样本混算。
 5. macro、sector、superinvestor、decision agents 都能读取 redacted RKE research context；
-   没有适用 prior 的 agent 必须有 explicit no-prior / no-applicable-prior reason。
+   没有适用 prior 的 agent 必须有 explicit no-prior / no-applicable-prior reason。对
+   superinvestor agents，generic ranked context 不算完成；必须有 stock prior 的
+   role-filtered content。
 6. outcome label 对 pending、blocked、completed 三种状态区分清楚。
 7. claim rating 能输出 `supportive_evidence`、`mixed_evidence`、
    `contradictory_evidence`、`pending_or_unrated`，并保留 `n_effective`、reliability bucket
-   和 pending share。
-8. PIT/provenance/statistical/privacy/schema gates 全部通过。
+   和 pending share。parent-level macro `cross_asset_consistency` 是独立验收项，不能埋在
+   profile 分层状态里。
+8. PIT/provenance/statistical/privacy/schema gates 全部通过；若 gate 阻塞，P12 状态必须记录
+   直接 blocker、根因分类和下一步，不能只写“blocked”。
 9. report-intelligence 派生 artifacts 默认本地私有处理，不提交 repo；如有明确任务要求提交
    redacted aggregate，必须先通过 source prose、claim text、source span、PDF/Markdown/cache、
    private path 和 licensed raw data 泄漏检查。
@@ -2117,7 +2121,8 @@ stock、industry、macro 三域执行项。`docs/plans/rke_stock_report_outcome_
 12. 个股、行业、宏观 prior 都能进入 evolution candidate 输入；至少两个 macro agents 的 prior
     能进入 rule/parameter candidate compiler，stock/industry prior 至少能进入 recipe/rule
     candidate 或 refusal reason 路径，并对缺 PIT、缺 validation target、样本不足或
-    source-dependent cluster 给出 refusal reason。
+    source-dependent cluster 给出 refusal reason。若条件 8 gate 仍阻塞，或当前 corpus 只产生
+    refusal rows，条件 12 保持未完成。
 
 以下内容不是 Part 1 exit criteria，属于 Part 2 program-level handoff：
 
