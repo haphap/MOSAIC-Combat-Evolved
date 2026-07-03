@@ -2328,6 +2328,45 @@ def test_outcome_readiness_excludes_pending_proxy_claims_from_unlabelable_gaps()
     ]
 
 
+def test_outcome_readiness_tracks_agent_assignment_gap():
+    readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-SECTOR-NO-OWNER",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-SECTOR-OWNER",
+                "target": {
+                    "target_type": "sector",
+                    "target_id": "半导体",
+                    "target_agent_candidates": ["sector.semiconductor"],
+                },
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-SECTOR-NO-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-SECTOR-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+        ],
+    )
+
+    assert readiness["assignment_gap_counts"] == {"agent_assignment_missing": 1}
+    assert readiness["assignment_gap_forecast_claim_ids"] == ["FC-SECTOR-NO-OWNER"]
+    assert readiness["rating_readiness_bucket_counts"]["blocked_assignment"] == 1
+
+
 def _passing_forecast_gold_review_summary(**overrides):
     summary = {
         "passed": True,
@@ -9652,6 +9691,39 @@ def test_report_intelligence_prompt_mutation_candidates_track_regime_mechanism_g
     candidate_dump = json.dumps(candidate, ensure_ascii=False)
     assert "claim_text" not in candidate_dump
     assert "source_span_ids" not in candidate_dump
+
+
+def test_report_intelligence_prompt_mutation_candidates_track_agent_assignment_gap():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-ASSIGNMENT-GAP",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "assignment_gap_counts": {"agent_assignment_missing": 2},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "markdown_quality_gap_counts": {},
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    candidate = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "agent_assignment_mapping_rule"
+    )
+    evidence = candidate["evidence_refs"][0]
+    assert evidence["field"] == "assignment_gap_counts"
+    assert evidence["gap_counts"] == {"agent_assignment_missing": 2}
+    assert evidence["rating_bucket"] == "blocked_assignment"
+    assert "agent_assignment_review_required" in candidate["blocked_by"]
 
 
 def test_report_intelligence_prompt_mutation_candidates_keep_company_only_regime_gap_diagnostic():

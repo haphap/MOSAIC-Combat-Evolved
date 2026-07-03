@@ -8278,6 +8278,41 @@ def _forecast_mapping_gaps(record: Mapping[str, Any]) -> list[str]:
     return gaps
 
 
+def _explicit_agent_candidates(record: Mapping[str, Any]) -> list[str]:
+    target = _ensure_mapping(record.get("target"))
+    values: list[Any] = []
+    for payload in (record, target):
+        for key in (
+            "target_agent_candidates",
+            "target_agents",
+            "owner_agent",
+            "owner_agent_id",
+            "owning_agent",
+            "owning_agent_id",
+            "agent_id",
+        ):
+            raw = payload.get(key)
+            values.extend(_ensure_list(raw) if isinstance(raw, list | tuple) else [raw])
+    return [str(value).strip() for value in values if str(value or "").strip()]
+
+
+def _assignment_gaps(record: Mapping[str, Any]) -> list[str]:
+    target = _ensure_mapping(record.get("target"))
+    target_type = str(target.get("target_type") or "").strip()
+    target_id = _target_id(target)
+    if (
+        target_type in {"", "unknown"}
+        or target_id == "unknown"
+        or not _claim_metric_families(record)
+    ):
+        return []
+    if _explicit_agent_candidates(record):
+        return []
+    if target_type.startswith("macro") and _claim_macro_agent_candidates(record):
+        return []
+    return ["agent_assignment_missing"]
+
+
 PRE_REVIEW_DECISIONS = {"include", "exclude", "rewrite_needed"}
 
 
@@ -13743,6 +13778,8 @@ def build_outcome_labeling_readiness_report(
     mechanism_impact_variable_counts: dict[str, int] = {}
     mechanism_gap_counts: dict[str, int] = {}
     mechanism_gap_ids: list[str] = []
+    assignment_gap_counts: dict[str, int] = {}
+    assignment_gap_ids: list[str] = []
     macro_regime_counts: dict[str, int] = {}
     source_text_macro_regime_counts: dict[str, int] = {}
     as_of_date_macro_regime_counts: dict[str, int] = {}
@@ -13946,6 +13983,11 @@ def build_outcome_labeling_readiness_report(
             mechanism_gap_ids.append(forecast_claim_id)
         for gap in mechanism_gaps:
             mechanism_gap_counts[gap] = mechanism_gap_counts.get(gap, 0) + 1
+        assignment_gaps = _assignment_gaps(forecast)
+        if assignment_gaps and forecast_claim_id:
+            assignment_gap_ids.append(forecast_claim_id)
+        for gap in assignment_gaps:
+            assignment_gap_counts[gap] = assignment_gap_counts.get(gap, 0) + 1
     for ledger in forecast_ledger_rows:
         forecast_claim_id = str(ledger.get("forecast_claim_id") or "")
         status = str(ledger.get("test_status") or "unknown")
@@ -14024,6 +14066,15 @@ def build_outcome_labeling_readiness_report(
             sorted(mechanism_impact_variable_counts.items())
         ),
         "mechanism_gap_counts": dict(sorted(mechanism_gap_counts.items())),
+        "assignment_gap_counts": dict(sorted(assignment_gap_counts.items())),
+        "rating_readiness_bucket_counts": {
+            "blocked_assignment": len(set(assignment_gap_ids)),
+            "blocked_mapping": len(blocked_ids),
+            "blocked_quality": len(set([*regime_gap_ids, *mechanism_gap_ids])),
+            "pending_window": len(proxy_label_pending_only_ids),
+            "completed": len(proxy_label_ready_ids),
+            "insufficient_sample": 0,
+        },
         "ready_forecast_claim_ids": ready_ids,
         "standard_blocked_forecast_claim_ids": standard_blocked_ids,
         "proxy_label_ready_forecast_claim_ids": proxy_label_ready_ids,
@@ -14043,6 +14094,7 @@ def build_outcome_labeling_readiness_report(
         "blocked_forecast_claim_ids": blocked_ids,
         "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
         "mechanism_gap_forecast_claim_ids": sorted(set(mechanism_gap_ids)),
+        "assignment_gap_forecast_claim_ids": sorted(set(assignment_gap_ids)),
         "blocked_reason": blocked_reason,
         "minimum_required_mapping": [
             "target",
@@ -26050,6 +26102,9 @@ def build_prompt_mutation_candidates(
     mechanism_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mechanism_gap_counts"))
     )
+    assignment_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("assignment_gap_counts"))
+    )
     macro_regime_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("macro_regime_counts"))
     )
@@ -26491,6 +26546,39 @@ def build_prompt_mutation_candidates(
                 }
             ],
             severity="medium",
+        )
+    assignment_gap_count = sum(assignment_gap_counts.values())
+    if assignment_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="agent_assignment_mapping_rule",
+            target_scope="report_intelligence.agent_assignment",
+            target_component="forecast_extraction_prompt",
+            proposed_change=(
+                "Emit explicit owning agent candidates, or preserve an "
+                "agent_assignment_missing readiness gap, when target_type, "
+                "target_id, and metric family are clean but no downstream "
+                "agent can own the prior."
+            ),
+            trigger_sources=[
+                "outcome_labeling_readiness",
+                "weighted_research_contexts",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": "assignment_gap_counts",
+                    "gap_counts": assignment_gap_counts,
+                    "total_gap_count": assignment_gap_count,
+                    "rating_bucket": "blocked_assignment",
+                }
+            ],
+            severity="medium",
+            blocked_by=[
+                "agent_assignment_review_required",
+                "no_applicable_prior_reason_required",
+            ],
         )
     regime_mechanism_gap_count = sum(regime_gap_counts.values()) + sum(
         mechanism_gap_counts.values()
