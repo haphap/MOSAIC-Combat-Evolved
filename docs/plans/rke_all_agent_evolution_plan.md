@@ -453,9 +453,10 @@ Status 2026-07-03:
 - Public bridge now exposes `rke_benchmark.prompt_mutation_rollback_readiness`,
   a no-write E7 rollback gate over prompt mutation lifecycle records. It blocks
   shadow exit unless each private prompt branch candidate has previous prompt
-  hashes plus rollback trigger, rollback procedure, monitor output ref, and
-  post-rollback verification ref, and now keeps candidate `blocked_by` reasons
-  blocking rollback. The gate never enables promotion by itself.
+  hashes matched by rollback evidence plus rollback trigger, rollback procedure,
+  monitor output ref, and post-rollback verification ref, and now keeps candidate
+  `blocked_by` reasons blocking rollback. The gate never enables promotion by
+  itself.
 - Public bridge now exposes `rke_benchmark.shadow_replay_readiness`, a no-write
   gate that requires all-agent prompt provenance, fixed-episode benchmark
   evidence, Darwinian/autoresearch input readiness, prompt mutation

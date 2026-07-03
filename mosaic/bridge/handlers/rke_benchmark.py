@@ -1566,12 +1566,19 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
                 if _clean_str(pin.get("prompt_sha256"))
             }
         )
+        evidence_previous_hashes = sorted(
+            _safe_str_list(evidence.get("previous_prompt_hashes"))
+        )
         blockers: list[str] = []
         blockers.extend(
             f"candidate_blocked_by:{reason}" for reason in record["blocked_by"]
         )
         if not previous_hashes:
             blockers.append("previous_prompt_hash_missing")
+        if not evidence_previous_hashes:
+            blockers.append("previous_prompt_hashes_missing")
+        elif previous_hashes and evidence_previous_hashes != previous_hashes:
+            blockers.append("previous_prompt_hashes_mismatch")
         for key in (
             "rollback_trigger_definition",
             "rollback_command_or_procedure",
@@ -1586,6 +1593,7 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
                 "private_prompt_branch": record["private_prompt_branch"],
                 "affected_agents": record["affected_agents"],
                 "previous_prompt_hashes": previous_hashes,
+                "rollback_previous_prompt_hashes": evidence_previous_hashes,
                 "rollback_trigger_definition": _clean_str(
                     evidence.get("rollback_trigger_definition")
                 ),
@@ -1617,7 +1625,7 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
         "rollback_records": records,
         "required_evidence": [
             "rollback_trigger_definition",
-            "previous_prompt_hash",
+            "previous_prompt_hashes",
             "rollback_command_or_procedure",
             "monitor_output_ref",
             "post_rollback_verification_ref",

@@ -171,6 +171,33 @@ def _prompt_release_check_for_candidates(
     return _prompt_release_check_from_lifecycle(lifecycle, **overrides)
 
 
+def _rollback_evidence_for_candidates(
+    candidates: list[dict], **overrides: object
+) -> dict:
+    lifecycle = dispatch(
+        "rke_benchmark.prompt_mutation_lifecycle_manifest",
+        {"candidates": candidates},
+    )
+    record = lifecycle["lifecycle_records"][0]
+    previous_hashes = sorted(
+        {
+            pin["prompt_sha256"]
+            for pin in record["prompt_pins"]
+            if pin.get("prompt_sha256")
+        }
+    )
+    row = {
+        "mutation_candidate_id": record["mutation_candidate_id"],
+        "previous_prompt_hashes": previous_hashes,
+        "rollback_trigger_definition": "manual review or monitor breach",
+        "rollback_command_or_procedure": "restore previous prompt commit",
+        "monitor_output_ref": "monitor-run-1",
+        "post_rollback_verification_ref": "verify-run-1",
+    }
+    row.update(overrides)
+    return row
+
+
 def _patch_activation_evidence(**overrides: object) -> dict:
     row = {
         "mutation_candidate_id": "PMUT-1",
@@ -1657,27 +1684,20 @@ def test_prompt_mutation_rollback_readiness_accepts_complete_evidence(
     private_repo = _private_prompt_repo(tmp_path)
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
 
     manifest = dispatch(
         "rke_benchmark.prompt_mutation_rollback_readiness",
         {
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=[],
-                )
-            ],
-            "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "manual review or monitor breach",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-run-1",
-                    "post_rollback_verification_ref": "verify-run-1",
-                }
-            ],
+            "candidates": candidates,
+            "rollback_evidence": [_rollback_evidence_for_candidates(candidates)],
         },
     )
 
@@ -1687,6 +1707,38 @@ def test_prompt_mutation_rollback_readiness_accepts_complete_evidence(
     record = manifest["rollback_records"][0]
     assert record["rollback_ready"] is True
     assert len(record["previous_prompt_hashes"]) == 2
+    assert record["rollback_previous_prompt_hashes"] == record["previous_prompt_hashes"]
+
+
+def test_prompt_mutation_rollback_readiness_blocks_previous_hash_mismatch(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    rollback_evidence = _rollback_evidence_for_candidates(
+        candidates, previous_prompt_hashes=["bad-hash"]
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_rollback_readiness",
+        {"candidates": candidates, "rollback_evidence": [rollback_evidence]},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "previous_prompt_hashes_mismatch" in manifest["blocked_reasons"]
+    assert manifest["rollback_gate_ready"] is False
 
 
 def test_prompt_mutation_rollback_readiness_blocks_candidate_blockers(
@@ -1697,27 +1749,20 @@ def test_prompt_mutation_rollback_readiness_blocks_candidate_blockers(
     private_repo = _private_prompt_repo(tmp_path)
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=["missing_validation_target"],
+        )
+    ]
 
     manifest = dispatch(
         "rke_benchmark.prompt_mutation_rollback_readiness",
         {
-            "candidates": [
-                _mutation_candidate(
-                    candidate_type="stock_prior_recipe_rule_candidate",
-                    target_scope="stock",
-                    target_component="superinvestor.munger",
-                    blocked_by=["missing_validation_target"],
-                )
-            ],
-            "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "manual review or monitor breach",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-run-1",
-                    "post_rollback_verification_ref": "verify-run-1",
-                }
-            ],
+            "candidates": candidates,
+            "rollback_evidence": [_rollback_evidence_for_candidates(candidates)],
         },
     )
 
@@ -1856,13 +1901,12 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
                 _prompt_release_check_for_candidates(candidates)
             ],
             "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "shadow replay regression",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-shadow-ready",
-                    "post_rollback_verification_ref": "verify-shadow-ready",
-                }
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    rollback_trigger_definition="shadow replay regression",
+                    monitor_output_ref="monitor-shadow-ready",
+                    post_rollback_verification_ref="verify-shadow-ready",
+                )
             ],
         },
     )
@@ -1964,13 +2008,12 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
                 _prompt_release_check_for_candidates(candidates)
             ],
             "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "paper trading risk breach",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-paper-ready",
-                    "post_rollback_verification_ref": "verify-paper-ready",
-                }
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    rollback_trigger_definition="paper trading risk breach",
+                    monitor_output_ref="monitor-paper-ready",
+                    post_rollback_verification_ref="verify-paper-ready",
+                )
             ],
             "paper_trading_plan": _paper_trading_plan("bench-paper-ready"),
         },
@@ -2044,13 +2087,12 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
                 _prompt_release_check_for_candidates(candidates)
             ],
             "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "paper trading risk breach",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-paper-ready",
-                    "post_rollback_verification_ref": "verify-paper-ready",
-                }
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    rollback_trigger_definition="paper trading risk breach",
+                    monitor_output_ref="monitor-paper-ready",
+                    post_rollback_verification_ref="verify-paper-ready",
+                )
             ],
             "paper_trading_plan": _paper_trading_plan("other-run"),
         },
@@ -2147,13 +2189,12 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
                 _prompt_release_check_for_candidates(candidates)
             ],
             "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "promotion monitor breach",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-promotion-ready",
-                    "post_rollback_verification_ref": "verify-promotion-ready",
-                }
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    rollback_trigger_definition="promotion monitor breach",
+                    monitor_output_ref="monitor-promotion-ready",
+                    post_rollback_verification_ref="verify-promotion-ready",
+                )
             ],
             "paper_trading_plan": _paper_trading_plan("bench-promotion-ready"),
             "promotion_evidence": _promotion_evidence("bench-promotion-ready"),
@@ -2231,13 +2272,12 @@ def test_promotion_decision_readiness_blocks_cross_run_evidence(
                 _prompt_release_check_for_candidates(candidates)
             ],
             "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "promotion monitor breach",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-promotion-ready",
-                    "post_rollback_verification_ref": "verify-promotion-ready",
-                }
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    rollback_trigger_definition="promotion monitor breach",
+                    monitor_output_ref="monitor-promotion-ready",
+                    post_rollback_verification_ref="verify-promotion-ready",
+                )
             ],
             "paper_trading_plan": _paper_trading_plan("bench-promotion-ready"),
             "promotion_evidence": _promotion_evidence("other-run"),
@@ -2672,13 +2712,12 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                 )
             ],
             "rollback_evidence": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "rollback_trigger_definition": "delivery monitor breach",
-                    "rollback_command_or_procedure": "restore previous prompt commit",
-                    "monitor_output_ref": "monitor-delivery",
-                    "post_rollback_verification_ref": "verify-delivery",
-                }
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    rollback_trigger_definition="delivery monitor breach",
+                    monitor_output_ref="monitor-delivery",
+                    post_rollback_verification_ref="verify-delivery",
+                )
             ],
             "paper_trading_plan": _paper_trading_plan("bench-delivery-ready"),
             "promotion_evidence": _promotion_evidence("bench-delivery-ready"),
