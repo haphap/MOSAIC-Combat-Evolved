@@ -472,6 +472,9 @@ Status 2026-07-03:
   the condition-level readiness summaries from `delivery_readiness`, and keeps
   run context keys such as `cohort` and `prompt_source_status` separate from
   proof-object keys.
+- Agent footprint summary and profile/evolution readiness now carry redacted
+  `report_claim_refs` aggregate counts, so agent-claim profile activation is
+  blocked until benchmark rows prove at least one report-claim link.
 - This implements the rollback proof-object preflight. E7 is not complete until
   real private branch mutations, benchmark/manual-review decisions, shadow or
   paper-trading gate evidence, monitor output, and post-rollback verification

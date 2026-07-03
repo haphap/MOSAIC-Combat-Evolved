@@ -447,6 +447,7 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
         _increment(layer_counts, row["layer"])
         _increment(claim_type_counts, row["claim_type"])
     runtime_context_summary = _runtime_context_summary(sanitized)
+    report_claim_ref_count = _report_claim_ref_count(sanitized)
     return {
         "capture_status": "captured",
         "captured_count": len(sanitized),
@@ -461,6 +462,7 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
             "rke_context_hash_count": sum(
                 1 for row in sanitized if row.get("rke_context_hash")
             ),
+            "report_claim_ref_count": report_claim_ref_count,
             **runtime_context_summary,
         },
         "privacy_scan": {
@@ -532,6 +534,7 @@ def agent_footprint_summary(params: dict[str, Any]) -> dict[str, Any]:
             1 for row in rows if row.get("contradictory_prior_handled") is True
         ),
         "rke_context_hash_count": sum(1 for row in rows if row.get("rke_context_hash")),
+        "report_claim_ref_count": _report_claim_ref_count(rows),
         **_runtime_context_summary(rows),
         "privacy_scan": {
             "private_text_included": False,
@@ -555,6 +558,7 @@ def _empty_footprint_summary(benchmark_run_id: str) -> dict[str, Any]:
         "stale_prior_rejected_count": 0,
         "contradictory_prior_handled_count": 0,
         "rke_context_hash_count": 0,
+        "report_claim_ref_count": 0,
         **_runtime_context_summary([]),
         "privacy_scan": {
             "private_text_included": False,
@@ -593,6 +597,10 @@ def _runtime_context_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _report_claim_ref_count(rows: list[dict[str, Any]]) -> int:
+    return sum(len(_safe_str_list(row.get("report_claim_refs"))) for row in rows)
+
+
 @method("rke_benchmark.agent_profile_evolution_readiness")
 def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate redacted agent footprints before profile/evolution consumption."""
@@ -618,6 +626,8 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("layer_coverage_incomplete")
     if not summary["rke_context_hash_count"]:
         blocked_reasons.append("rke_context_hash_missing")
+    if not summary["report_claim_ref_count"]:
+        blocked_reasons.append("report_claim_link_missing")
     for key in (
         "profile_update_ref",
         "evolution_input_ref",
@@ -641,6 +651,7 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "layer_counts": summary["layer_counts"],
         "claim_type_counts": summary["claim_type_counts"],
         "rke_context_hash_count": summary["rke_context_hash_count"],
+        "report_claim_ref_count": summary["report_claim_ref_count"],
         "privacy_scan": summary["privacy_scan"],
         "profile_evidence": {
             "profile_update_ref": _clean_str(evidence.get("profile_update_ref")),
@@ -1811,6 +1822,7 @@ def _sanitize_claim_footprint_row(
         "reason_codes": _safe_str_list(row.get("reason_codes")),
         "failure_mode_tags": _safe_str_list(row.get("failure_mode_tags")),
         "tool_refs": _safe_str_list(row.get("tool_refs")),
+        "report_claim_refs": _safe_str_list(row.get("report_claim_refs")),
         "production_signal_allowed": False,
         "private_text_included": False,
         "source_prose_included": False,

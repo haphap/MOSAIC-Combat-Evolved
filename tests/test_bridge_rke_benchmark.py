@@ -266,6 +266,7 @@ def test_capture_agent_claim_footprints_writes_private_redacted_rows(
                     "rke_context_hash": "a" * 64,
                     **_runtime_context_proof(1),
                     "reason_codes": ["used_ranked_rke_prior"],
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
                     "current_data_confirmed": True,
                 },
                 {
@@ -286,6 +287,7 @@ def test_capture_agent_claim_footprints_writes_private_redacted_rows(
         "decision": 1,
         "macro": 1,
     }
+    assert result["aggregate_profile_summary"]["report_claim_ref_count"] == 1
     assert result["privacy_scan"]["forbidden_field_violation_count"] == 0
     private_path = project_root / result["private_rows_path"]
     rows = [
@@ -299,6 +301,7 @@ def test_capture_agent_claim_footprints_writes_private_redacted_rows(
     assert "claim_text" not in payload
     assert "source_span_ids" not in payload
     assert "used_ranked_rke_prior" in payload
+    assert "forecast_claim:macro-usdcny-001" in payload
 
 
 def test_capture_agent_claim_footprints_blocks_private_text_fields(
@@ -351,6 +354,7 @@ def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "rke_context_hash": "a" * 64,
                     **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
                     "current_data_confirmed": True,
                     "stale_prior_rejected": True,
                 },
@@ -382,6 +386,7 @@ def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
     assert summary["current_data_confirmed_count"] == 1
     assert summary["stale_prior_rejected_count"] == 1
     assert summary["contradictory_prior_handled_count"] == 1
+    assert summary["report_claim_ref_count"] == 1
     assert summary["ranking_policy_id_counts"] == {
         "rke_agent_research_context_rank_v1": 1
     }
@@ -428,6 +433,38 @@ def test_agent_profile_evolution_readiness_blocks_missing_footprints(
     assert manifest["production_signal_allowed"] is False
 
 
+def test_agent_profile_evolution_readiness_blocks_missing_report_claim_link(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-profile-missing-report-link",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {"benchmark_run_id": "bench-profile-missing-report-link"},
+    )
+
+    assert "report_claim_link_missing" in manifest["blocked_reasons"]
+    assert manifest["report_claim_ref_count"] == 0
+    assert manifest["profile_evolution_ready"] is False
+
+
 def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
     tmp_path: Path, monkeypatch
 ):
@@ -445,6 +482,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_context_hash": "a" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
                 },
                 {
                     "agent": "semiconductor",
@@ -491,6 +529,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
         "superinvestor",
     ]
     assert manifest["missing_layers"] == []
+    assert manifest["report_claim_ref_count"] == 1
     assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 0
     assert manifest["profile_evolution_ready"] is True
     assert manifest["production_signal_allowed"] is False
@@ -1628,6 +1667,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_context_hash": "a" * 64,
                     **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
                     "current_data_confirmed": True,
                 },
                 {

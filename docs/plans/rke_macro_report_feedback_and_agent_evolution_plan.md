@@ -2281,11 +2281,12 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   retrieval ranking quality 和 rollback feedback。
 - `rke_benchmark.capture_agent_claim_footprints` 已提供 redacted private-local
   agent claim/footprint capture contract，`rke_benchmark.agent_footprint_summary`
-  已能从 private rows 输出 redacted aggregate profile summary；真实 benchmark/replay
-  agent rows 仍未完成。
+  已能从 private rows 输出 redacted aggregate profile summary，并统计 linked report claim
+  refs；真实 benchmark/replay agent rows 仍未完成。
 - `rke_benchmark.agent_profile_evolution_readiness` 已能检查四层 agent footprint
-  coverage、RKE context hash、privacy/no-source-prose audit、profile update ref 和
-  evolution input ref；真实 profile/evolution 写入仍需由实际 benchmark/replay run 产生。
+  coverage、RKE context hash、report claim link、privacy/no-source-prose audit、
+  profile update ref 和 evolution input ref；真实 profile/evolution 写入仍需由实际
+  benchmark/replay run 产生。
 - `rke_benchmark.darwinian_autoresearch_input_manifest` 已把 RKE prior usage、
   current-data confirmation、stale/contradictory prior handling、downstream outcome、
   turnover/cost 和 prompt provenance 拆成独立输入，并明确

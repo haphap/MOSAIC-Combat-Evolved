@@ -614,6 +614,7 @@ export interface RkeAgentClaimFootprintInput {
   reason_codes?: string[];
   failure_mode_tags?: string[];
   tool_refs?: string[];
+  report_claim_refs?: string[];
 }
 
 export interface RkeAgentClaimFootprintCaptureResult {
@@ -627,6 +628,7 @@ export interface RkeAgentClaimFootprintCaptureResult {
     claim_type_counts: Record<string, number>;
     current_data_confirmed_count: number;
     rke_context_hash_count: number;
+    report_claim_ref_count: number;
     ranking_policy_id_counts: Record<string, number>;
     retrieval_rank_count: number;
     priority_bucket_counts: Record<string, number>;
@@ -651,6 +653,7 @@ export interface RkeAgentFootprintSummaryResult {
   stale_prior_rejected_count: number;
   contradictory_prior_handled_count: number;
   rke_context_hash_count: number;
+  report_claim_ref_count: number;
   ranking_policy_id_counts: Record<string, number>;
   retrieval_rank_count: number;
   priority_bucket_counts: Record<string, number>;
@@ -676,6 +679,7 @@ export interface RkeAgentProfileEvolutionReadinessResult {
   layer_counts: Record<string, number>;
   claim_type_counts: Record<string, number>;
   rke_context_hash_count: number;
+  report_claim_ref_count: number;
   privacy_scan: {
     private_text_included: boolean;
     source_prose_included: boolean;
