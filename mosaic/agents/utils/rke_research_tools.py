@@ -135,6 +135,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for item in items
     ):
         failures.append("item_n_effective_invalid")
+    if items and any(
+        "known_failure_mode_tags" not in item
+        or not isinstance(item.get("known_failure_mode_tags"), (list, tuple))
+        for item in items
+    ):
+        failures.append("known_failure_mode_tags_missing")
     if items and any(not item.get("ranking_reason_codes") for item in items):
         failures.append("ranking_reason_codes_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
