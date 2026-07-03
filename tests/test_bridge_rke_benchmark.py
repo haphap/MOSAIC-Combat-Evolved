@@ -2824,6 +2824,31 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
     assert manifest["paper_trading_allowed"] is False
 
 
+def test_paper_trading_readiness_blocks_private_plan_refs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.paper_trading_readiness",
+        {
+            "benchmark_run_id": "bench-paper-private",
+            "paper_trading_plan": _paper_trading_plan(
+                "bench-paper-private",
+                paper_trading_plan_ref=(
+                    "registry/report_intelligence/markdown/private.md"
+                ),
+            ),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "private_or_source_prose_ref_detected" in manifest["blocked_reasons"]
+    assert manifest["paper_trading_allowed"] is False
+
+
 def test_paper_trading_readiness_blocks_unapproved_operator_review(
     tmp_path: Path, monkeypatch
 ):
@@ -3122,6 +3147,29 @@ def test_promotion_decision_readiness_blocks_cross_run_evidence(
     assert "promotion_evidence_benchmark_run_id_mismatch" in manifest[
         "blocked_reasons"
     ]
+    assert manifest["ready_for_operator_promotion_decision"] is False
+
+
+def test_promotion_decision_readiness_blocks_private_evidence_refs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.promotion_decision_readiness",
+        {
+            "benchmark_run_id": "bench-promotion-private",
+            "promotion_evidence": _promotion_evidence(
+                "bench-promotion-private",
+                source_span_ids=["SRC:p1"],
+            ),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "private_or_source_prose_ref_detected" in manifest["blocked_reasons"]
     assert manifest["ready_for_operator_promotion_decision"] is False
 
 
