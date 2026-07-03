@@ -3,6 +3,7 @@ import json
 import pytest
 
 from mosaic.rke.agent_research_context import (
+    FORBIDDEN_FIELD_NAMES,
     FORBIDDEN_FIELD_POLICY,
     RESEARCH_PRIOR_USE_POLICY,
     SAFE_ACTIONABILITY,
@@ -604,6 +605,7 @@ def test_rke_research_tool_formats_context(monkeypatch):
                 "matched_item_count": 0,
                 "private_text_included": False,
                 "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
+                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
                 "ranking_policy_id": "rke_agent_research_context_rank_v1",
@@ -701,6 +703,7 @@ def test_rke_runtime_context_preflight_blocks_summary_ranking_policy_mismatch():
                 "matched_item_count": 1,
                 "private_text_included": False,
                 "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
+                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
                 "ranking_policy_id": "other_ranker",
@@ -880,6 +883,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                 "matched_item_count": 1,
                 "private_text_included": False,
                 "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
+                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
                 "ranking_policy_id": "rke_agent_research_context_rank_v1",
@@ -918,6 +922,33 @@ def test_rke_runtime_context_preflight_blocks_schema_version_mismatch():
 
     assert "runtime_preflight_status=blocked" in output
     assert "schema_version_mismatch" in output
+
+
+def test_rke_runtime_context_preflight_blocks_forbidden_field_count():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "schema_version": SCHEMA_VERSION,
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [],
+            "summary": {
+                "item_count": 0,
+                "matched_item_count": 0,
+                "private_text_included": False,
+                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
+                "forbidden_field_count": 0,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+                "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "forbidden_field_count_invalid" in output
 
 
 def test_rke_runtime_context_preflight_blocks_forbidden_field_policy():

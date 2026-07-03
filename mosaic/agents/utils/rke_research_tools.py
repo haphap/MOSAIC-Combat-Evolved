@@ -16,6 +16,7 @@ from typing import Mapping
 from langchain_core.tools import tool
 
 from mosaic.rke.agent_research_context import (
+    FORBIDDEN_FIELD_NAMES,
     FORBIDDEN_FIELD_POLICY,
     RANKING_POLICY_ID,
     RESEARCH_PRIOR_USE_POLICY,
@@ -125,6 +126,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("private_text_boundary_missing")
     if summary_map.get("forbidden_field_policy") != FORBIDDEN_FIELD_POLICY:
         failures.append("forbidden_field_policy_invalid")
+    if summary_map.get("forbidden_field_count") != len(FORBIDDEN_FIELD_NAMES):
+        failures.append("forbidden_field_count_invalid")
     try:
         assert_public_safe_context(context)
     except ValueError:
