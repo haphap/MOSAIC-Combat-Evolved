@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from mosaic.rke.agent_research_context import RANKING_POLICY_ID
+
 from ..protocol import INVALID_PARAMS, RpcError
 from ..registry import method
 from .prompts import _AGENTS_BY_LAYER
@@ -2334,6 +2336,9 @@ def _sanitize_claim_footprint_row(
     retrieval_rank = _optional_positive_int(row.get("retrieval_rank"))
     if row.get("retrieval_rank") is not None and retrieval_rank is None:
         raise ValueError("retrieval_rank must be a positive integer")
+    ranking_policy_id = _clean_str(row.get("ranking_policy_id"))
+    if ranking_policy_id and ranking_policy_id != RANKING_POLICY_ID:
+        raise ValueError(f"ranking_policy_id must be {RANKING_POLICY_ID}")
     record_key = "|".join(
         [
             benchmark_run_id,
@@ -2357,7 +2362,7 @@ def _sanitize_claim_footprint_row(
         "horizon_bucket": _clean_str(row.get("horizon_bucket")) or "unknown",
         "confidence_bucket": _clean_str(row.get("confidence_bucket")) or "unknown",
         "rke_context_hash": rke_context_hash,
-        "ranking_policy_id": _clean_str(row.get("ranking_policy_id")),
+        "ranking_policy_id": ranking_policy_id,
         "retrieval_rank": retrieval_rank,
         "priority_bucket": _clean_str(row.get("priority_bucket")),
         "truncated_item_count": _optional_non_negative_int(

@@ -16,6 +16,7 @@ from typing import Mapping
 from langchain_core.tools import tool
 
 from mosaic.rke.agent_research_context import (
+    RANKING_POLICY_ID,
     build_rke_agent_research_context,
     format_rke_agent_research_context,
 )
@@ -54,9 +55,16 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     ranks = [item.get("retrieval_rank") for item in items]
     priority_buckets = [str(item.get("priority_bucket") or "") for item in items]
     failures: list[str] = []
-    if not context.get("ranking_policy_id"):
+    ranking_policy_id = str(context.get("ranking_policy_id") or "")
+    if not ranking_policy_id:
         failures.append("ranking_policy_id_missing")
-    rank_numbers = [rank for rank in ranks if isinstance(rank, int)]
+    elif ranking_policy_id != RANKING_POLICY_ID:
+        failures.append("ranking_policy_id_mismatch")
+    rank_numbers = [
+        rank
+        for rank in ranks
+        if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0
+    ]
     if len(rank_numbers) != len(ranks):
         failures.append("retrieval_rank_missing")
     elif rank_numbers != sorted(rank_numbers):
@@ -70,7 +78,7 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "runtime_preflight_status": "blocked" if failures else "passed",
         "preflight_failures": failures,
-        "ranking_policy_id": str(context.get("ranking_policy_id") or ""),
+        "ranking_policy_id": ranking_policy_id,
         "context_hash": hashlib.sha256(
             json.dumps(
                 context,

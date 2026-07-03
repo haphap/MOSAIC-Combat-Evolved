@@ -641,6 +641,29 @@ def test_rke_runtime_context_preflight_flags_rank_order_without_sorting():
     assert output.index("### Prior FCRED-2") < output.index("### Prior FCRED-1")
 
 
+def test_rke_runtime_context_preflight_blocks_wrong_ranking_policy():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "other_ranker",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "ranking_policy_id_mismatch" in output
+
+
 def test_normalize_agent_id_accepts_ts_and_rke_forms():
     assert normalize_agent_id("dollar", "macro") == "macro.dollar"
     assert normalize_agent_id("sector.semiconductor") == "sector.semiconductor"
