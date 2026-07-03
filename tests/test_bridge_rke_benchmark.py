@@ -1757,6 +1757,34 @@ def test_patch_activation_readiness_blocks_missing_runtime_proof():
 
 
 def test_patch_activation_readiness_accepts_shadow_runtime_proof():
+    benchmark_run_id = "bench-patch-ready"
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.patch_activation_readiness",
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "candidates": candidates,
+            "patch_activation_evidence": [_patch_activation_evidence(benchmark_run_id)],
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["patch_activation_ready"] is True
+    assert manifest["direct_runtime_write_allowed"] is False
+    record = manifest["activation_records"][0]
+    assert record["runtime_proof_ref"] == "runtime-proof-1"
+    assert record["patch_activation_ready"] is True
+
+
+def test_patch_activation_readiness_blocks_missing_benchmark_run_id():
     candidates = [
         _mutation_candidate(
             candidate_type="stock_prior_recipe_rule_candidate",
@@ -1774,12 +1802,9 @@ def test_patch_activation_readiness_accepts_shadow_runtime_proof():
         },
     )
 
-    assert manifest["readiness_status"] == "ready"
-    assert manifest["patch_activation_ready"] is True
-    assert manifest["direct_runtime_write_allowed"] is False
-    record = manifest["activation_records"][0]
-    assert record["runtime_proof_ref"] == "runtime-proof-1"
-    assert record["patch_activation_ready"] is True
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "benchmark_run_id_missing" in manifest["blocked_reasons"]
+    assert manifest["patch_activation_ready"] is False
 
 
 def test_patch_activation_readiness_blocks_cross_run_evidence():

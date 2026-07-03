@@ -2343,8 +2343,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   写入与 release 仍需在 private prompt repo 中执行。
 - `rke_benchmark.patch_activation_readiness` 已能检查 shadow-only patch activation 的
   artifact/validation/apply/runtime proof/rollback refs，并把 candidate `blocked_by`
-  保持为硬 blocker；在 `delivery_readiness` 中使用时，patch activation evidence 必须
-  绑定同一个 `benchmark_run_id`；真实 runtime activation proof 仍需由实际 replay/benchmark
+  保持为硬 blocker；patch activation evidence 必须绑定同一个 `benchmark_run_id`，在
+  `delivery_readiness` 中复查时也沿用该绑定；真实 runtime activation proof 仍需由实际 replay/benchmark
   产生。
 - `rke_benchmark.prompt_mutation_rollback_readiness` 已能检查 private prompt branch
   candidate 离开 shadow 前所需的 rollback trigger、与 lifecycle prompt pins 匹配的

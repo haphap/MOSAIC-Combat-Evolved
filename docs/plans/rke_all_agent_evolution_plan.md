@@ -508,9 +508,9 @@ Status 2026-07-03:
   proof-object keys.
 - Public bridge now exposes `rke_benchmark.patch_activation_readiness`, a
   no-write shadow activation gate that requires patch artifact, validation,
-  shadow apply, runtime activation/proof, and rollback refs before a candidate
-  patch can count as activated. It preserves candidate `blocked_by` reasons and
-  keeps production activation forbidden.
+  shadow apply, runtime activation/proof, rollback refs, and `benchmark_run_id`
+  binding before a candidate patch can count as activated. It preserves
+  candidate `blocked_by` reasons and keeps production activation forbidden.
 - Delivery readiness now includes the Darwinian/autoresearch consumption gate,
   so input-manifest readiness alone cannot satisfy the E7 consumption condition.
 - Agent footprint summary and profile/evolution readiness now carry redacted

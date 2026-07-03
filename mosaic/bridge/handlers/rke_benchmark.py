@@ -1195,6 +1195,8 @@ def patch_activation_readiness(params: dict[str, Any]) -> dict[str, Any]:
         )
 
     blocked_reasons = list(candidate_manifest["manifest_blockers"]) + evidence_failures
+    if not benchmark_run_id:
+        blocked_reasons.append("benchmark_run_id_missing")
     if candidate_manifest["manifest_status"] != "ready_for_private_prompt_lifecycle":
         blocked_reasons.append("candidate_consumption_manifest_not_ready")
     if not patch_candidates:
