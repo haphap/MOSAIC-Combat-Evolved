@@ -1067,7 +1067,7 @@ def test_rke_runtime_context_preflight_blocks_future_outcome_freshness():
                 {
                     "redacted_claim_id": "FCRED-1",
                     "freshness_bucket": "completed_exit_after_prior_as_of",
-                    "latest_completed_exit_date": "2026-06-27",
+                    "latest_completed_exit_date": "2026-06-28",
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                 }
@@ -1079,6 +1079,7 @@ def test_rke_runtime_context_preflight_blocks_future_outcome_freshness():
     assert "runtime_preflight_status=blocked" in output
     assert "item_freshness_bucket_invalid" in output
     assert "item_latest_exit_date_after_as_of" in output
+    assert "item_freshness_bucket_mismatch" in output
 
 
 def test_rke_runtime_context_preflight_blocks_bad_snapshot_audit():

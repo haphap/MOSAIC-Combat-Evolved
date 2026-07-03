@@ -169,6 +169,18 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     ):
         failures.append("item_latest_exit_date_after_as_of")
     if items and any(
+        (
+            item.get("latest_completed_exit_date")
+            and item.get("freshness_bucket") != "historical_completed_exit"
+        )
+        or (
+            not item.get("latest_completed_exit_date")
+            and item.get("freshness_bucket") != "pending_no_completed_exit"
+        )
+        for item in items
+    ):
+        failures.append("item_freshness_bucket_mismatch")
+    if items and any(
         not isinstance(item.get("combined_research_prior_weight"), (int, float))
         or isinstance(item.get("combined_research_prior_weight"), bool)
         or item.get("combined_research_prior_weight") < 0
