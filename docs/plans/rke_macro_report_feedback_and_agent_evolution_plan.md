@@ -2113,31 +2113,37 @@ stock、industry、macro 三域执行项。`docs/plans/rke_stock_report_outcome_
 ### P12 当前验收状态（2026-07-03）
 
 当前分支已经满足三域 PIT outcome/readiness/profile 的基础底座，并满足宏观反馈闭环的
-首轮运行条件；agent-facing retrieval ranking 和 candidate compiler 的 gate 证据已落地，
-但 Part 1 仍被当前 corpus 的 PIT outcome、paper-trading 和 markdown coverage 缺口阻塞。
-Part 2 的 patch activation、LLM benchmark、Layer-3 private prompt 升级和 replay 不属于
-Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
+首轮运行条件；agent-facing retrieval ranking、candidate compiler 和 macro
+`cross_asset_consistency` 的 gate 证据已落地。默认 checked-in registry 因不包含私有
+PDF/Markdown/outcome 输入，`evolution-readiness --root . --no-write` 仍只适合暴露
+input-load blocker；Part 1 gate 证据以本地私有 clean validation corpus 为准：
+`.mosaic/rke/report_intelligence/merged_private_replay_clean_macro_20260703`。
+该 corpus 的 `evolution_readiness_gate.json` 记录 RI-EVOL-01..09 和 RI-MACRO-01..07
+全部 passed，`blocker_count=0`。Part 2 的 patch activation、LLM benchmark、
+Layer-3 private prompt 升级和 replay 不属于 Part 1 exit criteria。产物仍保持
+shadow-only，不改变生产交易：
 
 - 条件 1：基础底座已满足。`forecast_claims.jsonl`、`report_outcome_labels.jsonl` 和
   `outcome_labeling_readiness.json` 已能同时承载 stock、industry、macro 三类 claim/outcome/gap。
-  `rke_stock_report_outcome_and_evolution_status.md` 记录过 stock/industry/macro outcome split；
-  当前宏观本地 gate 也记录 142 条 macro forecast rows、140 条 macro claim legs、
-  111 条 macro labels。
+  clean validation corpus 记录 442 条 forecast claims、534 条 outcome labels、
+  stock proxy labels 273、industry ETF proxy labels 109、macro asset/series/curve
+  labels 分别为 92/59/1。
 - 条件 2：已满足类型覆盖。`stock_price_proxy`、`industry_etf_proxy`、`macro_asset_proxy`、
-  `macro_series_directional`、`macro_curve_directional` 都有测试覆盖；宏观当前本地 summary
-  包含 `macro_asset_proxy=77`、`macro_series_directional=31`、`macro_curve_directional=3`。
+  `macro_series_directional`、`macro_curve_directional` 都有测试覆盖；clean validation corpus
+  包含 `macro_asset_proxy=92`、`macro_series_directional=59`、`macro_curve_directional=1`。
 - 条件 3：已满足首轮可运行要求。个股 qlib stock price、行业 ETF proxy、宏观利率/收益率、
   FX、commodity direct-series label 已有真实路径；VIX 波动率序列已通过
   `macro-series-backfill --series-id VIX` 写入本地 `scorecard.db` 并在
   `macro_market_series_catalog.jsonl` 标记为 ready。当前 corpus 仍缺少可完成的真实
   volatility claim leg，因此 `macro.volatility` 只有数据/fixture ready 和 deferred gap。
 - 条件 4：部分完成。stock/industry outcome 已按 `label_type`、benchmark/cost model
-  做基础分层；macro profile 仍需继续强化 agent/regime/metric family 分层和
-  cross-asset consistency，才能满足完整 exit criterion。`outcome_labeling_readiness.json`
+  做基础分层；macro prior 已输出 parent-level `cross_asset_consistency`，并保留
+  agent/regime/metric family 分层。`outcome_labeling_readiness.json`
   已新增 `assignment_gap_counts`、`assignment_inferred_rule_counts` 和
-  `rating_readiness_bucket_counts`；当前 corpus 记录 `blocked_assignment=0`、
+  `rating_readiness_bucket_counts`；默认 corpus 记录 `blocked_assignment=0`、
   `assignment_gap_counts={}`，并通过 `industry_default_agents` 规则把 8687 条缺显式 owner 的
-  claim 路由到 sector/decision owning-agent 候选。stock/industry context snapshot
+  claim 路由到 sector/decision owning-agent 候选。clean validation corpus 仍有
+  `agent_assignment_missing=33`，作为后续 target-family mapping 扩展项。stock/industry context snapshot
   仍是 proposed artifact，当前没有 `build_stock_context_snapshots` 或
   `build_industry_context_snapshots` builder。
 - 条件 5：部分完成。宏观已有 7 个 macro agents 的 redacted research priors：
@@ -2154,27 +2160,28 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
   RI-MACRO-02 记录 `macro_ready_counts`、`macro_pending_counts` 和 readiness gap counts。
 - 条件 7：部分完成。`macro_agent_research_priors.jsonl` 的 rating buckets 已标准化为
   `supportive_evidence`、`mixed_evidence`、`contradictory_evidence`、
-  `pending_or_unrated`；当前分布为 supportive 40、mixed 66、contradictory 16、
-  pending 3539。这个状态只表示 bucket contract 已落地，不表示宏观 rating 已有充分统计
-  证据：当前非 pending 样本约 122 条，约 97% 仍是 pending/unrated，并且这些样本还分散在
-  8 个 macro agents 和多个 metric families 中。因此下游只能把 rating 当作 provisional
+  `pending_or_unrated`；clean validation corpus 当前分布为 supportive 5、contradictory 5、
+  pending 1831。macro `cross_asset_consistency` 已按 parent claim 输出
+  `consistent`、`mixed`、`contradictory`、`blocked_mapping` 或 `not_applicable`；
+  clean validation corpus 分布为 consistent 65、mixed 26、blocked_mapping 48、
+  not_applicable 1702。这个状态只表示 bucket contract 已落地，不表示宏观 rating 已有充分统计
+  证据：非 pending 样本仍很少，并且分散在 8 个 macro agents 和多个 metric families 中。
+  因此下游只能把 rating 当作 provisional
   shadow prior；任何 agent-facing summary 必须保留 `n_effective`、reliability bucket、
   pending share 和 current-data confirmation guard。stock/industry 的 row-level logical rating
   仍按 P11.4 作为 internal/profile 扩展实现，不能把 macro prior bucket normalization 视为
-  三域 claim rating 完成。独立待办：P5.3/P5.4 定义的 macro
-  `cross_asset_consistency` 计算规则尚未落地；在它能按 parent macro claim 的多 legs 输出
-  `consistent`、`mixed`、`contradictory` 或 `blocked_mapping` 前，parent-level macro rating
-  不能视为完成。
-- 条件 8：部分完成。`schema-status --root . --failures-only --no-write` 为 0 failure；
-  `operator-readiness --root .` 为 18/18 passed。当前
-  `evolution-readiness --root . --no-write` 已通过 RI-EVOL-03、RI-EVOL-04、
-  RI-EVOL-05、RI-EVOL-06、RI-EVOL-08、RI-EVOL-09 和 RI-MACRO-01、RI-MACRO-03、
-  RI-MACRO-05、RI-MACRO-06、RI-MACRO-07，但仍被 RI-EVOL-01、RI-EVOL-02、
-  RI-EVOL-07、RI-MACRO-02 和 RI-MACRO-04 阻塞。独立 RI-STOCK-01..04 和
+  三域 claim rating 完成。
+- 条件 8：clean validation corpus 已满足。`schema-status --root . --failures-only --no-write`
+  为 0 failure；`operator-readiness --root .` 为 18/18 passed。clean validation corpus
+  的 derived refresh 记录 531 selected reports、529 Markdown-ready reports、385 LLM-processed
+  reports、210 unique outcome claims、41 passed recipe validations、500 reviewed gold claims、
+  51 reviewed gold documents、0 Markdown QA queue，并且 `evolution_readiness_gate.json`
+  为 `gate_status=passed`、`blocker_count=0`。独立 RI-STOCK-01..04 和
   RI-INDUSTRY-01..04 目前尚未实现；stock/industry 仍通过通用 RI-EVOL、
   schema/PIT/provenance/privacy/readiness/profile 路径覆盖。
 
-  当前 gate blocker 根因表：
+  默认 checked-in registry 的 blocker 根因表仍保留为 input-load/runbook 诊断，不作为
+  clean validation gate 失败证据：
 
   | check | 直接 blocker | 当前证据 | 根因分类 | 下一步 |
   | --- | --- | --- | --- | --- |
@@ -2205,18 +2212,19 @@ Part 1 未完成条件当前状态：
   证据，不关闭条件 5 的 role-filtered superinvestor/sector/decision prior 内容缺口。
   Part 2 的全 agent runtime preflight、private prompt resolution 和 benchmark wiring 仍不计入
   Part 1 exit criteria。
-- 条件 12：当前 corpus 的 compiler/refusal contract 证据已落地，但不视为 exit-complete。
+- 条件 12：clean validation corpus 的 compiler/candidate/refusal contract 证据已落地。
   `prompt_mutation_candidates.jsonl` 已接入
   redacted prior-to-candidate compiler 路径：macro prior 可生成
   `macro_prior_rule_parameter_candidate` 或 refusal；stock/industry prior 可生成
   `*_prior_recipe_rule_candidate` 或带 `missing_pit_outcome`、
   `missing_validation_target`、`insufficient_effective_n`、
   `source_dependent_cluster` 的 refusal。`RI-EVOL-08` 已进入
-  `evolution_readiness_gate.json`，当前刷新记录 7 条 prior compiler/refusal rows，
-  覆盖 stock、industry 和 5 个 macro agents，且 private text / shadow policy violation
-  均为 0。当前 corpus 仍因没有 PIT outcome labels 和样本不足只生成 refusal；在条件 8 的
-  outcome/markdown/paper-trading blocker 解除前，RI-EVOL-08 只能证明 compiler path 可审计，
-  不能证明 compiler 产出有效、可验证的 downstream candidate。
+  `evolution_readiness_gate.json`。clean validation corpus 当前记录 21 条 prompt mutation
+  candidates，其中 `macro_prior_rule_parameter_candidate=5`、
+  `macro_prior_rule_parameter_refusal=3`、`stock_prior_recipe_rule_candidate=1`、
+  `industry_prior_recipe_rule_candidate=1`，且 private text / shadow policy violation 均为 0。
+  这些 candidate 仍是 shadow-only；接入 P7/P11.6 的 patch activation、benchmark 和 runtime
+  proof 属于 Part 2。
 
 Part 2 handoff notes，不计入 Part 1 完成判定：
 
@@ -2258,11 +2266,11 @@ prompt repo 版本的 RKE 驱动演化仍未完成。
 
 当前下一步聚焦仍未完成的三域 agent-facing 闭环：
 
-1. 继续扩大三域 PIT outcome / markdown coverage 样本，让条件 12 从当前 refusal-only
-   gate 证据推进到可验证 candidate 和非零 market-feedback evidence。
-2. 同步补剩余三域评级缺口：stock/industry context snapshot、macro 的
-   `cross_asset_consistency` 计算规则。`blocked_assignment` 已从 readiness/candidate
-   证据推进到可复核的 owning-agent mapping aggregate，后续只需随新 target family 扩展映射。
+1. 保持 clean private validation corpus 的三域 PIT outcome / markdown coverage 样本，
+   不把默认 checked-in registry 的 missing private inputs 当作 Part 1 gate 失败。
+2. 同步补剩余三域评级缺口：stock/industry context snapshot 和剩余 target-family
+   owning-agent mapping。`blocked_assignment` 已从 readiness/candidate 证据推进到可复核的
+   aggregate，后续只需随新 target family 扩展映射。
 3. 最后把 compiler 输出接到 P7/P11.6 的 evolution gate，仍保持 shadow-only；all-agent
    benchmark、replay、Darwinian weight 和 private prompt mutation 按
    `docs/plans/rke_all_agent_evolution_plan.md` 执行。

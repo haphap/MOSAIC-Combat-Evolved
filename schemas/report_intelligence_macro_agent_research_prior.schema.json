@@ -42,6 +42,15 @@
     "metric_families": {"type": "array", "items": {"type": "string"}},
     "metric_family": {"type": "string"},
     "target_series_family": {"type": "string"},
+    "cross_asset_consistency": {
+      "enum": [
+        "consistent",
+        "mixed",
+        "contradictory",
+        "blocked_mapping",
+        "not_applicable"
+      ]
+    },
     "expected_direction": {
       "enum": ["positive", "negative", "mixed", "unknown"]
     },

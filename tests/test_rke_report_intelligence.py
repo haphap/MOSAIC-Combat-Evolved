@@ -1221,6 +1221,7 @@ def test_report_intelligence_builds_redacted_macro_agent_research_priors():
     assert dollar_prior["metric_families"] == ["fx_rate"]
     assert dollar_prior["metric_family"] == "fx_rate"
     assert dollar_prior["target_series_family"] == "fx"
+    assert dollar_prior["cross_asset_consistency"] == "not_applicable"
     assert dollar_prior["expected_direction"] == "positive"
     assert dollar_prior["latest_completed_exit_date"] == "2026-04-15"
     assert dollar_prior["freshness_bucket"] == "completed_exit_after_prior_as_of"
@@ -1237,6 +1238,46 @@ def test_report_intelligence_builds_redacted_macro_agent_research_priors():
     assert "source_span_ids" not in prior_dump
     assert "若政策干预超预期" not in prior_dump
     assert "FC-MACRO-PRIOR-1" not in prior_dump
+
+
+def test_report_intelligence_macro_prior_flags_cross_asset_incompatibility():
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-PARENT-1:YIELD",
+            "parent_forecast_claim_id": "FC-MACRO-PARENT-1",
+            "macro_claim_leg_id": "MCL-YIELD-UP",
+            "target": {
+                "target_type": "macro_series",
+                "target_id": "CN10Y",
+                "metric_family": "bond_yield_level",
+            },
+            "direction": "positive",
+            "metric_proxy_mapping": ["bond_yield_level"],
+            "claim_regime_trace": {"as_of_date": "2026-01-15", "macro": {}},
+        },
+        {
+            "forecast_claim_id": "FC-MACRO-PARENT-1:BOND",
+            "parent_forecast_claim_id": "FC-MACRO-PARENT-1",
+            "macro_claim_leg_id": "MCL-BOND-UP",
+            "target": {
+                "target_type": "macro_asset",
+                "target_id": "CN_BOND",
+                "metric_family": "bond_etf_forward_return",
+            },
+            "direction": "positive",
+            "metric_proxy_mapping": ["bond_etf_forward_return"],
+            "claim_regime_trace": {"as_of_date": "2026-01-15", "macro": {}},
+        },
+    ]
+
+    profiles = build_viewpoint_performance_profiles(forecast_rows)
+    priors = build_macro_agent_research_priors(
+        forecast_rows,
+        viewpoint_performance_profile_rows=profiles,
+        macro_regime_snapshot_rows=build_macro_regime_snapshots(forecast_rows),
+    )
+
+    assert {row["cross_asset_consistency"] for row in priors} == {"contradictory"}
 
 
 def test_report_intelligence_macro_prior_uses_plan_pending_bucket():

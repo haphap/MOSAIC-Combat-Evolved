@@ -23,7 +23,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
@@ -19918,6 +19918,82 @@ def _macro_prior_target_series_family(
     return "unknown"
 
 
+def _macro_cross_asset_leg_direction(claim: Mapping[str, Any]) -> tuple[str, str] | None:
+    direction = _normalize_forecast_direction(claim.get("direction"))
+    if direction not in {"positive", "negative"}:
+        return None
+    sign = "up" if direction == "positive" else "down"
+    target = _ensure_mapping(claim.get("target"))
+    target_id = str(target.get("target_id") or target.get("target_name") or "")
+    families = {
+        str(item)
+        for item in (
+            *_ensure_list(claim.get("metric_proxy_mapping")),
+            *_ensure_list(target.get("metric_proxy_mapping")),
+            target.get("metric_family") or "",
+        )
+        if str(item).strip()
+    }
+    if families & {"bond_yield_level", "policy_rate_level", "money_market_rate"}:
+        return ("bond_yield", sign)
+    if "bond_etf_forward_return" in families or target_id in {
+        "CN_BOND",
+        "CN_CREDIT_BOND",
+        "CN_POLICY_BANK_BOND",
+    }:
+        return ("bond_price", sign)
+    if "fx_rate" in families:
+        return ("fx_quote", sign)
+    if families & {"commodity_price", "commodity_price_cycle", "gold_etf_forward_return"}:
+        return ("commodity_price", sign)
+    if families & {"equity_index_forward_return", "macro_asset_forward_return"}:
+        return ("equity_price", sign)
+    if families & {"yield_curve_slope", "cross_market_yield_spread"}:
+        return ("curve", sign)
+    if "volatility_index" in families:
+        return ("volatility", sign)
+    return None
+
+
+def _macro_cross_asset_consistency_for_parent(
+    claims: Sequence[Mapping[str, Any]],
+) -> str:
+    if len(claims) < 2:
+        return "not_applicable"
+    mapped = [
+        direction
+        for claim in claims
+        if (direction := _macro_cross_asset_leg_direction(claim)) is not None
+    ]
+    if len(mapped) < 2:
+        return "blocked_mapping"
+    conflict_leg_indexes: set[int] = set()
+    for left_index, (left_kind, left_sign) in enumerate(mapped):
+        for right_index, (right_kind, right_sign) in enumerate(
+            mapped[left_index + 1 :],
+            start=left_index + 1,
+        ):
+            if {left_kind, right_kind} == {"bond_yield", "bond_price"} and left_sign == right_sign:
+                conflict_leg_indexes.update({left_index, right_index})
+    if conflict_leg_indexes:
+        return (
+            "contradictory"
+            if len(conflict_leg_indexes) / len(mapped) >= 0.5
+            else "mixed"
+        )
+    if len(mapped) < len(claims):
+        return "mixed"
+    return "consistent"
+
+
+def _macro_prior_cross_asset_consistency(buckets: Iterable[str]) -> str:
+    bucket_set = {str(bucket) for bucket in buckets if str(bucket).strip()}
+    for bucket in ("contradictory", "mixed", "blocked_mapping", "consistent"):
+        if bucket in bucket_set:
+            return bucket
+    return "not_applicable"
+
+
 def _macro_prior_freshness_bucket(
     *,
     latest_completed_exit_date: str,
@@ -19936,6 +20012,20 @@ def build_macro_agent_research_priors(
     viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
     macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
+    claims_by_parent: dict[str, list[Mapping[str, Any]]] = {}
+    for claim in forecast_rows:
+        parent_id = str(
+            claim.get("parent_forecast_claim_id")
+            or claim.get("forecast_claim_id")
+            or claim.get("claim_id")
+            or ""
+        ).strip()
+        if parent_id:
+            claims_by_parent.setdefault(parent_id, []).append(claim)
+    consistency_by_parent = {
+        parent_id: _macro_cross_asset_consistency_for_parent(claims)
+        for parent_id, claims in claims_by_parent.items()
+    }
     claim_context_by_profile: dict[str, dict[str, Any]] = {}
     for claim in forecast_rows:
         cluster_id, mechanism_chain = _viewpoint_cluster_id(claim)
@@ -19949,6 +20039,7 @@ def build_macro_agent_research_priors(
                 "mechanism_chain": set(mechanism_chain),
                 "directions": set(),
                 "macro_claim_leg_ids": set(),
+                "cross_asset_consistency": set(),
             },
         )
         context["agents"].update(_claim_macro_agent_candidates(claim))
@@ -19962,6 +20053,16 @@ def build_macro_agent_research_priors(
         leg_id = str(claim.get("macro_claim_leg_id") or "").strip()
         if leg_id:
             context["macro_claim_leg_ids"].add(leg_id)
+        parent_id = str(
+            claim.get("parent_forecast_claim_id")
+            or claim.get("forecast_claim_id")
+            or claim.get("claim_id")
+            or ""
+        ).strip()
+        if parent_id:
+            context["cross_asset_consistency"].add(
+                consistency_by_parent.get(parent_id, "not_applicable")
+            )
 
     snapshots_by_agent_date = {
         (
@@ -20042,6 +20143,9 @@ def build_macro_agent_research_priors(
                 "target_series_family": _macro_prior_target_series_family(
                     metric_families=metric_families,
                     profile=profile,
+                ),
+                "cross_asset_consistency": _macro_prior_cross_asset_consistency(
+                    context.get("cross_asset_consistency") or ()
                 ),
                 "expected_direction": expected_direction,
                 "regime_snapshot_id": snapshot_id,

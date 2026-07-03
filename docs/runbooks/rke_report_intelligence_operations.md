@@ -1460,6 +1460,26 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   0 failures, `evolution-readiness --no-write` passed, `promotion-status
   --no-write` allowed production, and `operator-readiness --root .` passed
   18/18 checks.
+- `2026-07-03`: Built a clean private Part 1 validation corpus at
+  `.mosaic/rke/report_intelligence/merged_private_replay_clean_macro_20260703`
+  by copying `merged_private_replay_20260612`, merging clean macro batches
+  excluding the one shard with a repeated-line Markdown QA queue, and reusing the
+  public-safe aggregate gold review summary under the private `gold_sets/`
+  sibling. `--refresh-derived-only --registry-dir
+  .mosaic/rke/report_intelligence/merged_private_replay_clean_macro_20260703
+  --scorecard-db-path data/scorecard.db` produced 531 selected reports, 529
+  Markdown-ready reports, 385 LLM-processed reports, 442 forecast claims, 534
+  outcome labels, 273 stock proxy labels, 109 industry ETF proxy labels, and
+  macro asset/series/curve labels of 92/59/1. The private
+  `evolution_readiness_gate.json` passed RI-EVOL-01 through RI-EVOL-09 and
+  RI-MACRO-01 through RI-MACRO-07 with `blocker_count=0`.
+- `2026-07-03`: The same clean corpus validates the first
+  `cross_asset_consistency` implementation in `macro_agent_research_priors.jsonl`.
+  Aggregate prior counts are `consistent=65`, `mixed=26`,
+  `blocked_mapping=48`, and `not_applicable=1702`; prompt mutation output is no
+  longer refusal-only, with 5 macro prior rule/parameter candidates plus stock
+  and industry prior recipe/rule candidates. These artifacts remain local and
+  shadow-only.
 - `2026-06-15`: Documented that MinerU/vLLM are already configured locally and
   should be reused before reinstalling.
 - `2026-06-15`: Fixed MinerU command resolution so relative commands such as
