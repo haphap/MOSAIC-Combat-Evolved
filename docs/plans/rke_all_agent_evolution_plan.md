@@ -465,11 +465,13 @@ Status 2026-07-03:
 - Public bridge now exposes `rke_benchmark.paper_trading_readiness`, a no-write
   gate that requires shadow replay readiness plus operator-reviewed
   paper-trading plan, risk-limit ref, and stop-loss/rollback ref before allowing
-  paper-trading entry. It still keeps `promotion_allowed=false`.
+  paper-trading entry. The plan must bind to the same `benchmark_run_id`. It
+  still keeps `promotion_allowed=false`.
 - Public bridge now exposes `rke_benchmark.promotion_decision_readiness`, a
   no-write gate that requires paper-trading readiness, paper-trading result ref,
   monitor summary ref, second review timestamp, and lockbox decision ref before
-  marking a mutation ready for operator promotion decision. It still keeps
+  marking a mutation ready for operator promotion decision. The promotion
+  evidence must bind to the same `benchmark_run_id`. It still keeps
   `production_allowed=false` and `promotion_allowed=false`.
 - Public bridge now exposes `rke_benchmark.delivery_readiness`, a no-write E7
   aggregate audit that maps each delivery condition to its underlying readiness

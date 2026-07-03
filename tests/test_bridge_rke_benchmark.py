@@ -104,6 +104,27 @@ def _profile_evidence(benchmark_run_id: str = "bench-profile-ready") -> dict:
     }
 
 
+def _paper_trading_plan(benchmark_run_id: str) -> dict:
+    return {
+        "benchmark_run_id": benchmark_run_id,
+        "paper_trading_plan_ref": f"{benchmark_run_id}-paper-plan",
+        "risk_limit_ref": f"{benchmark_run_id}-risk-limits",
+        "stop_loss_or_rollback_ref": f"{benchmark_run_id}-stop-loss",
+        "operator_review_timestamp": "2026-07-03T12:30:00Z",
+    }
+
+
+def _promotion_evidence(benchmark_run_id: str) -> dict:
+    return {
+        "benchmark_run_id": benchmark_run_id,
+        "paper_trading_result_ref": f"{benchmark_run_id}-paper-results",
+        "monitor_summary_ref": f"{benchmark_run_id}-monitor-summary",
+        "second_review_timestamp": "2026-07-03T13:00:00Z",
+        "lockbox_decision_ref": f"{benchmark_run_id}-lockbox",
+        "decision": "approved_for_promotion_review",
+    }
+
+
 def _prompt_release_check() -> dict:
     return {
         "mutation_candidate_id": "PMUT-1",
@@ -1951,12 +1972,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
                     "post_rollback_verification_ref": "verify-paper-ready",
                 }
             ],
-            "paper_trading_plan": {
-                "paper_trading_plan_ref": "paper-plan-ready",
-                "risk_limit_ref": "paper-risk-limits",
-                "stop_loss_or_rollback_ref": "paper-stop-loss",
-                "operator_review_timestamp": "2026-07-03T12:30:00Z",
-            },
+            "paper_trading_plan": _paper_trading_plan("bench-paper-ready"),
         },
     )
 
@@ -1964,6 +1980,87 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
     assert manifest["shadow_replay_status"] == "ready"
     assert manifest["paper_trading_allowed"] is True
     assert manifest["promotion_allowed"] is False
+
+
+def test_paper_trading_readiness_blocks_cross_run_plan(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-paper-ready",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "e" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-paper"],
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.paper_trading_readiness",
+        {
+            "benchmark_run_id": "bench-paper-ready",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"]
+            ),
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-paper-ready"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-paper-ready"),
+            "manual_review": _manual_review("bench-paper-ready"),
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-paper-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-paper-ready"
+            ),
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(candidates)
+            ],
+            "rollback_evidence": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "rollback_trigger_definition": "paper trading risk breach",
+                    "rollback_command_or_procedure": "restore previous prompt commit",
+                    "monitor_output_ref": "monitor-paper-ready",
+                    "post_rollback_verification_ref": "verify-paper-ready",
+                }
+            ],
+            "paper_trading_plan": _paper_trading_plan("other-run"),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "paper_trading_plan_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["paper_trading_allowed"] is False
 
 
 def test_promotion_decision_readiness_blocks_missing_evidence(
@@ -2058,19 +2155,8 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
                     "post_rollback_verification_ref": "verify-promotion-ready",
                 }
             ],
-            "paper_trading_plan": {
-                "paper_trading_plan_ref": "paper-plan-promotion",
-                "risk_limit_ref": "paper-risk-promotion",
-                "stop_loss_or_rollback_ref": "paper-stop-promotion",
-                "operator_review_timestamp": "2026-07-03T12:30:00Z",
-            },
-            "promotion_evidence": {
-                "paper_trading_result_ref": "paper-results-promotion",
-                "monitor_summary_ref": "monitor-summary-promotion",
-                "second_review_timestamp": "2026-07-03T13:00:00Z",
-                "lockbox_decision_ref": "lockbox-promotion",
-                "decision": "approved_for_promotion_review",
-            },
+            "paper_trading_plan": _paper_trading_plan("bench-promotion-ready"),
+            "promotion_evidence": _promotion_evidence("bench-promotion-ready"),
         },
     )
 
@@ -2079,6 +2165,90 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
     assert manifest["ready_for_operator_promotion_decision"] is True
     assert manifest["production_allowed"] is False
     assert manifest["promotion_allowed"] is False
+
+
+def test_promotion_decision_readiness_blocks_cross_run_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-promotion-ready",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "f" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-promotion"],
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+
+    manifest = dispatch(
+        "rke_benchmark.promotion_decision_readiness",
+        {
+            "benchmark_run_id": "bench-promotion-ready",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"]
+            ),
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-promotion-ready"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-promotion-ready"
+            ),
+            "manual_review": _manual_review("bench-promotion-ready"),
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-promotion-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-promotion-ready"
+            ),
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(candidates)
+            ],
+            "rollback_evidence": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "rollback_trigger_definition": "promotion monitor breach",
+                    "rollback_command_or_procedure": "restore previous prompt commit",
+                    "monitor_output_ref": "monitor-promotion-ready",
+                    "post_rollback_verification_ref": "verify-promotion-ready",
+                }
+            ],
+            "paper_trading_plan": _paper_trading_plan("bench-promotion-ready"),
+            "promotion_evidence": _promotion_evidence("other-run"),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "promotion_evidence_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["ready_for_operator_promotion_decision"] is False
 
 
 def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch):
@@ -2510,19 +2680,8 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "post_rollback_verification_ref": "verify-delivery",
                 }
             ],
-            "paper_trading_plan": {
-                "paper_trading_plan_ref": "paper-plan-delivery",
-                "risk_limit_ref": "paper-risk-delivery",
-                "stop_loss_or_rollback_ref": "paper-stop-delivery",
-                "operator_review_timestamp": "2026-07-03T12:30:00Z",
-            },
-            "promotion_evidence": {
-                "paper_trading_result_ref": "paper-results-delivery",
-                "monitor_summary_ref": "monitor-summary-delivery",
-                "second_review_timestamp": "2026-07-03T13:00:00Z",
-                "lockbox_decision_ref": "lockbox-delivery",
-                "decision": "approved_for_promotion_review",
-            },
+            "paper_trading_plan": _paper_trading_plan("bench-delivery-ready"),
+            "promotion_evidence": _promotion_evidence("bench-delivery-ready"),
         },
     )
 

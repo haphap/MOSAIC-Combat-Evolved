@@ -1739,6 +1739,11 @@ def paper_trading_readiness(params: dict[str, Any]) -> dict[str, Any]:
     ):
         if not _clean_str(plan.get(key)):
             blocked_reasons.append(f"{key}_missing")
+    plan_run_id = _clean_str(plan.get("benchmark_run_id"))
+    if not plan_run_id:
+        blocked_reasons.append("paper_trading_plan_benchmark_run_id_missing")
+    elif plan_run_id != benchmark_run_id:
+        blocked_reasons.append("paper_trading_plan_benchmark_run_id_mismatch")
     if _forbidden_paths(plan):
         blocked_reasons.append("private_or_source_prose_ref_detected")
 
@@ -1749,6 +1754,7 @@ def paper_trading_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "blocked_reasons": blocked_reasons,
         "shadow_replay_status": shadow["readiness_status"],
         "paper_trading_plan": {
+            "benchmark_run_id": _clean_str(plan.get("benchmark_run_id")),
             "paper_trading_plan_ref": _clean_str(plan.get("paper_trading_plan_ref")),
             "risk_limit_ref": _clean_str(plan.get("risk_limit_ref")),
             "stop_loss_or_rollback_ref": _clean_str(
@@ -1785,6 +1791,11 @@ def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
             blocked_reasons.append(f"{key}_missing")
     if _clean_str(evidence.get("decision")) != "approved_for_promotion_review":
         blocked_reasons.append("promotion_review_decision_not_approved")
+    evidence_run_id = _clean_str(evidence.get("benchmark_run_id"))
+    if not evidence_run_id:
+        blocked_reasons.append("promotion_evidence_benchmark_run_id_missing")
+    elif evidence_run_id != benchmark_run_id:
+        blocked_reasons.append("promotion_evidence_benchmark_run_id_mismatch")
     if _forbidden_paths(evidence):
         blocked_reasons.append("private_or_source_prose_ref_detected")
 
@@ -1795,6 +1806,7 @@ def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "blocked_reasons": blocked_reasons,
         "paper_trading_status": paper["readiness_status"],
         "promotion_evidence": {
+            "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
             "paper_trading_result_ref": _clean_str(
                 evidence.get("paper_trading_result_ref")
             ),

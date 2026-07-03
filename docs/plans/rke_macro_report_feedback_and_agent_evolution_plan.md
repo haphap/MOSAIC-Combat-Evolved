@@ -2348,11 +2348,12 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   runtime RKE context/current-data confirmation 和 rollback readiness 汇总为 shadow replay
   gate；真实 replay/paper-trading run 仍未执行，不能据此 promotion。
 - `rke_benchmark.paper_trading_readiness` 已能检查 shadow replay ready 后进入 paper-trading
-  所需的 reviewed plan、risk limit 和 stop-loss/rollback ref；这只允许 paper-trading entry，
-  不允许 production promotion。
+  所需的同一 `benchmark_run_id` reviewed plan、risk limit 和 stop-loss/rollback ref；
+  这只允许 paper-trading entry，不允许 production promotion。
 - `rke_benchmark.promotion_decision_readiness` 已能检查 paper-trading result、monitor
-  summary、second review 和 lockbox decision refs；它只标记 ready for operator promotion
-  decision，不执行也不允许 production promotion。
+  summary、second review 和 lockbox decision refs，并要求 promotion evidence 绑定同一个
+  `benchmark_run_id`；它只标记 ready for operator promotion decision，不执行也不允许
+  production promotion。
 - `rke_benchmark.delivery_readiness` 已能把 Part 2 E7 的 prompt provenance、runtime
   context、benchmark、profile/evolution、Darwinian/autoresearch input 和 consumption、
   prompt release、patch activation、rollback、shadow replay、paper-trading 和 promotion
