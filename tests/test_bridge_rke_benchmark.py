@@ -3323,53 +3323,57 @@ def test_delivery_readiness_uses_recorded_cohort(tmp_path: Path, monkeypatch):
     assert "cohort" not in audit["recorded_keys"]
 
 
-def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
+def test_delivery_evidence_store_blocks_empty_proof_values(
     tmp_path: Path, monkeypatch
 ):
     project_root = tmp_path / "project"
-    project_root.mkdir()
+    evidence_dir = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    evidence_dir.mkdir(parents=True)
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
-    dispatch(
+    record = dispatch(
         "rke_benchmark.record_delivery_evidence",
         {
-            "benchmark_run_id": "bench-delivery-key-complete",
+            "benchmark_run_id": "bench-delivery-empty",
             "all_agent_prompt_release_checks": [],
             "paired_output_count": 1275,
             "model_config_output_counts": {},
-            "benchmark_quality_summary": {},
-            "benchmark_evidence_refs": {},
-            "manual_review": {},
-            "profile_evidence": {},
-            "downstream_outcome_metrics": {},
-            "prompt_mutation_provenance": {},
-            "darwinian_autoresearch_consumption_evidence": {},
-            "candidates": [],
-            "patch_activation_evidence": [],
-            "prompt_mutation_release_checks": [],
-            "rollback_evidence": [],
-            "paper_trading_plan": {},
-            "promotion_evidence": {},
         },
+    )
+    (evidence_dir / "delivery_evidence.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": "rke_delivery_evidence_v1",
+                "benchmark_run_id": "bench-delivery-empty",
+                "evidence": {
+                    "paired_output_count": 1275,
+                    "model_config_output_counts": {},
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
     audit = dispatch(
         "rke_benchmark.delivery_evidence_audit",
-        {"benchmark_run_id": "bench-delivery-key-complete"},
+        {"benchmark_run_id": "bench-delivery-empty"},
     )
 
-    assert audit["evidence_status"] == "complete"
-    assert audit["delivery_readiness_status"] == "blocked_preflight"
-    assert audit["condition_count"] == 12
-    assert audit["ready_condition_count"] < audit["condition_count"]
-    prompt_condition = next(
-        condition
-        for condition in audit["delivery_conditions"]
-        if condition["condition_id"] == "all_agent_prompt_provenance"
+    assert record["record_status"] == "blocked"
+    assert record["recorded_key_count"] == 0
+    assert "empty delivery evidence values all_agent_prompt_release_checks" in record[
+        "failures"
+    ][0]
+    assert audit["evidence_status"] == "blocked"
+    assert audit["recorded_keys"] == []
+    assert any(
+        "empty delivery evidence values model_config_output_counts" in failure
+        for failure in audit["failures"]
     )
-    assert prompt_condition["evidence_summary"]["prompt_source_status"][
-        "blocked_reason"
-    ] == "private_prompt_unavailable"
-    assert audit["delivery_blocked_reasons"]
+    assert audit["delivery_readiness_status"] == "blocked_preflight"
+    assert "delivery_evidence_store:line 1: empty delivery evidence values model_config_output_counts" in audit[
+        "delivery_blocked_reasons"
+    ]
 
 
 def test_delivery_readiness_loads_recorded_private_evidence(
@@ -3444,6 +3448,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "rke_context_hash": "b" * 64,
                     **_runtime_context_proof(2),
                     "report_claim_refs": ["forecast_claim:sector-semi-delivery"],
+                    "current_data_confirmed": True,
                 },
                 {
                     "agent": "munger",
@@ -3464,6 +3469,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "rke_context_hash": "d" * 64,
                     **_runtime_context_proof(4),
                     "report_claim_refs": ["forecast_claim:portfolio-cn-equity-delivery"],
+                    "current_data_confirmed": True,
                 },
             ],
         },

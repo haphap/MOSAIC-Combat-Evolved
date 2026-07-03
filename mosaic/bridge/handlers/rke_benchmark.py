@@ -1917,6 +1917,20 @@ def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
             "recorded_key_count": 0,
             "recorded_context_key_count": 0,
         }
+    empty_keys = [
+        key
+        for key in _DELIVERY_EVIDENCE_KEYS
+        if key in evidence and not _delivery_evidence_value_present(evidence[key])
+    ]
+    if empty_keys:
+        return {
+            "record_status": "blocked",
+            "benchmark_run_id": benchmark_run_id,
+            "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
+            "failures": ["empty delivery evidence values " + ", ".join(empty_keys)],
+            "recorded_key_count": 0,
+            "recorded_context_key_count": 0,
+        }
     recorded_key_count = sum(1 for key in _DELIVERY_EVIDENCE_KEYS if key in evidence)
     recorded_context_key_count = sum(
         1 for key in _DELIVERY_CONTEXT_KEYS if key in evidence
@@ -2233,6 +2247,17 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                     + ", ".join(forbidden_paths[:5])
                 )
                 continue
+            empty_keys = [
+                key
+                for key in _DELIVERY_EVIDENCE_KEYS
+                if key in evidence and not _delivery_evidence_value_present(evidence[key])
+            ]
+            if empty_keys:
+                failures.append(
+                    f"line {line_number}: empty delivery evidence values "
+                    + ", ".join(empty_keys)
+                )
+                continue
             latest.update(
                 {
                     key: evidence[key]
@@ -2241,6 +2266,16 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                 }
             )
     return latest, failures
+
+
+def _delivery_evidence_value_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (dict, list, tuple, set)):
+        return bool(value)
+    return True
 
 
 def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
