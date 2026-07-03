@@ -2308,7 +2308,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.capture_agent_claim_footprints` 已提供 redacted private-local
   agent claim/footprint capture contract，`rke_benchmark.agent_footprint_summary`
   已能从 private rows 输出 redacted aggregate profile summary，并统计 linked report claim
-  refs；真实 benchmark/replay agent rows 仍未完成。
+  refs；runtime `rke_context_hash` 必须是可复核的 64-hex SHA-256 digest；真实
+  benchmark/replay agent rows 仍未完成。
 - `rke_benchmark.agent_profile_evolution_readiness` 已能检查四层 agent footprint
   coverage、RKE context hash、report claim link、privacy/no-source-prose audit、
   profile update ref 和 evolution input ref，并要求 profile evidence 绑定同一个

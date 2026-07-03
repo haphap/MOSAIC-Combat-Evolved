@@ -2316,6 +2316,9 @@ def _sanitize_claim_footprint_row(
     target = _safe_target(row.get("target"))
     if not target:
         raise ValueError("target is required")
+    rke_context_hash = _clean_str(row.get("rke_context_hash")).lower()
+    if rke_context_hash and not _is_sha256_hex(rke_context_hash):
+        raise ValueError("rke_context_hash must be a 64-character hex digest")
     record_key = "|".join(
         [
             benchmark_run_id,
@@ -2338,7 +2341,7 @@ def _sanitize_claim_footprint_row(
         "direction": _clean_str(row.get("direction")) or "not_applicable",
         "horizon_bucket": _clean_str(row.get("horizon_bucket")) or "unknown",
         "confidence_bucket": _clean_str(row.get("confidence_bucket")) or "unknown",
-        "rke_context_hash": _clean_str(row.get("rke_context_hash")),
+        "rke_context_hash": rke_context_hash,
         "ranking_policy_id": _clean_str(row.get("ranking_policy_id")),
         "retrieval_rank": _optional_int(row.get("retrieval_rank")),
         "priority_bucket": _clean_str(row.get("priority_bucket")),
@@ -2370,6 +2373,10 @@ def _require_str(params: dict[str, Any], key: str) -> str:
 
 def _clean_str(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _is_sha256_hex(value: str) -> bool:
+    return len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
 
 def _optional_int(value: Any) -> int | None:

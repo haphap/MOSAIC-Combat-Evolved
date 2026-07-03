@@ -739,6 +739,37 @@ def test_capture_agent_claim_footprints_blocks_private_text_fields(
     assert not (project_root / result["private_rows_path"]).exists()
 
 
+def test_capture_agent_claim_footprints_blocks_invalid_context_hash(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    result = dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-invalid-context-hash",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "not-a-sha256",
+                }
+            ],
+        },
+    )
+
+    assert result["capture_status"] == "blocked"
+    assert result["captured_count"] == 0
+    assert "rke_context_hash must be a 64-character hex digest" in result[
+        "failures"
+    ][0]
+    assert not (project_root / result["private_rows_path"]).exists()
+
+
 def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
     tmp_path: Path, monkeypatch
 ):

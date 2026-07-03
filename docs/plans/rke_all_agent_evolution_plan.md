@@ -281,8 +281,9 @@ Status 2026-07-03:
   private-local capture path for redacted all-agent claim/footprint rows. It
   rejects prompt/report prose fields such as `claim_text`, `source_span_ids`,
   raw `text`, prompt body, URLs, and local paths; successful rows are written
-  only under `.mosaic/rke/all_agent_evolution/agent_claim_footprints.jsonl` and
-  the RPC returns aggregate layer/type counts plus a no-source-prose privacy scan.
+  only under `.mosaic/rke/all_agent_evolution/agent_claim_footprints.jsonl`;
+  runtime `rke_context_hash` values must be 64-hex SHA-256 digests; the RPC
+  returns aggregate layer/type counts plus a no-source-prose privacy scan.
   `rke_benchmark.agent_footprint_summary` reads the private rows and returns only
   redacted aggregate counts for layer, claim type, RKE prior usage quality,
   current-data confirmation, stale-prior rejection, contradictory-prior handling,
