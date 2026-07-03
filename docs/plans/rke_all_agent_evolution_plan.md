@@ -227,9 +227,16 @@ Status 2026-07-03:
   fields, and manual-review-required state. It reuses `prompts.preflight`; if
   private prompt provenance is missing, the benchmark remains `blocked_preflight`
   and bundled prompts do not count.
-- This implements the episode/model/input manifest proof object. E2 is not
-  complete until real paired LLM outputs, schema validation, deterministic score
-  tables, investment outcome tables, and manual review decisions exist.
+- Public bridge now also exposes `rke_benchmark.fixed_episode_benchmark_evidence`,
+  a no-body gate for formal benchmark evidence refs. It requires enough paired
+  outputs for the three required model configs, schema validation report,
+  deterministic score table, investment outcome table, and approved manual
+  review timestamp before marking evidence ready; it never enables promotion by
+  itself.
+- This implements the episode/model/input manifest and benchmark-evidence proof
+  object preflight. E2 is not complete until real paired LLM outputs, schema
+  validation, deterministic score tables, investment outcome tables, and manual
+  review decisions exist from actual runs.
 
 ## E3: Agent Claim And Footprint Capture
 

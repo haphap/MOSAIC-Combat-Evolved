@@ -512,6 +512,30 @@ export interface RkeFixedEpisodeManifestResult {
   promotion_allowed: boolean;
 }
 
+export interface RkeFixedEpisodeBenchmarkEvidenceResult {
+  schema_version: "rke_fixed_episode_benchmark_evidence_v1";
+  evidence_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  episode_count: number;
+  as_of_date_count: number;
+  agent_count: number;
+  required_model_config_count: number;
+  required_paired_output_count: number;
+  paired_output_count: number;
+  evidence_refs: {
+    paired_output_manifest_ref: string;
+    output_schema_validation_report_ref: string;
+    deterministic_score_table_ref: string;
+    investment_outcome_table_ref: string;
+  };
+  manual_review: {
+    decision: string;
+    reviewer_timestamp: string;
+  };
+  promotion_allowed: boolean;
+}
+
 export interface RkeAgentClaimFootprintInput {
   agent: string;
   layer?: string;
@@ -1277,6 +1301,19 @@ export class BridgeApi {
     return this.client.call<RkeFixedEpisodeManifestResult>(
       "rke_benchmark.fixed_episode_manifest",
       params ?? {},
+    );
+  }
+
+  rkeBenchmarkFixedEpisodeBenchmarkEvidence(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    paired_output_count?: number;
+    evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+  }): Promise<RkeFixedEpisodeBenchmarkEvidenceResult> {
+    return this.client.call<RkeFixedEpisodeBenchmarkEvidenceResult>(
+      "rke_benchmark.fixed_episode_benchmark_evidence",
+      params,
     );
   }
 

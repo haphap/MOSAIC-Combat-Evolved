@@ -202,6 +202,78 @@ def fixed_episode_manifest(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.fixed_episode_benchmark_evidence")
+def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
+    """Check no-body evidence refs for the fixed-episode benchmark gate."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    manifest = fixed_episode_manifest({"cohort": params.get("cohort")})
+    evidence_refs = params.get("evidence_refs")
+    if not isinstance(evidence_refs, dict):
+        evidence_refs = {}
+    manual_review = params.get("manual_review")
+    if not isinstance(manual_review, dict):
+        manual_review = {}
+    paired_output_count = params.get("paired_output_count")
+    if not isinstance(paired_output_count, int) or isinstance(paired_output_count, bool):
+        paired_output_count = 0
+
+    required_model_count = sum(1 for config in _MODEL_CONFIGS if config["required"])
+    required_paired_output_count = (
+        manifest["as_of_date_count"] * manifest["agent_count"] * required_model_count
+    )
+    blocked_reasons: list[str] = []
+    if manifest["benchmark_status"] != "ready_to_run":
+        blocked_reasons.append("private_prompt_preflight_not_ready")
+    if paired_output_count < required_paired_output_count:
+        blocked_reasons.append("paired_output_count_below_required")
+    for key in (
+        "paired_output_manifest_ref",
+        "output_schema_validation_report_ref",
+        "deterministic_score_table_ref",
+        "investment_outcome_table_ref",
+    ):
+        if not _clean_str(evidence_refs.get(key)):
+            blocked_reasons.append(f"{key}_missing")
+    if _clean_str(manual_review.get("decision")) != "approved":
+        blocked_reasons.append("manual_review_not_approved")
+    if not _clean_str(manual_review.get("reviewer_timestamp")):
+        blocked_reasons.append("manual_review_timestamp_missing")
+    if _forbidden_paths(evidence_refs) or _forbidden_paths(manual_review):
+        blocked_reasons.append("private_or_source_prose_ref_detected")
+
+    return {
+        "schema_version": "rke_fixed_episode_benchmark_evidence_v1",
+        "evidence_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "blocked_reasons": sorted(set(blocked_reasons)),
+        "episode_count": manifest["episode_count"],
+        "as_of_date_count": manifest["as_of_date_count"],
+        "agent_count": manifest["agent_count"],
+        "required_model_config_count": required_model_count,
+        "required_paired_output_count": required_paired_output_count,
+        "paired_output_count": paired_output_count,
+        "evidence_refs": {
+            "paired_output_manifest_ref": _clean_str(
+                evidence_refs.get("paired_output_manifest_ref")
+            ),
+            "output_schema_validation_report_ref": _clean_str(
+                evidence_refs.get("output_schema_validation_report_ref")
+            ),
+            "deterministic_score_table_ref": _clean_str(
+                evidence_refs.get("deterministic_score_table_ref")
+            ),
+            "investment_outcome_table_ref": _clean_str(
+                evidence_refs.get("investment_outcome_table_ref")
+            ),
+        },
+        "manual_review": {
+            "decision": _clean_str(manual_review.get("decision")),
+            "reviewer_timestamp": _clean_str(manual_review.get("reviewer_timestamp")),
+        },
+        "promotion_allowed": False,
+    }
+
+
 @method("rke_benchmark.capture_agent_claim_footprints")
 def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
     """Write redacted agent claim/footprint rows to the local private store."""

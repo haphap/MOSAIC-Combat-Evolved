@@ -89,6 +89,63 @@ def test_fixed_episode_manifest_is_ready_with_all_private_prompts(
     assert "private_prompt_hash_and_repo_revision" in result["input_requirements"]
 
 
+def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.delenv("MOSAIC_PROMPTS_REPO", raising=False)
+    monkeypatch.delenv("MOSAIC_PRIVATE_PROMPT_REPO", raising=False)
+    monkeypatch.delenv("MOSAIC_PROMPTS_ROOT", raising=False)
+
+    result = dispatch(
+        "rke_benchmark.fixed_episode_benchmark_evidence",
+        {"benchmark_run_id": "bench-missing"},
+    )
+
+    assert result["evidence_status"] == "blocked_preflight"
+    assert result["required_paired_output_count"] == 1275
+    assert "private_prompt_preflight_not_ready" in result["blocked_reasons"]
+    assert "paired_output_count_below_required" in result["blocked_reasons"]
+    assert "manual_review_not_approved" in result["blocked_reasons"]
+    assert result["promotion_allowed"] is False
+
+
+def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "rke_benchmark.fixed_episode_benchmark_evidence",
+        {
+            "benchmark_run_id": "bench-ready",
+            "paired_output_count": 1275,
+            "evidence_refs": {
+                "paired_output_manifest_ref": "bench-ready-paired-output-manifest",
+                "output_schema_validation_report_ref": "bench-ready-schema-report",
+                "deterministic_score_table_ref": "bench-ready-score-table",
+                "investment_outcome_table_ref": "bench-ready-investment-outcomes",
+            },
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+        },
+    )
+
+    assert result["evidence_status"] == "ready"
+    assert result["blocked_reasons"] == []
+    assert result["paired_output_count"] == result["required_paired_output_count"]
+    assert result["manual_review"]["decision"] == "approved"
+    assert result["promotion_allowed"] is False
+
+
 def test_capture_agent_claim_footprints_writes_private_redacted_rows(
     tmp_path: Path, monkeypatch
 ):

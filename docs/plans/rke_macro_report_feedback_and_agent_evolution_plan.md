@@ -2262,6 +2262,10 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   8 个 regime episodes、17 个 as-of dates、全 25 agents、4 类 model config slot、
   input/scoring contract 和 manual-review-required 状态。真实 LLM paired outputs、
   deterministic score tables、investment outcomes 和 manual review 决策仍未运行。
+- `rke_benchmark.fixed_episode_benchmark_evidence` 已提供 no-body benchmark evidence
+  gate，要求 paired output manifest、schema validation report、deterministic score
+  table、investment outcome table 和 approved manual review timestamp；实际 LLM 输出和
+  人工复核仍需由正式 benchmark run 产生。
 - LLM reasoning benchmark 和人工复核 gate 尚未运行；正式 benchmark 还必须使用 private
   prompt repo 解析出的 frozen prompt hash，不能用 public fallback 充当有效 paired output。
 - autoresearch / Darwinian replay 还没有系统读取 RKE prior usage quality、agent claim outcome、
