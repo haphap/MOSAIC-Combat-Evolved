@@ -549,8 +549,10 @@ ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS: Mapping[str, float] = {
     "proprietary_leakage_free_rate": 1.00,
 }
 KNOWN_AGENT_ID_PREFIXES = {
+    "decision",
     "macro",
     "sector",
+    "superinvestor",
     "style",
     "portfolio",
     "risk",
@@ -561,6 +563,20 @@ KNOWN_AGENT_ID_PREFIXES = {
     "industry",
     "stock",
 }
+STOCK_ASSIGNMENT_AGENT_CANDIDATES = (
+    "superinvestor.munger",
+    "superinvestor.burry",
+    "superinvestor.ackman",
+    "superinvestor.druckenmiller",
+    "decision.cio",
+    "decision.alpha_discovery",
+    "sector.relationship_mapper",
+)
+INDUSTRY_ASSIGNMENT_FALLBACK_AGENT_CANDIDATES = (
+    "sector.relationship_mapper",
+    "decision.cio",
+    "decision.alpha_discovery",
+)
 
 
 def _report_intelligence_feature_flag_payload() -> dict[str, Any]:
@@ -8293,7 +8309,47 @@ def _explicit_agent_candidates(record: Mapping[str, Any]) -> list[str]:
         ):
             raw = payload.get(key)
             values.extend(_ensure_list(raw) if isinstance(raw, list | tuple) else [raw])
-    return [str(value).strip() for value in values if str(value or "").strip()]
+    return list(
+        dict.fromkeys(
+            agent_id for value in values if (agent_id := _known_agent_id(value))
+        )
+    )
+
+
+def _sector_assignment_agent_candidates(record: Mapping[str, Any]) -> list[str]:
+    from .agent_research_context import SECTOR_AGENT_KEYWORDS
+
+    target = _ensure_mapping(record.get("target"))
+    text = " ".join(
+        str(value)
+        for value in (
+            target.get("target_id"),
+            target.get("target_name"),
+            target.get("target_label"),
+            record.get("sector"),
+        )
+        if str(value or "").strip()
+    ).lower()
+    agents = [
+        agent_id
+        for agent_id, keywords in SECTOR_AGENT_KEYWORDS.items()
+        if any(str(keyword).lower() in text for keyword in keywords)
+    ]
+    agents.extend(INDUSTRY_ASSIGNMENT_FALLBACK_AGENT_CANDIDATES)
+    return list(dict.fromkeys(agents))
+
+
+def _inferred_agent_assignment(record: Mapping[str, Any]) -> tuple[str, list[str]]:
+    target = _ensure_mapping(record.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type.startswith("macro"):
+        agents = list(_claim_macro_agent_candidates(record))
+        return ("macro_target_mapping", agents) if agents else ("", [])
+    if target_type in {"stock", "company"}:
+        return "stock_default_agents", list(STOCK_ASSIGNMENT_AGENT_CANDIDATES)
+    if target_type in {"sector", "industry"}:
+        return "industry_default_agents", _sector_assignment_agent_candidates(record)
+    return "", []
 
 
 def _assignment_gaps(record: Mapping[str, Any]) -> list[str]:
@@ -8308,7 +8364,7 @@ def _assignment_gaps(record: Mapping[str, Any]) -> list[str]:
         return []
     if _explicit_agent_candidates(record):
         return []
-    if target_type.startswith("macro") and _claim_macro_agent_candidates(record):
+    if _inferred_agent_assignment(record)[1]:
         return []
     return ["agent_assignment_missing"]
 
@@ -13780,6 +13836,9 @@ def build_outcome_labeling_readiness_report(
     mechanism_gap_ids: list[str] = []
     assignment_gap_counts: dict[str, int] = {}
     assignment_gap_ids: list[str] = []
+    assignment_inferred_agent_counts: dict[str, int] = {}
+    assignment_inferred_rule_counts: dict[str, int] = {}
+    assignment_inferred_ids: list[str] = []
     macro_regime_counts: dict[str, int] = {}
     source_text_macro_regime_counts: dict[str, int] = {}
     as_of_date_macro_regime_counts: dict[str, int] = {}
@@ -13983,6 +14042,21 @@ def build_outcome_labeling_readiness_report(
             mechanism_gap_ids.append(forecast_claim_id)
         for gap in mechanism_gaps:
             mechanism_gap_counts[gap] = mechanism_gap_counts.get(gap, 0) + 1
+        assignment_rule, inferred_agents = (
+            ("", [])
+            if _explicit_agent_candidates(forecast)
+            else _inferred_agent_assignment(forecast)
+        )
+        if inferred_agents and forecast_claim_id:
+            assignment_inferred_ids.append(forecast_claim_id)
+        if assignment_rule:
+            assignment_inferred_rule_counts[assignment_rule] = (
+                assignment_inferred_rule_counts.get(assignment_rule, 0) + 1
+            )
+        for agent_id in inferred_agents:
+            assignment_inferred_agent_counts[agent_id] = (
+                assignment_inferred_agent_counts.get(agent_id, 0) + 1
+            )
         assignment_gaps = _assignment_gaps(forecast)
         if assignment_gaps and forecast_claim_id:
             assignment_gap_ids.append(forecast_claim_id)
@@ -14067,6 +14141,12 @@ def build_outcome_labeling_readiness_report(
         ),
         "mechanism_gap_counts": dict(sorted(mechanism_gap_counts.items())),
         "assignment_gap_counts": dict(sorted(assignment_gap_counts.items())),
+        "assignment_inferred_agent_counts": dict(
+            sorted(assignment_inferred_agent_counts.items())
+        ),
+        "assignment_inferred_rule_counts": dict(
+            sorted(assignment_inferred_rule_counts.items())
+        ),
         "rating_readiness_bucket_counts": {
             "blocked_assignment": len(set(assignment_gap_ids)),
             "blocked_mapping": len(blocked_ids),
@@ -14095,6 +14175,9 @@ def build_outcome_labeling_readiness_report(
         "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
         "mechanism_gap_forecast_claim_ids": sorted(set(mechanism_gap_ids)),
         "assignment_gap_forecast_claim_ids": sorted(set(assignment_gap_ids)),
+        "assignment_inferred_forecast_claim_ids": sorted(
+            set(assignment_inferred_ids)
+        ),
         "blocked_reason": blocked_reason,
         "minimum_required_mapping": [
             "target",

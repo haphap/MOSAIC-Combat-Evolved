@@ -107,6 +107,7 @@ from mosaic.rke.report_intelligence import (
     _paper_trading_chronological_split_metrics,
     _paper_trading_train_oos_split_items,
     _select_report_forecast_claims,
+    _split_agent_and_entity_candidates,
     _stable_id,
     _text_grounded_indicator_mentions,
     _user_prompt,
@@ -2332,7 +2333,7 @@ def test_outcome_readiness_tracks_agent_assignment_gap():
     readiness = build_outcome_labeling_readiness_report(
         forecast_rows=[
             {
-                "forecast_claim_id": "FC-SECTOR-NO-OWNER",
+                "forecast_claim_id": "FC-SECTOR-INFERRED-OWNER",
                 "target": {"target_type": "sector", "target_id": "半导体"},
                 "metric_proxy_mapping": ["industry_etf_forward_return"],
                 "direction": "positive",
@@ -2349,22 +2350,72 @@ def test_outcome_readiness_tracks_agent_assignment_gap():
                 "direction": "positive",
                 "horizon": {"preferred_days": 20},
             },
+            {
+                "forecast_claim_id": "FC-STOCK-INFERRED-OWNER",
+                "target": {"target_type": "stock", "target_id": "600519.SH"},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-UNKNOWN-OWNER",
+                "target": {"target_type": "factor", "target_id": "quality"},
+                "metric_proxy_mapping": ["factor_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
         ],
         forecast_ledger_rows=[
             {
-                "forecast_claim_id": "FC-SECTOR-NO-OWNER",
+                "forecast_claim_id": "FC-SECTOR-INFERRED-OWNER",
                 "test_status": "not_ready_insufficient_mapping",
             },
             {
                 "forecast_claim_id": "FC-SECTOR-OWNER",
                 "test_status": "not_ready_insufficient_mapping",
             },
+            {
+                "forecast_claim_id": "FC-STOCK-INFERRED-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-UNKNOWN-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
         ],
     )
 
     assert readiness["assignment_gap_counts"] == {"agent_assignment_missing": 1}
-    assert readiness["assignment_gap_forecast_claim_ids"] == ["FC-SECTOR-NO-OWNER"]
+    assert readiness["assignment_gap_forecast_claim_ids"] == ["FC-UNKNOWN-OWNER"]
+    assert readiness["assignment_inferred_rule_counts"] == {
+        "industry_default_agents": 1,
+        "stock_default_agents": 1,
+    }
+    assert readiness["assignment_inferred_agent_counts"][
+        "sector.semiconductor"
+    ] == 1
+    assert readiness["assignment_inferred_agent_counts"][
+        "superinvestor.munger"
+    ] == 1
     assert readiness["rating_readiness_bucket_counts"]["blocked_assignment"] == 1
+
+
+def test_report_intelligence_agent_candidate_filter_keeps_investor_and_decision_ids():
+    agents, entities = _split_agent_and_entity_candidates(
+        [
+            "superinvestor.munger",
+            "decision.cio",
+            "sector.semiconductor",
+            "Anthropic",
+        ]
+    )
+
+    assert agents == [
+        "superinvestor.munger",
+        "decision.cio",
+        "sector.semiconductor",
+    ]
+    assert entities == ["Anthropic"]
 
 
 def _passing_forecast_gold_review_summary(**overrides):

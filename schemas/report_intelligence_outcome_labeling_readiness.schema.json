@@ -60,6 +60,8 @@
     "mechanism_impact_variable_counts": {"type": "object"},
     "mechanism_gap_counts": {"type": "object"},
     "assignment_gap_counts": {"type": "object"},
+    "assignment_inferred_agent_counts": {"type": "object"},
+    "assignment_inferred_rule_counts": {"type": "object"},
     "rating_readiness_bucket_counts": {"type": "object"},
     "ready_forecast_claim_ids": {"type": "array", "items": {"type": "string"}},
     "standard_blocked_forecast_claim_ids": {
@@ -132,6 +134,10 @@
       "items": {"type": "string"}
     },
     "assignment_gap_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "assignment_inferred_forecast_claim_ids": {
       "type": "array",
       "items": {"type": "string"}
     },

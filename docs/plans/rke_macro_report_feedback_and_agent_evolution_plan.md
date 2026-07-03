@@ -2129,9 +2129,10 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
 - 条件 4：部分完成。stock/industry outcome 已按 `label_type`、benchmark/cost model
   做基础分层；macro profile 仍需继续强化 agent/regime/metric family 分层和
   cross-asset consistency，才能满足完整 exit criterion。`outcome_labeling_readiness.json`
-  已新增 `assignment_gap_counts` 和 `rating_readiness_bucket_counts`，当前 corpus 记录
-  `blocked_assignment=8687`、`agent_assignment_missing=8687`，并有
-  `agent_assignment_mapping_rule` mutation candidate 进入演化输入。stock/industry context snapshot
+  已新增 `assignment_gap_counts`、`assignment_inferred_rule_counts` 和
+  `rating_readiness_bucket_counts`；当前 corpus 记录 `blocked_assignment=0`、
+  `assignment_gap_counts={}`，并通过 `industry_default_agents` 规则把 8687 条缺显式 owner 的
+  claim 路由到 sector/decision owning-agent 候选。stock/industry context snapshot
   仍是 proposed artifact，当前没有 `build_stock_context_snapshots` 或
   `build_industry_context_snapshots` builder。
 - 条件 5：部分完成。宏观已有 7 个 macro agents 的 redacted research priors：
@@ -2234,8 +2235,8 @@ prompt repo 版本的 RKE 驱动演化仍未完成。
 1. 继续扩大三域 PIT outcome / markdown coverage 样本，让条件 12 从当前 refusal-only
    gate 证据推进到可验证 candidate 和非零 market-feedback evidence。
 2. 同步补剩余三域评级缺口：stock/industry context snapshot、macro 的
-   `cross_asset_consistency` 计算规则，以及 `blocked_assignment` 从当前 readiness/candidate
-   证据推进到可复核的 owning-agent mapping improvement。
+   `cross_asset_consistency` 计算规则。`blocked_assignment` 已从 readiness/candidate
+   证据推进到可复核的 owning-agent mapping aggregate，后续只需随新 target family 扩展映射。
 3. 最后把 compiler 输出接到 P7/P11.6 的 evolution gate，仍保持 shadow-only；all-agent
    benchmark、replay、Darwinian weight 和 private prompt mutation 按
    `docs/plans/rke_all_agent_evolution_plan.md` 执行。
