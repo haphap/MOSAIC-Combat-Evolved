@@ -9,7 +9,98 @@ from mosaic.rke.agent_research_context import (
     format_rke_agent_research_context,
     normalize_agent_id,
 )
+from mosaic.rke.cli import main
 from mosaic.agents.utils import rke_research_tools
+
+
+def _write_jsonl(path, rows):
+    path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_export_rke_agent_context_cli_outputs_three_domain_context(capsys, tmp_path):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True)
+    _write_jsonl(
+        registry_dir / "forecast_claims.jsonl",
+        [
+            {
+                "forecast_claim_id": "FC-STOCK-CLI",
+                "report_id": "RPT-STOCK-CLI",
+                "target": {"target_type": "stock", "target_id": "600519.SH"},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "direction": "positive",
+            },
+            {
+                "forecast_claim_id": "FC-INDUSTRY-CLI",
+                "report_id": "RPT-INDUSTRY-CLI",
+                "target": {"target_type": "industry", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+            },
+            {
+                "forecast_claim_id": "FC-MACRO-CLI",
+                "report_id": "RPT-MACRO-CLI",
+                "target": {
+                    "target_type": "macro_series",
+                    "target_id": "USDCNY",
+                    "metric_family": "fx_rate",
+                },
+                "direction": "positive",
+            },
+        ],
+    )
+    _write_jsonl(
+        registry_dir / "report_metadata.jsonl",
+        [
+            {
+                "report_id": "RPT-STOCK-CLI",
+                "report_type": "个股研报",
+                "ts_code": "600519.SH",
+                "publish_datetime": "2026-01-01T00:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-INDUSTRY-CLI",
+                "report_type": "行业研报",
+                "sector": "半导体",
+                "publish_datetime": "2026-01-02T00:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-MACRO-CLI",
+                "report_type": "宏观策略",
+                "publish_datetime": "2026-01-03T00:00:00+08:00",
+            },
+        ],
+    )
+
+    exit_code = main(
+        (
+            "export-rke-agent-context",
+            "--root",
+            str(tmp_path),
+            "--agent-id",
+            "cio",
+            "--layer",
+            "decision",
+            "--as-of-date",
+            "2026-02-01",
+        )
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["agent_id"] == "decision.cio"
+    assert payload["production_signal_allowed"] is False
+    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v1"
+    assert payload["summary"]["item_count"] == 3
+    assert {item["domain"] for item in payload["context_items"]} == {
+        "stock",
+        "industry",
+        "macro",
+    }
+    assert "claim_text" not in json.dumps(payload, ensure_ascii=False)
 
 
 def test_macro_context_redacts_private_claim_text_and_maps_agent():
