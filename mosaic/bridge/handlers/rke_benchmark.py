@@ -387,6 +387,9 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         elif count:
             blocked_reasons.append(f"{key}_nonzero")
     for key in (
+        "episode_manifest_ref",
+        "as_of_date_manifest_ref",
+        "model_config_manifest_ref",
         "paired_output_manifest_ref",
         "output_schema_validation_report_ref",
         "deterministic_score_table_ref",
@@ -443,6 +446,15 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         },
         "prompt_source_status": manifest["prompt_preflight"].get("source_status", {}),
         "evidence_refs": {
+            "episode_manifest_ref": _clean_str(
+                evidence_refs.get("episode_manifest_ref")
+            ),
+            "as_of_date_manifest_ref": _clean_str(
+                evidence_refs.get("as_of_date_manifest_ref")
+            ),
+            "model_config_manifest_ref": _clean_str(
+                evidence_refs.get("model_config_manifest_ref")
+            ),
             "paired_output_manifest_ref": _clean_str(
                 evidence_refs.get("paired_output_manifest_ref")
             ),

@@ -71,6 +71,18 @@ def _benchmark_quality_summary(**overrides: object) -> dict:
     return row
 
 
+def _benchmark_evidence_refs(prefix: str = "bench-ready") -> dict:
+    return {
+        "episode_manifest_ref": f"{prefix}-episode-manifest",
+        "as_of_date_manifest_ref": f"{prefix}-as-of-dates",
+        "model_config_manifest_ref": f"{prefix}-model-configs",
+        "paired_output_manifest_ref": f"{prefix}-paired-output-manifest",
+        "output_schema_validation_report_ref": f"{prefix}-schema-report",
+        "deterministic_score_table_ref": f"{prefix}-score-table",
+        "investment_outcome_table_ref": f"{prefix}-investment-outcomes",
+    }
+
+
 def _prompt_release_check() -> dict:
     return {
         "mutation_candidate_id": "PMUT-1",
@@ -319,6 +331,8 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
     )
     assert "quality_gate_ref_missing" in result["blocked_reasons"]
     assert "schema_failure_gate_not_passed" in result["blocked_reasons"]
+    assert "episode_manifest_ref_missing" in result["blocked_reasons"]
+    assert "model_config_manifest_ref_missing" in result["blocked_reasons"]
     assert "manual_review_not_approved" in result["blocked_reasons"]
     assert result["promotion_allowed"] is False
 
@@ -339,12 +353,7 @@ def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
-            "evidence_refs": {
-                "paired_output_manifest_ref": "bench-ready-paired-output-manifest",
-                "output_schema_validation_report_ref": "bench-ready-schema-report",
-                "deterministic_score_table_ref": "bench-ready-score-table",
-                "investment_outcome_table_ref": "bench-ready-investment-outcomes",
-            },
+            "evidence_refs": _benchmark_evidence_refs(),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -380,12 +389,7 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
             "paired_output_count": 1275,
             "model_config_output_counts": counts,
             "benchmark_quality_summary": _benchmark_quality_summary(),
-            "evidence_refs": {
-                "paired_output_manifest_ref": "bench-ready-paired-output-manifest",
-                "output_schema_validation_report_ref": "bench-ready-schema-report",
-                "deterministic_score_table_ref": "bench-ready-score-table",
-                "investment_outcome_table_ref": "bench-ready-investment-outcomes",
-            },
+            "evidence_refs": _benchmark_evidence_refs("bench-missing-model"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -420,12 +424,7 @@ def test_fixed_episode_benchmark_evidence_blocks_quality_gate_failures(
             "benchmark_quality_summary": _benchmark_quality_summary(
                 severe_safety_violation_count=1
             ),
-            "evidence_refs": {
-                "paired_output_manifest_ref": "bench-ready-paired-output-manifest",
-                "output_schema_validation_report_ref": "bench-ready-schema-report",
-                "deterministic_score_table_ref": "bench-ready-score-table",
-                "investment_outcome_table_ref": "bench-ready-investment-outcomes",
-            },
+            "evidence_refs": _benchmark_evidence_refs("bench-quality-fail"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -1547,12 +1546,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": {
-                "paired_output_manifest_ref": "bench-shadow-paired",
-                "output_schema_validation_report_ref": "bench-shadow-schema",
-                "deterministic_score_table_ref": "bench-shadow-scores",
-                "investment_outcome_table_ref": "bench-shadow-outcomes",
-            },
+            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-shadow"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -1667,12 +1661,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": {
-                "paired_output_manifest_ref": "bench-paper-paired",
-                "output_schema_validation_report_ref": "bench-paper-schema",
-                "deterministic_score_table_ref": "bench-paper-scores",
-                "investment_outcome_table_ref": "bench-paper-outcomes",
-            },
+            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-paper"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -1784,12 +1773,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": {
-                "paired_output_manifest_ref": "bench-promotion-paired",
-                "output_schema_validation_report_ref": "bench-promotion-schema",
-                "deterministic_score_table_ref": "bench-promotion-scores",
-                "investment_outcome_table_ref": "bench-promotion-outcomes",
-            },
+            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-promotion"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -2022,12 +2006,7 @@ def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypat
         "rke_benchmark.record_delivery_evidence",
         {
             "benchmark_run_id": "bench-delivery-incremental",
-            "benchmark_evidence_refs": {
-                "paired_output_manifest_ref": "recorded-paired",
-                "output_schema_validation_report_ref": "recorded-schema",
-                "deterministic_score_table_ref": "recorded-scores",
-                "investment_outcome_table_ref": "recorded-outcomes",
-            },
+            "benchmark_evidence_refs": _benchmark_evidence_refs("recorded"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -2147,12 +2126,7 @@ def test_delivery_readiness_loads_recorded_private_evidence(
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": {
-                "paired_output_manifest_ref": "recorded-paired",
-                "output_schema_validation_report_ref": "recorded-schema",
-                "deterministic_score_table_ref": "recorded-scores",
-                "investment_outcome_table_ref": "recorded-outcomes",
-            },
+            "benchmark_evidence_refs": _benchmark_evidence_refs("recorded"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",
@@ -2249,12 +2223,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
-            "benchmark_evidence_refs": {
-                "paired_output_manifest_ref": "bench-delivery-paired",
-                "output_schema_validation_report_ref": "bench-delivery-schema",
-                "deterministic_score_table_ref": "bench-delivery-scores",
-                "investment_outcome_table_ref": "bench-delivery-outcomes",
-            },
+            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-delivery"),
             "manual_review": {
                 "decision": "approved",
                 "reviewer_timestamp": "2026-07-03T12:00:00Z",

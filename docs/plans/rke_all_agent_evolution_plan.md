@@ -248,11 +248,12 @@ Status 2026-07-03:
 - Public bridge now also exposes `rke_benchmark.fixed_episode_benchmark_evidence`,
   a no-body gate for formal benchmark evidence refs. It requires total paired
   output count and per-required-model output counts for the three required model
-  configs, schema validation report, deterministic score table, investment
-  outcome table, benchmark quality gate summary, and approved manual review
-  timestamp before marking evidence ready. The quality summary blocks severe
-  safety violations, fallback prompt runs, current-data confirmation violations,
-  and failed schema-failure gate; it never enables promotion by itself.
+  configs, fixed episode/as-of-date/model-config manifest refs, schema validation
+  report, deterministic score table, investment outcome table, benchmark quality
+  gate summary, and approved manual review timestamp before marking evidence
+  ready. The quality summary blocks severe safety violations, fallback prompt
+  runs, current-data confirmation violations, and failed schema-failure gate; it
+  never enables promotion by itself.
 - This implements the episode/model/input manifest and benchmark-evidence proof
   object preflight. E2 is not complete until real paired LLM outputs, schema
   validation, deterministic score tables, investment outcome tables, and manual

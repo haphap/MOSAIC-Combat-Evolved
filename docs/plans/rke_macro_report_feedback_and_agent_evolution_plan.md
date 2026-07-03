@@ -2291,11 +2291,11 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   deterministic score tables、investment outcomes 和 manual review 决策仍未运行。
 - `rke_benchmark.fixed_episode_benchmark_evidence` 已提供 no-body benchmark evidence
   gate，要求 paired output manifest、三类 required model config 的逐模型 paired output
-  counts、schema validation report、deterministic score table、investment outcome table
-  benchmark quality gate summary 和 approved manual review timestamp；quality summary
-  会阻断 severe safety violation、fallback prompt run、current-data confirmation
-  violation 和未通过的 schema-failure gate。实际 LLM 输出和人工复核仍需由正式 benchmark
-  run 产生。
+  counts、fixed episode/as-of-date/model-config manifest refs、schema validation report、
+  deterministic score table、investment outcome table、benchmark quality gate summary
+  和 approved manual review timestamp；quality summary 会阻断 severe safety violation、
+  fallback prompt run、current-data confirmation violation 和未通过的 schema-failure gate。
+  实际 LLM 输出和人工复核仍需由正式 benchmark run 产生。
 - LLM reasoning benchmark 和人工复核 gate 尚未运行；正式 benchmark 还必须使用 private
   prompt repo 解析出的 frozen prompt hash，不能用 public fallback 充当有效 paired output。
 - `rke_benchmark.darwinian_autoresearch_consumption_readiness` 已补 no-write
