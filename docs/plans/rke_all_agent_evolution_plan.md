@@ -446,7 +446,9 @@ Status 2026-07-03:
 - Public bridge now exposes `rke_benchmark.record_delivery_evidence`, a
   private-local no-body evidence sink under `.mosaic/rke/all_agent_evolution/`
   so actual benchmark/replay runs can persist refs and later rerun
-  `delivery_readiness` without resupplying every field.
+  `delivery_readiness` without resupplying every field. Repeated records for a
+  benchmark run merge by evidence key, so staged benchmark/replay/promotion runs
+  can append proof refs incrementally.
 - Public bridge now exposes `rke_benchmark.delivery_evidence_audit`, a no-body
   audit over that private store that reports recorded and missing proof-object
   keys per benchmark run.

@@ -2314,7 +2314,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   审计；真实 benchmark/replay/promotion 仍需实际运行。
 - `rke_benchmark.record_delivery_evidence` 已能把真实 run 产生的 no-body evidence refs
   写入 private-local `.mosaic/rke/all_agent_evolution/delivery_evidence.jsonl`，后续
-  `delivery_readiness` 可按 `benchmark_run_id` 复查；该私有 evidence store 不提交。
+  `delivery_readiness` 可按 `benchmark_run_id` 复查；同一 run 的多次记录按 evidence key
+  增量合并，便于 benchmark、replay、paper-trading 和 promotion 分阶段追加；该私有 evidence
+  store 不提交。
 - `rke_benchmark.delivery_evidence_audit` 已能按 `benchmark_run_id` 审计该私有 store
   已记录和仍缺失的 proof-object keys，不返回 evidence body。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。

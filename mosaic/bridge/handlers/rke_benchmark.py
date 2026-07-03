@@ -1558,11 +1558,13 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                     + ", ".join(forbidden_paths[:5])
                 )
                 continue
-            latest = {
-                key: evidence[key]
-                for key in _DELIVERY_EVIDENCE_KEYS
-                if key in evidence
-            }
+            latest.update(
+                {
+                    key: evidence[key]
+                    for key in _DELIVERY_EVIDENCE_KEYS
+                    if key in evidence
+                }
+            )
     return latest, failures
 
 

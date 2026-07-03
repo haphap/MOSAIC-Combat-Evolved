@@ -1238,6 +1238,55 @@ def test_delivery_evidence_audit_reports_recorded_and_missing_keys(
     assert partial["delivery_readiness_can_load"] is True
 
 
+def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypatch):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-incremental",
+            "paired_output_count": 1275,
+        },
+    )
+    dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-incremental",
+            "benchmark_evidence_refs": {
+                "paired_output_manifest_ref": "recorded-paired",
+                "output_schema_validation_report_ref": "recorded-schema",
+                "deterministic_score_table_ref": "recorded-scores",
+                "investment_outcome_table_ref": "recorded-outcomes",
+            },
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+        },
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-incremental"},
+    )
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": "bench-delivery-incremental"},
+    )
+
+    assert audit["recorded_keys"] == [
+        "benchmark_evidence_refs",
+        "manual_review",
+        "paired_output_count",
+    ]
+    assert all(
+        "fixed_episode_benchmark:paired_output_count_below_required" != reason
+        for reason in manifest["blocked_reasons"]
+    )
+
+
 def test_delivery_readiness_loads_recorded_private_evidence(
     tmp_path: Path, monkeypatch
 ):
