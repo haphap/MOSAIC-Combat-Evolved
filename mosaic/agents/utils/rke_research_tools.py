@@ -180,6 +180,20 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for field in ("recipe_ids", "tool_gap_ids")
     ):
         failures.append("item_recipe_tool_gap_ids_invalid")
+    outcome_summaries = [item.get("outcome_label_summary") for item in items]
+    if items and any(
+        not isinstance(summary, Mapping)
+        or not isinstance(summary.get("label_count"), int)
+        or isinstance(summary.get("label_count"), bool)
+        or summary.get("label_count") < 0
+        or not isinstance(summary.get("directional_hit_count"), int)
+        or isinstance(summary.get("directional_hit_count"), bool)
+        or summary.get("directional_hit_count") < 0
+        or not isinstance(summary.get("label_types"), (list, tuple))
+        or "latest_completed_exit_date" not in summary
+        for summary in outcome_summaries
+    ):
+        failures.append("outcome_label_summary_invalid")
     if items and any(not item.get("ranking_reason_codes") for item in items):
         failures.append("ranking_reason_codes_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
