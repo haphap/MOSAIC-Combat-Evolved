@@ -422,8 +422,10 @@ Status 2026-07-03:
   prompt changes, missing manual review, private text, or non-shadow promotion
   state block the manifest. It also classifies tooling/data-acquisition,
   review, coverage, mapping-registry, and policy-gate queue candidates as
-  no-prompt-branch records so they are not mistaken for private prompt writes
-  or patch activation candidates; no-prompt-only queues do not report
+  no-prompt-branch records; prompt-like candidates without a resolvable affected
+  agent are likewise recorded without creating an empty private prompt branch.
+  These records are not mistaken for private prompt writes or patch activation
+  candidates; no-prompt-only queues do not report
   `private_prompt_mutation_required=true`, and prompt release, rollback, and
   patch activation gates treat them as `not_applicable`.
 - This implements the E6 candidate/refusal consumption boundary. E6 is not

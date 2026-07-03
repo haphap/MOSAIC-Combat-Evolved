@@ -1135,15 +1135,23 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
             continue
         candidate_type = _clean_str(row.get("candidate_type")) or "unknown"
         target_scope = _clean_str(row.get("target_scope")) or "unknown"
+        target_component = _clean_str(row.get("target_component"))
         blocked_by = _safe_str_list(row.get("blocked_by"))
         consumption_action = _candidate_consumption_action(candidate_type)
+        if (
+            consumption_action == "private_prompt_branch_after_blockers_clear"
+            and not _affected_agents_from_candidate(
+                {"target_component": target_component}
+            )
+        ):
+            consumption_action = "record_unmapped_prompt_candidate_no_prompt_branch"
         summaries.append(
             {
                 "mutation_candidate_id": _clean_str(row.get("mutation_candidate_id")),
                 "candidate_type": candidate_type,
                 "consumption_action": consumption_action,
                 "target_scope": target_scope,
-                "target_component": _clean_str(row.get("target_component")),
+                "target_component": target_component,
                 "severity": _clean_str(row.get("severity")),
                 "blocked_by": blocked_by,
                 "promotion_state": _clean_str(row.get("promotion_state")),

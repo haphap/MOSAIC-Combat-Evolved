@@ -1968,6 +1968,32 @@ def test_candidate_consumption_manifest_classifies_review_and_coverage_no_prompt
     }
 
 
+def test_candidate_consumption_manifest_blocks_unmapped_prompt_candidate_branch():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="horizon_direction_rule",
+                    target_scope="report_intelligence.forecast_mapping",
+                    target_component="forecast_extraction_prompt",
+                    blocked_by=["manual_gold_set_review_required"],
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "ready_for_private_prompt_lifecycle"
+    assert manifest["private_prompt_mutation_required"] is False
+    assert manifest["consumption_action_counts"] == {
+        "record_unmapped_prompt_candidate_no_prompt_branch": 1
+    }
+    summary = manifest["candidate_summaries"][0]
+    assert summary["consumption_action"] == (
+        "record_unmapped_prompt_candidate_no_prompt_branch"
+    )
+
+
 def test_candidate_consumption_manifest_rejects_prompt_bypass():
     manifest = dispatch(
         "rke_benchmark.candidate_consumption_manifest",
@@ -2280,6 +2306,33 @@ def test_prompt_mutation_lifecycle_manifest_keeps_data_acquisition_out_of_prompt
     assert record["overwrite_target_paths"] == []
     assert record["prompt_pins"] == []
     assert "data_engineering_review_required" in record["blocked_by"]
+
+
+def test_prompt_mutation_lifecycle_manifest_keeps_unmapped_prompt_out_of_branch():
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_lifecycle_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="horizon_direction_rule",
+                    target_scope="report_intelligence.forecast_mapping",
+                    target_component="forecast_extraction_prompt",
+                    blocked_by=["manual_gold_set_review_required"],
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "no_prompt_branch_candidate_only" in manifest["blocked_reasons"]
+    record = manifest["lifecycle_records"][0]
+    assert record["candidate_action"] == (
+        "record_unmapped_prompt_candidate_no_prompt_branch"
+    )
+    assert record["affected_agents"] == []
+    assert record["private_prompt_branch"] == ""
+    assert record["overwrite_target_paths"] == []
+    assert record["prompt_pins"] == []
 
 
 def test_prompt_mutation_release_readiness_blocks_missing_release_check(
