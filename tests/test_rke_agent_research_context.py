@@ -976,7 +976,10 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
     assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
     assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
     assert "production_signal_allowed=false" in output
-    assert "- Outcome labels: count=1; pending_share=0.0" in output
+    assert (
+        "- Outcome labels: count=1; pending_share=0.0; "
+        "types=macro_series_directional; latest_completed_exit=2026-06-20"
+    ) in output
 
 
 def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():

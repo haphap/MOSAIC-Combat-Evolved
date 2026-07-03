@@ -455,7 +455,10 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                 (
                     "- Outcome labels: "
                     f"count={outcome_summary.get('label_count')}; "
-                    f"pending_share={outcome_summary.get('pending_share')}"
+                    f"pending_share={outcome_summary.get('pending_share')}; "
+                    "types="
+                    f"{', '.join(_ensure_str_list(outcome_summary.get('label_types'))) or 'none'}; "
+                    f"latest_completed_exit={outcome_summary.get('latest_completed_exit_date') or 'none'}"
                 ),
                 (
                     "- Recipes: "
