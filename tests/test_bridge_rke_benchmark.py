@@ -66,6 +66,22 @@ def _prompt_release_check() -> dict:
     }
 
 
+def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
+    return [
+        {
+            "agent": row["agent"],
+            "lang": row["lang"],
+            "prompt_version_id": index,
+            "prompt_sha256": row["prompt_sha256"],
+            "verify_release_ref": f"verify-all-{index}",
+            "leak_drift_check_ref": f"leak-all-{index}",
+            "verify_release_passed": True,
+            "leak_drift_passed": True,
+        }
+        for index, row in enumerate(rows, 1)
+    ]
+
+
 def test_fixed_episode_manifest_blocks_without_private_prompt_source():
     result = dispatch("rke_benchmark.fixed_episode_manifest", {})
 
@@ -151,23 +167,10 @@ def test_all_agent_prompt_provenance_readiness_accepts_private_release_checks(
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
     preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
-    release_checks = [
-        {
-            "agent": row["agent"],
-            "lang": row["lang"],
-            "prompt_version_id": index,
-            "prompt_sha256": row["prompt_sha256"],
-            "verify_release_ref": f"verify-release-{index}",
-            "leak_drift_check_ref": f"leak-drift-{index}",
-            "verify_release_passed": True,
-            "leak_drift_passed": True,
-        }
-        for index, row in enumerate(preflight["rows"], 1)
-    ]
 
     result = dispatch(
         "rke_benchmark.all_agent_prompt_provenance_readiness",
-        {"release_checks": release_checks},
+        {"release_checks": _all_prompt_release_checks(preflight["rows"])},
     )
 
     assert result["readiness_status"] == "ready"
@@ -1005,6 +1008,7 @@ def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatc
     )
 
     assert manifest["readiness_status"] == "blocked_preflight"
+    assert "all_agent_prompt_provenance_not_ready" in manifest["blocked_reasons"]
     assert "benchmark_evidence_not_ready" in manifest["blocked_reasons"]
     assert "darwinian_autoresearch_input_not_ready" in manifest["blocked_reasons"]
     assert "prompt_mutation_release_not_ready" in manifest["blocked_reasons"]
@@ -1072,6 +1076,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
     private_repo = _private_prompt_repo(tmp_path)
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
     dispatch(
         "rke_benchmark.capture_agent_claim_footprints",
         {
@@ -1095,6 +1100,9 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
         "rke_benchmark.shadow_replay_readiness",
         {
             "benchmark_run_id": "bench-shadow-ready",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"]
+            ),
             "paired_output_count": 1275,
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "bench-shadow-paired",
@@ -1140,6 +1148,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
     )
 
     assert manifest["readiness_status"] == "ready"
+    assert manifest["prompt_provenance_readiness_status"] == "ready"
     assert manifest["prompt_release_readiness_status"] == "ready"
     assert manifest["shadow_replay_ready"] is True
     assert manifest["paper_trading_allowed"] is False
@@ -1181,6 +1190,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
     private_repo = _private_prompt_repo(tmp_path)
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
     dispatch(
         "rke_benchmark.capture_agent_claim_footprints",
         {
@@ -1204,6 +1214,9 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
         "rke_benchmark.paper_trading_readiness",
         {
             "benchmark_run_id": "bench-paper-ready",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"]
+            ),
             "paired_output_count": 1275,
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "bench-paper-paired",
@@ -1288,6 +1301,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
     private_repo = _private_prompt_repo(tmp_path)
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
     dispatch(
         "rke_benchmark.capture_agent_claim_footprints",
         {
@@ -1311,6 +1325,9 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
         "rke_benchmark.promotion_decision_readiness",
         {
             "benchmark_run_id": "bench-promotion-ready",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"]
+            ),
             "paired_output_count": 1275,
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "bench-promotion-paired",

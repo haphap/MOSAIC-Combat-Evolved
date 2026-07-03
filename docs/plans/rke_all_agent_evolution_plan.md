@@ -439,11 +439,11 @@ Status 2026-07-03:
   post-rollback verification ref, and now keeps candidate `blocked_by` reasons
   blocking rollback. The gate never enables promotion by itself.
 - Public bridge now exposes `rke_benchmark.shadow_replay_readiness`, a no-write
-  gate that requires fixed-episode benchmark evidence, Darwinian/autoresearch
-  input readiness, prompt mutation release/leak-drift readiness, runtime RKE
-  context hash/current-data confirmation, and rollback readiness before marking
-  shadow replay ready. It keeps `paper_trading_allowed=false` and
-  `promotion_allowed=false`.
+  gate that requires all-agent prompt provenance, fixed-episode benchmark
+  evidence, Darwinian/autoresearch input readiness, prompt mutation
+  release/leak-drift readiness, runtime RKE context hash/current-data
+  confirmation, and rollback readiness before marking shadow replay ready. It
+  keeps `paper_trading_allowed=false` and `promotion_allowed=false`.
 - Public bridge now exposes `rke_benchmark.paper_trading_readiness`, a no-write
   gate that requires shadow replay readiness plus operator-reviewed
   paper-trading plan, risk-limit ref, and stop-loss/rollback ref before allowing

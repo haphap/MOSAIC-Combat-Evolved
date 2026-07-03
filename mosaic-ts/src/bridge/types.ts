@@ -854,6 +854,7 @@ export interface RkeShadowReplayReadinessResult {
   readiness_status: "ready" | "blocked_preflight";
   benchmark_run_id: string;
   blocked_reasons: string[];
+  prompt_provenance_readiness_status: "ready" | "blocked_preflight";
   benchmark_evidence_status: "ready" | "blocked_preflight";
   darwinian_manifest_status: "ready" | "blocked_preflight";
   prompt_release_readiness_status: "ready" | "blocked_preflight";
@@ -1634,6 +1635,7 @@ export class BridgeApi {
   rkeBenchmarkShadowReplayReadiness(params: {
     benchmark_run_id: string;
     cohort?: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
@@ -1652,6 +1654,7 @@ export class BridgeApi {
   rkeBenchmarkPaperTradingReadiness(params: {
     benchmark_run_id: string;
     cohort?: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
@@ -1671,6 +1674,7 @@ export class BridgeApi {
   rkeBenchmarkPromotionDecisionReadiness(params: {
     benchmark_run_id: string;
     cohort?: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;

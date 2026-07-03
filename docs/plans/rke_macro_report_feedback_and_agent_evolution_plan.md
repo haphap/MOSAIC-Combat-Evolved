@@ -2308,10 +2308,10 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   procedure、monitor output 和 post-rollback verification evidence；candidate `blocked_by`
   未清空时仍阻断 rollback gate；真实 rollback monitor 输出仍需由实际 replay/paper-trading
   run 产生。
-- `rke_benchmark.shadow_replay_readiness` 已能把 benchmark evidence、Darwinian input、
-  prompt mutation release/leak-drift readiness、runtime RKE context/current-data
-  confirmation 和 rollback readiness 汇总为 shadow replay gate；真实 replay/paper-trading
-  run 仍未执行，不能据此 promotion。
+- `rke_benchmark.shadow_replay_readiness` 已能把 all-agent prompt provenance、
+  benchmark evidence、Darwinian input、prompt mutation release/leak-drift readiness、
+  runtime RKE context/current-data confirmation 和 rollback readiness 汇总为 shadow replay
+  gate；真实 replay/paper-trading run 仍未执行，不能据此 promotion。
 - `rke_benchmark.paper_trading_readiness` 已能检查 shadow replay ready 后进入 paper-trading
   所需的 reviewed plan、risk limit 和 stop-loss/rollback ref；这只允许 paper-trading entry，
   不允许 production promotion。

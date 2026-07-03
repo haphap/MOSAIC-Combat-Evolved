@@ -1218,6 +1218,12 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
 def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate shadow replay on benchmark, footprint, Darwinian, and rollback proof."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
+    prompt_provenance = all_agent_prompt_provenance_readiness(
+        {
+            "cohort": params.get("cohort"),
+            "release_checks": params.get("all_agent_prompt_release_checks"),
+        }
+    )
     benchmark = fixed_episode_benchmark_evidence(
         {
             "benchmark_run_id": benchmark_run_id,
@@ -1250,6 +1256,8 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     prior_usage = darwinian["skill_inputs"]["research_prior_usage_skill"]
 
     blocked_reasons: list[str] = []
+    if prompt_provenance["readiness_status"] != "ready":
+        blocked_reasons.append("all_agent_prompt_provenance_not_ready")
     if benchmark["evidence_status"] != "ready":
         blocked_reasons.append("benchmark_evidence_not_ready")
     if darwinian["manifest_status"] != "ready":
@@ -1279,6 +1287,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
         "benchmark_run_id": benchmark_run_id,
         "blocked_reasons": blocked_reasons,
+        "prompt_provenance_readiness_status": prompt_provenance["readiness_status"],
         "benchmark_evidence_status": benchmark["evidence_status"],
         "darwinian_manifest_status": darwinian["manifest_status"],
         "prompt_release_readiness_status": prompt_release["readiness_status"],
