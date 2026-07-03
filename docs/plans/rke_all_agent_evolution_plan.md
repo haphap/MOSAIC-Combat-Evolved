@@ -366,9 +366,15 @@ Status 2026-07-03:
   turnover/cost discipline, and prompt mutation provenance. The manifest sets
   `rke_prior_treated_as_current_data=false` and remains `blocked_preflight`
   until real downstream outcome metrics and prompt provenance are supplied.
-- This implements the E5 input manifest contract. E5 is not complete until
-  autoresearch and Darwinian weight updates actually consume the manifest and
-  write replay/run evidence.
+- Public bridge now exposes
+  `rke_benchmark.darwinian_autoresearch_consumption_readiness`, a no-write gate
+  that requires replay run id, input manifest ref, RKE prior usage metrics ref,
+  downstream outcome metrics ref, Darwinian/autoresearch update refs, rollback
+  readiness ref, and explicit consumed flags before E5 can count as consumed by
+  replay. It keeps `rke_prior_treated_as_current_data=false`.
+- This implements the E5 input and consumption proof-object contracts. E5 is not
+  complete until actual autoresearch and Darwinian weight updates produce those
+  replay/run refs.
 
 ## E6: Candidate Consumption Boundary
 
@@ -481,6 +487,8 @@ Status 2026-07-03:
   shadow apply, runtime activation/proof, and rollback refs before a candidate
   patch can count as activated. It preserves candidate `blocked_by` reasons and
   keeps production activation forbidden.
+- Delivery readiness now includes the Darwinian/autoresearch consumption gate,
+  so input-manifest readiness alone cannot satisfy the E7 consumption condition.
 - Agent footprint summary and profile/evolution readiness now carry redacted
   `report_claim_refs` aggregate counts, and every footprint row that consumed an
   RKE context hash must also carry a redacted report-claim link before

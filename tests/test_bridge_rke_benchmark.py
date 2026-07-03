@@ -113,6 +113,24 @@ def _patch_activation_evidence(**overrides: object) -> dict:
     return row
 
 
+def _darwinian_consumption_evidence(**overrides: object) -> dict:
+    row = {
+        "replay_run_id": "replay-1",
+        "input_manifest_ref": "darwinian-input-1",
+        "rke_prior_usage_metrics_ref": "rke-prior-usage-1",
+        "downstream_outcome_metrics_ref": "downstream-outcome-1",
+        "darwinian_weight_update_ref": "darwinian-weight-1",
+        "autoresearch_update_ref": "autoresearch-update-1",
+        "rollback_readiness_ref": "rollback-readiness-1",
+        "darwinian_consumed": True,
+        "autoresearch_consumed": True,
+        "rke_prior_treated_as_current_data": False,
+        "production_weight_update_allowed": False,
+    }
+    row.update(overrides)
+    return row
+
+
 def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
     return [
         {
@@ -748,6 +766,82 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
         ]
         == 0.03
     )
+
+
+def test_darwinian_autoresearch_consumption_blocks_missing_replay_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_consumption_readiness",
+        {"benchmark_run_id": "bench-consumption-missing"},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "darwinian_autoresearch_input_not_ready" in manifest["blocked_reasons"]
+    assert (
+        "darwinian_autoresearch_consumption_evidence_missing"
+        in manifest["blocked_reasons"]
+    )
+    assert "replay_run_id_missing" in manifest["blocked_reasons"]
+    assert manifest["darwinian_autoresearch_consumption_ready"] is False
+    assert manifest["production_allowed"] is False
+
+
+def test_darwinian_autoresearch_consumption_accepts_replay_refs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-consumption-ready",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "rke_context_hash": "b" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-consumption"],
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_consumption_readiness",
+        {
+            "benchmark_run_id": "bench-consumption-ready",
+            "downstream_outcome_metrics": {
+                "risk_adjusted_return": 0.12,
+                "alpha": 0.03,
+                "max_drawdown": -0.04,
+                "turnover": 0.8,
+                "cost_bps": 12,
+            },
+            "prompt_mutation_provenance": {
+                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                "prompt_repo_revision": "a" * 40,
+                "prompt_sha256": "c" * 64,
+            },
+            "consumption_evidence": _darwinian_consumption_evidence(),
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["input_manifest_status"] == "ready"
+    assert manifest["rke_prior_treated_as_current_data"] is False
+    assert manifest["darwinian_autoresearch_consumption_ready"] is True
+    assert manifest["consumption_evidence"]["replay_run_id"] == "replay-1"
+    assert manifest["promotion_allowed"] is False
 
 
 def _mutation_candidate(**overrides):
@@ -1648,7 +1742,7 @@ def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch)
     )
 
     assert manifest["readiness_status"] == "blocked_preflight"
-    assert manifest["condition_count"] == 11
+    assert manifest["condition_count"] == 12
     assert manifest["ready_condition_count"] == 0
     assert manifest["delivery_ready"] is False
     assert any(
@@ -1897,6 +1991,7 @@ def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
             "profile_evidence": {},
             "downstream_outcome_metrics": {},
             "prompt_mutation_provenance": {},
+            "darwinian_autoresearch_consumption_evidence": {},
             "candidates": [],
             "patch_activation_evidence": [],
             "prompt_mutation_release_checks": [],
@@ -1913,7 +2008,7 @@ def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
 
     assert audit["evidence_status"] == "complete"
     assert audit["delivery_readiness_status"] == "blocked_preflight"
-    assert audit["condition_count"] == 11
+    assert audit["condition_count"] == 12
     assert audit["ready_condition_count"] < audit["condition_count"]
     prompt_condition = next(
         condition
@@ -2064,6 +2159,9 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                 "prompt_repo_revision": "a" * 40,
                 "prompt_sha256": "b" * 64,
             },
+            "darwinian_autoresearch_consumption_evidence": (
+                _darwinian_consumption_evidence()
+            ),
             "candidates": candidates,
             "patch_activation_evidence": [_patch_activation_evidence()],
             "prompt_mutation_release_checks": [

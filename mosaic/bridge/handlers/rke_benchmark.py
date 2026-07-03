@@ -129,6 +129,7 @@ _DELIVERY_EVIDENCE_KEYS = (
     "profile_evidence",
     "downstream_outcome_metrics",
     "prompt_mutation_provenance",
+    "darwinian_autoresearch_consumption_evidence",
     "candidates",
     "patch_activation_evidence",
     "prompt_mutation_release_checks",
@@ -790,6 +791,76 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
             },
         },
         "privacy_scan": summary["privacy_scan"],
+        "promotion_allowed": False,
+    }
+
+
+@method("rke_benchmark.darwinian_autoresearch_consumption_readiness")
+def darwinian_autoresearch_consumption_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate evidence that autoresearch/Darwinian replay consumed the E5 manifest."""
+    benchmark_run_id = _clean_str(params.get("benchmark_run_id"))
+    manifest = darwinian_autoresearch_input_manifest(params)
+    evidence = params.get("consumption_evidence")
+    if not isinstance(evidence, dict):
+        evidence = {}
+
+    blocked_reasons = list(manifest["blocked_reasons"])
+    if manifest["manifest_status"] != "ready":
+        blocked_reasons.append("darwinian_autoresearch_input_not_ready")
+    if _forbidden_paths(evidence):
+        blocked_reasons.append("private_or_source_prose_ref_detected")
+    for key in (
+        "replay_run_id",
+        "input_manifest_ref",
+        "rke_prior_usage_metrics_ref",
+        "downstream_outcome_metrics_ref",
+        "darwinian_weight_update_ref",
+        "autoresearch_update_ref",
+        "rollback_readiness_ref",
+    ):
+        if not _clean_str(evidence.get(key)):
+            blocked_reasons.append(f"{key}_missing")
+    if evidence.get("darwinian_consumed") is not True:
+        blocked_reasons.append("darwinian_consumption_missing")
+    if evidence.get("autoresearch_consumed") is not True:
+        blocked_reasons.append("autoresearch_consumption_missing")
+    if evidence.get("rke_prior_treated_as_current_data") is not False:
+        blocked_reasons.append("rke_prior_current_data_boundary_missing")
+    if evidence.get("production_weight_update_allowed") is not False:
+        blocked_reasons.append("production_weight_update_not_forbidden")
+    if not evidence:
+        blocked_reasons.append("darwinian_autoresearch_consumption_evidence_missing")
+
+    return {
+        "schema_version": "rke_darwinian_autoresearch_consumption_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "input_manifest_status": manifest["manifest_status"],
+        "blocked_reasons": sorted(set(blocked_reasons)),
+        "consumption_evidence": {
+            "replay_run_id": _clean_str(evidence.get("replay_run_id")),
+            "input_manifest_ref": _clean_str(evidence.get("input_manifest_ref")),
+            "rke_prior_usage_metrics_ref": _clean_str(
+                evidence.get("rke_prior_usage_metrics_ref")
+            ),
+            "downstream_outcome_metrics_ref": _clean_str(
+                evidence.get("downstream_outcome_metrics_ref")
+            ),
+            "darwinian_weight_update_ref": _clean_str(
+                evidence.get("darwinian_weight_update_ref")
+            ),
+            "autoresearch_update_ref": _clean_str(
+                evidence.get("autoresearch_update_ref")
+            ),
+            "rollback_readiness_ref": _clean_str(
+                evidence.get("rollback_readiness_ref")
+            ),
+            "darwinian_consumed": evidence.get("darwinian_consumed") is True,
+            "autoresearch_consumed": evidence.get("autoresearch_consumed") is True,
+        },
+        "rke_prior_treated_as_current_data": False,
+        "darwinian_autoresearch_consumption_ready": not blocked_reasons,
+        "production_allowed": False,
         "promotion_allowed": False,
     }
 
@@ -1752,6 +1823,20 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     )
+    darwinian_consumption = darwinian_autoresearch_consumption_readiness(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "downstream_outcome_metrics": effective_params.get(
+                "downstream_outcome_metrics"
+            ),
+            "prompt_mutation_provenance": effective_params.get(
+                "prompt_mutation_provenance"
+            ),
+            "consumption_evidence": effective_params.get(
+                "darwinian_autoresearch_consumption_evidence"
+            ),
+        }
+    )
     prompt_release = prompt_mutation_release_readiness(
         {
             "candidates": effective_params.get("candidates"),
@@ -1816,6 +1901,11 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "darwinian_autoresearch_inputs",
             darwinian["manifest_status"],
             darwinian["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "darwinian_autoresearch_consumption",
+            darwinian_consumption["readiness_status"],
+            darwinian_consumption["blocked_reasons"],
         ),
         _delivery_condition(
             "prompt_mutation_release",

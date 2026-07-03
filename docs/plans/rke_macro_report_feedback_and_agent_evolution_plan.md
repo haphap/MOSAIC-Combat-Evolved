@@ -2295,8 +2295,11 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   人工复核仍需由正式 benchmark run 产生。
 - LLM reasoning benchmark 和人工复核 gate 尚未运行；正式 benchmark 还必须使用 private
   prompt repo 解析出的 frozen prompt hash，不能用 public fallback 充当有效 paired output。
-- autoresearch / Darwinian replay 还没有系统读取 RKE prior usage quality、agent claim outcome、
-  retrieval ranking quality 和 rollback feedback。
+- `rke_benchmark.darwinian_autoresearch_consumption_readiness` 已补 no-write
+  consumption gate，要求 replay run、input manifest、RKE prior usage metrics、
+  downstream outcome metrics、Darwinian/autoresearch update 和 rollback readiness refs；
+  真实 autoresearch / Darwinian replay 仍需实际读取 RKE prior usage quality、agent claim
+  outcome、retrieval ranking quality 和 rollback feedback 并写出这些 refs。
 - `rke_benchmark.capture_agent_claim_footprints` 已提供 redacted private-local
   agent claim/footprint capture contract，`rke_benchmark.agent_footprint_summary`
   已能从 private rows 输出 redacted aggregate profile summary，并统计 linked report claim
@@ -2310,8 +2313,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.darwinian_autoresearch_input_manifest` 已把 RKE prior usage、
   current-data confirmation、stale/contradictory prior handling、downstream outcome、
   turnover/cost 和 prompt provenance 拆成独立输入，并明确
-  `rke_prior_treated_as_current_data=false`；真实 autoresearch/Darwinian replay
-  消费和权重更新仍未完成。
+  `rke_prior_treated_as_current_data=false`；`darwinian_autoresearch_consumption_readiness`
+  进一步要求 replay/run refs 和 consumed flags，避免把 input-ready 误读成已消费。真实
+  autoresearch/Darwinian replay 消费和权重更新仍未完成。
 - `rke_benchmark.candidate_consumption_manifest` 已能读取 Part 1
   `prompt_mutation_candidates.jsonl` 并保留 candidate/refusal blocker reason，
   同时阻断 production/private-text/manual-review/promotion-state 违规；真实 private
@@ -2343,10 +2347,10 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   summary、second review 和 lockbox decision refs；它只标记 ready for operator promotion
   decision，不执行也不允许 production promotion。
 - `rke_benchmark.delivery_readiness` 已能把 Part 2 E7 的 prompt provenance、runtime
-  context、benchmark、profile/evolution、Darwinian/autoresearch、prompt release、
-  patch activation、rollback、shadow replay、paper-trading 和 promotion decision gates
-  汇总成逐项 blocker 审计，并把 prompt source blocker 作为 no-body condition evidence
-  summary 透传；
+  context、benchmark、profile/evolution、Darwinian/autoresearch input 和 consumption、
+  prompt release、patch activation、rollback、shadow replay、paper-trading 和 promotion
+  decision gates 汇总成逐项 blocker 审计，并把 prompt source blocker 作为 no-body
+  condition evidence summary 透传；
   真实 benchmark/replay/promotion 仍需实际运行。
 - `rke_benchmark.record_delivery_evidence` 已能把真实 run 产生的 no-body evidence refs
   写入 private-local `.mosaic/rke/all_agent_evolution/delivery_evidence.jsonl`，后续
