@@ -172,6 +172,7 @@ def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
             "prompt_repo_id": row["prompt_repo_id"],
             "prompt_repo_revision": row["prompt_repo_revision"],
             "prompt_sha256": row["prompt_sha256"],
+            "audit_version_ref": f"audit-all-{index}",
             "verify_release_ref": f"verify-all-{index}",
             "leak_drift_check_ref": f"leak-all-{index}",
             "verify_release_passed": True,
@@ -279,6 +280,29 @@ def test_all_agent_prompt_provenance_readiness_accepts_private_release_checks(
     assert result["release_check_count"] == 50
     assert result["all_agent_prompt_provenance_ready"] is True
     assert result["fallback_used"] is False
+    assert result["prompt_rows"][0]["audit_version_ref"].startswith("audit-all-")
+
+
+def test_all_agent_prompt_provenance_readiness_requires_audit_versions(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    release_checks = _all_prompt_release_checks(preflight["rows"])
+    release_checks[0].pop("audit_version_ref")
+
+    result = dispatch(
+        "rke_benchmark.all_agent_prompt_provenance_readiness",
+        {"release_checks": release_checks},
+    )
+
+    assert result["readiness_status"] == "blocked_preflight"
+    assert "audit_version_ref_missing" in result["blocked_reasons"]
+    assert result["all_agent_prompt_provenance_ready"] is False
 
 
 def test_all_agent_prompt_provenance_readiness_blocks_release_repo_mismatch(

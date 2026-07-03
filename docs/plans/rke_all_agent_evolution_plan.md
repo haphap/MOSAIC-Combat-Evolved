@@ -95,12 +95,12 @@ Status 2026-07-03:
   formal rows.
 - Public bridge now exposes `rke_benchmark.all_agent_prompt_provenance_readiness`,
   a no-write all-agent gate that requires all 25 agents × 2 languages to have
-  private prompt pins plus per-prompt release/leak-drift evidence before formal
-  benchmark/replay can treat prompt provenance as ready. Release evidence must
-  match the private `prompt_repo_id` and `prompt_repo_revision` returned by
-  `prompts.preflight`; the gate preserves the preflight source summary so E7
-  blockers include repo-level dirty state, not only repeated row-level prompt
-  blockers.
+  private prompt pins plus per-prompt audit-version, release, and leak/drift
+  evidence before formal benchmark/replay can treat prompt provenance as ready.
+  Release evidence must match the private `prompt_repo_id` and
+  `prompt_repo_revision` returned by `prompts.preflight`; the gate preserves the
+  preflight source summary so E7 blockers include repo-level dirty state, not
+  only repeated row-level prompt blockers.
 - This implements the public E0 preflight mechanism. E0 is not fully closed
   until the private prompt repo has ready rows for all benchmark/replay agents
   and leak/drift/release checks have passed.

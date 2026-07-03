@@ -223,7 +223,12 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
             blockers.append("leak_drift_not_passed")
         if not isinstance(release.get("prompt_version_id"), int):
             blockers.append("prompt_version_id_missing")
-        for key in ("prompt_sha256", "verify_release_ref", "leak_drift_check_ref"):
+        for key in (
+            "audit_version_ref",
+            "prompt_sha256",
+            "verify_release_ref",
+            "leak_drift_check_ref",
+        ):
             if not _clean_str(release.get(key)):
                 blockers.append(f"{key}_missing")
         for key in ("prompt_repo_id", "prompt_repo_revision"):
@@ -247,6 +252,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
                 "prompt_version_id": release.get("prompt_version_id")
                 if isinstance(release.get("prompt_version_id"), int)
                 else None,
+                "audit_version_ref": _clean_str(release.get("audit_version_ref")),
                 "verify_release_ref": _clean_str(release.get("verify_release_ref")),
                 "leak_drift_check_ref": _clean_str(release.get("leak_drift_check_ref")),
                 "fallback_used": row.get("fallback_used") is True,
