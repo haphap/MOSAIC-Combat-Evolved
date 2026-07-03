@@ -825,6 +825,15 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
         blocked_reasons.append("agent_footprint_privacy_scan_failed")
     if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
         blocked_reasons.append("rke_context_report_claim_link_incomplete")
+    for source_name, source in (
+        ("downstream_outcome_metrics", outcome_metrics),
+        ("prompt_mutation_provenance", prompt_provenance),
+    ):
+        source_run_id = _clean_str(source.get("benchmark_run_id"))
+        if not source_run_id:
+            blocked_reasons.append(f"{source_name}_benchmark_run_id_missing")
+        elif source_run_id != benchmark_run_id:
+            blocked_reasons.append(f"{source_name}_benchmark_run_id_mismatch")
 
     return {
         "schema_version": "rke_darwinian_autoresearch_input_manifest_v1",
@@ -867,6 +876,9 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
             },
             "risk_adjusted_downstream_outcome": {
                 "status": "ready" if outcome_ready else "missing",
+                "benchmark_run_id": _clean_str(
+                    outcome_metrics.get("benchmark_run_id")
+                ),
                 "metrics": _safe_metric_subset(
                     outcome_metrics,
                     ("risk_adjusted_return", "alpha", "max_drawdown"),
@@ -878,6 +890,9 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
             },
             "prompt_mutation_provenance": {
                 "status": "ready" if provenance_ready else "missing",
+                "benchmark_run_id": _clean_str(
+                    prompt_provenance.get("benchmark_run_id")
+                ),
                 "prompt_repo_id": _clean_str(prompt_provenance.get("prompt_repo_id")),
                 "prompt_repo_revision": _clean_str(
                     prompt_provenance.get("prompt_repo_revision")

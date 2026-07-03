@@ -370,8 +370,10 @@ Status 2026-07-03:
   current-data skill, research-prior usage skill, stale/contradictory-prior
   handling, schema/privacy reliability, downstream risk-adjusted outcome,
   turnover/cost discipline, and prompt mutation provenance. The manifest sets
-  `rke_prior_treated_as_current_data=false` and remains `blocked_preflight`
-  until real downstream outcome metrics and prompt provenance are supplied.
+  `rke_prior_treated_as_current_data=false`, requires downstream outcome metrics
+  and prompt mutation provenance to bind to the same `benchmark_run_id`, and
+  remains `blocked_preflight` until real downstream outcome metrics and prompt
+  provenance are supplied.
 - Public bridge now exposes
   `rke_benchmark.darwinian_autoresearch_consumption_readiness`, a no-write gate
   that requires replay run id, input manifest ref, RKE prior usage metrics ref,

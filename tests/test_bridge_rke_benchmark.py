@@ -185,6 +185,26 @@ def _darwinian_consumption_evidence(**overrides: object) -> dict:
     return row
 
 
+def _downstream_outcome_metrics(benchmark_run_id: str) -> dict:
+    return {
+        "benchmark_run_id": benchmark_run_id,
+        "risk_adjusted_return": 0.12,
+        "alpha": 0.03,
+        "max_drawdown": -0.04,
+        "turnover": 0.8,
+        "cost_bps": 12,
+    }
+
+
+def _prompt_mutation_provenance(benchmark_run_id: str) -> dict:
+    return {
+        "benchmark_run_id": benchmark_run_id,
+        "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+        "prompt_repo_revision": "a" * 40,
+        "prompt_sha256": "c" * 64,
+    }
+
+
 def _all_prompt_release_checks(rows: list[dict]) -> list[dict]:
     return [
         {
@@ -942,11 +962,13 @@ def test_darwinian_autoresearch_manifest_blocks_missing_evidence(
 
     assert manifest["manifest_status"] == "blocked_preflight"
     assert manifest["rke_prior_treated_as_current_data"] is False
-    assert manifest["blocked_reasons"] == [
+    assert set(manifest["blocked_reasons"]) == {
         "agent_footprint_summary_missing",
+        "downstream_outcome_metrics_benchmark_run_id_missing",
         "downstream_outcome_metrics_missing",
+        "prompt_mutation_provenance_benchmark_run_id_missing",
         "prompt_mutation_provenance_missing",
-    ]
+    }
     assert (
         manifest["skill_inputs"]["risk_adjusted_downstream_outcome"]["status"]
         == "missing"
@@ -983,18 +1005,8 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
         "rke_benchmark.darwinian_autoresearch_input_manifest",
         {
             "benchmark_run_id": "bench-004",
-            "downstream_outcome_metrics": {
-                "risk_adjusted_return": 0.12,
-                "alpha": 0.03,
-                "max_drawdown": -0.04,
-                "turnover": 0.8,
-                "cost_bps": 12,
-            },
-            "prompt_mutation_provenance": {
-                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                "prompt_repo_revision": "a" * 40,
-                "prompt_sha256": "c" * 64,
-            },
+            "downstream_outcome_metrics": _downstream_outcome_metrics("bench-004"),
+            "prompt_mutation_provenance": _prompt_mutation_provenance("bench-004"),
         },
     )
 
@@ -1022,6 +1034,49 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
         ]
         == 0.03
     )
+
+
+def test_darwinian_autoresearch_manifest_blocks_cross_run_inputs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-004",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "rke_context_hash": "b" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-004"],
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_input_manifest",
+        {
+            "benchmark_run_id": "bench-004",
+            "downstream_outcome_metrics": _downstream_outcome_metrics("other-run"),
+            "prompt_mutation_provenance": _prompt_mutation_provenance("other-run"),
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "downstream_outcome_metrics_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert "prompt_mutation_provenance_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
 
 
 def test_darwinian_autoresearch_consumption_blocks_missing_replay_evidence(
@@ -1076,18 +1131,12 @@ def test_darwinian_autoresearch_consumption_accepts_replay_refs(
         "rke_benchmark.darwinian_autoresearch_consumption_readiness",
         {
             "benchmark_run_id": "bench-consumption-ready",
-            "downstream_outcome_metrics": {
-                "risk_adjusted_return": 0.12,
-                "alpha": 0.03,
-                "max_drawdown": -0.04,
-                "turnover": 0.8,
-                "cost_bps": 12,
-            },
-            "prompt_mutation_provenance": {
-                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                "prompt_repo_revision": "a" * 40,
-                "prompt_sha256": "c" * 64,
-            },
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-consumption-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-consumption-ready"
+            ),
             "consumption_evidence": _darwinian_consumption_evidence(),
         },
     )
@@ -1659,18 +1708,12 @@ def test_shadow_replay_blocks_context_without_runtime_ranking_proof(
         "rke_benchmark.shadow_replay_readiness",
         {
             "benchmark_run_id": "bench-shadow-missing-runtime-proof",
-            "downstream_outcome_metrics": {
-                "risk_adjusted_return": 0.11,
-                "alpha": 0.02,
-                "max_drawdown": -0.03,
-                "turnover": 0.5,
-                "cost_bps": 8,
-            },
-            "prompt_mutation_provenance": {
-                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                "prompt_repo_revision": "a" * 40,
-                "prompt_sha256": "b" * 64,
-            },
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-shadow-missing-runtime-proof"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-shadow-missing-runtime-proof"
+            ),
         },
     )
 
@@ -1732,18 +1775,12 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             ),
             "benchmark_evidence_refs": _benchmark_evidence_refs("bench-shadow-ready"),
             "manual_review": _manual_review("bench-shadow-ready"),
-            "downstream_outcome_metrics": {
-                "risk_adjusted_return": 0.11,
-                "alpha": 0.02,
-                "max_drawdown": -0.03,
-                "turnover": 0.5,
-                "cost_bps": 8,
-            },
-            "prompt_mutation_provenance": {
-                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                "prompt_repo_revision": "a" * 40,
-                "prompt_sha256": "b" * 64,
-            },
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-shadow-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-shadow-ready"
+            ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(candidates)
@@ -1846,18 +1883,12 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             ),
             "benchmark_evidence_refs": _benchmark_evidence_refs("bench-paper-ready"),
             "manual_review": _manual_review("bench-paper-ready"),
-            "downstream_outcome_metrics": {
-                "risk_adjusted_return": 0.11,
-                "alpha": 0.02,
-                "max_drawdown": -0.03,
-                "turnover": 0.5,
-                "cost_bps": 8,
-            },
-            "prompt_mutation_provenance": {
-                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                "prompt_repo_revision": "a" * 40,
-                "prompt_sha256": "b" * 64,
-            },
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-paper-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-paper-ready"
+            ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(candidates)
@@ -1959,18 +1990,12 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
                 "bench-promotion-ready"
             ),
             "manual_review": _manual_review("bench-promotion-ready"),
-            "downstream_outcome_metrics": {
-                "risk_adjusted_return": 0.11,
-                "alpha": 0.02,
-                "max_drawdown": -0.03,
-                "turnover": 0.5,
-                "cost_bps": 8,
-            },
-            "prompt_mutation_provenance": {
-                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                "prompt_repo_revision": "a" * 40,
-                "prompt_sha256": "b" * 64,
-            },
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-promotion-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-promotion-ready"
+            ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(candidates)
@@ -2408,18 +2433,12 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             ),
             "manual_review": _manual_review("bench-delivery-ready"),
             "profile_evidence": _profile_evidence("bench-delivery-ready"),
-            "downstream_outcome_metrics": {
-                "risk_adjusted_return": 0.11,
-                "alpha": 0.02,
-                "max_drawdown": -0.03,
-                "turnover": 0.5,
-                "cost_bps": 8,
-            },
-            "prompt_mutation_provenance": {
-                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                "prompt_repo_revision": "a" * 40,
-                "prompt_sha256": "b" * 64,
-            },
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-delivery-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-delivery-ready"
+            ),
             "darwinian_autoresearch_consumption_evidence": (
                 _darwinian_consumption_evidence()
             ),
