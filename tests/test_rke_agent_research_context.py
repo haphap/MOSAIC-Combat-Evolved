@@ -791,7 +791,11 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                     "actionability_guard": SAFE_ACTIONABILITY,
                 }
             ],
-            "summary": {"truncated_item_count": 0, "current_data_required": True},
+            "summary": {
+                "private_text_included": False,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+            },
         }
     )
 
@@ -799,6 +803,40 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
     assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
     assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
     assert "production_signal_allowed=false" in output
+
+
+def test_rke_runtime_context_preflight_blocks_top_level_policy_boundary():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": False,
+            "production_signal_allowed": False,
+            "actionability": "trade_allowed",
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
+                    "actionability_guard": SAFE_ACTIONABILITY,
+                }
+            ],
+            "summary": {
+                "private_text_included": True,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "research_only_missing" in output
+    assert "context_actionability_guard_invalid" in output
+    assert "private_text_boundary_missing" in output
 
 
 def test_normalize_agent_id_accepts_ts_and_rke_forms():

@@ -87,10 +87,16 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("item_use_policy_invalid")
     if items and any(item.get("actionability_guard") != SAFE_ACTIONABILITY for item in items):
         failures.append("item_actionability_guard_invalid")
+    if context.get("research_only") is not True:
+        failures.append("research_only_missing")
+    if context.get("actionability") != SAFE_ACTIONABILITY:
+        failures.append("context_actionability_guard_invalid")
     if context.get("production_signal_allowed") is not False:
         failures.append("production_signal_not_disabled")
     summary = context.get("summary")
     summary_map = summary if isinstance(summary, Mapping) else {}
+    if summary_map.get("private_text_included") is not False:
+        failures.append("private_text_boundary_missing")
     truncated_item_count = _optional_non_negative_int(
         summary_map.get("truncated_item_count")
     )
