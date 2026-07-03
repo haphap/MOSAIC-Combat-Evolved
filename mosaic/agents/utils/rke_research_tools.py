@@ -137,6 +137,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     if items and any(not item.get("statistical_reliability_bucket") for item in items):
         failures.append("item_reliability_bucket_missing")
     if items and any(
+        not item.get(field)
+        for item in items
+        for field in ("source_performance_bucket", "viewpoint_performance_bucket")
+    ):
+        failures.append("item_performance_bucket_missing")
+    if items and any(
         not isinstance(item.get("n_effective"), (int, float))
         or isinstance(item.get("n_effective"), bool)
         or item.get("n_effective") < 0
