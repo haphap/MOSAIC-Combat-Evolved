@@ -446,6 +446,7 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
     for row in sanitized:
         _increment(layer_counts, row["layer"])
         _increment(claim_type_counts, row["claim_type"])
+    runtime_context_summary = _runtime_context_summary(sanitized)
     return {
         "capture_status": "captured",
         "captured_count": len(sanitized),
@@ -460,6 +461,7 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
             "rke_context_hash_count": sum(
                 1 for row in sanitized if row.get("rke_context_hash")
             ),
+            **runtime_context_summary,
         },
         "privacy_scan": {
             "private_text_included": False,
@@ -530,6 +532,7 @@ def agent_footprint_summary(params: dict[str, Any]) -> dict[str, Any]:
             1 for row in rows if row.get("contradictory_prior_handled") is True
         ),
         "rke_context_hash_count": sum(1 for row in rows if row.get("rke_context_hash")),
+        **_runtime_context_summary(rows),
         "privacy_scan": {
             "private_text_included": False,
             "source_prose_included": False,
@@ -552,12 +555,41 @@ def _empty_footprint_summary(benchmark_run_id: str) -> dict[str, Any]:
         "stale_prior_rejected_count": 0,
         "contradictory_prior_handled_count": 0,
         "rke_context_hash_count": 0,
+        **_runtime_context_summary([]),
         "privacy_scan": {
             "private_text_included": False,
             "source_prose_included": False,
             "forbidden_field_violation_count": 0,
         },
         "failures": [],
+    }
+
+
+def _runtime_context_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ranking_policy_id_counts: dict[str, int] = {}
+    priority_bucket_counts: dict[str, int] = {}
+    retrieval_rank_count = 0
+    truncation_audit_count = 0
+    for row in rows:
+        ranking_policy_id = _clean_str(row.get("ranking_policy_id"))
+        if ranking_policy_id:
+            _increment(ranking_policy_id_counts, ranking_policy_id)
+        priority_bucket = _clean_str(row.get("priority_bucket"))
+        if priority_bucket:
+            _increment(priority_bucket_counts, priority_bucket)
+        if isinstance(row.get("retrieval_rank"), int) and not isinstance(
+            row.get("retrieval_rank"), bool
+        ):
+            retrieval_rank_count += 1
+        if isinstance(row.get("truncated_item_count"), int) and not isinstance(
+            row.get("truncated_item_count"), bool
+        ):
+            truncation_audit_count += 1
+    return {
+        "ranking_policy_id_counts": dict(sorted(ranking_policy_id_counts.items())),
+        "retrieval_rank_count": retrieval_rank_count,
+        "priority_bucket_counts": dict(sorted(priority_bucket_counts.items())),
+        "truncation_audit_count": truncation_audit_count,
     }
 
 
@@ -664,6 +696,10 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
                     "rke_prior_usage_quality_counts"
                 ],
                 "rke_context_hash_count": summary["rke_context_hash_count"],
+                "ranking_policy_id_counts": summary["ranking_policy_id_counts"],
+                "retrieval_rank_count": summary["retrieval_rank_count"],
+                "priority_bucket_counts": summary["priority_bucket_counts"],
+                "truncation_audit_count": summary["truncation_audit_count"],
                 "source": "agent_claim_footprint_summary",
             },
             "stale_prior_rejection_skill": {
@@ -1197,8 +1233,19 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("darwinian_autoresearch_input_not_ready")
     if rollback["readiness_status"] != "ready":
         blocked_reasons.append("rollback_readiness_not_ready")
-    if not prior_usage["rke_context_hash_count"]:
+    context_hash_count = int(prior_usage["rke_context_hash_count"] or 0)
+    ranking_policy_count = sum(prior_usage["ranking_policy_id_counts"].values())
+    priority_bucket_count = sum(prior_usage["priority_bucket_counts"].values())
+    if not context_hash_count:
         blocked_reasons.append("runtime_context_hash_missing")
+    if ranking_policy_count < context_hash_count:
+        blocked_reasons.append("ranking_policy_id_missing")
+    if prior_usage["retrieval_rank_count"] < context_hash_count:
+        blocked_reasons.append("retrieval_rank_missing")
+    if priority_bucket_count < context_hash_count:
+        blocked_reasons.append("priority_bucket_missing")
+    if prior_usage["truncation_audit_count"] < context_hash_count:
+        blocked_reasons.append("truncation_audit_missing")
     if not current_data["current_data_confirmed_count"]:
         blocked_reasons.append("current_data_confirmation_missing")
 
@@ -1211,6 +1258,10 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "darwinian_manifest_status": darwinian["manifest_status"],
         "rollback_readiness_status": rollback["readiness_status"],
         "rke_context_hash_count": prior_usage["rke_context_hash_count"],
+        "ranking_policy_id_counts": prior_usage["ranking_policy_id_counts"],
+        "retrieval_rank_count": prior_usage["retrieval_rank_count"],
+        "priority_bucket_counts": prior_usage["priority_bucket_counts"],
+        "truncation_audit_count": prior_usage["truncation_audit_count"],
         "current_data_confirmed_count": current_data["current_data_confirmed_count"],
         "shadow_replay_ready": not blocked_reasons,
         "paper_trading_allowed": False,
@@ -1476,7 +1527,14 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 reason
                 for reason in shadow["blocked_reasons"]
                 if reason
-                in {"runtime_context_hash_missing", "current_data_confirmation_missing"}
+                in {
+                    "runtime_context_hash_missing",
+                    "ranking_policy_id_missing",
+                    "retrieval_rank_missing",
+                    "priority_bucket_missing",
+                    "truncation_audit_missing",
+                    "current_data_confirmation_missing",
+                }
             ],
         ),
         _delivery_condition(
@@ -1730,7 +1788,12 @@ def _sanitize_claim_footprint_row(
         "horizon_bucket": _clean_str(row.get("horizon_bucket")) or "unknown",
         "confidence_bucket": _clean_str(row.get("confidence_bucket")) or "unknown",
         "rke_context_hash": _clean_str(row.get("rke_context_hash")),
+        "ranking_policy_id": _clean_str(row.get("ranking_policy_id")),
         "retrieval_rank": _optional_int(row.get("retrieval_rank")),
+        "priority_bucket": _clean_str(row.get("priority_bucket")),
+        "truncated_item_count": _optional_non_negative_int(
+            row.get("truncated_item_count")
+        ),
         "rke_prior_usage_quality": _clean_str(row.get("rke_prior_usage_quality"))
         or "not_evaluated",
         "current_data_confirmed": row.get("current_data_confirmed") is True,
@@ -1759,6 +1822,12 @@ def _clean_str(value: Any) -> str:
 
 def _optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _optional_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
 
 
 def _safe_target(value: Any) -> dict[str, str]:

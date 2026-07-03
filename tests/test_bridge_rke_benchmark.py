@@ -42,6 +42,15 @@ def _private_prompt_repo(tmp_path: Path) -> Path:
     return repo
 
 
+def _runtime_context_proof(rank: int = 1) -> dict:
+    return {
+        "ranking_policy_id": "rke_agent_research_context_rank_v1",
+        "retrieval_rank": rank,
+        "priority_bucket": "agent_specific",
+        "truncated_item_count": 0,
+    }
+
+
 def test_fixed_episode_manifest_blocks_without_private_prompt_source():
     result = dispatch("rke_benchmark.fixed_episode_manifest", {})
 
@@ -240,7 +249,7 @@ def test_capture_agent_claim_footprints_writes_private_redacted_rows(
                     },
                     "direction": "positive",
                     "rke_context_hash": "a" * 64,
-                    "retrieval_rank": 1,
+                    **_runtime_context_proof(1),
                     "reason_codes": ["used_ranked_rke_prior"],
                     "current_data_confirmed": True,
                 },
@@ -325,6 +334,8 @@ def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_prior_usage_quality": "used_ranked_prior",
+                    "rke_context_hash": "a" * 64,
+                    **_runtime_context_proof(1),
                     "current_data_confirmed": True,
                     "stale_prior_rejected": True,
                 },
@@ -356,6 +367,12 @@ def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
     assert summary["current_data_confirmed_count"] == 1
     assert summary["stale_prior_rejected_count"] == 1
     assert summary["contradictory_prior_handled_count"] == 1
+    assert summary["ranking_policy_id_counts"] == {
+        "rke_agent_research_context_rank_v1": 1
+    }
+    assert summary["retrieval_rank_count"] == 1
+    assert summary["priority_bucket_counts"] == {"agent_specific": 1}
+    assert summary["truncation_audit_count"] == 1
     assert summary["privacy_scan"]["forbidden_field_violation_count"] == 0
     payload = json.dumps(summary, ensure_ascii=False)
     assert "agent_claim_footprint_id" not in payload
@@ -886,6 +903,56 @@ def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatc
     assert manifest["promotion_allowed"] is False
 
 
+def test_shadow_replay_blocks_context_without_runtime_ranking_proof(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-shadow-missing-runtime-proof",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "d" * 64,
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {
+            "benchmark_run_id": "bench-shadow-missing-runtime-proof",
+            "downstream_outcome_metrics": {
+                "risk_adjusted_return": 0.11,
+                "alpha": 0.02,
+                "max_drawdown": -0.03,
+                "turnover": 0.5,
+                "cost_bps": 8,
+            },
+            "prompt_mutation_provenance": {
+                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                "prompt_repo_revision": "a" * 40,
+                "prompt_sha256": "b" * 64,
+            },
+        },
+    )
+
+    assert "ranking_policy_id_missing" in manifest["blocked_reasons"]
+    assert "retrieval_rank_missing" in manifest["blocked_reasons"]
+    assert "priority_bucket_missing" in manifest["blocked_reasons"]
+    assert "truncation_audit_missing" in manifest["blocked_reasons"]
+    assert manifest["shadow_replay_ready"] is False
+
+
 def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
     tmp_path: Path, monkeypatch
 ):
@@ -905,7 +972,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
                     "claim_type": "style_candidate_claim",
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "d" * 64,
-                    "retrieval_rank": 1,
+                    **_runtime_context_proof(1),
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 }
@@ -965,6 +1032,12 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
     assert manifest["paper_trading_allowed"] is False
     assert manifest["promotion_allowed"] is False
     assert manifest["rke_context_hash_count"] == 1
+    assert manifest["ranking_policy_id_counts"] == {
+        "rke_agent_research_context_rank_v1": 1
+    }
+    assert manifest["retrieval_rank_count"] == 1
+    assert manifest["priority_bucket_counts"] == {"agent_specific": 1}
+    assert manifest["truncation_audit_count"] == 1
     assert manifest["current_data_confirmed_count"] == 1
 
 
@@ -1006,6 +1079,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
                     "claim_type": "style_candidate_claim",
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "e" * 64,
+                    **_runtime_context_proof(1),
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 }
@@ -1111,6 +1185,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
                     "claim_type": "style_candidate_claim",
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "f" * 64,
+                    **_runtime_context_proof(1),
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 }
@@ -1545,6 +1620,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_context_hash": "a" * 64,
+                    **_runtime_context_proof(1),
                     "current_data_confirmed": True,
                 },
                 {
@@ -1553,6 +1629,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "claim_type": "sector_claim",
                     "target": {"target_type": "sector", "sector": "semiconductor"},
                     "rke_context_hash": "b" * 64,
+                    **_runtime_context_proof(2),
                 },
                 {
                     "agent": "munger",
@@ -1560,6 +1637,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "claim_type": "style_candidate_claim",
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "c" * 64,
+                    **_runtime_context_proof(3),
                     "rke_prior_usage_quality": "used_ranked_prior",
                     "current_data_confirmed": True,
                 },
@@ -1569,6 +1647,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                     "claim_type": "portfolio_action_claim",
                     "target": {"target_type": "portfolio", "target_id": "cn_equity"},
                     "rke_context_hash": "d" * 64,
+                    **_runtime_context_proof(4),
                 },
             ],
         },

@@ -603,7 +603,10 @@ export interface RkeAgentClaimFootprintInput {
   horizon_bucket?: string;
   confidence_bucket?: string;
   rke_context_hash?: string;
+  ranking_policy_id?: string;
   retrieval_rank?: number;
+  priority_bucket?: string;
+  truncated_item_count?: number;
   rke_prior_usage_quality?: string;
   current_data_confirmed?: boolean;
   stale_prior_rejected?: boolean;
@@ -624,6 +627,10 @@ export interface RkeAgentClaimFootprintCaptureResult {
     claim_type_counts: Record<string, number>;
     current_data_confirmed_count: number;
     rke_context_hash_count: number;
+    ranking_policy_id_counts: Record<string, number>;
+    retrieval_rank_count: number;
+    priority_bucket_counts: Record<string, number>;
+    truncation_audit_count: number;
   };
   privacy_scan: {
     private_text_included: boolean;
@@ -644,6 +651,10 @@ export interface RkeAgentFootprintSummaryResult {
   stale_prior_rejected_count: number;
   contradictory_prior_handled_count: number;
   rke_context_hash_count: number;
+  ranking_policy_id_counts: Record<string, number>;
+  retrieval_rank_count: number;
+  priority_bucket_counts: Record<string, number>;
+  truncation_audit_count: number;
   privacy_scan: {
     private_text_included: boolean;
     source_prose_included: boolean;
@@ -843,6 +854,10 @@ export interface RkeShadowReplayReadinessResult {
   darwinian_manifest_status: "ready" | "blocked_preflight";
   rollback_readiness_status: "ready" | "blocked_preflight";
   rke_context_hash_count: number;
+  ranking_policy_id_counts: Record<string, number>;
+  retrieval_rank_count: number;
+  priority_bucket_counts: Record<string, number>;
+  truncation_audit_count: number;
   current_data_confirmed_count: number;
   shadow_replay_ready: boolean;
   paper_trading_allowed: boolean;
