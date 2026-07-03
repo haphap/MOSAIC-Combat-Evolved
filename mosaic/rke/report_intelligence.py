@@ -20131,7 +20131,9 @@ def _industry_proxy_liquidity_bucket(
         return "proxy_outcome_observed"
     if mapping is None:
         return "unknown"
-    availability = availability_by_mapping_id.get(str(mapping.get("mapping_id") or ""))
+    availability = (
+        availability_by_mapping_id.get(str(mapping.get("mapping_id") or "")) or {}
+    )
     if availability.get("pit_available") is True:
         return "pit_available"
     if availability:
@@ -20155,6 +20157,30 @@ def _industry_known_proxy_limitations(
     if proxy_liquidity_bucket in {"unknown", "pit_unavailable"}:
         limitations.append("proxy_pit_unavailable")
     return list(dict.fromkeys(limitations))
+
+
+def _claim_industry_cycle_buckets(claim: Mapping[str, Any]) -> tuple[str, ...]:
+    extraction_quality = _ensure_mapping(claim.get("extraction_quality"))
+    component_roles = _ensure_mapping(extraction_quality.get("claim_component_roles"))
+    if not component_roles:
+        component_roles = _ensure_mapping(claim.get("claim_component_roles"))
+    if not component_roles:
+        component_roles = _infer_claim_component_roles(
+            str(claim.get("claim_text") or ""),
+            target=_ensure_mapping(claim.get("target")),
+        )
+    return tuple(
+        dict.fromkeys(
+            bucket
+            for bucket in (
+                _clean_context_bucket(value, default="")
+                for value in _ensure_list(
+                    component_roles.get("industry_cycle_regime_context_types")
+                )
+            )
+            if bucket
+        )
+    )
 
 
 def build_industry_context_snapshots(
@@ -20196,6 +20222,7 @@ def build_industry_context_snapshots(
                 "_claim_ids": set(),
                 "_report_keys": set(),
                 "_outcome_rows": [],
+                "_industry_cycle_buckets": set(),
                 "_mapping": _industry_etf_proxy_for_sector(
                     sector,
                     mapping_rows,
@@ -20210,6 +20237,9 @@ def build_industry_context_snapshots(
         report_key = str(claim.get("source_id") or claim.get("report_id") or "")
         if report_key:
             aggregate["_report_keys"].add(report_key)
+        aggregate["_industry_cycle_buckets"].update(
+            _claim_industry_cycle_buckets(claim)
+        )
 
     readiness = _ensure_mapping(industry_etf_proxy_readiness)
     rows: list[dict[str, Any]] = []
@@ -20235,7 +20265,10 @@ def build_industry_context_snapshots(
         )
         proxy_symbol = str((mapping or {}).get("etf_symbol") or "")
         mapping_confidence = str((mapping or {}).get("mapping_confidence") or "missing")
-        missing_feature_reasons = ["industry_cycle_bucket_missing"]
+        industry_cycle_bucket = _first_sorted(set(aggregate["_industry_cycle_buckets"]))
+        missing_feature_reasons = []
+        if industry_cycle_bucket == "unknown":
+            missing_feature_reasons.append("industry_cycle_bucket_missing")
         if not proxy_symbol:
             missing_feature_reasons.append("proxy_symbol_missing")
         if mapping_confidence == "missing":
@@ -20250,7 +20283,7 @@ def build_industry_context_snapshots(
             "schema_version": INDUSTRY_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
             "as_of_date": as_of_date,
             "canonical_sector": sector,
-            "industry_cycle_bucket": "unknown",
+            "industry_cycle_bucket": industry_cycle_bucket,
             "proxy_symbol": proxy_symbol,
             "mapping_confidence": mapping_confidence,
             "proxy_liquidity_bucket": proxy_liquidity_bucket,
@@ -20272,6 +20305,7 @@ def build_industry_context_snapshots(
                 {
                     "canonical_sector": sector,
                     "as_of_date": as_of_date,
+                    "industry_cycle_bucket": industry_cycle_bucket,
                     "claim_count": len(aggregate["_claim_ids"]),
                     "outcome_label_count": len(outcome_rows),
                 },

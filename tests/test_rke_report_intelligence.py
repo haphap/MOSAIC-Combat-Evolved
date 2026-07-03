@@ -1256,6 +1256,58 @@ def test_report_intelligence_builds_public_safe_industry_context_snapshots():
     assert "FC-IND-1" not in snapshot_dump
 
 
+def test_report_intelligence_industry_context_uses_claim_cycle_bucket():
+    metadata_rows = [
+        {
+            "source_id": "SRC-IND-CYCLE",
+            "report_id": "RPT-IND-CYCLE",
+            "report_type": "行业研报",
+            "sector": "半导体",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private cycle title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-IND-CYCLE",
+            "source_id": "SRC-IND-CYCLE",
+            "claim_text": "private cycle prose",
+            "target": {"target_type": "sector", "target_id": "半导体"},
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+            "extraction_quality": {
+                "claim_component_roles": {
+                    "industry_cycle_regime_context_types": ["technology_cycle"]
+                }
+            },
+        }
+    ]
+
+    snapshots = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        industry_etf_proxy_map_rows=[
+            {
+                "mapping_id": "IETF-MAP-SEMI",
+                "sector_name": "半导体",
+                "sector_aliases": ["半导体"],
+                "etf_symbol": "512480.SH",
+                "benchmark_family": "CSI300_ETF_PROXY",
+                "mapping_confidence": "operator_seeded_exact_sector",
+                "status": "primary",
+            }
+        ],
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["industry_cycle_bucket"] == "technology_cycle"
+    assert "industry_cycle_bucket_missing" not in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private cycle prose" not in snapshot_dump
+    assert "FC-IND-CYCLE" not in snapshot_dump
+
+
 def test_report_intelligence_builds_deferred_snapshot_for_candidate_macro_agent():
     forecast_rows = [
         {
