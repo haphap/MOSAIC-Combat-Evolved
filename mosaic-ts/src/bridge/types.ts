@@ -734,6 +734,21 @@ export interface RkePromptMutationRollbackReadinessResult {
   promotion_allowed: boolean;
 }
 
+export interface RkeShadowReplayReadinessResult {
+  schema_version: "rke_shadow_replay_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  benchmark_evidence_status: "ready" | "blocked_preflight";
+  darwinian_manifest_status: "ready" | "blocked_preflight";
+  rollback_readiness_status: "ready" | "blocked_preflight";
+  rke_context_hash_count: number;
+  current_data_confirmed_count: number;
+  shadow_replay_ready: boolean;
+  paper_trading_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1377,6 +1392,23 @@ export class BridgeApi {
     return this.client.call<RkePromptMutationRollbackReadinessResult>(
       "rke_benchmark.prompt_mutation_rollback_readiness",
       params ?? {},
+    );
+  }
+
+  rkeBenchmarkShadowReplayReadiness(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    paired_output_count?: number;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+  }): Promise<RkeShadowReplayReadinessResult> {
+    return this.client.call<RkeShadowReplayReadinessResult>(
+      "rke_benchmark.shadow_replay_readiness",
+      params,
     );
   }
 

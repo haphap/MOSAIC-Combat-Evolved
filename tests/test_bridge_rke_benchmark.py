@@ -632,3 +632,104 @@ def test_prompt_mutation_rollback_readiness_accepts_complete_evidence(
     record = manifest["rollback_records"][0]
     assert record["rollback_ready"] is True
     assert len(record["previous_prompt_hashes"]) == 2
+
+
+def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatch):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {"benchmark_run_id": "bench-shadow-missing"},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "benchmark_evidence_not_ready" in manifest["blocked_reasons"]
+    assert "darwinian_autoresearch_input_not_ready" in manifest["blocked_reasons"]
+    assert "rollback_readiness_not_ready" in manifest["blocked_reasons"]
+    assert manifest["shadow_replay_ready"] is False
+    assert manifest["paper_trading_allowed"] is False
+    assert manifest["promotion_allowed"] is False
+
+
+def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-shadow-ready",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "d" * 64,
+                    "retrieval_rank": 1,
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {
+            "benchmark_run_id": "bench-shadow-ready",
+            "paired_output_count": 1275,
+            "benchmark_evidence_refs": {
+                "paired_output_manifest_ref": "bench-shadow-paired",
+                "output_schema_validation_report_ref": "bench-shadow-schema",
+                "deterministic_score_table_ref": "bench-shadow-scores",
+                "investment_outcome_table_ref": "bench-shadow-outcomes",
+            },
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+            "downstream_outcome_metrics": {
+                "risk_adjusted_return": 0.11,
+                "alpha": 0.02,
+                "max_drawdown": -0.03,
+                "turnover": 0.5,
+                "cost_bps": 8,
+            },
+            "prompt_mutation_provenance": {
+                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                "prompt_repo_revision": "a" * 40,
+                "prompt_sha256": "b" * 64,
+            },
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                )
+            ],
+            "rollback_evidence": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "rollback_trigger_definition": "shadow replay regression",
+                    "rollback_command_or_procedure": "restore previous prompt commit",
+                    "monitor_output_ref": "monitor-shadow-ready",
+                    "post_rollback_verification_ref": "verify-shadow-ready",
+                }
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["shadow_replay_ready"] is True
+    assert manifest["paper_trading_allowed"] is False
+    assert manifest["promotion_allowed"] is False
+    assert manifest["rke_context_hash_count"] == 1
+    assert manifest["current_data_confirmed_count"] == 1

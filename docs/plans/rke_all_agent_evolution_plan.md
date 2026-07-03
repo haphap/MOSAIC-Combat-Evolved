@@ -413,6 +413,11 @@ Status 2026-07-03:
   shadow exit unless each private prompt branch candidate has previous prompt
   hashes plus rollback trigger, rollback procedure, monitor output ref, and
   post-rollback verification ref. The gate never enables promotion by itself.
+- Public bridge now exposes `rke_benchmark.shadow_replay_readiness`, a no-write
+  gate that requires fixed-episode benchmark evidence, Darwinian/autoresearch
+  input readiness, runtime RKE context hash/current-data confirmation, and
+  rollback readiness before marking shadow replay ready. It keeps
+  `paper_trading_allowed=false` and `promotion_allowed=false`.
 - This implements the rollback proof-object preflight. E7 is not complete until
   real private branch mutations, benchmark/manual-review decisions, shadow or
   paper-trading gate evidence, monitor output, and post-rollback verification

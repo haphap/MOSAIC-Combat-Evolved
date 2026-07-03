@@ -870,6 +870,63 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
     }
 
 
+@method("rke_benchmark.shadow_replay_readiness")
+def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Gate shadow replay on benchmark, footprint, Darwinian, and rollback proof."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    benchmark = fixed_episode_benchmark_evidence(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "cohort": params.get("cohort"),
+            "paired_output_count": params.get("paired_output_count"),
+            "evidence_refs": params.get("benchmark_evidence_refs"),
+            "manual_review": params.get("manual_review"),
+        }
+    )
+    darwinian = darwinian_autoresearch_input_manifest(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "downstream_outcome_metrics": params.get("downstream_outcome_metrics"),
+            "prompt_mutation_provenance": params.get("prompt_mutation_provenance"),
+        }
+    )
+    rollback = prompt_mutation_rollback_readiness(
+        {
+            "candidates": params.get("candidates"),
+            "rollback_evidence": params.get("rollback_evidence"),
+        }
+    )
+    current_data = darwinian["skill_inputs"]["current_data_skill"]
+    prior_usage = darwinian["skill_inputs"]["research_prior_usage_skill"]
+
+    blocked_reasons: list[str] = []
+    if benchmark["evidence_status"] != "ready":
+        blocked_reasons.append("benchmark_evidence_not_ready")
+    if darwinian["manifest_status"] != "ready":
+        blocked_reasons.append("darwinian_autoresearch_input_not_ready")
+    if rollback["readiness_status"] != "ready":
+        blocked_reasons.append("rollback_readiness_not_ready")
+    if not prior_usage["rke_context_hash_count"]:
+        blocked_reasons.append("runtime_context_hash_missing")
+    if not current_data["current_data_confirmed_count"]:
+        blocked_reasons.append("current_data_confirmation_missing")
+
+    return {
+        "schema_version": "rke_shadow_replay_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "blocked_reasons": blocked_reasons,
+        "benchmark_evidence_status": benchmark["evidence_status"],
+        "darwinian_manifest_status": darwinian["manifest_status"],
+        "rollback_readiness_status": rollback["readiness_status"],
+        "rke_context_hash_count": prior_usage["rke_context_hash_count"],
+        "current_data_confirmed_count": current_data["current_data_confirmed_count"],
+        "shadow_replay_ready": not blocked_reasons,
+        "paper_trading_allowed": False,
+        "promotion_allowed": False,
+    }
+
+
 def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
     component = _clean_str(item.get("target_component"))
     if "." in component:

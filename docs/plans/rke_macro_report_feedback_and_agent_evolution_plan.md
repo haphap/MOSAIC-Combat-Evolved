@@ -2290,6 +2290,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   candidate 离开 shadow 前所需的 rollback trigger、previous prompt hash、rollback
   procedure、monitor output 和 post-rollback verification evidence；真实 rollback monitor
   输出仍需由实际 replay/paper-trading run 产生。
+- `rke_benchmark.shadow_replay_readiness` 已能把 benchmark evidence、Darwinian input、
+  runtime RKE context/current-data confirmation 和 rollback readiness 汇总为 shadow replay
+  gate；真实 replay/paper-trading run 仍未执行，不能据此 promotion。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
 - agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution 闭环。
 - Layer-3 roster preflight：当前分支已完成 public runtime、fallback prompt、RKE style-fit、
