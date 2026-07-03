@@ -72,6 +72,14 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("context_items_malformed")
     elif len(items) != len(item_values):
         failures.append("context_item_not_object")
+    agent_id = str(context.get("agent_id") or "")
+    layer = str(context.get("layer") or "")
+    if not agent_id:
+        failures.append("agent_id_missing")
+    if not layer:
+        failures.append("layer_missing")
+    elif agent_id and "." in agent_id and layer != agent_id.split(".", 1)[0]:
+        failures.append("layer_agent_mismatch")
     schema_version = str(context.get("schema_version") or "")
     if not schema_version:
         failures.append("schema_version_missing")
