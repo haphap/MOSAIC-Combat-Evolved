@@ -115,8 +115,25 @@ _SCORING_METRICS = (
 )
 
 _CAPTURE_REL_PATH = Path(".mosaic/rke/all_agent_evolution/agent_claim_footprints.jsonl")
+_DELIVERY_EVIDENCE_REL_PATH = Path(
+    ".mosaic/rke/all_agent_evolution/delivery_evidence.jsonl"
+)
 _PROMPT_MUTATION_CANDIDATES_REL_PATH = Path(
     "registry/report_intelligence/prompt_mutation_candidates.jsonl"
+)
+_DELIVERY_EVIDENCE_KEYS = (
+    "all_agent_prompt_release_checks",
+    "paired_output_count",
+    "benchmark_evidence_refs",
+    "manual_review",
+    "profile_evidence",
+    "downstream_outcome_metrics",
+    "prompt_mutation_provenance",
+    "candidates",
+    "prompt_mutation_release_checks",
+    "rollback_evidence",
+    "paper_trading_plan",
+    "promotion_evidence",
 )
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
     "macro": ("macro_regime_claim", "macro_series_claim", "macro_asset_claim"),
@@ -1288,53 +1305,100 @@ def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.record_delivery_evidence")
+def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
+    """Persist no-body delivery evidence refs in the private local store."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    evidence = {key: params[key] for key in _DELIVERY_EVIDENCE_KEYS if key in params}
+    if not evidence:
+        raise RpcError(INVALID_PARAMS, "delivery evidence fields are required")
+    forbidden_paths = _forbidden_paths(evidence)
+    if forbidden_paths:
+        return {
+            "record_status": "blocked",
+            "benchmark_run_id": benchmark_run_id,
+            "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
+            "failures": [
+                "forbidden private/prose fields " + ", ".join(forbidden_paths[:5])
+            ],
+            "recorded_key_count": 0,
+        }
+
+    record = {
+        "schema_version": "rke_delivery_evidence_v1",
+        "benchmark_run_id": benchmark_run_id,
+        "evidence": evidence,
+    }
+    path = _repo_root() / _DELIVERY_EVIDENCE_REL_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    return {
+        "record_status": "recorded",
+        "benchmark_run_id": benchmark_run_id,
+        "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
+        "recorded_key_count": len(evidence),
+        "failures": [],
+    }
+
+
 @method("rke_benchmark.delivery_readiness")
 def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Aggregate E7 delivery readiness without running or promoting anything."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
+    recorded_evidence, evidence_failures = _read_delivery_evidence(benchmark_run_id)
+    effective_params = dict(recorded_evidence)
+    for key in _DELIVERY_EVIDENCE_KEYS + ("cohort",):
+        if key in params:
+            effective_params[key] = params[key]
     prompt_provenance = all_agent_prompt_provenance_readiness(
         {
-            "cohort": params.get("cohort"),
-            "release_checks": params.get("all_agent_prompt_release_checks"),
+            "cohort": effective_params.get("cohort"),
+            "release_checks": effective_params.get("all_agent_prompt_release_checks"),
         }
     )
     benchmark = fixed_episode_benchmark_evidence(
         {
             "benchmark_run_id": benchmark_run_id,
-            "cohort": params.get("cohort"),
-            "paired_output_count": params.get("paired_output_count"),
-            "evidence_refs": params.get("benchmark_evidence_refs"),
-            "manual_review": params.get("manual_review"),
+            "cohort": effective_params.get("cohort"),
+            "paired_output_count": effective_params.get("paired_output_count"),
+            "evidence_refs": effective_params.get("benchmark_evidence_refs"),
+            "manual_review": effective_params.get("manual_review"),
         }
     )
     profile = agent_profile_evolution_readiness(
         {
             "benchmark_run_id": benchmark_run_id,
-            "profile_evidence": params.get("profile_evidence"),
+            "profile_evidence": effective_params.get("profile_evidence"),
         }
     )
     darwinian = darwinian_autoresearch_input_manifest(
         {
             "benchmark_run_id": benchmark_run_id,
-            "downstream_outcome_metrics": params.get("downstream_outcome_metrics"),
-            "prompt_mutation_provenance": params.get("prompt_mutation_provenance"),
+            "downstream_outcome_metrics": effective_params.get(
+                "downstream_outcome_metrics"
+            ),
+            "prompt_mutation_provenance": effective_params.get(
+                "prompt_mutation_provenance"
+            ),
         }
     )
     prompt_release = prompt_mutation_release_readiness(
         {
-            "candidates": params.get("candidates"),
-            "release_checks": params.get("prompt_mutation_release_checks"),
+            "candidates": effective_params.get("candidates"),
+            "release_checks": effective_params.get("prompt_mutation_release_checks"),
         }
     )
     rollback = prompt_mutation_rollback_readiness(
         {
-            "candidates": params.get("candidates"),
-            "rollback_evidence": params.get("rollback_evidence"),
+            "candidates": effective_params.get("candidates"),
+            "rollback_evidence": effective_params.get("rollback_evidence"),
         }
     )
-    shadow = shadow_replay_readiness(params)
-    paper = paper_trading_readiness(params)
-    promotion = promotion_decision_readiness(params)
+    replay_params = {"benchmark_run_id": benchmark_run_id, **effective_params}
+    shadow = shadow_replay_readiness(replay_params)
+    paper = paper_trading_readiness(replay_params)
+    promotion = promotion_decision_readiness(replay_params)
 
     conditions = [
         _delivery_condition(
@@ -1400,6 +1464,9 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             for reason in condition["blocked_reasons"]
         }
     )
+    blocked_reasons.extend(
+        f"delivery_evidence_store:{failure}" for failure in evidence_failures
+    )
     return {
         "schema_version": "rke_all_agent_delivery_readiness_v1",
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
@@ -1410,6 +1477,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
         ),
         "blocked_reasons": blocked_reasons,
         "conditions": conditions,
+        "recorded_evidence_loaded": bool(recorded_evidence),
         "delivery_ready": not blocked_reasons,
         "production_allowed": False,
         "promotion_allowed": False,
@@ -1428,6 +1496,45 @@ def _delivery_condition(
         "ready": status == "ready" and not reasons,
         "blocked_reasons": reasons,
     }
+
+
+def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list[str]]:
+    path = _repo_root() / _DELIVERY_EVIDENCE_REL_PATH
+    if not path.exists():
+        return {}, []
+    latest: dict[str, Any] = {}
+    failures: list[str] = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                failures.append(f"line {line_number}: invalid json")
+                continue
+            if not isinstance(row, dict):
+                failures.append(f"line {line_number}: row must be object")
+                continue
+            if row.get("benchmark_run_id") != benchmark_run_id:
+                continue
+            evidence = row.get("evidence")
+            if not isinstance(evidence, dict):
+                failures.append(f"line {line_number}: evidence must be object")
+                continue
+            forbidden_paths = _forbidden_paths(evidence)
+            if forbidden_paths:
+                failures.append(
+                    f"line {line_number}: forbidden private/prose fields "
+                    + ", ".join(forbidden_paths[:5])
+                )
+                continue
+            latest = {
+                key: evidence[key]
+                for key in _DELIVERY_EVIDENCE_KEYS
+                if key in evidence
+            }
+    return latest, failures
 
 
 def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:

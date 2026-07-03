@@ -1185,6 +1185,61 @@ def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch)
     assert manifest["promotion_allowed"] is False
 
 
+def test_record_delivery_evidence_blocks_private_fields(tmp_path: Path, monkeypatch):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    result = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-private",
+            "benchmark_evidence_refs": {"source_url": "https://private/report.pdf"},
+        },
+    )
+
+    assert result["record_status"] == "blocked"
+    assert result["recorded_key_count"] == 0
+    assert result["failures"]
+
+
+def test_delivery_readiness_loads_recorded_private_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-recorded",
+            "paired_output_count": 1275,
+            "benchmark_evidence_refs": {
+                "paired_output_manifest_ref": "recorded-paired",
+                "output_schema_validation_report_ref": "recorded-schema",
+                "deterministic_score_table_ref": "recorded-scores",
+                "investment_outcome_table_ref": "recorded-outcomes",
+            },
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": "bench-delivery-recorded"},
+    )
+
+    assert record["record_status"] == "recorded"
+    assert manifest["recorded_evidence_loaded"] is True
+    assert all(
+        "fixed_episode_benchmark:paired_output_count_below_required" != reason
+        for reason in manifest["blocked_reasons"]
+    )
+
+
 def test_delivery_readiness_accepts_all_no_write_gate_evidence(
     tmp_path: Path, monkeypatch
 ):

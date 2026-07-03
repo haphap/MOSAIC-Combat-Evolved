@@ -884,9 +884,18 @@ export interface RkeDeliveryReadinessResult {
   ready_condition_count: number;
   blocked_reasons: string[];
   conditions: RkeDeliveryCondition[];
+  recorded_evidence_loaded: boolean;
   delivery_ready: boolean;
   production_allowed: boolean;
   promotion_allowed: boolean;
+}
+
+export interface RkeDeliveryEvidenceRecordResult {
+  record_status: "recorded" | "blocked";
+  benchmark_run_id: string;
+  private_rows_path: string;
+  recorded_key_count: number;
+  failures: string[];
 }
 
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
@@ -1615,6 +1624,27 @@ export class BridgeApi {
   }): Promise<RkePromotionDecisionReadinessResult> {
     return this.client.call<RkePromotionDecisionReadinessResult>(
       "rke_benchmark.promotion_decision_readiness",
+      params,
+    );
+  }
+
+  rkeBenchmarkRecordDeliveryEvidence(params: {
+    benchmark_run_id: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    paired_output_count?: number;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    profile_evidence?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+    paper_trading_plan?: Record<string, unknown>;
+    promotion_evidence?: Record<string, unknown>;
+  }): Promise<RkeDeliveryEvidenceRecordResult> {
+    return this.client.call<RkeDeliveryEvidenceRecordResult>(
+      "rke_benchmark.record_delivery_evidence",
       params,
     );
   }
