@@ -141,6 +141,24 @@ _DELIVERY_EVIDENCE_KEYS = (
     "paper_trading_plan",
     "promotion_evidence",
 )
+_DELIVERY_EVIDENCE_VALUE_TYPES = {
+    "all_agent_prompt_release_checks": list,
+    "paired_output_count": int,
+    "model_config_output_counts": dict,
+    "benchmark_quality_summary": dict,
+    "benchmark_evidence_refs": dict,
+    "manual_review": dict,
+    "profile_evidence": dict,
+    "downstream_outcome_metrics": dict,
+    "prompt_mutation_provenance": dict,
+    "darwinian_autoresearch_consumption_evidence": dict,
+    "candidates": list,
+    "patch_activation_evidence": list,
+    "prompt_mutation_release_checks": list,
+    "rollback_evidence": list,
+    "paper_trading_plan": dict,
+    "promotion_evidence": dict,
+}
 _DELIVERY_CONTEXT_KEYS = ("cohort", "prompt_source_status")
 _DELIVERY_RECORD_KEYS = _DELIVERY_CONTEXT_KEYS + _DELIVERY_EVIDENCE_KEYS
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
@@ -1917,17 +1935,13 @@ def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
             "recorded_key_count": 0,
             "recorded_context_key_count": 0,
         }
-    empty_keys = [
-        key
-        for key in _DELIVERY_EVIDENCE_KEYS
-        if key in evidence and not _delivery_evidence_value_present(evidence[key])
-    ]
-    if empty_keys:
+    invalid_values = _invalid_delivery_evidence_values(evidence)
+    if invalid_values:
         return {
             "record_status": "blocked",
             "benchmark_run_id": benchmark_run_id,
             "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
-            "failures": ["empty delivery evidence values " + ", ".join(empty_keys)],
+            "failures": invalid_values,
             "recorded_key_count": 0,
             "recorded_context_key_count": 0,
         }
@@ -2250,15 +2264,10 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                     + ", ".join(forbidden_paths[:5])
                 )
                 continue
-            empty_keys = [
-                key
-                for key in _DELIVERY_EVIDENCE_KEYS
-                if key in evidence and not _delivery_evidence_value_present(evidence[key])
-            ]
-            if empty_keys:
-                failures.append(
-                    f"line {line_number}: empty delivery evidence values "
-                    + ", ".join(empty_keys)
+            invalid_values = _invalid_delivery_evidence_values(evidence)
+            if invalid_values:
+                failures.extend(
+                    f"line {line_number}: {failure}" for failure in invalid_values
                 )
                 continue
             latest.update(
@@ -2269,6 +2278,25 @@ def _read_delivery_evidence(benchmark_run_id: str) -> tuple[dict[str, Any], list
                 }
             )
     return latest, failures
+
+
+def _invalid_delivery_evidence_values(evidence: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    for key, expected_type in _DELIVERY_EVIDENCE_VALUE_TYPES.items():
+        if key not in evidence:
+            continue
+        value = evidence[key]
+        if not _delivery_evidence_value_present(value):
+            failures.append(f"empty delivery evidence values {key}")
+            continue
+        if expected_type is int:
+            if not isinstance(value, int) or isinstance(value, bool):
+                failures.append(f"invalid delivery evidence type {key}: expected int")
+        elif not isinstance(value, expected_type):
+            failures.append(
+                f"invalid delivery evidence type {key}: expected {expected_type.__name__}"
+            )
+    return failures
 
 
 def _delivery_evidence_value_present(value: Any) -> bool:

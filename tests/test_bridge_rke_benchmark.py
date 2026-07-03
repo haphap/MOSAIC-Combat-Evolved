@@ -3376,6 +3376,52 @@ def test_delivery_evidence_store_blocks_empty_proof_values(
     ]
 
 
+def test_delivery_evidence_store_blocks_wrong_proof_types(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    evidence_dir = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    evidence_dir.mkdir(parents=True)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-wrong-type",
+            "manual_review": True,
+            "candidates": {"candidate": "wrong-shape"},
+        },
+    )
+    (evidence_dir / "delivery_evidence.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": "rke_delivery_evidence_v1",
+                "benchmark_run_id": "bench-delivery-wrong-type",
+                "evidence": {"paired_output_count": False},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-wrong-type"},
+    )
+
+    assert record["record_status"] == "blocked"
+    assert "invalid delivery evidence type manual_review: expected dict" in record[
+        "failures"
+    ]
+    assert "invalid delivery evidence type candidates: expected list" in record[
+        "failures"
+    ]
+    assert audit["evidence_status"] == "blocked"
+    assert audit["recorded_keys"] == []
+    assert audit["failures"] == [
+        "line 1: invalid delivery evidence type paired_output_count: expected int"
+    ]
+
+
 def test_delivery_evidence_store_rejects_schema_mismatch(
     tmp_path: Path, monkeypatch
 ):
