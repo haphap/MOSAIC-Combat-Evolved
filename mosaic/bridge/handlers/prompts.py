@@ -157,6 +157,10 @@ def _git_run(cwd: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
+def _git_dirty(repo: Path) -> bool:
+    return bool(_git_run(repo, "status", "--porcelain"))
+
+
 def _optional_str_list(
     params: dict[str, Any],
     key: str,
@@ -198,6 +202,8 @@ def _formal_prompt_source() -> dict[str, Any]:
             project_root = _repo_root()
             if repo_root == project_root or repo_root.is_relative_to(project_root):
                 return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
+            if _git_dirty(repo_root):
+                return {"ready": False, "blocked_reason": "private_prompt_repo_dirty"}
         except Exception:
             return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
         return {
@@ -215,6 +221,8 @@ def _formal_prompt_source() -> dict[str, Any]:
     try:
         repo_root = validate_private_prompt_repo(repo, project_root=_repo_root())
         revision = _git_run(repo_root, "rev-parse", "HEAD")
+        if _git_dirty(repo_root):
+            return {"ready": False, "blocked_reason": "private_prompt_repo_dirty"}
     except Exception:
         return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
     return {

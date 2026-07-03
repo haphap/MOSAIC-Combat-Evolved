@@ -333,6 +333,33 @@ def test_preflight_records_private_prompt_provenance(repo: Path, tmp_path: Path,
         assert "content" not in row
 
 
+def test_preflight_blocks_dirty_private_prompt_repo(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    init_private_prompt_repo(private_repo, project_root=repo, seed_baseline=True)
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    prompt_file = (
+        private_repo
+        / "prompts"
+        / "mosaic"
+        / "cohort_default"
+        / "macro"
+        / "volatility.zh.md"
+    )
+    prompt_file.write_text("dirty zh\n## 输出 schema\n", encoding="utf-8")
+
+    result = dispatch(
+        "prompts.preflight",
+        {"agents": ["volatility"], "langs": ["zh"]},
+    )
+
+    assert result["ready"] is False
+    assert result["rows"][0]["blocked_reason"] == "private_prompt_repo_dirty"
+    assert result["rows"][0]["fallback_used"] is False
+    assert "content" not in result["rows"][0]
+
+
 def test_preflight_allows_git_backed_prompts_root(repo: Path, tmp_path: Path, monkeypatch):
     private_repo = tmp_path / "MOSAIC-Prompts"
     init_private_prompt_repo(private_repo, project_root=repo, seed_baseline=True)
@@ -347,6 +374,29 @@ def test_preflight_allows_git_backed_prompts_root(repo: Path, tmp_path: Path, mo
     row = result["rows"][0]
     assert row["resolved_source"] == "private_root"
     assert row["prompt_file_path"] == "prompts/mosaic/cohort_default/macro/volatility.zh.md"
+
+
+def test_preflight_blocks_dirty_prompts_root(repo: Path, tmp_path: Path, monkeypatch):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    init_private_prompt_repo(private_repo, project_root=repo, seed_baseline=True)
+    monkeypatch.setenv("MOSAIC_PROMPTS_ROOT", str(private_repo / "prompts" / "mosaic"))
+    prompt_file = (
+        private_repo
+        / "prompts"
+        / "mosaic"
+        / "cohort_default"
+        / "macro"
+        / "volatility.zh.md"
+    )
+    prompt_file.write_text("dirty zh\n## 输出 schema\n", encoding="utf-8")
+
+    result = dispatch(
+        "prompts.preflight",
+        {"agents": ["volatility"], "langs": ["zh"]},
+    )
+
+    assert result["ready"] is False
+    assert result["rows"][0]["blocked_reason"] == "private_prompt_repo_dirty"
 
 
 def test_preflight_rejects_project_prompt_root(repo: Path, monkeypatch):

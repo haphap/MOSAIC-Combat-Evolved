@@ -84,10 +84,13 @@ Status 2026-07-03:
   that resolves private prompt provenance for requested agents/languages. It
   requires `MOSAIC_PROMPTS_REPO` / `MOSAIC_PRIVATE_PROMPT_REPO`, or a git-backed
   `MOSAIC_PROMPTS_ROOT`, records `prompt_repo_id`, HEAD revision, relative prompt
-  file path, prompt sha256, resolved source, and `fallback_used=false`.
+  file path, prompt sha256, resolved source, and `fallback_used=false`. Dirty
+  private prompt repos are blocked because a working-tree prompt hash paired
+  with HEAD revision is not a reproducible formal prompt pin.
 - Missing private prompts or missing git provenance return blocked rows with
-  `private_prompt_unavailable` or `prompt_provenance_unavailable`; bundled
-  prompts are not used as fallback for formal rows.
+  `private_prompt_unavailable`, `prompt_provenance_unavailable`, or
+  `private_prompt_repo_dirty`; bundled prompts are not used as fallback for
+  formal rows.
 - Public bridge now exposes `rke_benchmark.all_agent_prompt_provenance_readiness`,
   a no-write all-agent gate that requires all 25 agents × 2 languages to have
   private prompt pins plus per-prompt release/leak-drift evidence before formal

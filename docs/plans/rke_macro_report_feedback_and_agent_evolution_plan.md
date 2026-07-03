@@ -2256,7 +2256,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   ranking policy、retrieval rank/priority bucket 分布和 truncation audit；全 agent
   private prompt provenance、benchmark wiring 和 replay proof 仍属于 Part 2。
 - `prompts.preflight` 已提供 formal benchmark/replay 前的 private prompt provenance
-  预检机制，不返回 prompt body；真实 private prompt repo 的全 agent ready rows、
+  预检机制，不返回 prompt body；dirty private prompt repo 会被
+  `private_prompt_repo_dirty` 阻断，避免把 working-tree prompt hash 与 HEAD revision
+  混作可复现 release pin。真实 private prompt repo 的全 agent ready rows、
   leak/drift/release checks 和 benchmark 仍属于 Part 2。
 - `rke_benchmark.all_agent_prompt_provenance_readiness` 已能把全 25 agents × 2
   languages 的 private prompt pins 与 release/leak-drift evidence 聚合成 formal
