@@ -167,6 +167,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("matched_item_count_invalid")
     elif matched_item_count < len(items):
         failures.append("matched_item_count_below_visible")
+    elif matched_item_count == 0 and not summary_map.get("no_prior_reason"):
+        failures.append("no_prior_reason_missing")
     truncated_item_count = _optional_non_negative_int(
         summary_map.get("truncated_item_count")
     )

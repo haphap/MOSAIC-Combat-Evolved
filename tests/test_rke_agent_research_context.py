@@ -606,6 +606,7 @@ def test_rke_research_tool_formats_context(monkeypatch):
             "summary": {
                 "item_count": 0,
                 "matched_item_count": 0,
+                "no_prior_reason": "no_applicable_prior_for_agent_request",
                 "private_text_included": False,
                 "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
@@ -902,6 +903,36 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
     assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
     assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
     assert "production_signal_allowed=false" in output
+
+
+def test_rke_runtime_context_preflight_blocks_empty_context_without_no_prior_reason():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "requested_agent_id": "dollar",
+            "schema_version": SCHEMA_VERSION,
+            "layer": "macro",
+            "as_of_date": "2026-06-27",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [],
+            "summary": {
+                "item_count": 0,
+                "matched_item_count": 0,
+                "private_text_included": False,
+                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
+                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
+                "truncated_item_count": 0,
+                "current_data_required": True,
+                "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "no_prior_reason_missing" in output
 
 
 def test_rke_runtime_context_preflight_blocks_requested_agent_mismatch():
