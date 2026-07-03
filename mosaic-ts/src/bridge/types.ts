@@ -509,7 +509,9 @@ export interface RkeAllAgentPromptProvenanceRow {
   prompt_repo_id: string;
   prompt_repo_revision: string;
   prompt_sha256: string;
+  benchmark_run_id: string;
   prompt_version_id: number | null;
+  audit_version_ref: string;
   verify_release_ref: string;
   leak_drift_check_ref: string;
   fallback_used: boolean;
@@ -520,6 +522,7 @@ export interface RkeAllAgentPromptProvenanceRow {
 export interface RkeAllAgentPromptProvenanceReadinessResult {
   schema_version: "rke_all_agent_prompt_provenance_readiness_v1";
   readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
   cohort: string;
   blocked_reasons: string[];
   agent_count: number;
@@ -648,6 +651,8 @@ export interface RkeAgentClaimFootprintCaptureResult {
     current_data_confirmed_count: number;
     rke_context_hash_count: number;
     report_claim_ref_count: number;
+    report_claim_linked_row_count: number;
+    rke_context_report_claim_linked_count: number;
     ranking_policy_id_counts: Record<string, number>;
     retrieval_rank_count: number;
     priority_bucket_counts: Record<string, number>;
@@ -673,6 +678,8 @@ export interface RkeAgentFootprintSummaryResult {
   contradictory_prior_handled_count: number;
   rke_context_hash_count: number;
   report_claim_ref_count: number;
+  report_claim_linked_row_count: number;
+  rke_context_report_claim_linked_count: number;
   ranking_policy_id_counts: Record<string, number>;
   retrieval_rank_count: number;
   priority_bucket_counts: Record<string, number>;
@@ -699,12 +706,20 @@ export interface RkeAgentProfileEvolutionReadinessResult {
   claim_type_counts: Record<string, number>;
   rke_context_hash_count: number;
   report_claim_ref_count: number;
+  report_claim_linked_row_count: number;
+  rke_context_report_claim_linked_count: number;
+  ranking_policy_id_counts: Record<string, number>;
+  retrieval_rank_count: number;
+  priority_bucket_counts: Record<string, number>;
+  truncation_audit_count: number;
+  current_data_confirmed_count: number;
   privacy_scan: {
     private_text_included: boolean;
     source_prose_included: boolean;
     forbidden_field_violation_count: number;
   };
   profile_evidence: {
+    benchmark_run_id: string;
     profile_update_ref: string;
     evolution_input_ref: string;
     no_source_prose_audit_ref: string;
@@ -842,8 +857,13 @@ export interface RkePromptMutationReleaseRecord {
   mutation_candidate_id: string;
   private_prompt_branch: string;
   affected_agents: string[];
+  benchmark_run_id: string;
   prompt_version_id: number | null;
   prompt_repo_id: string;
+  release_private_prompt_branch: string;
+  base_prompt_repo_revision: string;
+  overwrite_target_paths: string[];
+  audit_version_ref: string;
   prompt_commit_hash: string;
   prompt_sha256: string;
   verify_release_ref: string;
@@ -854,6 +874,7 @@ export interface RkePromptMutationReleaseRecord {
 
 export interface RkePromptMutationReleaseReadinessResult {
   schema_version: "rke_prompt_mutation_release_readiness_v1";
+  benchmark_run_id: string;
   readiness_status: "ready" | "blocked_preflight";
   blocked_reasons: string[];
   lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
@@ -871,6 +892,8 @@ export interface RkePromptMutationRollbackRecord {
   private_prompt_branch: string;
   affected_agents: string[];
   previous_prompt_hashes: string[];
+  rollback_previous_prompt_hashes: string[];
+  benchmark_run_id: string;
   rollback_trigger_definition: string;
   rollback_command_or_procedure: string;
   monitor_output_ref: string;
@@ -881,6 +904,7 @@ export interface RkePromptMutationRollbackRecord {
 
 export interface RkePromptMutationRollbackReadinessResult {
   schema_version: "rke_prompt_mutation_rollback_readiness_v1";
+  benchmark_run_id: string;
   readiness_status: "ready" | "blocked_preflight";
   blocked_reasons: string[];
   lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
@@ -1598,6 +1622,7 @@ export class BridgeApi {
 
   // rke_benchmark.* (Part 2 E2)
   rkeBenchmarkAllAgentPromptProvenanceReadiness(params?: {
+    benchmark_run_id?: string;
     cohort?: string;
     release_checks?: Array<Record<string, unknown>>;
   }): Promise<RkeAllAgentPromptProvenanceReadinessResult> {
@@ -1664,6 +1689,7 @@ export class BridgeApi {
     benchmark_run_id?: string;
     downstream_outcome_metrics?: Record<string, number>;
     prompt_mutation_provenance?: {
+      benchmark_run_id?: string;
       prompt_repo_id?: string;
       prompt_repo_revision?: string;
       prompt_sha256?: string;
@@ -1707,6 +1733,7 @@ export class BridgeApi {
   }
 
   rkeBenchmarkPromptMutationReleaseReadiness(params?: {
+    benchmark_run_id?: string;
     candidates?: Array<Record<string, unknown>>;
     release_checks?: Array<Record<string, unknown>>;
   }): Promise<RkePromptMutationReleaseReadinessResult> {
@@ -1717,6 +1744,7 @@ export class BridgeApi {
   }
 
   rkeBenchmarkPromptMutationRollbackReadiness(params?: {
+    benchmark_run_id?: string;
     candidates?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
   }): Promise<RkePromptMutationRollbackReadinessResult> {
