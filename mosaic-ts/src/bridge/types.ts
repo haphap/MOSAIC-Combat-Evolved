@@ -923,6 +923,7 @@ export interface RkeDeliveryEvidenceAuditResult {
   recorded_key_count: number;
   recorded_context_keys: string[];
   recorded_keys: string[];
+  recorded_prompt_source_status: Record<string, unknown>;
   missing_keys: string[];
   failures: string[];
   delivery_readiness_can_load: boolean;
@@ -1666,6 +1667,7 @@ export class BridgeApi {
   rkeBenchmarkRecordDeliveryEvidence(params: {
     benchmark_run_id: string;
     cohort?: string;
+    prompt_source_status?: Record<string, unknown>;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     benchmark_evidence_refs?: Record<string, unknown>;

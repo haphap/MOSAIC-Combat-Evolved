@@ -2325,7 +2325,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.delivery_evidence_audit` 已能按 `benchmark_run_id` 审计该私有 store
   已记录和仍缺失的 proof-object keys，并返回 aggregate delivery readiness status，避免把
   key-complete evidence 误读为 E7 ready；同时透传 condition-level readiness summaries；
-  `cohort` 等 run context keys 与 proof-object keys 分开统计；不返回 evidence body。
+  `cohort`、`prompt_source_status` 等 run context keys 与 proof-object keys 分开统计；
+  不返回 evidence body。
 - 所有 agent 的 private prompt repo 版本 replay/evaluation 记录尚未覆盖。
 - agent claim 和 report claim 尚未统一进入 RKE claim/profile/footprint/evolution 闭环。
 - Layer-3 roster preflight：当前分支已完成 public runtime、fallback prompt、RKE style-fit、

@@ -135,7 +135,7 @@ _DELIVERY_EVIDENCE_KEYS = (
     "paper_trading_plan",
     "promotion_evidence",
 )
-_DELIVERY_CONTEXT_KEYS = ("cohort",)
+_DELIVERY_CONTEXT_KEYS = ("cohort", "prompt_source_status")
 _DELIVERY_RECORD_KEYS = _DELIVERY_CONTEXT_KEYS + _DELIVERY_EVIDENCE_KEYS
 _CLAIM_TYPES_BY_LAYER: dict[str, tuple[str, ...]] = {
     "macro": ("macro_regime_claim", "macro_series_claim", "macro_asset_claim"),
@@ -1315,8 +1315,10 @@ def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
     """Persist no-body delivery evidence refs in the private local store."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
     evidence = {key: params[key] for key in _DELIVERY_RECORD_KEYS if key in params}
-    if not any(key in params for key in _DELIVERY_EVIDENCE_KEYS):
-        raise RpcError(INVALID_PARAMS, "delivery evidence fields are required")
+    if not evidence:
+        raise RpcError(
+            INVALID_PARAMS, "delivery evidence or context fields are required"
+        )
     forbidden_paths = _forbidden_paths(evidence)
     if forbidden_paths:
         return {
@@ -1376,6 +1378,9 @@ def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
         "recorded_key_count": len(recorded_keys),
         "recorded_context_keys": recorded_context_keys,
         "recorded_keys": recorded_keys,
+        "recorded_prompt_source_status": evidence.get("prompt_source_status")
+        if isinstance(evidence.get("prompt_source_status"), dict)
+        else {},
         "missing_keys": missing_keys,
         "failures": failures,
         "delivery_readiness_can_load": bool(recorded_keys),

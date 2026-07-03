@@ -1310,6 +1310,42 @@ def test_delivery_evidence_audit_keeps_context_out_of_proof_keys(
     assert audit["delivery_readiness_can_load"] is False
 
 
+def test_delivery_evidence_audit_records_prompt_source_status_context(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-source-status",
+            "prompt_source_status": {
+                "ready": False,
+                "blocked_reason": "private_prompt_repo_dirty",
+                "resolved_source": "private_repo",
+                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                "prompt_repo_revision": "a" * 40,
+                "prompt_repo_dirty_count": 406,
+            },
+        },
+    )
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-source-status"},
+    )
+
+    assert record["record_status"] == "recorded"
+    assert audit["evidence_status"] == "missing"
+    assert audit["recorded_context_keys"] == ["prompt_source_status"]
+    assert audit["recorded_keys"] == []
+    assert audit["recorded_prompt_source_status"]["blocked_reason"] == (
+        "private_prompt_repo_dirty"
+    )
+    assert audit["delivery_readiness_can_load"] is False
+
+
 def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()
