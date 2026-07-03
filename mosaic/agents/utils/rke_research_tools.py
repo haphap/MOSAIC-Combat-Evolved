@@ -17,8 +17,10 @@ from typing import Mapping
 from langchain_core.tools import tool
 
 from mosaic.rke.agent_research_context import (
+    AGENT_TARGET_SPECIFICITY_BUCKETS,
     FORBIDDEN_FIELD_NAMES,
     FORBIDDEN_FIELD_POLICY,
+    PERFORMANCE_CONTEXT_BUCKETS,
     RANKING_POLICY_ID,
     RESEARCH_PRIOR_USE_POLICY,
     RELIABILITY_BUCKETS,
@@ -175,6 +177,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         )
     ):
         failures.append("item_ranking_metadata_missing")
+    if items and any(
+        item.get("agent_target_specificity_bucket") not in AGENT_TARGET_SPECIFICITY_BUCKETS
+        or item.get("performance_context_match") not in PERFORMANCE_CONTEXT_BUCKETS
+        for item in items
+    ):
+        failures.append("item_ranking_metadata_invalid")
     if items and any(item.get("freshness_bucket") not in _FRESHNESS_BUCKETS for item in items):
         failures.append("item_freshness_bucket_invalid")
     if items and any("latest_completed_exit_date" not in item for item in items):

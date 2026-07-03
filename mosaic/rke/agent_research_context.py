@@ -40,6 +40,28 @@ RELIABILITY_BUCKETS = frozenset(
         "insufficient_data",
     }
 )
+AGENT_TARGET_SPECIFICITY_BUCKETS = frozenset(
+    {
+        "direct_agent_target_match",
+        "explicit_agent_candidate",
+        "strong_role_style_match",
+        "sector_target_match",
+        "metric_or_regime_match",
+        "role_style_match",
+        "decision_stock_prior",
+        "decision_industry_prior",
+        "decision_macro_prior",
+        "generic_agent_match",
+    }
+)
+PERFORMANCE_CONTEXT_BUCKETS = frozenset(
+    {
+        "source_and_viewpoint_profile_match",
+        "viewpoint_profile_match",
+        "source_profile_match",
+        "insufficient_data",
+    }
+)
 
 MACRO_AGENTS = frozenset(
     {
@@ -545,8 +567,8 @@ def _public_claim_item(
     combined_weight = _round_float(
         weighted_claim.get("combined_research_prior_weight") or 1.0
     )
-    performance_context_match = _safe_token(
-        weighted_claim.get("performance_context_match") or "insufficient_data"
+    performance_context_match = _performance_context_bucket(
+        weighted_claim.get("performance_context_match")
     )
     stock_context_snapshot = (
         _matching_stock_context_snapshot(claim, report_meta, stock_context_snapshots)
@@ -968,6 +990,7 @@ def _context_item_rank_key(item: Mapping[str, Any]) -> tuple[Any, ...]:
 
 def _specificity_rank(value: Any) -> int:
     ranks = {
+        "direct_agent_target_match": 0,
         "explicit_agent_candidate": 0,
         "strong_role_style_match": 1,
         "sector_target_match": 1,
@@ -1201,6 +1224,11 @@ def _rating_bucket(value: Any) -> str:
 def _reliability_bucket(value: Any) -> str:
     bucket = _safe_token(value or "insufficient_data")
     return bucket if bucket in RELIABILITY_BUCKETS else "insufficient_data"
+
+
+def _performance_context_bucket(value: Any) -> str:
+    bucket = _safe_token(value or "insufficient_data")
+    return bucket if bucket in PERFORMANCE_CONTEXT_BUCKETS else "insufficient_data"
 
 
 def _current_data_required_fields(agent_id: str) -> list[str]:

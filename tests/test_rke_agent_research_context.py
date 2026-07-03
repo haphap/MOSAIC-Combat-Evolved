@@ -1240,6 +1240,11 @@ def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
                     "source_performance_bucket": "buy_now",
                     "viewpoint_performance_bucket": "sell_now",
                     "statistical_reliability_bucket": "certain",
+                    "agent_target_specificity_bucket": "manual_override",
+                    "performance_context_match": "perfect_match",
+                    "freshness_bucket": "pending_no_completed_exit",
+                    "combined_research_prior_weight": 1.0,
+                    "latest_completed_exit_date": "",
                     "n_effective": 3.0,
                     "known_failure_mode_tags": [],
                     "recipe_ids": [],
@@ -1270,6 +1275,7 @@ def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
     assert "runtime_preflight_status=blocked" in output
     assert "item_performance_bucket_invalid" in output
     assert "item_reliability_bucket_invalid" in output
+    assert "item_ranking_metadata_invalid" in output
 
 
 def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
