@@ -1629,6 +1629,17 @@ def _evolution_readiness_gate_record(tmp_path: Path):
     )
 
 
+def _write_evolution_readiness_gate(tmp_path: Path, gate: dict[str, object]) -> Path:
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True, exist_ok=True)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return gate_path
+
+
 def _copy_gold_review_summary(tmp_path: Path) -> Path:
     report_intelligence_dir = tmp_path / "registry/report_intelligence"
     report_intelligence_dir.mkdir(parents=True, exist_ok=True)
@@ -3909,6 +3920,40 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
         "evolution_readiness_gate.promotion_state: expected blocked_before_prompt_evolution"
         in item
         for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_synthetic_prior_refusal_only_pass(
+    tmp_path: Path,
+):
+    gate = {
+        "blocker_count": 0,
+        "blockers": [],
+        "checks": [
+            {
+                "blockers": [],
+                "check_id": "RI-EVOL-08",
+                "evidence": {
+                    "prior_compiler_actionable_candidate_count": 0,
+                    "prior_compiler_candidate_count": 4,
+                },
+                "passed": True,
+                "requirement": "prior compiler fixture",
+            }
+        ],
+        "gate_status": "passed",
+        "private_text_included": False,
+        "production_prompt_change_allowed": False,
+        "promotion_state": "ready_for_shadow_evolution_candidate",
+        "thresholds": {},
+    }
+    _write_evolution_readiness_gate(tmp_path, gate)
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "prior_compiler_refusal_only required" in item for item in record.failures
     )
 
 
