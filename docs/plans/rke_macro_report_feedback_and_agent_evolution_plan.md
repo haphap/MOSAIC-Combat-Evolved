@@ -1984,8 +1984,11 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 
 stock prior for superinvestors 子任务：
 
-- 状态：proposed，尚未实现；实施规模 M。当前只有 generic RKE research context，
-  不能视为已完成 Munger/Burry/Ackman/Druckenmiller 的 role-filtered stock prior。
+- 状态：已实现 Part 1 builder contract；实施规模 M。
+  `build_rke_agent_research_context_from_rows()` 已按 Munger/Burry/Ackman/Druckenmiller
+  style 输出 role-filtered stock prior reason codes，并对 removed superinvestor agent
+  输出 explicit no-prior reason。runtime prompt wiring、benchmark 和 private prompt mutation
+  lifecycle 仍属于 Part 2。
 - 实现位置优先放在
   `mosaic/rke/agent_research_context.py::build_rke_agent_research_context_from_rows()`；必要时只在
   该模块内新增小型 ranking/filter helper，避免在 report-intelligence builder 之外复制一套 prior
@@ -1997,8 +2000,9 @@ stock prior for superinvestors 子任务：
   Druckenmiller 景气/趋势/政策/价格动量。
 - 输出必须包含 `ranking_reason_codes`、`current_data_required_fields`、
   `known_failure_mode_tags`、`actionability_guard`、`no_prior_reason` 和 `use_policy`。
-- 测试至少覆盖：四个 canonical superinvestors 得到不同 reason codes；`aschenbrenner`/`baker`
-  被拒绝；缺 current data 时 prior 保持 research-only；输出不含 claim text/source span。
+- 测试覆盖：四个 canonical superinvestors 得到不同 reason codes；removed agent
+  `aschenbrenner` 得到 `unsupported_superinvestor_agent` no-prior reason；缺 current data 时
+  prior 保持 research-only；输出不含 claim text/source span。
 
 验收：
 
@@ -2146,16 +2150,17 @@ shadow-only，不改变生产交易：
   `agent_assignment_missing=33`，作为后续 target-family mapping 扩展项。stock/industry context snapshot
   仍是 proposed artifact，当前没有 `build_stock_context_snapshots` 或
   `build_industry_context_snapshots` builder。
-- 条件 5：部分完成。宏观已有 7 个 macro agents 的 redacted research priors：
+- 条件 5：已满足 Part 1 builder contract。宏观已有 7 个 macro agents 的 redacted research priors：
   `macro.central_bank`、`macro.china`、`macro.commodities`、`macro.dollar`、
   `macro.emerging_markets`、`macro.geopolitical`、`macro.yield_curve`；`macro.volatility`
   当前因缺少可评价 volatility claim leg 无 prior 输出。stock/industry prior 可以进入
   generic RKE research context，并且 stock/industry context item 已带
-  `stock_context_snapshot_missing` / `industry_context_snapshot_missing` 降级原因；但尚未完成面向
-  superinvestor、sector、decision agents 的稳定 role-filtered content 和 no-prior reason 审计；
-  条件 11 的 ranking infrastructure 通过只证明排序和安全 contract，不证明 superinvestor 已收到
-  按角色过滤的可用 stock prior。Munger/Burry/Ackman/Druckenmiller 的 role-filtered
-  stock prior 仍是 P11.5 proposed 子任务，不能把 generic context 当作已完成的投资 agent prior。
+  `stock_context_snapshot_missing` / `industry_context_snapshot_missing` 降级原因。Munger、
+  Burry、Ackman、Druckenmiller 的 stock prior 已输出不同 `role_filter_*` reason codes；
+  removed superinvestor agent 得到 explicit `unsupported_superinvestor_agent` no-prior reason。
+  条件 11 的 ranking infrastructure 和条件 5 的 role-filtered content 现在都在 builder 层
+  有测试覆盖；全 agent runtime preflight、private prompt resolution 和 benchmark wiring 仍属于
+  Part 2。
 - 条件 6：已满足。outcome/readiness 区分 completed、pending window 和 readiness gap；
   RI-MACRO-02 记录 `macro_ready_counts`、`macro_pending_counts` 和 readiness gap counts。
 - 条件 7：部分完成。`macro_agent_research_priors.jsonl` 的 rating buckets 已标准化为
@@ -2208,8 +2213,9 @@ Part 1 未完成条件当前状态：
   context snapshot missing reasons。`RI-EVOL-09`
   已进入 `evolution_readiness_gate.json`，当前刷新记录 sector/decision ranked context
   evidence、macro/superinvestor no-prior reason evidence，且 private text、current-data
-  guard、shadow policy 和 ranking policy violation 均为 0。这只关闭“ranking infrastructure”
-  证据，不关闭条件 5 的 role-filtered superinvestor/sector/decision prior 内容缺口。
+  guard、shadow policy 和 ranking policy violation 均为 0。这关闭 Part 1 的 ranking
+  infrastructure 证据；superinvestor stock prior role-filtered content 已在条件 5 的 builder
+  contract 中覆盖。
   Part 2 的全 agent runtime preflight、private prompt resolution 和 benchmark wiring 仍不计入
   Part 1 exit criteria。
 - 条件 12：clean validation corpus 的 compiler/candidate/refusal contract 证据已落地。

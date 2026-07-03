@@ -147,6 +147,88 @@ def test_superinvestor_context_filters_by_style_fit():
     assert "stock_context_snapshot_missing" in item["ranking_reason_codes"]
 
 
+def test_superinvestor_context_uses_role_filtered_reason_codes():
+    forecasts = [
+        {
+            "forecast_claim_id": "FC-MUNGER",
+            "report_id": "RPT-MUNGER",
+            "target": {"target_type": "stock", "target_id": "600519.SH"},
+            "metric_proxy_mapping": ["moat", "roic", "predictability"],
+            "direction": "positive",
+        },
+        {
+            "forecast_claim_id": "FC-BURRY",
+            "report_id": "RPT-BURRY",
+            "target": {"target_type": "stock", "target_id": "000001.SZ"},
+            "metric_proxy_mapping": ["deep_value", "fcf_yield", "balance_sheet"],
+            "direction": "positive",
+        },
+        {
+            "forecast_claim_id": "FC-ACKMAN",
+            "report_id": "RPT-ACKMAN",
+            "target": {"target_type": "stock", "target_id": "600036.SH"},
+            "metric_proxy_mapping": ["free_cash_flow", "earnings_growth", "dividend"],
+            "direction": "positive",
+        },
+        {
+            "forecast_claim_id": "FC-DRUCK",
+            "report_id": "RPT-DRUCK",
+            "target": {"target_type": "stock", "target_id": "601899.SH"},
+            "metric_proxy_mapping": ["momentum", "policy", "cycle"],
+            "direction": "positive",
+        },
+    ]
+    metadata = [
+        {"report_id": row["report_id"], "report_type": "个股研报"}
+        for row in forecasts
+    ]
+    expected_codes = {
+        "munger": "role_filter_quality_moat_cashflow",
+        "burry": "role_filter_value_contrarian_balance_sheet",
+        "ackman": "role_filter_quality_catalyst_capital_allocation",
+        "druckenmiller": "role_filter_cycle_trend_policy_momentum",
+    }
+
+    for agent, code in expected_codes.items():
+        context = build_rke_agent_research_context_from_rows(
+            agent_id=agent,
+            layer="superinvestor",
+            forecasts=forecasts,
+            metadata=metadata,
+        )
+
+        reason_codes = {
+            reason
+            for item in context["context_items"]
+            for reason in item["ranking_reason_codes"]
+        }
+        assert code in reason_codes
+        assert all(
+            item["domain"] == "stock" and item["use_policy"].startswith("shadow_")
+            for item in context["context_items"]
+        )
+
+
+def test_removed_superinvestor_gets_explicit_no_prior_reason():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="aschenbrenner",
+        layer="superinvestor",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-REMOVED",
+                "report_id": "RPT-REMOVED",
+                "target": {"target_type": "stock", "target_id": "600519.SH"},
+                "metric_proxy_mapping": ["moat", "roic"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[{"report_id": "RPT-REMOVED", "report_type": "个股研报"}],
+    )
+
+    assert context["context_items"] == []
+    assert context["summary"]["no_prior_reason"] == "unsupported_superinvestor_agent"
+
+
 def test_context_ranks_all_matches_before_truncating():
     forecasts = [
         {

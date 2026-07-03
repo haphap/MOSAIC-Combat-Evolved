@@ -378,9 +378,7 @@ def build_rke_agent_research_context_from_rows(
             "item_count": len(visible_items),
             "matched_item_count": len(ranked_items),
             "truncated_item_count": max(0, len(ranked_items) - len(visible_items)),
-            "no_prior_reason": ""
-            if ranked_items
-            else "no_applicable_prior_for_agent_request",
+            "no_prior_reason": _no_prior_reason(normalized_agent, ranked_items),
             "private_text_included": False,
             "forbidden_field_policy": "source_prose_and_private_references_omitted",
             "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
@@ -535,6 +533,9 @@ def _public_claim_item(
             agent_id, claim, report_meta
         ),
         "known_failure_mode_tags": _failure_mode_tags(claim, viewpoint_profile),
+        "role_filter_reason_codes": _role_filter_reason_codes(
+            agent_id, claim, report_meta
+        ),
         "recipe_ids": matched_recipes,
         "tool_gap_ids": matched_gaps,
         "outcome_label_summary": outcome_summary,
@@ -884,6 +885,7 @@ def _priority_bucket(rank: int, total: int) -> str:
 
 def _ranking_reason_codes(item: Mapping[str, Any]) -> list[str]:
     reasons = [str(item.get("agent_target_specificity_bucket") or "generic_agent_match")]
+    reasons.extend(_ensure_str_list(item.get("role_filter_reason_codes")))
     performance_context = str(item.get("performance_context_match") or "insufficient_data")
     if performance_context != "insufficient_data":
         reasons.append(performance_context)
@@ -903,6 +905,37 @@ def _ranking_reason_codes(item: Mapping[str, Any]) -> list[str]:
         reasons.append("market_feedback_available")
     reasons.extend(_ensure_str_list(item.get("context_snapshot_missing_reasons")))
     return list(dict.fromkeys(reasons))
+
+
+def _role_filter_reason_codes(
+    agent_id: str,
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+) -> list[str]:
+    if not agent_id.startswith("superinvestor."):
+        return []
+    if _style_fit_score(agent_id, claim, report_meta) <= 0:
+        return []
+    if agent_id == "superinvestor.munger":
+        return ["role_filter_quality_moat_cashflow"]
+    if agent_id == "superinvestor.burry":
+        return ["role_filter_value_contrarian_balance_sheet"]
+    if agent_id == "superinvestor.ackman":
+        return ["role_filter_quality_catalyst_capital_allocation"]
+    if agent_id == "superinvestor.druckenmiller":
+        return ["role_filter_cycle_trend_policy_momentum"]
+    return ["role_filter_unknown_superinvestor_style"]
+
+
+def _no_prior_reason(agent_id: str, ranked_items: Sequence[Mapping[str, Any]]) -> str:
+    if ranked_items:
+        return ""
+    if agent_id.startswith("superinvestor."):
+        raw_agent = agent_id.split(".", 1)[1]
+        if raw_agent not in SUPERINVESTOR_AGENTS:
+            return "unsupported_superinvestor_agent"
+        return "no_role_filtered_stock_prior_for_superinvestor"
+    return "no_applicable_prior_for_agent_request"
 
 
 def _matching_tool_gap_ids(
