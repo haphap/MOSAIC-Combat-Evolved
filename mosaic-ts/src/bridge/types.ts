@@ -1562,6 +1562,37 @@ export class BridgeApi {
     });
   }
 
+  scorecardCompareMacroLabelSources(
+    cohort: string,
+    today: string,
+    since?: string,
+  ): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>("scorecard.compare_macro_label_sources", {
+      cohort,
+      today,
+      ...(since ? { since } : {}),
+    });
+  }
+
+  scorecardClassifyMacroDocuments(params?: {
+    source?: string;
+    discovered_at_lte?: string;
+    only_unclassified?: boolean;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>(
+      "scorecard.classify_macro_documents",
+      params ?? {},
+    );
+  }
+
+  scorecardMacroSentimentIndex(params: {
+    agent: string;
+    as_of: string;
+    lookback_days?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>("scorecard.macro_sentiment_index", params);
+  }
+
   scorecardLatestCioActions(cohort: string): Promise<CioActions> {
     return this.client.call<CioActions>("scorecard.latest_cio_actions", { cohort });
   }
