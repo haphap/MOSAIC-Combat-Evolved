@@ -500,8 +500,13 @@ def test_rke_research_tool_formats_context(monkeypatch):
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
             "context_items": [],
-            "summary": {"private_text_included": False},
+            "summary": {
+                "private_text_included": False,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+            },
         }
 
     monkeypatch.setattr(rke_research_tools, "build_rke_agent_research_context", fake_context)
@@ -509,8 +514,40 @@ def test_rke_research_tool_formats_context(monkeypatch):
         {"agent_id": "dollar", "as_of_date": "2026-06-27", "layer": "macro"}
     )
 
+    assert "runtime_preflight_status=passed" in output
+    assert "ranking_policy_id=rke_agent_research_context_rank_v1" in output
+    assert "context_hash=" in output
     assert "RKE research context for macro.dollar" in output
     assert "research_only=true" in output
+
+
+def test_rke_runtime_context_preflight_flags_rank_order_without_sorting():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-2",
+                    "retrieval_rank": 2,
+                    "priority_bucket": "medium",
+                },
+                {
+                    "redacted_claim_id": "FCRED-1",
+                    "retrieval_rank": 1,
+                    "priority_bucket": "high",
+                },
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "retrieval_rank_order_changed" in output
+    assert output.index("### Prior FCRED-2") < output.index("### Prior FCRED-1")
 
 
 def test_normalize_agent_id_accepts_ts_and_rke_forms():

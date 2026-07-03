@@ -126,6 +126,17 @@ Acceptance:
 - Non-neutral priors still require current-data confirmation before any
   recommendation field can use them.
 
+Status 2026-07-03:
+
+- Python runtime tool `get_rke_research_context` now emits a runtime preflight
+  header with the consumed public-safe context hash, Part 1 `ranking_policy_id`,
+  visible `retrieval_rank` sequence, `priority_bucket` sequence, truncation count,
+  and current-data guard. The formatter preserves Part 1 order and flags
+  `retrieval_rank_order_changed` instead of silently re-ranking.
+- This closes the public runtime consumption audit for the Python tool path only.
+  Formal benchmark/replay still requires E0 private prompt provenance and the E2
+  fixed-episode benchmark evidence.
+
 ## E2: Fixed-Episode LLM Benchmark
 
 Run this before full replay, autoresearch mutation, Darwinian weight updates, or
