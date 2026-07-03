@@ -836,6 +836,8 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
 
     outcome_ready = _outcome_metrics_ready(outcome_metrics)
     provenance_ready = _prompt_mutation_provenance_ready(prompt_provenance)
+    context_hash_count = int(summary["rke_context_hash_count"] or 0)
+    current_data_confirmed_count = int(summary["current_data_confirmed_count"] or 0)
     blocked_reasons: list[str] = []
     if summary["summary_status"] != "ready" or summary["row_count"] == 0:
         blocked_reasons.append("agent_footprint_summary_missing")
@@ -847,6 +849,8 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
         blocked_reasons.append("agent_footprint_privacy_scan_failed")
     if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
         blocked_reasons.append("rke_context_report_claim_link_incomplete")
+    if current_data_confirmed_count < context_hash_count:
+        blocked_reasons.append("current_data_confirmation_missing")
     for source_name, source in (
         ("downstream_outcome_metrics", outcome_metrics),
         ("prompt_mutation_provenance", prompt_provenance),
@@ -865,9 +869,7 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
         "rke_prior_treated_as_current_data": False,
         "skill_inputs": {
             "current_data_skill": {
-                "current_data_confirmed_count": summary[
-                    "current_data_confirmed_count"
-                ],
+                "current_data_confirmed_count": current_data_confirmed_count,
                 "source": "agent_claim_footprint_summary",
             },
             "research_prior_usage_skill": {
