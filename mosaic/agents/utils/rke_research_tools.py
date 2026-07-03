@@ -26,6 +26,7 @@ from mosaic.rke.agent_research_context import (
     assert_public_safe_context,
     build_rke_agent_research_context,
     format_rke_agent_research_context,
+    normalize_agent_id,
 )
 
 _PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
@@ -77,6 +78,11 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     layer = str(context.get("layer") or "")
     if not agent_id:
         failures.append("agent_id_missing")
+    requested_agent_id = str(context.get("requested_agent_id") or "")
+    if not requested_agent_id:
+        failures.append("requested_agent_id_missing")
+    elif agent_id and normalize_agent_id(requested_agent_id, layer=layer) != agent_id:
+        failures.append("requested_agent_id_mismatch")
     if not layer:
         failures.append("layer_missing")
     elif agent_id and "." in agent_id and layer != agent_id.split(".", 1)[0]:
