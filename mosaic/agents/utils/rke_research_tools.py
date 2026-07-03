@@ -198,8 +198,15 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("ranking_reason_codes_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
         failures.append("current_data_required_missing")
-    if items and any(not item.get("current_data_required_fields") for item in items):
-        failures.append("current_data_required_fields_missing")
+    if items and any(
+        not isinstance(item.get("current_data_required_fields"), (list, tuple))
+        or not all(
+            isinstance(field, str) and field
+            for field in item.get("current_data_required_fields", [])
+        )
+        for item in items
+    ):
+        failures.append("current_data_required_fields_invalid")
     if items and any(item.get("production_signal_allowed") is not False for item in items):
         failures.append("item_production_signal_not_disabled")
     if items and any(item.get("use_policy") != RESEARCH_PRIOR_USE_POLICY for item in items):
