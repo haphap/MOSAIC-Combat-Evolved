@@ -2320,8 +2320,9 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   turnover/cost 和 prompt provenance 拆成独立输入，并要求 downstream outcome 与
   prompt provenance 绑定同一个 `benchmark_run_id`，同时明确
   `rke_prior_treated_as_current_data=false`；`darwinian_autoresearch_consumption_readiness`
-  进一步要求 replay/run refs 和 consumed flags，避免把 input-ready 误读成已消费。
-  真实 autoresearch/Darwinian replay 消费和权重更新仍未完成。
+  进一步要求 replay/run refs、同一 `benchmark_run_id` 的 consumption evidence 和
+  consumed flags，避免把 input-ready 误读成已消费。真实 autoresearch/Darwinian replay
+  消费和权重更新仍未完成。
 - `rke_benchmark.candidate_consumption_manifest` 已能读取 Part 1
   `prompt_mutation_candidates.jsonl` 并保留 candidate/refusal blocker reason，
   同时阻断 production/private-text/manual-review/promotion-state 违规；真实 private

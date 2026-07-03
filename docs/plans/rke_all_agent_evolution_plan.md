@@ -378,8 +378,9 @@ Status 2026-07-03:
   `rke_benchmark.darwinian_autoresearch_consumption_readiness`, a no-write gate
   that requires replay run id, input manifest ref, RKE prior usage metrics ref,
   downstream outcome metrics ref, Darwinian/autoresearch update refs, rollback
-  readiness ref, and explicit consumed flags before E5 can count as consumed by
-  replay. It keeps `rke_prior_treated_as_current_data=false`.
+  readiness ref, same-`benchmark_run_id` consumption evidence, and explicit
+  consumed flags before E5 can count as consumed by replay. It keeps
+  `rke_prior_treated_as_current_data=false`.
 - This implements the E5 input and consumption proof-object contracts. E5 is not
   complete until actual autoresearch and Darwinian weight updates produce those
   replay/run refs.

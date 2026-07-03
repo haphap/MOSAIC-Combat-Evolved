@@ -167,8 +167,11 @@ def _patch_activation_evidence(**overrides: object) -> dict:
     return row
 
 
-def _darwinian_consumption_evidence(**overrides: object) -> dict:
+def _darwinian_consumption_evidence(
+    benchmark_run_id: str = "bench-consumption-ready", **overrides: object
+) -> dict:
     row = {
+        "benchmark_run_id": benchmark_run_id,
         "replay_run_id": "replay-1",
         "input_manifest_ref": "darwinian-input-1",
         "rke_prior_usage_metrics_ref": "rke-prior-usage-1",
@@ -1147,6 +1150,52 @@ def test_darwinian_autoresearch_consumption_accepts_replay_refs(
     assert manifest["darwinian_autoresearch_consumption_ready"] is True
     assert manifest["consumption_evidence"]["replay_run_id"] == "replay-1"
     assert manifest["promotion_allowed"] is False
+
+
+def test_darwinian_autoresearch_consumption_blocks_cross_run_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-consumption-ready",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "rke_context_hash": "b" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-consumption"],
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_consumption_readiness",
+        {
+            "benchmark_run_id": "bench-consumption-ready",
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-consumption-ready"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-consumption-ready"
+            ),
+            "consumption_evidence": _darwinian_consumption_evidence("other-run"),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "consumption_evidence_benchmark_run_id_mismatch" in manifest[
+        "blocked_reasons"
+    ]
+    assert manifest["darwinian_autoresearch_consumption_ready"] is False
 
 
 def _mutation_candidate(**overrides):
@@ -2440,7 +2489,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
                 "bench-delivery-ready"
             ),
             "darwinian_autoresearch_consumption_evidence": (
-                _darwinian_consumption_evidence()
+                _darwinian_consumption_evidence("bench-delivery-ready")
             ),
             "candidates": candidates,
             "patch_activation_evidence": [_patch_activation_evidence()],

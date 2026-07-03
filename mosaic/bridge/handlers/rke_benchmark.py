@@ -924,6 +924,7 @@ def darwinian_autoresearch_consumption_readiness(params: dict[str, Any]) -> dict
         blocked_reasons.append("private_or_source_prose_ref_detected")
     for key in (
         "replay_run_id",
+        "benchmark_run_id",
         "input_manifest_ref",
         "rke_prior_usage_metrics_ref",
         "downstream_outcome_metrics_ref",
@@ -941,6 +942,9 @@ def darwinian_autoresearch_consumption_readiness(params: dict[str, Any]) -> dict
         blocked_reasons.append("rke_prior_current_data_boundary_missing")
     if evidence.get("production_weight_update_allowed") is not False:
         blocked_reasons.append("production_weight_update_not_forbidden")
+    evidence_run_id = _clean_str(evidence.get("benchmark_run_id"))
+    if evidence_run_id and evidence_run_id != benchmark_run_id:
+        blocked_reasons.append("consumption_evidence_benchmark_run_id_mismatch")
     if not evidence:
         blocked_reasons.append("darwinian_autoresearch_consumption_evidence_missing")
 
@@ -951,6 +955,7 @@ def darwinian_autoresearch_consumption_readiness(params: dict[str, Any]) -> dict
         "input_manifest_status": manifest["manifest_status"],
         "blocked_reasons": sorted(set(blocked_reasons)),
         "consumption_evidence": {
+            "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
             "replay_run_id": _clean_str(evidence.get("replay_run_id")),
             "input_manifest_ref": _clean_str(evidence.get("input_manifest_ref")),
             "rke_prior_usage_metrics_ref": _clean_str(
