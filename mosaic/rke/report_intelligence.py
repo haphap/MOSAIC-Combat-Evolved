@@ -19829,6 +19829,10 @@ MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "volatility_index": ("macro.volatility",),
     "risk_off_asset_path": ("macro.geopolitical", "macro.volatility"),
     "growth_inflation_release": ("macro.china", "macro.commodities"),
+    "retail_sales_growth": ("macro.china",),
+    "revenue_growth": ("macro.china",),
+    "demand_growth": ("macro.china",),
+    "industry_prosperity": ("macro.china",),
     "liquidity_credit_condition": ("macro.central_bank", "macro.yield_curve"),
 }
 MACRO_AGENT_BY_ASSET_TARGET: Mapping[str, tuple[str, ...]] = {

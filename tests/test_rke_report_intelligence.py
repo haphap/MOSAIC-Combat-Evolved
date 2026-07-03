@@ -2660,6 +2660,16 @@ def test_outcome_readiness_tracks_agent_assignment_gap():
                 "horizon": {"preferred_days": 20},
             },
             {
+                "forecast_claim_id": "FC-MACRO-GROWTH-INFERRED-OWNER",
+                "target": {
+                    "target_type": "macro_series",
+                    "target_id": "CN_RETAIL_SALES_GROWTH",
+                },
+                "metric_proxy_mapping": ["retail_sales_growth"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
                 "forecast_claim_id": "FC-UNKNOWN-OWNER",
                 "target": {"target_type": "factor", "target_id": "quality"},
                 "metric_proxy_mapping": ["factor_forward_return"],
@@ -2689,6 +2699,10 @@ def test_outcome_readiness_tracks_agent_assignment_gap():
                 "test_status": "not_ready_insufficient_mapping",
             },
             {
+                "forecast_claim_id": "FC-MACRO-GROWTH-INFERRED-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
                 "forecast_claim_id": "FC-UNKNOWN-OWNER",
                 "test_status": "not_ready_insufficient_mapping",
             },
@@ -2699,7 +2713,7 @@ def test_outcome_readiness_tracks_agent_assignment_gap():
     assert readiness["assignment_gap_forecast_claim_ids"] == ["FC-UNKNOWN-OWNER"]
     assert readiness["assignment_inferred_rule_counts"] == {
         "industry_default_agents": 1,
-        "macro_target_mapping": 2,
+        "macro_target_mapping": 3,
         "stock_default_agents": 1,
     }
     assert readiness["assignment_inferred_agent_counts"][
@@ -2709,7 +2723,7 @@ def test_outcome_readiness_tracks_agent_assignment_gap():
         "superinvestor.munger"
     ] == 1
     assert readiness["assignment_inferred_agent_counts"]["macro.commodities"] == 1
-    assert readiness["assignment_inferred_agent_counts"]["macro.china"] == 1
+    assert readiness["assignment_inferred_agent_counts"]["macro.china"] == 2
     assert readiness["rating_readiness_bucket_counts"]["blocked_assignment"] == 1
 
 
