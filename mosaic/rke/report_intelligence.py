@@ -19301,6 +19301,137 @@ def _outcome_layer_key(label: Mapping[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _domain_rating_bucket(label: Mapping[str, Any]) -> str:
+    label_type = str(label.get("label_type") or "")
+    if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+        return ""
+    values = [
+        _float_or_none(label.get("after_cost_alpha")),
+        _float_or_none(label.get("directional_after_cost_return")),
+    ]
+    observed = [value for value in values if value is not None]
+    if not observed:
+        return "pending_or_unrated"
+    if any(value > 0 for value in observed):
+        return "supportive_evidence"
+    return "contradictory_evidence"
+
+
+def _domain_rating_failure_tags(label: Mapping[str, Any]) -> list[str]:
+    label_type = str(label.get("label_type") or "")
+    tags: list[str] = []
+    if label_type == "stock_price_proxy":
+        if label.get("entry_tradable") is False or label.get("exit_tradable") is False:
+            tags.append("entry_tradeability_blocked")
+        if label.get("entry_limit_locked") is True or label.get("exit_limit_locked") is True:
+            tags.append("entry_tradeability_blocked")
+        if label.get("target_price_hit") is True and _domain_rating_bucket(label) != "supportive_evidence":
+            tags.append("target_price_only_auxiliary")
+        if label.get("relative_directional_hit") is False:
+            tags.append("fundamental_without_relative_followthrough")
+    elif label_type == "industry_etf_proxy":
+        tags.append("broad_etf_proxy_not_direct_industry_portfolio")
+        if not str(label.get("mapping_id") or "").strip():
+            tags.append("sector_etf_mapping_missing")
+        if str(label.get("pit_availability_status") or "") not in {"", "available"}:
+            tags.append("proxy_liquidity_unverified")
+        if str(label.get("proxy_mapping_confidence") or label.get("mapping_confidence") or "") == "operator_seeded_exact_sector":
+            tags.append("operator_seeded_proxy_mapping")
+    return list(dict.fromkeys(tags))
+
+
+def build_domain_claim_ratings(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    *,
+    domain: str = "",
+) -> list[dict[str, Any]]:
+    domain_label_types = {
+        "stock": {"stock_price_proxy"},
+        "industry": {"industry_etf_proxy"},
+        "": {"stock_price_proxy", "industry_etf_proxy"},
+    }
+    allowed = domain_label_types.get(domain, domain_label_types[""])
+    rows: list[dict[str, Any]] = []
+    for label in outcome_label_rows:
+        label_type = str(label.get("label_type") or "")
+        if label_type not in allowed:
+            continue
+        rating_bucket = _domain_rating_bucket(label)
+        if not rating_bucket:
+            continue
+        row = {
+            "rating_id": _stable_id(
+                "DCR",
+                {
+                    "outcome_id": label.get("outcome_id"),
+                    "label_type": label_type,
+                    "entry_datetime": label.get("entry_datetime"),
+                    "exit_datetime": label.get("exit_datetime"),
+                },
+            ),
+            "domain": "stock" if label_type == "stock_price_proxy" else "industry",
+            "label_type": label_type,
+            "rating_bucket": rating_bucket,
+            "benchmark_family": str(label.get("benchmark_family") or "unknown_benchmark_family"),
+            "cost_model_id": str(label.get("cost_model_id") or "unknown_cost_model"),
+            "holding_window_bucket": str(label.get("window_role") or "unknown"),
+            "failure_mode_tags": _domain_rating_failure_tags(label),
+            "after_cost_alpha": _float_or_none(label.get("after_cost_alpha")),
+            "directional_after_cost_return": _float_or_none(
+                label.get("directional_after_cost_return")
+            ),
+            "relative_directional_hit": label.get("relative_directional_hit")
+            if isinstance(label.get("relative_directional_hit"), bool)
+            else None,
+            "target_price_hit": label.get("target_price_hit")
+            if isinstance(label.get("target_price_hit"), bool)
+            else None,
+            "mapping_confidence": str(
+                label.get("proxy_mapping_confidence")
+                or label.get("mapping_confidence")
+                or ""
+            ),
+            "proxy_symbol": str(label.get("proxy_symbol") or ""),
+            "proxy_liquidity_bucket": "pit_available"
+            if str(label.get("pit_availability_status") or "") == "available"
+            else "unverified",
+        }
+        rows.append(row)
+    return rows
+
+
+def _domain_rating_support(labels: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    ratings = build_domain_claim_ratings(labels)
+    rating_bucket_counts: dict[str, int] = {}
+    failure_mode_counts: dict[str, int] = {}
+    mapping_confidence_counts: dict[str, int] = {}
+    for rating in ratings:
+        _increment_count(rating_bucket_counts, rating.get("rating_bucket"))
+        for tag in _ensure_list(rating.get("failure_mode_tags")):
+            _increment_count(failure_mode_counts, tag)
+        mapping_confidence = str(rating.get("mapping_confidence") or "").strip()
+        if mapping_confidence:
+            _increment_count(mapping_confidence_counts, mapping_confidence)
+    return {
+        "rating_row_count": len(ratings),
+        "rating_bucket_counts": dict(sorted(rating_bucket_counts.items())),
+        "failure_mode_counts": dict(sorted(failure_mode_counts.items())),
+        "tradeability_blocker_count": int(
+            failure_mode_counts.get("entry_tradeability_blocked") or 0
+        ),
+        "target_price_hit_count": sum(
+            1 for rating in ratings if rating.get("target_price_hit") is True
+        ),
+        "mapping_confidence_counts": dict(sorted(mapping_confidence_counts.items())),
+        "proxy_limitation_tags": sorted(
+            tag
+            for tag in failure_mode_counts
+            if "proxy" in tag or "mapping" in tag or "sector_etf" in tag
+        ),
+        "privacy_policy": "redacted_internal_rating_aggregate_only",
+    }
+
+
 def _outcome_layer_support(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -19324,6 +19455,7 @@ def _outcome_layer_support(
                 "statistical_reliability_bucket": summary[
                     "statistical_reliability_bucket"
                 ],
+                "domain_rating_support": _domain_rating_support(rows),
             }
         )
     return {
@@ -19338,6 +19470,7 @@ def _outcome_layer_support(
             for row in layer_summaries
         ],
         "layer_summaries": layer_summaries,
+        "domain_rating_support": _domain_rating_support(labels),
         "layering_policy": (
             "overall profile metrics are diagnostic only; compare performance by "
             "label_type, benchmark_family, and cost_model_id before interpreting "

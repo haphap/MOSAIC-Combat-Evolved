@@ -1487,6 +1487,14 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   `evolution_readiness_gate.json` still has `gate_status=passed` and
   `blocker_count=0`. Snapshot rows are background-only, schema-validated local
   artifacts and must not be committed.
+- `2026-07-03`: Re-ran the same clean corpus after adding stock/industry
+  internal domain ratings to profile `outcome_layer_support`. Source/viewpoint
+  profile summaries now expose redacted `domain_rating_support` bucket counts,
+  tradeability blocker counts, target-price auxiliary counts, mapping confidence
+  counts, and proxy limitation tags. Across source and viewpoint profiles the
+  local diagnostic counted `supportive_evidence=749` and
+  `contradictory_evidence=771`; `evolution_readiness_gate.json` still reports
+  `blocker_count=0`.
 - `2026-06-15`: Documented that MinerU/vLLM are already configured locally and
   should be reused before reinstalling.
 - `2026-06-15`: Fixed MinerU command resolution so relative commands such as

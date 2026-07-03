@@ -70,6 +70,7 @@ from mosaic.rke.report_intelligence import (
     build_source_performance_profiles,
     build_stock_context_snapshots,
     build_data_acquisition_proposals,
+    build_domain_claim_ratings,
     build_tool_design_proposals,
     build_viewpoint_performance_profiles,
     build_weighted_research_contexts,
@@ -15568,7 +15569,10 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "exit_datetime": "2026-01-30",
             "directional_hit": True,
             "directional_after_cost_return": 0.02,
+            "after_cost_alpha": -0.01,
             "performance_value_basis": "directional_after_cost_return",
+            "relative_directional_hit": False,
+            "target_price_hit": True,
             "effective_n_weight": 0.5,
             "pit_valid": True,
         },
@@ -15581,7 +15585,12 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "exit_datetime": "2026-02-28",
             "directional_hit": False,
             "directional_after_cost_return": -0.01,
+            "after_cost_alpha": -0.02,
             "performance_value_basis": "directional_after_cost_return",
+            "mapping_id": "IETF-MAP-SEMI",
+            "proxy_symbol": "512480.SH",
+            "proxy_mapping_confidence": "operator_seeded_exact_sector",
+            "pit_availability_status": "unverified",
             "effective_n_weight": 0.5,
             "pit_valid": True,
         },
@@ -15630,6 +15639,29 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     assert stock_layer["mean_after_cost_alpha"] == 0.02
     assert industry_layer["n_effective"] == 0.5
     assert industry_layer["mean_after_cost_alpha"] == -0.01
+    assert stock_layer["domain_rating_support"]["rating_bucket_counts"] == {
+        "supportive_evidence": 1
+    }
+    assert stock_layer["domain_rating_support"]["target_price_hit_count"] == 1
+    assert stock_layer["domain_rating_support"]["failure_mode_counts"] == {
+        "fundamental_without_relative_followthrough": 1
+    }
+    assert industry_layer["domain_rating_support"]["rating_bucket_counts"] == {
+        "contradictory_evidence": 1
+    }
+    assert industry_layer["domain_rating_support"]["mapping_confidence_counts"] == {
+        "operator_seeded_exact_sector": 1
+    }
+    assert "broad_etf_proxy_not_direct_industry_portfolio" in industry_layer[
+        "domain_rating_support"
+    ]["proxy_limitation_tags"]
+    assert "proxy_liquidity_unverified" in industry_layer["domain_rating_support"][
+        "proxy_limitation_tags"
+    ]
+    domain_ratings = build_domain_claim_ratings(outcome_rows)
+    assert {row["domain"] for row in domain_ratings} == {"stock", "industry"}
+    assert "claim_text" not in json.dumps(domain_ratings, ensure_ascii=False)
+    assert "source_span_ids" not in json.dumps(domain_ratings, ensure_ascii=False)
 
     viewpoint_profiles = build_viewpoint_performance_profiles(
         forecast_rows,

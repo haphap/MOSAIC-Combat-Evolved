@@ -1932,20 +1932,24 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 实施：
 
 - 首轮不新增公开 `stock_claim_ratings.jsonl` 或 `industry_claim_ratings.jsonl`；rating row 是
-  logical/internal concept，先扩展现有 `build_viewpoint_performance_profiles()`。
+  logical/internal concept，已通过 `build_domain_claim_ratings(...)` 扩展现有
+  `outcome_layer_support`，因此 source/viewpoint/method performance profiles 都能读取同一套
+  redacted internal rating summary。
 - 若需要 row-level helper，新增 `build_domain_claim_ratings(..., domain=...)` 作为内存/private
-  中间层，输入 outcome/readiness/profile rows，输出不含 claim text/source span/raw price 的
-  redacted rating rows。
-- stock claim rating：after-cost return、relative alpha、target-price auxiliary evidence。
-- stock rating 分层：sector、market-cap、liquidity、benchmark family、cost model、
-  fundamental metric family、holding window。
-- stock known failure mode tags：target conflict、tradeability blocker、target-price-only、
-  fundamental-without-price-followthrough。
-- industry claim rating：proxy return、relative alpha、mapping confidence、proxy limitation。
-- industry rating 分层：canonical sector、sector agent、cycle bucket、proxy symbol、
-  mapping confidence、proxy liquidity、benchmark family、cost model。
-- industry known failure mode tags：mapping missing、proxy constituent mismatch、proxy liquidity、
-  ambiguous alias、subsector lost in broad ETF。
+  中间层，输入 outcome label rows，输出不含 claim text/source span/raw price 的 redacted rating rows。
+- stock claim rating：已覆盖 after-cost alpha、directional after-cost return、relative directional
+  hit 和 target-price auxiliary evidence。
+- stock rating 分层：已按 `label_type`、benchmark family、cost model、holding window 输出；
+  sector、market-cap、liquidity 由 P4.S snapshot/profile 继续补强。
+- stock known failure mode tags：已覆盖 tradeability blocker、target-price-only auxiliary 和
+  fundamental-without-relative-followthrough；target conflict/subject mismatch 仍来自 target
+  resolution/readiness gap。
+- industry claim rating：已覆盖 after-cost/proxy directional evidence、mapping confidence 和 proxy
+  limitation tags。
+- industry rating 分层：已按 `label_type`、proxy symbol、mapping confidence、proxy liquidity、
+  benchmark family、cost model 输出；cycle bucket 由 P4.I snapshot 继续补强。
+- industry known failure mode tags：已覆盖 mapping missing、proxy liquidity unverified、operator-seeded
+  mapping 和 broad ETF proxy limitation；ambiguous alias/subsector-loss 仍需后续 mapping review 扩展。
 - leg rating。
 - parent rating。
 - viewpoint cluster rating 扩展。
@@ -2176,8 +2180,11 @@ shadow-only，不改变生产交易：
   因此下游只能把 rating 当作 provisional
   shadow prior；任何 agent-facing summary 必须保留 `n_effective`、reliability bucket、
   pending share 和 current-data confirmation guard。stock/industry 的 row-level logical rating
-  仍按 P11.4 作为 internal/profile 扩展实现，不能把 macro prior bucket normalization 视为
-  三域 claim rating 完成。
+  已按 P11.4 作为 internal/profile 扩展落地：`build_domain_claim_ratings(...)` 从 stock/industry
+  outcome rows 生成 redacted in-memory ratings，并把 bucket counts、tradeability blockers、
+  target-price auxiliary evidence、mapping confidence 和 proxy limitation tags 写入
+  `outcome_layer_support`。这仍不表示三域 claim rating 已可生产使用；market-cap/liquidity/cycle
+  等 profile strata 和有效样本量还需继续补强。
 - 条件 8：clean validation corpus 已满足。`schema-status --root . --failures-only --no-write`
   为 0 failure；`operator-readiness --root .` 为 18/18 passed。clean validation corpus
   的 derived refresh 记录 531 selected reports、529 Markdown-ready reports、385 LLM-processed
