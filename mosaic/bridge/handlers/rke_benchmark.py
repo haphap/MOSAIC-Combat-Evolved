@@ -2406,6 +2406,12 @@ def _invalid_delivery_evidence_values(evidence: dict[str, Any]) -> list[str]:
             failures.append(
                 f"invalid delivery evidence type {key}: expected {expected_type.__name__}"
             )
+        elif expected_type is list:
+            for index, item in enumerate(value):
+                if not isinstance(item, dict):
+                    failures.append(
+                        f"invalid delivery evidence item {key}[{index}]: expected object"
+                    )
     return failures
 
 

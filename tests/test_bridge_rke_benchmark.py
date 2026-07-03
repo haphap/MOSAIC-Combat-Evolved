@@ -3237,6 +3237,32 @@ def test_delivery_readiness_blocks_missing_run_bound_direct_input(
     )
 
 
+def test_delivery_readiness_blocks_non_object_list_items(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-direct-list-item",
+            "candidates": ["not-a-candidate-object"],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert (
+        "invalid delivery evidence item candidates[0]: expected object"
+        in manifest["delivery_input_failures"]
+    )
+    assert (
+        "delivery_evidence_input:invalid delivery evidence item candidates[0]: expected object"
+        in manifest["blocked_reasons"]
+    )
+
+
 def test_record_delivery_evidence_blocks_private_fields(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -3577,6 +3603,48 @@ def test_delivery_evidence_store_blocks_wrong_proof_types(
     assert audit["recorded_keys"] == []
     assert audit["failures"] == [
         "line 1: invalid delivery evidence type paired_output_count: expected int"
+    ]
+
+
+def test_delivery_evidence_store_blocks_non_object_list_items(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    evidence_dir = project_root / ".mosaic" / "rke" / "all_agent_evolution"
+    evidence_dir.mkdir(parents=True)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-list-item",
+            "candidates": ["not-a-candidate-object"],
+        },
+    )
+    (evidence_dir / "delivery_evidence.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": "rke_delivery_evidence_v1",
+                "benchmark_run_id": "bench-delivery-list-item",
+                "evidence": {"patch_activation_evidence": ["bad-item"]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-list-item"},
+    )
+
+    assert record["record_status"] == "blocked"
+    assert "invalid delivery evidence item candidates[0]: expected object" in record[
+        "failures"
+    ]
+    assert audit["evidence_status"] == "blocked"
+    assert audit["recorded_keys"] == []
+    assert audit["failures"] == [
+        "line 1: invalid delivery evidence item patch_activation_evidence[0]: expected object"
     ]
 
 
