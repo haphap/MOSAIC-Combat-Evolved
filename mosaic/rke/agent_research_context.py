@@ -31,6 +31,15 @@ RATING_BUCKETS = frozenset(
         "pending_or_unrated",
     }
 )
+RELIABILITY_BUCKETS = frozenset(
+    {
+        "high_effective_n",
+        "medium_effective_n",
+        "low_effective_n",
+        "limited",
+        "insufficient_data",
+    }
+)
 
 MACRO_AGENTS = frozenset(
     {
@@ -585,10 +594,9 @@ def _public_claim_item(
         "n_effective": _round_float(
             viewpoint_profile.get("n_effective") or source_profile.get("n_effective")
         ),
-        "statistical_reliability_bucket": _safe_token(
+        "statistical_reliability_bucket": _reliability_bucket(
             viewpoint_profile.get("statistical_reliability_bucket")
             or source_profile.get("statistical_reliability_bucket")
-            or "insufficient_data"
         ),
         "source_weight_multiplier": _round_float(
             weighted_claim.get("source_weight_multiplier") or 1.0
@@ -1188,6 +1196,11 @@ def _freshness_bucket(*, latest_completed_exit_date: str, as_of_date: str) -> st
 def _rating_bucket(value: Any) -> str:
     bucket = _safe_token(value or "pending_or_unrated")
     return bucket if bucket in RATING_BUCKETS else "pending_or_unrated"
+
+
+def _reliability_bucket(value: Any) -> str:
+    bucket = _safe_token(value or "insufficient_data")
+    return bucket if bucket in RELIABILITY_BUCKETS else "insufficient_data"
 
 
 def _current_data_required_fields(agent_id: str) -> list[str]:

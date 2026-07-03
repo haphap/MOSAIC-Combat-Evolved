@@ -21,6 +21,7 @@ from mosaic.rke.agent_research_context import (
     FORBIDDEN_FIELD_POLICY,
     RANKING_POLICY_ID,
     RESEARCH_PRIOR_USE_POLICY,
+    RELIABILITY_BUCKETS,
     SAFE_ACTIONABILITY,
     SCHEMA_VERSION,
     assert_public_safe_context,
@@ -147,6 +148,11 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("item_regime_types_invalid")
     if items and any(not item.get("statistical_reliability_bucket") for item in items):
         failures.append("item_reliability_bucket_missing")
+    if items and any(
+        item.get("statistical_reliability_bucket") not in RELIABILITY_BUCKETS
+        for item in items
+    ):
+        failures.append("item_reliability_bucket_invalid")
     if items and any(
         not item.get(field)
         for item in items
