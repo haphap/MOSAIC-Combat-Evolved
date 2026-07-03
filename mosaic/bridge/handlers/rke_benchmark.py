@@ -2024,6 +2024,10 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     recorded_proof_keys = [
         key for key in _DELIVERY_EVIDENCE_KEYS if key in recorded_evidence
     ]
+    direct_evidence = {
+        key: params[key] for key in _DELIVERY_RECORD_KEYS if key in params
+    }
+    direct_input_failures = _invalid_delivery_evidence_values(direct_evidence)
     effective_params = dict(recorded_evidence)
     for key in _DELIVERY_RECORD_KEYS:
         if key in params:
@@ -2201,6 +2205,9 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     blocked_reasons.extend(
         f"delivery_evidence_store:{failure}" for failure in evidence_failures
     )
+    blocked_reasons.extend(
+        f"delivery_evidence_input:{failure}" for failure in direct_input_failures
+    )
     return {
         "schema_version": "rke_all_agent_delivery_readiness_v1",
         "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
@@ -2213,6 +2220,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "blocked_reasons": blocked_reasons,
         "conditions": conditions,
         "recorded_evidence_loaded": bool(recorded_proof_keys),
+        "delivery_input_failures": direct_input_failures,
         "delivery_ready": not blocked_reasons,
         "production_allowed": False,
         "promotion_allowed": False,

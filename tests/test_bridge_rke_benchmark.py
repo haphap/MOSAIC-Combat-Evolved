@@ -3127,6 +3127,35 @@ def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch)
     assert manifest["promotion_allowed"] is False
 
 
+def test_delivery_readiness_blocks_invalid_direct_input_shapes(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-direct-shape",
+            "cohort": 123,
+            "paired_output_count": False,
+            "manual_review": True,
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert manifest["delivery_input_failures"] == [
+        "invalid delivery context type cohort: expected str",
+        "invalid delivery evidence type paired_output_count: expected int",
+        "invalid delivery evidence type manual_review: expected dict",
+    ]
+    assert (
+        "delivery_evidence_input:invalid delivery evidence type manual_review: expected dict"
+        in manifest["blocked_reasons"]
+    )
+
+
 def test_record_delivery_evidence_blocks_private_fields(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()
