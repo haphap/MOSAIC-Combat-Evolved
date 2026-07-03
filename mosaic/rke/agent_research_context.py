@@ -232,6 +232,7 @@ FORBIDDEN_FIELD_NAMES = frozenset(
         "pdf",
         "pdf_path",
         "review_note",
+        "source_excerpt",
         "source_span_id",
         "source_span_ids",
         "source_text",

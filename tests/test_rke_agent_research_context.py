@@ -584,6 +584,8 @@ def test_sector_context_uses_available_industry_snapshot():
 def test_context_safety_rejects_forbidden_fields():
     with pytest.raises(ValueError, match="forbidden field"):
         assert_public_safe_context({"claim_text": "private prose"})
+    with pytest.raises(ValueError, match="forbidden field"):
+        assert_public_safe_context({"source_excerpt": "private prose"})
 
 
 def test_max_items_zero_returns_no_context_items():
