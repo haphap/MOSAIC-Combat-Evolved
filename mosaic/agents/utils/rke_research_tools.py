@@ -54,12 +54,18 @@ def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
 
 
 def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
-    items = [
-        item for item in (context.get("context_items") or []) if isinstance(item, Mapping)
-    ]
+    raw_items = context.get("context_items")
+    item_values = raw_items if isinstance(raw_items, (list, tuple)) else []
+    items = [item for item in item_values if isinstance(item, Mapping)]
     ranks = [item.get("retrieval_rank") for item in items]
     priority_buckets = [str(item.get("priority_bucket") or "") for item in items]
     failures: list[str] = []
+    if raw_items is None:
+        failures.append("context_items_missing")
+    elif not isinstance(raw_items, (list, tuple)):
+        failures.append("context_items_malformed")
+    elif len(items) != len(item_values):
+        failures.append("context_item_not_object")
     ranking_policy_id = str(context.get("ranking_policy_id") or "")
     if not ranking_policy_id:
         failures.append("ranking_policy_id_missing")

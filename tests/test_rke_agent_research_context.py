@@ -873,6 +873,44 @@ def test_rke_runtime_context_preflight_blocks_hidden_private_fields():
     assert "private prose" not in output
 
 
+def test_rke_runtime_context_preflight_blocks_malformed_context_items():
+    malformed = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": "not-a-list",
+            "summary": {
+                "private_text_included": False,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+            },
+        }
+    )
+    non_object = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": ["not-an-object"],
+            "summary": {
+                "private_text_included": False,
+                "truncated_item_count": 0,
+                "current_data_required": True,
+            },
+        }
+    )
+
+    assert "context_items_malformed" in malformed
+    assert "context_item_not_object" in non_object
+    assert "runtime_preflight_status=blocked" in malformed
+    assert "runtime_preflight_status=blocked" in non_object
+
+
 def test_normalize_agent_id_accepts_ts_and_rke_forms():
     assert normalize_agent_id("dollar", "macro") == "macro.dollar"
     assert normalize_agent_id("sector.semiconductor") == "sector.semiconductor"
