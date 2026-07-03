@@ -3156,6 +3156,33 @@ def test_delivery_readiness_blocks_invalid_direct_input_shapes(
     )
 
 
+def test_delivery_readiness_blocks_private_direct_input_refs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-direct-private",
+            "benchmark_evidence_refs": {
+                "source_url": "https://private.example/report.pdf"
+            },
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert manifest["delivery_input_failures"] == [
+        "forbidden private/prose fields $.benchmark_evidence_refs.source_url"
+    ]
+    assert (
+        "delivery_evidence_input:forbidden private/prose fields $.benchmark_evidence_refs.source_url"
+        in manifest["blocked_reasons"]
+    )
+
+
 def test_record_delivery_evidence_blocks_private_fields(tmp_path: Path, monkeypatch):
     project_root = tmp_path / "project"
     project_root.mkdir()

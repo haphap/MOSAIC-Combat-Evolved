@@ -2027,7 +2027,13 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     direct_evidence = {
         key: params[key] for key in _DELIVERY_RECORD_KEYS if key in params
     }
-    direct_input_failures = _invalid_delivery_evidence_values(direct_evidence)
+    direct_forbidden_paths = _forbidden_paths(direct_evidence)
+    direct_input_failures = []
+    if direct_forbidden_paths:
+        direct_input_failures.append(
+            "forbidden private/prose fields " + ", ".join(direct_forbidden_paths[:5])
+        )
+    direct_input_failures.extend(_invalid_delivery_evidence_values(direct_evidence))
     effective_params = dict(recorded_evidence)
     for key in _DELIVERY_RECORD_KEYS:
         if key in params:
@@ -2547,6 +2553,7 @@ def _forbidden_paths(value: Any, path: str = "$") -> list[str]:
                 continue
             if key_text in _FORBIDDEN_CAPTURE_FIELDS or key_text.endswith("_path"):
                 paths.append(child_path)
+                continue
             paths.extend(_forbidden_paths(child, child_path))
         return paths
     if isinstance(value, list):
@@ -2554,8 +2561,11 @@ def _forbidden_paths(value: Any, path: str = "$") -> list[str]:
         for index, child in enumerate(value):
             paths.extend(_forbidden_paths(child, f"{path}[{index}]"))
         return paths
-    if isinstance(value, str) and _looks_private(value):
-        return [path]
+    if isinstance(value, str):
+        if _safe_prompt_file_path(value):
+            return []
+        if _looks_private(value):
+            return [path]
     return []
 
 
