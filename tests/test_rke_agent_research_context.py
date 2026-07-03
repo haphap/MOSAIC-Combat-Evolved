@@ -673,7 +673,8 @@ def test_rke_runtime_context_preflight_flags_rank_order_without_sorting():
 
     assert "runtime_preflight_status=blocked" in output
     assert "retrieval_rank_order_changed" in output
-    assert output.index("### Prior FCRED-2") < output.index("### Prior FCRED-1")
+    assert "RKE context body withheld: runtime preflight blocked." in output
+    assert "### Prior FCRED-2" not in output
 
 
 def test_rke_runtime_context_preflight_blocks_wrong_ranking_policy():
@@ -843,7 +844,7 @@ def test_rke_runtime_context_preflight_blocks_missing_current_data_guard():
     assert "current_data_required_missing" in output
     assert "current_data_required_fields_invalid" in output
     assert "current_data_required=false" in output
-    assert "- Current data required: false; fields=none" in output
+    assert "RKE context body withheld: runtime preflight blocked." in output
 
 
 def test_rke_runtime_context_preflight_blocks_bad_current_data_fields():
@@ -900,7 +901,7 @@ def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
     assert "item_production_signal_not_disabled" in output
     assert "item_use_policy_invalid" in output
     assert "item_actionability_guard_invalid" in output
-    assert "use_policy=production_signal" in output
+    assert "RKE context body withheld: runtime preflight blocked." in output
 
 
 def test_rke_runtime_context_formats_good_item_shadow_policy():
