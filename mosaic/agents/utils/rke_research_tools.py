@@ -168,6 +168,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("item_latest_exit_date_missing")
     if items and any(
         item.get("latest_completed_exit_date")
+        and not _is_iso_date(item.get("latest_completed_exit_date"))
+        for item in items
+    ):
+        failures.append("item_latest_exit_date_invalid")
+    if items and any(
+        item.get("latest_completed_exit_date")
         and str(item.get("latest_completed_exit_date")) >= as_of_date
         for item in items
     ):
@@ -279,6 +285,10 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         or "latest_completed_exit_date" not in summary
         or (
             summary.get("latest_completed_exit_date")
+            and not _is_iso_date(summary.get("latest_completed_exit_date"))
+        )
+        or (
+            summary.get("latest_completed_exit_date")
             and str(summary.get("latest_completed_exit_date")) >= as_of_date
         )
         for summary in outcome_summaries
@@ -388,6 +398,14 @@ def _optional_non_negative_int(value: Any) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
     return None
+
+
+def _is_iso_date(value: Any) -> bool:
+    try:
+        date.fromisoformat(str(value))
+    except ValueError:
+        return False
+    return True
 
 
 @tool
