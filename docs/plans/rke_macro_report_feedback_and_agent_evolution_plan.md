@@ -2108,7 +2108,8 @@ stock、industry、macro 三域执行项。`docs/plans/rke_stock_report_outcome_
 ### P12 当前验收状态（2026-07-03）
 
 当前分支已经满足三域 PIT outcome/readiness/profile 的基础底座，并满足宏观反馈闭环的
-首轮运行条件；但 Part 1 仍未完成 agent-facing retrieval ranking 和 candidate compiler。
+首轮运行条件；agent-facing retrieval ranking 和 candidate compiler 的 gate 证据已落地，
+但 Part 1 仍被当前 corpus 的 PIT outcome、paper-trading 和 markdown coverage 缺口阻塞。
 Part 2 的 patch activation、LLM benchmark、Layer-3 private prompt 升级和 replay 不属于
 Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
 
@@ -2149,12 +2150,14 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
   pending share 和 current-data confirmation guard。stock/industry 的 row-level logical rating
   仍按 P11.4 作为 internal/profile 扩展实现，不能把 macro prior bucket normalization 视为
   三域 claim rating 完成。
-- 条件 8：已满足。`schema-status --root . --failures-only --no-write` 为 0 failure；
-  `operator-readiness --root .` 为 18/18 passed；`evolution-readiness --root .
-  --no-write` 通过 RI-EVOL-01 到 RI-EVOL-07 以及 RI-MACRO-01 到 RI-MACRO-07。
-  RI-EVOL-04 的 clean audit refresh history 已达到 3 个 distinct data vintages。独立
-  RI-STOCK-01..04 和 RI-INDUSTRY-01..04 目前尚未实现；stock/industry 仍通过通用
-  RI-EVOL、schema/PIT/provenance/privacy/readiness/profile 路径覆盖。
+- 条件 8：部分完成。`schema-status --root . --failures-only --no-write` 为 0 failure；
+  `operator-readiness --root .` 为 18/18 passed。当前
+  `evolution-readiness --root . --no-write` 已通过 RI-EVOL-03、RI-EVOL-04、
+  RI-EVOL-05、RI-EVOL-06、RI-EVOL-08、RI-EVOL-09 和 RI-MACRO-01、RI-MACRO-03、
+  RI-MACRO-05、RI-MACRO-06、RI-MACRO-07，但仍被 RI-EVOL-01、RI-EVOL-02、
+  RI-EVOL-07、RI-MACRO-02 和 RI-MACRO-04 阻塞。独立 RI-STOCK-01..04 和
+  RI-INDUSTRY-01..04 目前尚未实现；stock/industry 仍通过通用 RI-EVOL、
+  schema/PIT/provenance/privacy/readiness/profile 路径覆盖。
 - 条件 9：已满足当前边界。report-intelligence 派生报告已按本地私有处理，不作为默认提交内容；
   私有 detail JSONL、review aids、PDF/Markdown/MinerU cache 仍在 gitignore/private registry
   边界内。
@@ -2165,12 +2168,15 @@ Part 1 exit criteria。产物仍保持 shadow-only，不改变生产交易：
 
 Part 1 未完成条件当前状态：
 
-- 条件 11：代码路径已落地。`build_rke_agent_research_context_from_rows()` 已按
+- 条件 11：当前 corpus 的 gate 证据已落地。`build_rke_agent_research_context_from_rows()` 已按
   `agent_target_specificity_bucket`、`performance_context_match`、
   `combined_research_prior_weight`、reliability、freshness 和 input index 排序后截断，
   并输出 `retrieval_rank`、`priority_bucket`、`ranking_policy_id`、
-  `ranking_reason_codes`、`matched_item_count` 和 `truncated_item_count`。仍需在完整
-  report-intelligence refresh / downstream runtime preflight 中保留该排序证据。
+  `ranking_reason_codes`、`matched_item_count` 和 `truncated_item_count`。`RI-EVOL-09`
+  已进入 `evolution_readiness_gate.json`，当前刷新记录 sector/decision ranked context
+  evidence、macro/superinvestor no-prior reason evidence，且 private text、current-data
+  guard、shadow policy 和 ranking policy violation 均为 0。Part 2 的全 agent runtime
+  preflight、private prompt resolution 和 benchmark wiring 仍不计入 Part 1 exit criteria。
 - 条件 12：当前 corpus 的 gate 证据已落地。`prompt_mutation_candidates.jsonl` 已接入
   redacted prior-to-candidate compiler 路径：macro prior 可生成
   `macro_prior_rule_parameter_candidate` 或 refusal；stock/industry prior 可生成
@@ -2222,14 +2228,12 @@ prompt repo 版本的 RKE 驱动演化仍未完成。
 
 当前下一步聚焦仍未完成的三域 agent-facing 闭环：
 
-1. 先验证条件 11 的完整 refresh 证据：ranked context 是否在真实
-   `weighted_research_contexts.jsonl` / runtime tool 输出中保留排序和截断审计。
-2. 继续扩大三域 PIT outcome / markdown coverage 样本，让条件 12 从当前 refusal-only
+1. 继续扩大三域 PIT outcome / markdown coverage 样本，让条件 12 从当前 refusal-only
    gate 证据推进到可验证 candidate 和非零 market-feedback evidence。
-3. 同步补三域评级缺口：stock/industry 的 agent target ranking 与 no-prior reason，
+2. 同步补三域评级缺口：stock/industry 的 agent target ranking 与 no-prior reason，
    macro 的 `cross_asset_consistency` 计算规则，以及 target 已清洗但无 owning agent 的
    `blocked_assignment` readiness。
-4. 最后把 compiler 输出接到 P7/P11.6 的 evolution gate，仍保持 shadow-only；all-agent
+3. 最后把 compiler 输出接到 P7/P11.6 的 evolution gate，仍保持 shadow-only；all-agent
    benchmark、replay、Darwinian weight 和 private prompt mutation 按
    `docs/plans/rke_all_agent_evolution_plan.md` 执行。
 

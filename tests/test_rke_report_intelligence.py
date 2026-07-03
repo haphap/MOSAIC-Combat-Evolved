@@ -9333,6 +9333,61 @@ def test_report_intelligence_evolution_gate_audits_prior_compiler_paths():
     assert check["evidence"]["private_text_violation_count"] == 0
 
 
+def test_report_intelligence_evolution_gate_audits_agent_context_ranking_contract():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-AGENT-CONTEXT-GATE",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        agent_context_forecast_rows=[
+            {
+                "forecast_claim_id": "FC-SEMI-1",
+                "report_id": "RPT-SEMI-1",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata_rows=[
+            {
+                "report_id": "RPT-SEMI-1",
+                "report_type": "行业研报",
+                "sector": "半导体",
+            }
+        ],
+        weighted_research_context_rows=[
+            {
+                "agent_id": "sector.semiconductor",
+                "retrieved_claims": [
+                    {
+                        "forecast_claim_id": "FC-SEMI-1",
+                        "combined_research_prior_weight": 1.2,
+                        "performance_context_match": "source_and_viewpoint_profile_match",
+                    }
+                ],
+            }
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
+    assert check["passed"] is True
+    evidence = check["evidence"]
+    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v1"
+    assert evidence["ranked_context_agent_count"] >= 1
+    assert evidence["no_prior_reason_agent_count"] >= 1
+    assert evidence["current_data_guard_violation_count"] == 0
+    assert evidence["private_text_violation_count"] == 0
+    assert {
+        row["agent_id"] for row in evidence["sampled_agent_contexts"]
+    } >= {"sector.semiconductor", "decision.cio"}
+
+
 def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
     outcome_rows = []
     forecast_rows = []

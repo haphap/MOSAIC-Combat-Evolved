@@ -23987,6 +23987,149 @@ def _prior_compiler_gate_check(
     )
 
 
+AGENT_CONTEXT_AUDIT_REQUESTS = (
+    ("macro.dollar", "macro"),
+    ("sector.semiconductor", "sector"),
+    ("superinvestor.munger", "superinvestor"),
+    ("cio", "decision"),
+)
+
+
+def _agent_context_export_gate_check(
+    *,
+    agent_context_forecast_rows: Sequence[Mapping[str, Any]] | None,
+    metadata_rows: Sequence[Mapping[str, Any]] | None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    if weighted_research_context_rows is None:
+        return _evolution_gate_check(
+            check_id="RI-EVOL-09",
+            requirement=(
+                "Agent-facing RKE context exports must retain ranked retrieval "
+                "evidence, no-prior reasons, and current-data guards."
+            ),
+            passed=True,
+            evidence={"status": "not_applicable_agent_context_inputs_not_supplied"},
+            blockers=[],
+        )
+
+    from .agent_research_context import (  # local import avoids CLI startup coupling
+        RANKING_POLICY_ID,
+        SAFE_ACTIONABILITY,
+        assert_public_safe_context,
+        build_rke_agent_research_context_from_rows,
+    )
+
+    forecast_rows = list(agent_context_forecast_rows or ())
+    metadata = list(metadata_rows or ())
+    weighted_rows = list(weighted_research_context_rows)
+    blockers: list[str] = []
+    context_summaries: list[dict[str, Any]] = []
+    ranked_context_agent_count = 0
+    no_prior_reason_agent_count = 0
+    private_text_violation_count = 0
+    current_data_guard_violation_count = 0
+    shadow_policy_violation_count = 0
+    ranking_policy_violation_count = 0
+
+    if not weighted_rows:
+        blockers.append("weighted_research_context_rows_missing")
+    if not forecast_rows:
+        blockers.append("agent_context_forecast_rows_missing")
+
+    if forecast_rows:
+        for agent_id, layer in AGENT_CONTEXT_AUDIT_REQUESTS:
+            context = build_rke_agent_research_context_from_rows(
+                agent_id=agent_id,
+                layer=layer,
+                max_items=3,
+                forecasts=forecast_rows,
+                metadata=metadata,
+                weighted_research_contexts=weighted_rows,
+            )
+            try:
+                assert_public_safe_context(context)
+            except ValueError:
+                private_text_violation_count += 1
+            summary = _ensure_mapping(context.get("summary"))
+            items = [
+                _ensure_mapping(item)
+                for item in _ensure_list(context.get("context_items"))
+                if isinstance(item, Mapping)
+            ]
+            if context.get("ranking_policy_id") != RANKING_POLICY_ID:
+                ranking_policy_violation_count += 1
+            if summary.get("ranking_policy_id") != RANKING_POLICY_ID:
+                ranking_policy_violation_count += 1
+            if context.get("research_only") is not True:
+                shadow_policy_violation_count += 1
+            if context.get("production_signal_allowed") is not False:
+                shadow_policy_violation_count += 1
+            if context.get("actionability") != SAFE_ACTIONABILITY:
+                current_data_guard_violation_count += 1
+            if items:
+                ranked_context_agent_count += 1
+            elif str(summary.get("no_prior_reason") or "").strip():
+                no_prior_reason_agent_count += 1
+            else:
+                blockers.append(f"agent_context_no_prior_reason_missing:{agent_id}")
+            for expected_rank, item in enumerate(items, 1):
+                if item.get("retrieval_rank") != expected_rank:
+                    ranking_policy_violation_count += 1
+                if not str(item.get("priority_bucket") or "").strip():
+                    ranking_policy_violation_count += 1
+                if not _ensure_list(item.get("ranking_reason_codes")):
+                    ranking_policy_violation_count += 1
+                if item.get("current_data_required") is not True:
+                    current_data_guard_violation_count += 1
+                if not _ensure_list(item.get("current_data_required_fields")):
+                    current_data_guard_violation_count += 1
+                if item.get("production_signal_allowed") is not False:
+                    shadow_policy_violation_count += 1
+            context_summaries.append(
+                {
+                    "agent_id": str(context.get("agent_id") or agent_id),
+                    "layer": layer,
+                    "item_count": len(items),
+                    "matched_item_count": int(summary.get("matched_item_count") or 0),
+                    "truncated_item_count": int(
+                        summary.get("truncated_item_count") or 0
+                    ),
+                    "no_prior_reason": str(summary.get("no_prior_reason") or ""),
+                }
+            )
+    if forecast_rows and ranked_context_agent_count <= 0:
+        blockers.append("agent_context_ranked_export_evidence_missing")
+    if private_text_violation_count:
+        blockers.append("agent_context_private_text_violation")
+    if current_data_guard_violation_count:
+        blockers.append("agent_context_current_data_guard_violation")
+    if shadow_policy_violation_count:
+        blockers.append("agent_context_shadow_policy_violation")
+    if ranking_policy_violation_count:
+        blockers.append("agent_context_ranking_policy_violation")
+    return _evolution_gate_check(
+        check_id="RI-EVOL-09",
+        requirement=(
+            "Agent-facing RKE context exports must retain ranked retrieval "
+            "evidence, no-prior reasons, and current-data guards."
+        ),
+        passed=not blockers,
+        evidence={
+            "ranking_policy_id": RANKING_POLICY_ID,
+            "sampled_agent_contexts": context_summaries,
+            "weighted_research_context_row_count": len(weighted_rows),
+            "ranked_context_agent_count": ranked_context_agent_count,
+            "no_prior_reason_agent_count": no_prior_reason_agent_count,
+            "private_text_violation_count": private_text_violation_count,
+            "current_data_guard_violation_count": current_data_guard_violation_count,
+            "shadow_policy_violation_count": shadow_policy_violation_count,
+            "ranking_policy_violation_count": ranking_policy_violation_count,
+        },
+        blockers=blockers,
+    )
+
+
 def build_report_intelligence_evolution_readiness_gate(
     *,
     run_id: str,
@@ -24004,6 +24147,9 @@ def build_report_intelligence_evolution_readiness_gate(
     macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
     macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
     prompt_mutation_candidate_rows: Sequence[Mapping[str, Any]] = (),
+    agent_context_forecast_rows: Sequence[Mapping[str, Any]] | None = None,
+    metadata_rows: Sequence[Mapping[str, Any]] | None = None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None = None,
     monitor_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     audit_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     gap_distribution_history_rows: Sequence[Mapping[str, Any]] = (),
@@ -24391,6 +24537,13 @@ def build_report_intelligence_evolution_readiness_gate(
         )
     )
     checks.append(_prior_compiler_gate_check(prompt_mutation_candidate_rows))
+    checks.append(
+        _agent_context_export_gate_check(
+            agent_context_forecast_rows=agent_context_forecast_rows,
+            metadata_rows=metadata_rows,
+            weighted_research_context_rows=weighted_research_context_rows,
+        )
+    )
 
     blockers = [
         blocker
@@ -24624,6 +24777,16 @@ def write_report_intelligence_evolution_readiness_gate(
         blockers=blockers,
     )
     macro_read_blockers: list[str] = []
+    agent_context_forecast_rows = _read_registry_jsonl(
+        registry_path / "forecast_claims.jsonl",
+        label="forecast_claims",
+        blockers=macro_read_blockers,
+    )
+    metadata_rows = _read_registry_jsonl(
+        registry_path / "report_metadata.jsonl",
+        label="report_metadata",
+        blockers=macro_read_blockers,
+    )
     macro_regime_snapshot_rows = _read_registry_jsonl(
         registry_path / "macro_regime_snapshots.jsonl",
         label="macro_regime_snapshots",
@@ -24637,6 +24800,11 @@ def write_report_intelligence_evolution_readiness_gate(
     prompt_mutation_candidate_rows = _read_registry_jsonl(
         registry_path / "prompt_mutation_candidates.jsonl",
         label="prompt_mutation_candidates",
+        blockers=macro_read_blockers,
+    )
+    weighted_research_context_rows = _read_registry_jsonl(
+        registry_path / "weighted_research_contexts.jsonl",
+        label="weighted_research_contexts",
         blockers=macro_read_blockers,
     )
     gate = build_report_intelligence_evolution_readiness_gate(
@@ -24655,6 +24823,9 @@ def write_report_intelligence_evolution_readiness_gate(
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=agent_context_forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=monitor_refresh_history_rows,
         audit_refresh_history_rows=audit_refresh_history_rows,
         gap_distribution_history_rows=gap_distribution_history_rows,
@@ -33424,6 +33595,9 @@ def run_report_intelligence_derived_refresh(
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -33462,6 +33636,9 @@ def run_report_intelligence_derived_refresh(
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -34581,6 +34758,9 @@ def run_report_intelligence_refresh(
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -34619,6 +34799,9 @@ def run_report_intelligence_refresh(
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
