@@ -709,6 +709,30 @@ export interface RkeDarwinianAutoresearchInputManifestResult {
   promotion_allowed: boolean;
 }
 
+export interface RkeDarwinianAutoresearchConsumptionReadinessResult {
+  schema_version: "rke_darwinian_autoresearch_consumption_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  input_manifest_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  consumption_evidence: {
+    benchmark_run_id: string;
+    replay_run_id: string;
+    input_manifest_ref: string;
+    rke_prior_usage_metrics_ref: string;
+    downstream_outcome_metrics_ref: string;
+    darwinian_weight_update_ref: string;
+    autoresearch_update_ref: string;
+    rollback_readiness_ref: string;
+    darwinian_consumed: boolean;
+    autoresearch_consumed: boolean;
+  };
+  rke_prior_treated_as_current_data: boolean;
+  darwinian_autoresearch_consumption_ready: boolean;
+  production_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
 export interface RkeCandidateConsumptionSummary {
   mutation_candidate_id: string;
   candidate_type: string;
@@ -846,6 +870,38 @@ export interface RkePromptMutationRollbackReadinessResult {
   rollback_records: RkePromptMutationRollbackRecord[];
   required_evidence: string[];
   rollback_gate_ready: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkePatchActivationRecord {
+  mutation_candidate_id: string;
+  candidate_type: string;
+  target_scope: string;
+  target_component: string;
+  benchmark_run_id: string;
+  patch_artifact_ref: string;
+  patch_validation_ref: string;
+  shadow_apply_ref: string;
+  runtime_activation_ref: string;
+  runtime_proof_ref: string;
+  rollback_ref: string;
+  patch_activation_ready: boolean;
+  blockers: string[];
+}
+
+export interface RkePatchActivationReadinessResult {
+  schema_version: "rke_patch_activation_readiness_v1";
+  benchmark_run_id: string;
+  readiness_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  candidate_manifest_status: "ready_for_private_prompt_lifecycle" | "blocked_preflight";
+  patch_candidate_count: number;
+  activation_record_count: number;
+  activation_records: RkePatchActivationRecord[];
+  required_evidence: string[];
+  patch_activation_ready: boolean;
+  direct_runtime_write_allowed: boolean;
+  production_allowed: boolean;
   promotion_allowed: boolean;
 }
 
@@ -1540,6 +1596,8 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
     evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
   }): Promise<RkeFixedEpisodeBenchmarkEvidenceResult> {
@@ -1594,6 +1652,18 @@ export class BridgeApi {
     );
   }
 
+  rkeBenchmarkDarwinianAutoresearchConsumptionReadiness(params?: {
+    benchmark_run_id?: string;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    consumption_evidence?: Record<string, unknown>;
+  }): Promise<RkeDarwinianAutoresearchConsumptionReadinessResult> {
+    return this.client.call<RkeDarwinianAutoresearchConsumptionReadinessResult>(
+      "rke_benchmark.darwinian_autoresearch_consumption_readiness",
+      params ?? {},
+    );
+  }
+
   rkeBenchmarkCandidateConsumptionManifest(params?: {
     candidates?: Array<Record<string, unknown>>;
   }): Promise<RkeCandidateConsumptionManifestResult> {
@@ -1632,11 +1702,24 @@ export class BridgeApi {
     );
   }
 
+  rkeBenchmarkPatchActivationReadiness(params?: {
+    benchmark_run_id?: string;
+    candidates?: Array<Record<string, unknown>>;
+    patch_activation_evidence?: Array<Record<string, unknown>>;
+  }): Promise<RkePatchActivationReadinessResult> {
+    return this.client.call<RkePatchActivationReadinessResult>(
+      "rke_benchmark.patch_activation_readiness",
+      params ?? {},
+    );
+  }
+
   rkeBenchmarkShadowReplayReadiness(params: {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     downstream_outcome_metrics?: Record<string, number>;
@@ -1656,6 +1739,8 @@ export class BridgeApi {
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     downstream_outcome_metrics?: Record<string, number>;
@@ -1676,6 +1761,8 @@ export class BridgeApi {
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     downstream_outcome_metrics?: Record<string, number>;
@@ -1698,12 +1785,16 @@ export class BridgeApi {
     prompt_source_status?: Record<string, unknown>;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     profile_evidence?: Record<string, unknown>;
     downstream_outcome_metrics?: Record<string, number>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
+    patch_activation_evidence?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
     paper_trading_plan?: Record<string, unknown>;
@@ -1729,21 +1820,22 @@ export class BridgeApi {
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     profile_evidence?: Record<string, unknown>;
     downstream_outcome_metrics?: Record<string, number>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
+    patch_activation_evidence?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
     paper_trading_plan?: Record<string, unknown>;
     promotion_evidence?: Record<string, unknown>;
   }): Promise<RkeDeliveryReadinessResult> {
-    return this.client.call<RkeDeliveryReadinessResult>(
-      "rke_benchmark.delivery_readiness",
-      params,
-    );
+    return this.client.call<RkeDeliveryReadinessResult>("rke_benchmark.delivery_readiness", params);
   }
 
   // autoresearch.* (Phase 4C/4D)
