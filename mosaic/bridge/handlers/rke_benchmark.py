@@ -125,6 +125,7 @@ _DELIVERY_EVIDENCE_KEYS = (
     "all_agent_prompt_release_checks",
     "paired_output_count",
     "model_config_output_counts",
+    "benchmark_quality_summary",
     "benchmark_evidence_refs",
     "manual_review",
     "profile_evidence",
@@ -348,6 +349,9 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
     model_config_output_counts = params.get("model_config_output_counts")
     if not isinstance(model_config_output_counts, dict):
         model_config_output_counts = {}
+    quality_summary = params.get("benchmark_quality_summary")
+    if not isinstance(quality_summary, dict):
+        quality_summary = {}
 
     required_model_count = sum(1 for config in _MODEL_CONFIGS if config["required"])
     required_model_ids = [
@@ -368,6 +372,20 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
             count = 0
         if count < required_per_model_count:
             blocked_reasons.append(f"model_config_output_count_below_required:{model_id}")
+    if not _clean_str(quality_summary.get("quality_gate_ref")):
+        blocked_reasons.append("quality_gate_ref_missing")
+    if quality_summary.get("schema_failure_gate_passed") is not True:
+        blocked_reasons.append("schema_failure_gate_not_passed")
+    for key in (
+        "severe_safety_violation_count",
+        "current_data_confirmation_violation_count",
+        "fallback_prompt_run_count",
+    ):
+        count = _optional_non_negative_int(quality_summary.get(key))
+        if count is None:
+            blocked_reasons.append(f"{key}_missing")
+        elif count:
+            blocked_reasons.append(f"{key}_nonzero")
     for key in (
         "paired_output_manifest_ref",
         "output_schema_validation_report_ref",
@@ -380,7 +398,11 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("manual_review_not_approved")
     if not _clean_str(manual_review.get("reviewer_timestamp")):
         blocked_reasons.append("manual_review_timestamp_missing")
-    if _forbidden_paths(evidence_refs) or _forbidden_paths(manual_review):
+    if (
+        _forbidden_paths(evidence_refs)
+        or _forbidden_paths(manual_review)
+        or _forbidden_paths(quality_summary)
+    ):
         blocked_reasons.append("private_or_source_prose_ref_detected")
 
     return {
@@ -402,6 +424,22 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
             and not isinstance(model_config_output_counts.get(model_id), bool)
             else 0
             for model_id in required_model_ids
+        },
+        "benchmark_quality_summary": {
+            "quality_gate_ref": _clean_str(quality_summary.get("quality_gate_ref")),
+            "schema_failure_gate_passed": quality_summary.get(
+                "schema_failure_gate_passed"
+            )
+            is True,
+            "severe_safety_violation_count": _optional_non_negative_int(
+                quality_summary.get("severe_safety_violation_count")
+            ),
+            "current_data_confirmation_violation_count": _optional_non_negative_int(
+                quality_summary.get("current_data_confirmation_violation_count")
+            ),
+            "fallback_prompt_run_count": _optional_non_negative_int(
+                quality_summary.get("fallback_prompt_run_count")
+            ),
         },
         "prompt_source_status": manifest["prompt_preflight"].get("source_status", {}),
         "evidence_refs": {
@@ -1545,6 +1583,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "cohort": params.get("cohort"),
             "paired_output_count": params.get("paired_output_count"),
             "model_config_output_counts": params.get("model_config_output_counts"),
+            "benchmark_quality_summary": params.get("benchmark_quality_summary"),
             "evidence_refs": params.get("benchmark_evidence_refs"),
             "manual_review": params.get("manual_review"),
         }
@@ -1828,6 +1867,9 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "paired_output_count": effective_params.get("paired_output_count"),
             "model_config_output_counts": effective_params.get(
                 "model_config_output_counts"
+            ),
+            "benchmark_quality_summary": effective_params.get(
+                "benchmark_quality_summary"
             ),
             "evidence_refs": effective_params.get("benchmark_evidence_refs"),
             "manual_review": effective_params.get("manual_review"),

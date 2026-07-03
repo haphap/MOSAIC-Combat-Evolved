@@ -59,6 +59,18 @@ def _model_config_output_counts(count: int = 425) -> dict:
     }
 
 
+def _benchmark_quality_summary(**overrides: object) -> dict:
+    row = {
+        "quality_gate_ref": "benchmark-quality-gate-1",
+        "schema_failure_gate_passed": True,
+        "severe_safety_violation_count": 0,
+        "current_data_confirmation_violation_count": 0,
+        "fallback_prompt_run_count": 0,
+    }
+    row.update(overrides)
+    return row
+
+
 def _prompt_release_check() -> dict:
     return {
         "mutation_candidate_id": "PMUT-1",
@@ -305,6 +317,8 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
         "model_config_output_count_below_required:baseline_current_config"
         in result["blocked_reasons"]
     )
+    assert "quality_gate_ref_missing" in result["blocked_reasons"]
+    assert "schema_failure_gate_not_passed" in result["blocked_reasons"]
     assert "manual_review_not_approved" in result["blocked_reasons"]
     assert result["promotion_allowed"] is False
 
@@ -324,6 +338,7 @@ def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
             "benchmark_run_id": "bench-ready",
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(),
             "evidence_refs": {
                 "paired_output_manifest_ref": "bench-ready-paired-output-manifest",
                 "output_schema_validation_report_ref": "bench-ready-schema-report",
@@ -364,6 +379,7 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
             "benchmark_run_id": "bench-missing-model",
             "paired_output_count": 1275,
             "model_config_output_counts": counts,
+            "benchmark_quality_summary": _benchmark_quality_summary(),
             "evidence_refs": {
                 "paired_output_manifest_ref": "bench-ready-paired-output-manifest",
                 "output_schema_validation_report_ref": "bench-ready-schema-report",
@@ -384,6 +400,42 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
         in result["blocked_reasons"]
     )
     assert result["model_config_output_counts"]["local_qwen_27b"] == 0
+
+
+def test_fixed_episode_benchmark_evidence_blocks_quality_gate_failures(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "rke_benchmark.fixed_episode_benchmark_evidence",
+        {
+            "benchmark_run_id": "bench-quality-fail",
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                severe_safety_violation_count=1
+            ),
+            "evidence_refs": {
+                "paired_output_manifest_ref": "bench-ready-paired-output-manifest",
+                "output_schema_validation_report_ref": "bench-ready-schema-report",
+                "deterministic_score_table_ref": "bench-ready-score-table",
+                "investment_outcome_table_ref": "bench-ready-investment-outcomes",
+            },
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+        },
+    )
+
+    assert result["evidence_status"] == "blocked_preflight"
+    assert "severe_safety_violation_count_nonzero" in result["blocked_reasons"]
+    assert result["benchmark_quality_summary"]["severe_safety_violation_count"] == 1
 
 
 def test_capture_agent_claim_footprints_writes_private_redacted_rows(
@@ -1494,6 +1546,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(),
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "bench-shadow-paired",
                 "output_schema_validation_report_ref": "bench-shadow-schema",
@@ -1613,6 +1666,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(),
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "bench-paper-paired",
                 "output_schema_validation_report_ref": "bench-paper-schema",
@@ -1729,6 +1783,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             ),
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(),
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "bench-promotion-paired",
                 "output_schema_validation_report_ref": "bench-promotion-schema",
@@ -2043,6 +2098,7 @@ def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
             "all_agent_prompt_release_checks": [],
             "paired_output_count": 1275,
             "model_config_output_counts": {},
+            "benchmark_quality_summary": {},
             "benchmark_evidence_refs": {},
             "manual_review": {},
             "profile_evidence": {},
@@ -2090,6 +2146,7 @@ def test_delivery_readiness_loads_recorded_private_evidence(
             "benchmark_run_id": "bench-delivery-recorded",
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(),
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "recorded-paired",
                 "output_schema_validation_report_ref": "recorded-schema",
@@ -2109,7 +2166,7 @@ def test_delivery_readiness_loads_recorded_private_evidence(
     )
 
     assert record["record_status"] == "recorded"
-    assert record["recorded_key_count"] == 4
+    assert record["recorded_key_count"] == 5
     assert record["recorded_context_key_count"] == 0
     assert manifest["recorded_evidence_loaded"] is True
     assert all(
@@ -2191,6 +2248,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             "all_agent_prompt_release_checks": all_prompt_release_checks,
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(),
             "benchmark_evidence_refs": {
                 "paired_output_manifest_ref": "bench-delivery-paired",
                 "output_schema_validation_report_ref": "bench-delivery-schema",
