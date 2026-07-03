@@ -2135,6 +2135,13 @@ stock、industry、macro 三域执行项。`docs/plans/rke_stock_report_outcome_
 
 ### P12 当前验收状态（2026-07-03）
 
+状态口径：本节里的“已满足/已落地”只指带私有 PDF/Markdown/outcome 输入的
+clean validation corpus。默认 checked-in registry 是公开仓库的 input-load 诊断面；
+它缺少私有输入时暴露的无 PIT outcome、Markdown 覆盖不足或 refusal-only compiler
+输出，必须记录在 blocker 根因表里，但不能替代 clean corpus gate 证据。反过来，如果任一
+待发布或待验收 corpus 只产生 refusal rows，或 PIT outcome labels 为零，则该 corpus 下的
+条件 8/12 不能关闭。
+
 当前分支已经满足三域 PIT outcome/readiness/profile 的基础底座，并满足宏观反馈闭环的
 首轮运行条件；agent-facing retrieval ranking、candidate compiler 和 macro
 `cross_asset_consistency` 的 gate 证据已落地。默认 checked-in registry 因不包含私有
