@@ -678,6 +678,30 @@ def test_rke_runtime_context_preflight_flags_rank_order_without_sorting():
     assert "### Prior FCRED-2" not in output
 
 
+def test_rke_runtime_context_preflight_blocks_rank_gaps():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "schema_version": SCHEMA_VERSION,
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [
+                {
+                    "redacted_claim_id": "FCRED-2",
+                    "retrieval_rank": 2,
+                    "priority_bucket": "medium",
+                }
+            ],
+            "summary": {"truncated_item_count": 0, "current_data_required": True},
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "retrieval_rank_sequence_invalid" in output
+
+
 def test_rke_runtime_context_preflight_blocks_wrong_ranking_policy():
     output = rke_research_tools.format_rke_runtime_context(
         {

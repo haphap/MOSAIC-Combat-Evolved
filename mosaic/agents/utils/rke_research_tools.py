@@ -125,6 +125,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("retrieval_rank_missing")
     elif rank_numbers != sorted(rank_numbers):
         failures.append("retrieval_rank_order_changed")
+    elif rank_numbers != list(range(1, len(rank_numbers) + 1)):
+        failures.append("retrieval_rank_sequence_invalid")
     if any(not bucket for bucket in priority_buckets):
         failures.append("priority_bucket_missing")
     elif any(bucket not in _PRIORITY_BUCKETS for bucket in priority_buckets):
