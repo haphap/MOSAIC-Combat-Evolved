@@ -941,6 +941,46 @@ def test_agent_profile_evolution_readiness_blocks_partial_report_claim_links(
     assert manifest["profile_evolution_ready"] is False
 
 
+def test_agent_profile_evolution_readiness_blocks_missing_runtime_metadata(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-profile-missing-runtime-metadata",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
+                }
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {
+            "benchmark_run_id": "bench-profile-missing-runtime-metadata",
+            "profile_evidence": _profile_evidence(
+                "bench-profile-missing-runtime-metadata"
+            ),
+        },
+    )
+
+    assert "ranking_policy_id_missing" in manifest["blocked_reasons"]
+    assert "retrieval_rank_missing" in manifest["blocked_reasons"]
+    assert "priority_bucket_missing" in manifest["blocked_reasons"]
+    assert "truncation_audit_missing" in manifest["blocked_reasons"]
+    assert manifest["profile_evolution_ready"] is False
+
+
 def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
     tmp_path: Path, monkeypatch
 ):
@@ -958,6 +998,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_context_hash": "a" * 64,
+                    **_runtime_context_proof(1),
                     "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
                 },
                 {
@@ -966,6 +1007,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "sector_claim",
                     "target": {"target_type": "sector", "sector": "semiconductor"},
                     "rke_context_hash": "b" * 64,
+                    **_runtime_context_proof(2),
                     "report_claim_refs": ["forecast_claim:sector-semi-001"],
                 },
                 {
@@ -974,6 +1016,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "style_candidate_claim",
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "c" * 64,
+                    **_runtime_context_proof(3),
                     "report_claim_refs": ["forecast_claim:stock-000001-001"],
                 },
                 {
@@ -982,6 +1025,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
                     "claim_type": "portfolio_action_claim",
                     "target": {"target_type": "portfolio", "target_id": "cn_equity"},
                     "rke_context_hash": "d" * 64,
+                    **_runtime_context_proof(4),
                     "report_claim_refs": ["forecast_claim:portfolio-cn-equity-001"],
                 },
             ],
@@ -1028,6 +1072,7 @@ def test_agent_profile_evolution_readiness_blocks_cross_run_profile_evidence(
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                     "rke_context_hash": "a" * 64,
+                    **_runtime_context_proof(1),
                     "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
                 },
                 {
@@ -1036,6 +1081,7 @@ def test_agent_profile_evolution_readiness_blocks_cross_run_profile_evidence(
                     "claim_type": "sector_claim",
                     "target": {"target_type": "sector", "sector": "semiconductor"},
                     "rke_context_hash": "b" * 64,
+                    **_runtime_context_proof(2),
                     "report_claim_refs": ["forecast_claim:sector-semi-001"],
                 },
                 {
@@ -1044,6 +1090,7 @@ def test_agent_profile_evolution_readiness_blocks_cross_run_profile_evidence(
                     "claim_type": "style_candidate_claim",
                     "target": {"target_type": "stock", "ticker": "000001.SZ"},
                     "rke_context_hash": "c" * 64,
+                    **_runtime_context_proof(3),
                     "report_claim_refs": ["forecast_claim:stock-000001-001"],
                 },
                 {
@@ -1052,6 +1099,7 @@ def test_agent_profile_evolution_readiness_blocks_cross_run_profile_evidence(
                     "claim_type": "portfolio_action_claim",
                     "target": {"target_type": "portfolio", "target_id": "cn_equity"},
                     "rke_context_hash": "d" * 64,
+                    **_runtime_context_proof(4),
                     "report_claim_refs": ["forecast_claim:portfolio-cn-equity-001"],
                 },
             ],

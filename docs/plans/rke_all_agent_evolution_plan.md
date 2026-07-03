@@ -290,8 +290,9 @@ Status 2026-07-03:
   and context-hash coverage.
 - Public bridge now exposes `rke_benchmark.agent_profile_evolution_readiness`,
   a no-write gate that requires redacted footprint summary, all four layer
-  coverage, RKE context hashes, privacy/no-source-prose audit, profile update ref,
-  and evolution input ref before footprint aggregates can feed profile/evolution.
+  coverage, RKE context hashes, runtime ranking metadata, privacy/no-source-prose
+  audit, profile update ref, and evolution input ref before footprint aggregates
+  can feed profile/evolution.
   Profile evidence must bind to the same `benchmark_run_id` as the captured
   footprint summary.
 - This implements the redacted capture contract, private row sink, and aggregate

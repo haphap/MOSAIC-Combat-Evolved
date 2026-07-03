@@ -762,6 +762,16 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("report_claim_link_missing")
     if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
         blocked_reasons.append("rke_context_report_claim_link_incomplete")
+    ranking_policy_count = sum(summary["ranking_policy_id_counts"].values())
+    priority_bucket_count = sum(summary["priority_bucket_counts"].values())
+    if ranking_policy_count < summary["rke_context_hash_count"]:
+        blocked_reasons.append("ranking_policy_id_missing")
+    if summary["retrieval_rank_count"] < summary["rke_context_hash_count"]:
+        blocked_reasons.append("retrieval_rank_missing")
+    if priority_bucket_count < summary["rke_context_hash_count"]:
+        blocked_reasons.append("priority_bucket_missing")
+    if summary["truncation_audit_count"] < summary["rke_context_hash_count"]:
+        blocked_reasons.append("truncation_audit_missing")
     for key in (
         "profile_update_ref",
         "evolution_input_ref",
@@ -795,6 +805,10 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "rke_context_report_claim_linked_count": summary[
             "rke_context_report_claim_linked_count"
         ],
+        "ranking_policy_id_counts": summary["ranking_policy_id_counts"],
+        "retrieval_rank_count": summary["retrieval_rank_count"],
+        "priority_bucket_counts": summary["priority_bucket_counts"],
+        "truncation_audit_count": summary["truncation_audit_count"],
         "privacy_scan": summary["privacy_scan"],
         "profile_evidence": {
             "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),

@@ -2312,9 +2312,11 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   benchmark/replay agent rows 仍未完成。
 - `rke_benchmark.agent_profile_evolution_readiness` 已能检查四层 agent footprint
   coverage、RKE context hash、report claim link、privacy/no-source-prose audit、
-  profile update ref 和 evolution input ref，并要求 profile evidence 绑定同一个
-  `benchmark_run_id`；其中每个 consumed RKE context hash 都必须对应 redacted report
-  claim ref，避免未绑定研报 claim 的 agent footprint 进入 profile/evolution。真实
+  runtime ranking metadata、profile update ref 和 evolution input ref，并要求 profile
+  evidence 绑定同一个 `benchmark_run_id`；其中每个 consumed RKE context hash 都必须对应
+  redacted report claim ref、`ranking_policy_id`、`retrieval_rank`、`priority_bucket`
+  和 truncation audit，避免未绑定研报 claim 或 ranking proof 的 agent footprint 进入
+  profile/evolution。真实
   profile/evolution 写入仍需由实际 benchmark/replay run 产生。
 - `rke_benchmark.darwinian_autoresearch_input_manifest` 已把 RKE prior usage、
   current-data confirmation、stale/contradictory prior handling、downstream outcome、
