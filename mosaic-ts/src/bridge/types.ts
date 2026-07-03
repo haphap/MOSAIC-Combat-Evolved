@@ -852,6 +852,7 @@ export interface RkeShadowReplayReadinessResult {
   blocked_reasons: string[];
   benchmark_evidence_status: "ready" | "blocked_preflight";
   darwinian_manifest_status: "ready" | "blocked_preflight";
+  prompt_release_readiness_status: "ready" | "blocked_preflight";
   rollback_readiness_status: "ready" | "blocked_preflight";
   rke_context_hash_count: number;
   ranking_policy_id_counts: Record<string, number>;
@@ -1635,6 +1636,7 @@ export class BridgeApi {
     downstream_outcome_metrics?: Record<string, number>;
     prompt_mutation_provenance?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
   }): Promise<RkeShadowReplayReadinessResult> {
     return this.client.call<RkeShadowReplayReadinessResult>(
@@ -1652,6 +1654,7 @@ export class BridgeApi {
     downstream_outcome_metrics?: Record<string, number>;
     prompt_mutation_provenance?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
     paper_trading_plan?: Record<string, unknown>;
   }): Promise<RkePaperTradingReadinessResult> {
@@ -1670,6 +1673,7 @@ export class BridgeApi {
     downstream_outcome_metrics?: Record<string, number>;
     prompt_mutation_provenance?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
     paper_trading_plan?: Record<string, unknown>;
     promotion_evidence?: Record<string, unknown>;

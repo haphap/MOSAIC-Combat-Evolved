@@ -51,6 +51,21 @@ def _runtime_context_proof(rank: int = 1) -> dict:
     }
 
 
+def _prompt_release_check() -> dict:
+    return {
+        "mutation_candidate_id": "PMUT-1",
+        "prompt_version_id": 42,
+        "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+        "prompt_commit_hash": "a" * 40,
+        "prompt_sha256": "b" * 64,
+        "verify_release_ref": "verify-release-1",
+        "leak_drift_check_ref": "leak-drift-1",
+        "verify_release_passed": True,
+        "leak_drift_passed": True,
+        "release_ready": True,
+    }
+
+
 def test_fixed_episode_manifest_blocks_without_private_prompt_source():
     result = dispatch("rke_benchmark.fixed_episode_manifest", {})
 
@@ -790,20 +805,7 @@ def test_prompt_mutation_release_readiness_accepts_release_and_leak_drift(
                     blocked_by=[],
                 )
             ],
-            "release_checks": [
-                {
-                    "mutation_candidate_id": "PMUT-1",
-                    "prompt_version_id": 42,
-                    "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
-                    "prompt_commit_hash": "a" * 40,
-                    "prompt_sha256": "b" * 64,
-                    "verify_release_ref": "verify-release-1",
-                    "leak_drift_check_ref": "leak-drift-1",
-                    "verify_release_passed": True,
-                    "leak_drift_passed": True,
-                    "release_ready": True,
-                }
-            ],
+            "release_checks": [_prompt_release_check()],
         },
     )
 
@@ -897,6 +899,7 @@ def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatc
     assert manifest["readiness_status"] == "blocked_preflight"
     assert "benchmark_evidence_not_ready" in manifest["blocked_reasons"]
     assert "darwinian_autoresearch_input_not_ready" in manifest["blocked_reasons"]
+    assert "prompt_mutation_release_not_ready" in manifest["blocked_reasons"]
     assert "rollback_readiness_not_ready" in manifest["blocked_reasons"]
     assert manifest["shadow_replay_ready"] is False
     assert manifest["paper_trading_allowed"] is False
@@ -1015,6 +1018,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
                     blocked_by=[],
                 )
             ],
+            "prompt_mutation_release_checks": [_prompt_release_check()],
             "rollback_evidence": [
                 {
                     "mutation_candidate_id": "PMUT-1",
@@ -1028,6 +1032,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
     )
 
     assert manifest["readiness_status"] == "ready"
+    assert manifest["prompt_release_readiness_status"] == "ready"
     assert manifest["shadow_replay_ready"] is True
     assert manifest["paper_trading_allowed"] is False
     assert manifest["promotion_allowed"] is False
@@ -1122,6 +1127,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
                     blocked_by=[],
                 )
             ],
+            "prompt_mutation_release_checks": [_prompt_release_check()],
             "rollback_evidence": [
                 {
                     "mutation_candidate_id": "PMUT-1",
@@ -1228,6 +1234,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
                     blocked_by=[],
                 )
             ],
+            "prompt_mutation_release_checks": [_prompt_release_check()],
             "rollback_evidence": [
                 {
                     "mutation_candidate_id": "PMUT-1",

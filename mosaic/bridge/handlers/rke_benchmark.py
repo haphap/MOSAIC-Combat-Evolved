@@ -1217,6 +1217,12 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_mutation_provenance": params.get("prompt_mutation_provenance"),
         }
     )
+    prompt_release = prompt_mutation_release_readiness(
+        {
+            "candidates": params.get("candidates"),
+            "release_checks": params.get("prompt_mutation_release_checks"),
+        }
+    )
     rollback = prompt_mutation_rollback_readiness(
         {
             "candidates": params.get("candidates"),
@@ -1231,6 +1237,8 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("benchmark_evidence_not_ready")
     if darwinian["manifest_status"] != "ready":
         blocked_reasons.append("darwinian_autoresearch_input_not_ready")
+    if prompt_release["readiness_status"] != "ready":
+        blocked_reasons.append("prompt_mutation_release_not_ready")
     if rollback["readiness_status"] != "ready":
         blocked_reasons.append("rollback_readiness_not_ready")
     context_hash_count = int(prior_usage["rke_context_hash_count"] or 0)
@@ -1256,6 +1264,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "blocked_reasons": blocked_reasons,
         "benchmark_evidence_status": benchmark["evidence_status"],
         "darwinian_manifest_status": darwinian["manifest_status"],
+        "prompt_release_readiness_status": prompt_release["readiness_status"],
         "rollback_readiness_status": rollback["readiness_status"],
         "rke_context_hash_count": prior_usage["rke_context_hash_count"],
         "ranking_policy_id_counts": prior_usage["ranking_policy_id_counts"],
