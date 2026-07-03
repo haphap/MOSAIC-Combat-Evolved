@@ -433,7 +433,10 @@ export interface PromptPreflightRow {
   cohort: string;
   lang: PromptLang;
   status: "ready" | "blocked";
-  blocked_reason?: "private_prompt_unavailable" | "prompt_provenance_unavailable";
+  blocked_reason?:
+    | "private_prompt_unavailable"
+    | "prompt_provenance_unavailable"
+    | "private_prompt_repo_dirty";
   prompt_repo_id?: string;
   prompt_repo_revision?: string;
   prompt_file_path?: string;
@@ -446,6 +449,14 @@ export interface PromptPreflightResult {
   ready: boolean;
   cohort: string;
   expected_prompt_repo_id: string;
+  source_status: {
+    ready: boolean;
+    blocked_reason: string;
+    resolved_source: "" | "private_repo" | "private_root";
+    prompt_repo_id: string;
+    prompt_repo_revision: string;
+    prompt_repo_dirty_count: number;
+  };
   row_count: number;
   blocked_count: number;
   rows: PromptPreflightRow[];

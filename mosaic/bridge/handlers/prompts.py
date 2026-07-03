@@ -157,8 +157,8 @@ def _git_run(cwd: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
-def _git_dirty(repo: Path) -> bool:
-    return bool(_git_run(repo, "status", "--porcelain"))
+def _git_dirty_count(repo: Path) -> int:
+    return len(_git_run(repo, "status", "--porcelain").splitlines())
 
 
 def _optional_str_list(
@@ -202,8 +202,13 @@ def _formal_prompt_source() -> dict[str, Any]:
             project_root = _repo_root()
             if repo_root == project_root or repo_root.is_relative_to(project_root):
                 return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
-            if _git_dirty(repo_root):
-                return {"ready": False, "blocked_reason": "private_prompt_repo_dirty"}
+            dirty_count = _git_dirty_count(repo_root)
+            if dirty_count:
+                return {
+                    "ready": False,
+                    "blocked_reason": "private_prompt_repo_dirty",
+                    "prompt_repo_dirty_count": dirty_count,
+                }
         except Exception:
             return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
         return {
@@ -221,8 +226,13 @@ def _formal_prompt_source() -> dict[str, Any]:
     try:
         repo_root = validate_private_prompt_repo(repo, project_root=_repo_root())
         revision = _git_run(repo_root, "rev-parse", "HEAD")
-        if _git_dirty(repo_root):
-            return {"ready": False, "blocked_reason": "private_prompt_repo_dirty"}
+        dirty_count = _git_dirty_count(repo_root)
+        if dirty_count:
+            return {
+                "ready": False,
+                "blocked_reason": "private_prompt_repo_dirty",
+                "prompt_repo_dirty_count": dirty_count,
+            }
     except Exception:
         return {"ready": False, "blocked_reason": "prompt_provenance_unavailable"}
     return {
@@ -531,6 +541,24 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
         "ready": not blocked,
         "cohort": cohort,
         "expected_prompt_repo_id": _CANONICAL_PROMPT_REPO_ID,
+        "source_status": {
+            "ready": bool(source.get("ready")),
+            "blocked_reason": source.get("blocked_reason")
+            if isinstance(source.get("blocked_reason"), str)
+            else "",
+            "resolved_source": source.get("resolved_source")
+            if isinstance(source.get("resolved_source"), str)
+            else "",
+            "prompt_repo_id": source.get("prompt_repo_id")
+            if isinstance(source.get("prompt_repo_id"), str)
+            else "",
+            "prompt_repo_revision": source.get("prompt_repo_revision")
+            if isinstance(source.get("prompt_repo_revision"), str)
+            else "",
+            "prompt_repo_dirty_count": source.get("prompt_repo_dirty_count")
+            if isinstance(source.get("prompt_repo_dirty_count"), int)
+            else 0,
+        },
         "row_count": len(rows),
         "blocked_count": len(blocked),
         "rows": rows,

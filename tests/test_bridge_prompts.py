@@ -302,6 +302,14 @@ def test_preflight_blocks_without_private_prompt_source(repo: Path):
 
     assert result["ready"] is False
     assert result["blocked_count"] == 1
+    assert result["source_status"] == {
+        "ready": False,
+        "blocked_reason": "private_prompt_unavailable",
+        "resolved_source": "",
+        "prompt_repo_id": "",
+        "prompt_repo_revision": "",
+        "prompt_repo_dirty_count": 0,
+    }
     row = result["rows"][0]
     assert row["status"] == "blocked"
     assert row["blocked_reason"] == "private_prompt_unavailable"
@@ -322,6 +330,9 @@ def test_preflight_records_private_prompt_provenance(repo: Path, tmp_path: Path,
     assert result["ready"] is True
     assert result["blocked_count"] == 0
     assert result["row_count"] == 2
+    assert result["source_status"]["ready"] is True
+    assert result["source_status"]["resolved_source"] == "private_repo"
+    assert result["source_status"]["prompt_repo_dirty_count"] == 0
     for row in result["rows"]:
         assert row["status"] == "ready"
         assert row["prompt_repo_id"] == "https://github.com/haphap/MOSAIC-Prompts"
@@ -355,6 +366,8 @@ def test_preflight_blocks_dirty_private_prompt_repo(
     )
 
     assert result["ready"] is False
+    assert result["source_status"]["blocked_reason"] == "private_prompt_repo_dirty"
+    assert result["source_status"]["prompt_repo_dirty_count"] == 1
     assert result["rows"][0]["blocked_reason"] == "private_prompt_repo_dirty"
     assert result["rows"][0]["fallback_used"] is False
     assert "content" not in result["rows"][0]
@@ -371,6 +384,8 @@ def test_preflight_allows_git_backed_prompts_root(repo: Path, tmp_path: Path, mo
     )
 
     assert result["ready"] is True
+    assert result["source_status"]["resolved_source"] == "private_root"
+    assert result["source_status"]["prompt_repo_dirty_count"] == 0
     row = result["rows"][0]
     assert row["resolved_source"] == "private_root"
     assert row["prompt_file_path"] == "prompts/mosaic/cohort_default/macro/volatility.zh.md"
@@ -396,6 +411,8 @@ def test_preflight_blocks_dirty_prompts_root(repo: Path, tmp_path: Path, monkeyp
     )
 
     assert result["ready"] is False
+    assert result["source_status"]["blocked_reason"] == "private_prompt_repo_dirty"
+    assert result["source_status"]["prompt_repo_dirty_count"] == 1
     assert result["rows"][0]["blocked_reason"] == "private_prompt_repo_dirty"
 
 
@@ -408,6 +425,7 @@ def test_preflight_rejects_project_prompt_root(repo: Path, monkeypatch):
     )
 
     assert result["ready"] is False
+    assert result["source_status"]["blocked_reason"] == "prompt_provenance_unavailable"
     assert result["rows"][0]["blocked_reason"] == "prompt_provenance_unavailable"
 
 

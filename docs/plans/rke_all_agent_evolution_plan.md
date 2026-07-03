@@ -86,7 +86,9 @@ Status 2026-07-03:
   `MOSAIC_PROMPTS_ROOT`, records `prompt_repo_id`, HEAD revision, relative prompt
   file path, prompt sha256, resolved source, and `fallback_used=false`. Dirty
   private prompt repos are blocked because a working-tree prompt hash paired
-  with HEAD revision is not a reproducible formal prompt pin.
+  with HEAD revision is not a reproducible formal prompt pin. The returned
+  source summary includes blocked reason, resolved source, repo id/revision and
+  dirty-file count, but never prompt body or dirty file paths.
 - Missing private prompts or missing git provenance return blocked rows with
   `private_prompt_unavailable`, `prompt_provenance_unavailable`, or
   `private_prompt_repo_dirty`; bundled prompts are not used as fallback for
