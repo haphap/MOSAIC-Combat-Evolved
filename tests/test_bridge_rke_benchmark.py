@@ -1172,6 +1172,56 @@ def test_agent_profile_evolution_readiness_blocks_missing_runtime_metadata(
     assert manifest["profile_evolution_ready"] is False
 
 
+def test_agent_profile_evolution_readiness_counts_runtime_proof_on_rke_rows_only(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-profile-runtime-row-scope",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-001"],
+                    "current_data_confirmed": False,
+                },
+                {
+                    "agent": "cio",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "portfolio_action_claim",
+                    "target": {"target_type": "portfolio", "target_id": "cn_equity"},
+                    **_runtime_context_proof(1),
+                    "current_data_confirmed": True,
+                },
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.agent_profile_evolution_readiness",
+        {
+            "benchmark_run_id": "bench-profile-runtime-row-scope",
+            "profile_evidence": _profile_evidence("bench-profile-runtime-row-scope"),
+        },
+    )
+
+    assert "ranking_policy_id_missing" in manifest["blocked_reasons"]
+    assert "retrieval_rank_missing" in manifest["blocked_reasons"]
+    assert "priority_bucket_missing" in manifest["blocked_reasons"]
+    assert "truncation_audit_missing" in manifest["blocked_reasons"]
+    assert "current_data_confirmation_missing" in manifest["blocked_reasons"]
+    assert manifest["rke_context_hash_count"] == 1
+    assert manifest["retrieval_rank_count"] == 0
+    assert manifest["current_data_confirmed_count"] == 0
+
+
 def test_agent_profile_evolution_readiness_blocks_partial_current_data_confirmation(
     tmp_path: Path, monkeypatch
 ):

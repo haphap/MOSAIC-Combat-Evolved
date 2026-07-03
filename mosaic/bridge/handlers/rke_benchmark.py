@@ -621,7 +621,9 @@ def capture_agent_claim_footprints(params: dict[str, Any]) -> dict[str, Any]:
             "layer_counts": dict(sorted(layer_counts.items())),
             "claim_type_counts": dict(sorted(claim_type_counts.items())),
             "current_data_confirmed_count": sum(
-                1 for row in sanitized if row["current_data_confirmed"] is True
+                1
+                for row in sanitized
+                if row.get("rke_context_hash") and row["current_data_confirmed"] is True
             ),
             "rke_context_hash_count": sum(
                 1 for row in sanitized if row.get("rke_context_hash")
@@ -693,7 +695,9 @@ def agent_footprint_summary(params: dict[str, Any]) -> dict[str, Any]:
         "claim_type_counts": dict(sorted(claim_type_counts.items())),
         "rke_prior_usage_quality_counts": dict(sorted(prior_quality_counts.items())),
         "current_data_confirmed_count": sum(
-            1 for row in rows if row.get("current_data_confirmed") is True
+            1
+            for row in rows
+            if row.get("rke_context_hash") and row.get("current_data_confirmed") is True
         ),
         "stale_prior_rejected_count": sum(
             1 for row in rows if row.get("stale_prior_rejected") is True
@@ -749,6 +753,8 @@ def _runtime_context_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     retrieval_rank_count = 0
     truncation_audit_count = 0
     for row in rows:
+        if not _clean_str(row.get("rke_context_hash")):
+            continue
         ranking_policy_id = _clean_str(row.get("ranking_policy_id"))
         if ranking_policy_id:
             _increment(ranking_policy_id_counts, ranking_policy_id)
