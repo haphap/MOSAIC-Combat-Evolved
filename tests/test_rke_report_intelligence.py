@@ -9773,6 +9773,75 @@ def test_report_intelligence_evolution_gate_audits_agent_context_ranking_contrac
     } >= {"sector.semiconductor", "decision.cio"}
 
 
+def test_report_intelligence_evolution_gate_blocks_invalid_agent_context_metadata(
+    monkeypatch,
+):
+    from mosaic.rke import agent_research_context as context_module
+
+    def bad_context(*, agent_id, layer, **_kwargs):
+        return {
+            "agent_id": agent_id,
+            "layer": layer,
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": context_module.SAFE_ACTIONABILITY,
+            "ranking_policy_id": context_module.RANKING_POLICY_ID,
+            "context_items": [
+                {
+                    "redacted_claim_id": "FC-BAD-RANKING-METADATA",
+                    "retrieval_rank": True,
+                    "priority_bucket": "agent_specific",
+                    "ranking_reason_codes": ["test_regression"],
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                }
+            ],
+            "summary": {
+                "ranking_policy_id": context_module.RANKING_POLICY_ID,
+                "matched_item_count": 1,
+                "truncated_item_count": -1,
+                "current_data_required": True,
+            },
+        }
+
+    monkeypatch.setattr(
+        context_module, "build_rke_agent_research_context_from_rows", bad_context
+    )
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-AGENT-CONTEXT-BAD-METADATA",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        agent_context_forecast_rows=[
+            {
+                "forecast_claim_id": "FC-BAD-RANKING-METADATA",
+                "report_id": "RPT-BAD-RANKING-METADATA",
+            }
+        ],
+        weighted_research_context_rows=[
+            {
+                "agent_id": "sector.semiconductor",
+                "retrieved_claims": [
+                    {"forecast_claim_id": "FC-BAD-RANKING-METADATA"}
+                ],
+            }
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
+    assert check["passed"] is False
+    assert "agent_context_ranking_policy_violation" in check["blockers"]
+    assert check["evidence"]["ranking_policy_violation_count"] > 0
+
+
 def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
     outcome_rows = []
     forecast_rows = []

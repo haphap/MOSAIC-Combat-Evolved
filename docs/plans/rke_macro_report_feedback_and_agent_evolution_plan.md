@@ -2243,8 +2243,8 @@ Part 1 未完成条件当前状态：
   context snapshot missing reasons。`RI-EVOL-09`
   已进入 `evolution_readiness_gate.json`，当前刷新记录 sector/decision ranked context
   evidence、macro/superinvestor no-prior reason evidence，且 private text、current-data
-  guard、shadow policy 和 ranking policy violation 均为 0。这关闭 Part 1 的 ranking
-  infrastructure 证据；superinvestor stock prior role-filtered content 已在条件 5 的 builder
+  guard、shadow policy、ranking policy 和 rank/bucket/count metadata violation 均为 0。这关闭
+  Part 1 的 ranking infrastructure 证据；superinvestor stock prior role-filtered content 已在条件 5 的 builder
   contract 中覆盖。
   Part 2 的全 agent runtime preflight、private prompt resolution 和 benchmark wiring 仍不计入
   Part 1 exit criteria。

@@ -3604,6 +3604,18 @@ def _ensure_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _optional_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return None
+
+
 def _threshold_shortfall(
     *,
     current: int,
@@ -25152,6 +25164,7 @@ AGENT_CONTEXT_AUDIT_REQUESTS = (
     ("superinvestor.munger", "superinvestor"),
     ("cio", "decision"),
 )
+AGENT_CONTEXT_PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
 
 
 def _agent_context_export_gate_check(
@@ -25233,9 +25246,12 @@ def _agent_context_export_gate_check(
             else:
                 blockers.append(f"agent_context_no_prior_reason_missing:{agent_id}")
             for expected_rank, item in enumerate(items, 1):
-                if item.get("retrieval_rank") != expected_rank:
+                if _optional_positive_int(item.get("retrieval_rank")) != expected_rank:
                     ranking_policy_violation_count += 1
-                if not str(item.get("priority_bucket") or "").strip():
+                if (
+                    str(item.get("priority_bucket") or "").strip()
+                    not in AGENT_CONTEXT_PRIORITY_BUCKETS
+                ):
                     ranking_policy_violation_count += 1
                 if not _ensure_list(item.get("ranking_reason_codes")):
                     ranking_policy_violation_count += 1
@@ -25245,15 +25261,21 @@ def _agent_context_export_gate_check(
                     current_data_guard_violation_count += 1
                 if item.get("production_signal_allowed") is not False:
                     shadow_policy_violation_count += 1
+            matched_item_count = _optional_non_negative_int(
+                summary.get("matched_item_count")
+            )
+            truncated_item_count = _optional_non_negative_int(
+                summary.get("truncated_item_count")
+            )
+            if matched_item_count is None or truncated_item_count is None:
+                ranking_policy_violation_count += 1
             context_summaries.append(
                 {
                     "agent_id": str(context.get("agent_id") or agent_id),
                     "layer": layer,
                     "item_count": len(items),
-                    "matched_item_count": int(summary.get("matched_item_count") or 0),
-                    "truncated_item_count": int(
-                        summary.get("truncated_item_count") or 0
-                    ),
+                    "matched_item_count": matched_item_count or 0,
+                    "truncated_item_count": truncated_item_count or 0,
                     "no_prior_reason": str(summary.get("no_prior_reason") or ""),
                 }
             )
