@@ -770,6 +770,36 @@ def test_capture_agent_claim_footprints_blocks_invalid_context_hash(
     assert not (project_root / result["private_rows_path"]).exists()
 
 
+def test_capture_agent_claim_footprints_blocks_invalid_retrieval_rank(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    result = dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-invalid-retrieval-rank",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "retrieval_rank": 0,
+                }
+            ],
+        },
+    )
+
+    assert result["capture_status"] == "blocked"
+    assert result["captured_count"] == 0
+    assert "retrieval_rank must be a positive integer" in result["failures"][0]
+    assert not (project_root / result["private_rows_path"]).exists()
+
+
 def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
     tmp_path: Path, monkeypatch
 ):

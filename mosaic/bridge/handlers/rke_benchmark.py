@@ -700,9 +700,7 @@ def _runtime_context_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         priority_bucket = _clean_str(row.get("priority_bucket"))
         if priority_bucket:
             _increment(priority_bucket_counts, priority_bucket)
-        if isinstance(row.get("retrieval_rank"), int) and not isinstance(
-            row.get("retrieval_rank"), bool
-        ):
+        if _optional_positive_int(row.get("retrieval_rank")) is not None:
             retrieval_rank_count += 1
         if isinstance(row.get("truncated_item_count"), int) and not isinstance(
             row.get("truncated_item_count"), bool
@@ -2333,6 +2331,9 @@ def _sanitize_claim_footprint_row(
     rke_context_hash = _clean_str(row.get("rke_context_hash")).lower()
     if rke_context_hash and not _is_sha256_hex(rke_context_hash):
         raise ValueError("rke_context_hash must be a 64-character hex digest")
+    retrieval_rank = _optional_positive_int(row.get("retrieval_rank"))
+    if row.get("retrieval_rank") is not None and retrieval_rank is None:
+        raise ValueError("retrieval_rank must be a positive integer")
     record_key = "|".join(
         [
             benchmark_run_id,
@@ -2357,7 +2358,7 @@ def _sanitize_claim_footprint_row(
         "confidence_bucket": _clean_str(row.get("confidence_bucket")) or "unknown",
         "rke_context_hash": rke_context_hash,
         "ranking_policy_id": _clean_str(row.get("ranking_policy_id")),
-        "retrieval_rank": _optional_int(row.get("retrieval_rank")),
+        "retrieval_rank": retrieval_rank,
         "priority_bucket": _clean_str(row.get("priority_bucket")),
         "truncated_item_count": _optional_non_negative_int(
             row.get("truncated_item_count")
@@ -2393,8 +2394,10 @@ def _is_sha256_hex(value: str) -> bool:
     return len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
 
-def _optional_int(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+def _optional_positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return None
 
 
 def _optional_non_negative_int(value: Any) -> int | None:
