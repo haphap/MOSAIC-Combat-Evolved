@@ -23,12 +23,13 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
 from math import ceil, floor
 from pathlib import Path
-from typing import Any, Callable, Container, Literal, Mapping, Sequence
+from typing import Any, Callable, Container, Literal, Sequence
 
 from .claim_text_filters import (
     is_boilerplate_risk_warning_text,
@@ -15006,7 +15007,7 @@ def _coverage_stock_outcome_age_bucket(
 
 
 def _coverage_report_key(row: Mapping[str, Any]) -> str:
-    return str(row.get("source_id") or row.get("report_id") or "").strip()
+    return str(row.get("report_id") or row.get("source_id") or "").strip()
 
 
 def _coverage_forecast_rows_by_report(
@@ -23898,6 +23899,94 @@ def _macro_evolution_gate_checks(
     ]
 
 
+PRIOR_COMPILER_CANDIDATE_TYPES = frozenset(
+    {
+        "stock_prior_recipe_rule_candidate",
+        "stock_prior_recipe_rule_refusal",
+        "industry_prior_recipe_rule_candidate",
+        "industry_prior_recipe_rule_refusal",
+        "macro_prior_rule_parameter_candidate",
+        "macro_prior_rule_parameter_refusal",
+    }
+)
+
+
+def _prior_compiler_gate_check(
+    prompt_mutation_candidate_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    prior_rows = [
+        row
+        for row in prompt_mutation_candidate_rows
+        if str(row.get("candidate_type") or "") in PRIOR_COMPILER_CANDIDATE_TYPES
+    ]
+    if not prompt_mutation_candidate_rows:
+        return _evolution_gate_check(
+            check_id="RI-EVOL-08",
+            requirement=(
+                "Redacted stock, industry, and macro priors must enter a "
+                "candidate compiler or explicit refusal path."
+            ),
+            passed=True,
+            evidence={
+                "status": "not_applicable_prompt_mutation_candidates_not_supplied"
+            },
+            blockers=[],
+        )
+    type_counts = Counter(str(row.get("candidate_type") or "") for row in prior_rows)
+    macro_agent_ids = sorted(
+        {
+            str(_ensure_mapping(_ensure_list(row.get("evidence_refs"))[0]).get("agent_id") or "")
+            for row in prior_rows
+            if str(row.get("candidate_type") or "").startswith("macro_prior_")
+            and _ensure_list(row.get("evidence_refs"))
+        }
+        - {""}
+    )
+    private_text_violation_count = sum(
+        1
+        for row in prior_rows
+        if row.get("private_text_included") is not False
+        or _public_payload_private_text_included(row)
+    )
+    signal_violation_count = sum(
+        1 for row in prior_rows if row.get("production_prompt_change_allowed") is not False
+    )
+    blockers: list[str] = []
+    if not (
+        type_counts["stock_prior_recipe_rule_candidate"]
+        or type_counts["stock_prior_recipe_rule_refusal"]
+    ):
+        blockers.append("stock_prior_compiler_path_missing")
+    if not (
+        type_counts["industry_prior_recipe_rule_candidate"]
+        or type_counts["industry_prior_recipe_rule_refusal"]
+    ):
+        blockers.append("industry_prior_compiler_path_missing")
+    if len(macro_agent_ids) < 2:
+        blockers.append("macro_prior_compiler_agent_coverage_missing")
+    if private_text_violation_count:
+        blockers.append("prior_compiler_private_text_violation")
+    if signal_violation_count:
+        blockers.append("prior_compiler_shadow_policy_violation")
+    return _evolution_gate_check(
+        check_id="RI-EVOL-08",
+        requirement=(
+            "Redacted stock, industry, and macro priors must enter a "
+            "candidate compiler or explicit refusal path."
+        ),
+        passed=not blockers,
+        evidence={
+            "prior_compiler_candidate_count": len(prior_rows),
+            "candidate_type_counts": dict(sorted(type_counts.items())),
+            "macro_compiler_agent_ids": macro_agent_ids,
+            "macro_compiler_agent_count": len(macro_agent_ids),
+            "private_text_violation_count": private_text_violation_count,
+            "shadow_policy_violation_count": signal_violation_count,
+        },
+        blockers=blockers,
+    )
+
+
 def build_report_intelligence_evolution_readiness_gate(
     *,
     run_id: str,
@@ -23914,6 +24003,7 @@ def build_report_intelligence_evolution_readiness_gate(
     schema_validation_report: Mapping[str, Any] | None = None,
     macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
     macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
+    prompt_mutation_candidate_rows: Sequence[Mapping[str, Any]] = (),
     monitor_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     audit_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     gap_distribution_history_rows: Sequence[Mapping[str, Any]] = (),
@@ -24300,6 +24390,7 @@ def build_report_intelligence_evolution_readiness_gate(
             macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         )
     )
+    checks.append(_prior_compiler_gate_check(prompt_mutation_candidate_rows))
 
     blockers = [
         blocker
@@ -24543,6 +24634,11 @@ def write_report_intelligence_evolution_readiness_gate(
         label="macro_agent_research_priors",
         blockers=macro_read_blockers,
     )
+    prompt_mutation_candidate_rows = _read_registry_jsonl(
+        registry_path / "prompt_mutation_candidates.jsonl",
+        label="prompt_mutation_candidates",
+        blockers=macro_read_blockers,
+    )
     gate = build_report_intelligence_evolution_readiness_gate(
         run_id=run_id,
         forecast_rows=forecast_rows,
@@ -24558,6 +24654,7 @@ def write_report_intelligence_evolution_readiness_gate(
         schema_validation_report=_read_schema_validation_report(root_path),
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
         monitor_refresh_history_rows=monitor_refresh_history_rows,
         audit_refresh_history_rows=audit_refresh_history_rows,
         gap_distribution_history_rows=gap_distribution_history_rows,
@@ -33326,6 +33423,7 @@ def run_report_intelligence_derived_refresh(
         schema_validation_report=schema_validation_report,
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -33347,6 +33445,26 @@ def run_report_intelligence_derived_refresh(
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
         footprint_review_summary=footprint_review_summary,
+    )
+    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
     )
 
     outputs = {
@@ -34462,6 +34580,7 @@ def run_report_intelligence_refresh(
         schema_validation_report=schema_validation_report,
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -34483,6 +34602,26 @@ def run_report_intelligence_refresh(
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
         footprint_review_summary=footprint_review_summary,
+    )
+    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
     )
 
     outputs = {

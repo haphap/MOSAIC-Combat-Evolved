@@ -6560,6 +6560,44 @@ def test_markdown_coverage_does_not_bucket_stock_query_key_as_sector():
     )
 
 
+def test_markdown_coverage_groups_forecasts_by_report_id_before_source_id():
+    summary = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-REPORT-ID-GROUPING-TEST",
+        metadata_rows=[
+            {
+                "source_id": "SRC-BATCH",
+                "report_id": "RPT-1",
+                "report_type": "宏观研报",
+                "pdf": {"status": "downloaded"},
+                "markdown": {"status": "converted", "bytes": 200},
+                "extraction": {"llm_status": "processed"},
+            },
+            {
+                "source_id": "SRC-BATCH",
+                "report_id": "RPT-2",
+                "report_type": "宏观研报",
+                "pdf": {"status": "downloaded"},
+                "markdown": {"status": "converted", "bytes": 200},
+                "extraction": {"llm_status": "processed"},
+            },
+        ],
+        forecast_rows=[
+            {
+                "source_id": "SRC-BATCH",
+                "report_id": "RPT-1",
+                "horizon": {"preferred_days": 20},
+                "target": {"target_type": "macro_variable"},
+            }
+        ],
+    )
+
+    assert summary["report_horizon_bucket_counts"] == {
+        "20d": 1,
+        "no_extracted_forecast_horizon": 1,
+    }
+    assert summary["forecast_horizon_bucket_counts"] == {"20d": 1}
+
+
 def test_markdown_coverage_tracks_quality_review_false_positive_risk():
     summary = build_markdown_coverage_summary(
         run_id="RIR-MARKDOWN-REVIEW-QUEUE-TEST",
@@ -9244,6 +9282,55 @@ def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence(
     assert outcome_check["evidence"]["unique_outcome_claim_count"] == 100
     assert outcome_check["evidence"]["stock_proxy_unique_claim_count"] == 30
     assert outcome_check["evidence"]["industry_proxy_unique_claim_count"] == 30
+
+
+def test_report_intelligence_evolution_gate_audits_prior_compiler_paths():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-PRIOR-COMPILER-GATE",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        prompt_mutation_candidate_rows=[
+            {
+                "candidate_type": "stock_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "stock"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "industry_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "industry"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_candidate",
+                "evidence_refs": [{"agent_id": "macro.central_bank"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_refusal",
+                "evidence_refs": [{"agent_id": "macro.yield_curve"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-08")
+    assert check["passed"] is True
+    assert check["evidence"]["macro_compiler_agent_count"] == 2
+    assert check["evidence"]["candidate_type_counts"][
+        "stock_prior_recipe_rule_refusal"
+    ] == 1
+    assert check["evidence"]["private_text_violation_count"] == 0
 
 
 def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():

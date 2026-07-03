@@ -2171,12 +2171,16 @@ Part 1 未完成条件当前状态：
   并输出 `retrieval_rank`、`priority_bucket`、`ranking_policy_id`、
   `ranking_reason_codes`、`matched_item_count` 和 `truncated_item_count`。仍需在完整
   report-intelligence refresh / downstream runtime preflight 中保留该排序证据。
-- 条件 12：部分完成。`prompt_mutation_candidates.jsonl` 已接入 redacted prior-to-candidate
-  compiler 路径：macro prior 可生成 `macro_prior_rule_parameter_candidate` 或 refusal；
-  stock/industry prior 可生成 `*_prior_recipe_rule_candidate` 或带
-  `missing_pit_outcome`、`missing_validation_target`、`insufficient_effective_n`、
-  `source_dependent_cluster` 的 refusal。仍需完整 registry refresh 和 gate 证据证明当前
-  corpus 中三域 prior/candidate/refusal 分布满足 exit criterion。
+- 条件 12：当前 corpus 的 gate 证据已落地。`prompt_mutation_candidates.jsonl` 已接入
+  redacted prior-to-candidate compiler 路径：macro prior 可生成
+  `macro_prior_rule_parameter_candidate` 或 refusal；stock/industry prior 可生成
+  `*_prior_recipe_rule_candidate` 或带 `missing_pit_outcome`、
+  `missing_validation_target`、`insufficient_effective_n`、
+  `source_dependent_cluster` 的 refusal。`RI-EVOL-08` 已进入
+  `evolution_readiness_gate.json`，当前刷新记录 7 条 prior compiler/refusal rows，
+  覆盖 stock、industry 和 5 个 macro agents，且 private text / shadow policy violation
+  均为 0。当前 corpus 仍因没有 PIT outcome labels 和样本不足只生成 refusal，整体 gate
+  仍被 RI-EVOL-01、RI-EVOL-02、RI-EVOL-07、RI-MACRO-02 和 RI-MACRO-04 阻塞。
 
 Part 2 handoff notes，不计入 Part 1 完成判定：
 
@@ -2218,12 +2222,10 @@ prompt repo 版本的 RKE 驱动演化仍未完成。
 
 当前下一步聚焦仍未完成的三域 agent-facing 闭环：
 
-1. 先验证条件 11/12 的完整 refresh 证据：ranked context 是否在真实
-   `weighted_research_contexts.jsonl` / runtime tool 输出中保留排序和截断审计；prior compiler
-   是否在 `prompt_mutation_candidates.jsonl` 中产生三域 candidate/refusal 分布。
-2. 再补条件 12 的 gate 证据：compiler 只接收 redacted prior、rating/profile summary、
-   tool gap 和 refusal reason，不读取 claim text 或 source span；candidate/refusal 必须进入
-   evolution readiness evidence，仍保持 shadow-only。
+1. 先验证条件 11 的完整 refresh 证据：ranked context 是否在真实
+   `weighted_research_contexts.jsonl` / runtime tool 输出中保留排序和截断审计。
+2. 继续扩大三域 PIT outcome / markdown coverage 样本，让条件 12 从当前 refusal-only
+   gate 证据推进到可验证 candidate 和非零 market-feedback evidence。
 3. 同步补三域评级缺口：stock/industry 的 agent target ranking 与 no-prior reason，
    macro 的 `cross_asset_consistency` 计算规则，以及 target 已清洗但无 owning agent 的
    `blocked_assignment` readiness。
