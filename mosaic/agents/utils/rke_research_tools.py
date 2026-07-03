@@ -277,6 +277,10 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
             for label_type in summary.get("label_types", [])
         )
         or "latest_completed_exit_date" not in summary
+        or (
+            summary.get("latest_completed_exit_date")
+            and str(summary.get("latest_completed_exit_date")) >= as_of_date
+        )
         for summary in outcome_summaries
     ):
         failures.append("outcome_label_summary_invalid")
