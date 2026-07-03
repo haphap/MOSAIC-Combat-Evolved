@@ -90,6 +90,7 @@ def _prompt_release_check() -> dict:
         "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
         "prompt_commit_hash": "a" * 40,
         "prompt_sha256": "b" * 64,
+        "audit_version_ref": "audit-release-1",
         "verify_release_ref": "verify-release-1",
         "leak_drift_check_ref": "leak-drift-1",
         "verify_release_passed": True,
@@ -1365,6 +1366,36 @@ def test_prompt_mutation_release_readiness_blocks_candidate_blockers(
 
     assert manifest["readiness_status"] == "blocked_preflight"
     assert "candidate_blocked_by:missing_pit_outcome" in manifest["blocked_reasons"]
+    assert manifest["prompt_release_ready"] is False
+
+
+def test_prompt_mutation_release_readiness_requires_audit_version(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    release_check = _prompt_release_check_for_candidates(candidates)
+    release_check.pop("audit_version_ref")
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {"candidates": candidates, "release_checks": [release_check]},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "audit_version_ref_missing" in manifest["blocked_reasons"]
     assert manifest["prompt_release_ready"] is False
 
 

@@ -1378,6 +1378,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(evidence.get("prompt_version_id"), int):
             blockers.append("prompt_version_id_missing")
         for key in (
+            "audit_version_ref",
             "prompt_repo_id",
             "private_prompt_branch",
             "base_prompt_repo_revision",
@@ -1433,6 +1434,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 "release_private_prompt_branch": release_private_branch,
                 "base_prompt_repo_revision": base_prompt_repo_revision,
                 "overwrite_target_paths": overwrite_target_paths,
+                "audit_version_ref": _clean_str(evidence.get("audit_version_ref")),
                 "prompt_commit_hash": _clean_str(evidence.get("prompt_commit_hash")),
                 "prompt_sha256": _clean_str(evidence.get("prompt_sha256")),
                 "verify_release_ref": _clean_str(evidence.get("verify_release_ref")),
@@ -1464,6 +1466,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "private_prompt_branch",
             "base_prompt_repo_revision",
             "overwrite_target_paths",
+            "audit_version_ref",
             "prompt_commit_hash",
             "prompt_sha256",
             "verify_release_ref",
