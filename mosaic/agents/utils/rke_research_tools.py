@@ -143,6 +143,25 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
     ):
         failures.append("item_performance_bucket_missing")
     if items and any(
+        not item.get(field)
+        for item in items
+        for field in (
+            "agent_target_specificity_bucket",
+            "performance_context_match",
+            "freshness_bucket",
+        )
+    ):
+        failures.append("item_ranking_metadata_missing")
+    if items and any("latest_completed_exit_date" not in item for item in items):
+        failures.append("item_latest_exit_date_missing")
+    if items and any(
+        not isinstance(item.get("combined_research_prior_weight"), (int, float))
+        or isinstance(item.get("combined_research_prior_weight"), bool)
+        or item.get("combined_research_prior_weight") < 0
+        for item in items
+    ):
+        failures.append("item_combined_weight_invalid")
+    if items and any(
         not isinstance(item.get("n_effective"), (int, float))
         or isinstance(item.get("n_effective"), bool)
         or item.get("n_effective") < 0
