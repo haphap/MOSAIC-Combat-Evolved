@@ -474,7 +474,7 @@ Status 2026-07-03:
   confirmation, and rollback readiness before marking shadow replay ready. It
   keeps `paper_trading_allowed=false` and `promotion_allowed=false`.
 - Public bridge now exposes `rke_benchmark.paper_trading_readiness`, a no-write
-  gate that requires shadow replay readiness plus operator-reviewed
+  gate that requires shadow replay readiness plus operator-approved reviewed
   paper-trading plan, risk-limit ref, and stop-loss/rollback ref before allowing
   paper-trading entry. The plan must bind to the same `benchmark_run_id`. It
   still keeps `promotion_allowed=false`.

@@ -105,14 +105,17 @@ def _profile_evidence(benchmark_run_id: str = "bench-profile-ready") -> dict:
     }
 
 
-def _paper_trading_plan(benchmark_run_id: str) -> dict:
-    return {
+def _paper_trading_plan(benchmark_run_id: str, **overrides: object) -> dict:
+    row = {
         "benchmark_run_id": benchmark_run_id,
         "paper_trading_plan_ref": f"{benchmark_run_id}-paper-plan",
         "risk_limit_ref": f"{benchmark_run_id}-risk-limits",
         "stop_loss_or_rollback_ref": f"{benchmark_run_id}-stop-loss",
         "operator_review_timestamp": "2026-07-03T12:30:00Z",
+        "operator_review_approved": True,
     }
+    row.update(overrides)
+    return row
 
 
 def _promotion_evidence(benchmark_run_id: str) -> dict:
@@ -2719,6 +2722,91 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
     assert "paper_trading_plan_benchmark_run_id_mismatch" in manifest[
         "blocked_reasons"
     ]
+    assert manifest["paper_trading_allowed"] is False
+
+
+def test_paper_trading_readiness_blocks_unapproved_operator_review(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-paper-unapproved",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "e" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-paper"],
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    manifest = dispatch(
+        "rke_benchmark.paper_trading_readiness",
+        {
+            "benchmark_run_id": "bench-paper-unapproved",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"], "bench-paper-unapproved"
+            ),
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-paper-unapproved"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-paper-unapproved"
+            ),
+            "manual_review": _manual_review("bench-paper-unapproved"),
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-paper-unapproved"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-paper-unapproved"
+            ),
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(
+                    candidates, "bench-paper-unapproved"
+                )
+            ],
+            "rollback_evidence": [
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    "bench-paper-unapproved",
+                    rollback_trigger_definition="paper trading risk breach",
+                    monitor_output_ref="monitor-paper-unapproved",
+                    post_rollback_verification_ref="verify-paper-unapproved",
+                )
+            ],
+            "paper_trading_plan": _paper_trading_plan(
+                "bench-paper-unapproved", operator_review_approved=False
+            ),
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "operator_review_not_approved" in manifest["blocked_reasons"]
+    assert manifest["paper_trading_plan"]["operator_review_approved"] is False
     assert manifest["paper_trading_allowed"] is False
 
 

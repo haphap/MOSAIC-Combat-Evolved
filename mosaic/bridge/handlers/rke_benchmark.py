@@ -1807,6 +1807,8 @@ def paper_trading_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("paper_trading_plan_benchmark_run_id_missing")
     elif plan_run_id != benchmark_run_id:
         blocked_reasons.append("paper_trading_plan_benchmark_run_id_mismatch")
+    if plan.get("operator_review_approved") is not True:
+        blocked_reasons.append("operator_review_not_approved")
     if _forbidden_paths(plan):
         blocked_reasons.append("private_or_source_prose_ref_detected")
 
@@ -1826,6 +1828,7 @@ def paper_trading_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "operator_review_timestamp": _clean_str(
                 plan.get("operator_review_timestamp")
             ),
+            "operator_review_approved": plan.get("operator_review_approved") is True,
         },
         "paper_trading_allowed": not blocked_reasons,
         "promotion_allowed": False,

@@ -2358,7 +2358,8 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
   gate；current-data confirmation 必须覆盖每个 consumed RKE context hash。真实
   replay/paper-trading run 仍未执行，不能据此 promotion。
 - `rke_benchmark.paper_trading_readiness` 已能检查 shadow replay ready 后进入 paper-trading
-  所需的同一 `benchmark_run_id` reviewed plan、risk limit 和 stop-loss/rollback ref；
+  所需的同一 `benchmark_run_id` operator-approved reviewed plan、risk limit 和
+  stop-loss/rollback ref；
   这只允许 paper-trading entry，不允许 production promotion。
 - `rke_benchmark.promotion_decision_readiness` 已能检查 paper-trading result、monitor
   summary、second review 和 lockbox decision refs，并要求 promotion evidence 绑定同一个
