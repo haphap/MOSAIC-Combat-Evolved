@@ -3,6 +3,7 @@ import json
 import pytest
 
 from mosaic.rke.agent_research_context import (
+    FORBIDDEN_FIELD_POLICY,
     RESEARCH_PRIOR_USE_POLICY,
     SAFE_ACTIONABILITY,
     assert_public_safe_context,
@@ -601,6 +602,7 @@ def test_rke_research_tool_formats_context(monkeypatch):
                 "item_count": 0,
                 "matched_item_count": 0,
                 "private_text_included": False,
+                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
                 "truncated_item_count": 0,
                 "current_data_required": True,
                 "ranking_policy_id": "rke_agent_research_context_rank_v1",
@@ -696,6 +698,7 @@ def test_rke_runtime_context_preflight_blocks_summary_ranking_policy_mismatch():
                 "item_count": 1,
                 "matched_item_count": 1,
                 "private_text_included": False,
+                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
                 "truncated_item_count": 0,
                 "current_data_required": True,
                 "ranking_policy_id": "other_ranker",
@@ -873,6 +876,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                 "item_count": 1,
                 "matched_item_count": 1,
                 "private_text_included": False,
+                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
                 "truncated_item_count": 0,
                 "current_data_required": True,
                 "ranking_policy_id": "rke_agent_research_context_rank_v1",
@@ -885,6 +889,31 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
     assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
     assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
     assert "production_signal_allowed=false" in output
+
+
+def test_rke_runtime_context_preflight_blocks_forbidden_field_policy():
+    output = rke_research_tools.format_rke_runtime_context(
+        {
+            "agent_id": "macro.dollar",
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": SAFE_ACTIONABILITY,
+            "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            "context_items": [],
+            "summary": {
+                "item_count": 0,
+                "matched_item_count": 0,
+                "private_text_included": False,
+                "forbidden_field_policy": "not_enforced",
+                "truncated_item_count": 0,
+                "current_data_required": True,
+                "ranking_policy_id": "rke_agent_research_context_rank_v1",
+            },
+        }
+    )
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "forbidden_field_policy_invalid" in output
 
 
 def test_rke_runtime_context_preflight_blocks_top_level_policy_boundary():

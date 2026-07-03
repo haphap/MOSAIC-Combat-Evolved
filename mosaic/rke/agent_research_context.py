@@ -21,6 +21,7 @@ SCHEMA_VERSION = "rke_agent_research_context_v1"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
 RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
 RANKING_POLICY_ID = "rke_agent_research_context_rank_v1"
+FORBIDDEN_FIELD_POLICY = "source_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
 
 MACRO_AGENTS = frozenset(
@@ -390,7 +391,7 @@ def build_rke_agent_research_context_from_rows(
             "truncated_item_count": max(0, len(ranked_items) - len(visible_items)),
             "no_prior_reason": _no_prior_reason(normalized_agent, ranked_items),
             "private_text_included": False,
-            "forbidden_field_policy": "source_prose_and_private_references_omitted",
+            "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
             "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
             "current_data_required": True,
             "ranking_policy_id": RANKING_POLICY_ID,
