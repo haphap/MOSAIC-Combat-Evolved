@@ -1353,6 +1353,54 @@ def test_report_intelligence_industry_context_uses_claim_cycle_bucket():
     assert "FC-IND-CYCLE" not in snapshot_dump
 
 
+def test_report_intelligence_industry_context_uses_metric_cycle_bucket():
+    metadata_rows = [
+        {
+            "source_id": "SRC-IND-METRIC-CYCLE",
+            "report_id": "RPT-IND-METRIC-CYCLE",
+            "report_type": "行业研报",
+            "sector": "汽车零部件",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private metric cycle title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-IND-METRIC-CYCLE",
+            "source_id": "SRC-IND-METRIC-CYCLE",
+            "claim_text": "private metric cycle prose",
+            "target": {"target_type": "sector", "target_id": "汽车零部件"},
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+            "metric_proxy_mapping": ["demand_growth"],
+        }
+    ]
+
+    snapshots = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        industry_etf_proxy_map_rows=[
+            {
+                "mapping_id": "IETF-MAP-AUTO-PARTS",
+                "sector_name": "汽车零部件",
+                "sector_aliases": ["汽车零部件"],
+                "etf_symbol": "516110.SH",
+                "benchmark_family": "CSI300_ETF_PROXY",
+                "mapping_confidence": "operator_seeded_exact_sector",
+                "status": "primary",
+            }
+        ],
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["industry_cycle_bucket"] == "industry_demand_growth"
+    assert "industry_cycle_bucket_missing" not in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private metric cycle prose" not in snapshot_dump
+    assert "FC-IND-METRIC-CYCLE" not in snapshot_dump
+
+
 def test_report_intelligence_builds_deferred_snapshot_for_candidate_macro_agent():
     forecast_rows = [
         {

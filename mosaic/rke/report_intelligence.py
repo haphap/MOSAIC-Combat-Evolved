@@ -19813,6 +19813,15 @@ MACRO_AGENT_RESEARCH_PRIOR_SCHEMA_VERSION = "macro_agent_research_prior_v1"
 MACRO_REGIME_SNAPSHOT_SCHEMA_VERSION = "macro_regime_snapshot_v1"
 STOCK_CONTEXT_SNAPSHOT_SCHEMA_VERSION = "stock_context_snapshot_v1"
 INDUSTRY_CONTEXT_SNAPSHOT_SCHEMA_VERSION = "industry_context_snapshot_v1"
+INDUSTRY_CYCLE_BUCKET_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
+    "commodity_price_cycle": ("price_cycle",),
+    "demand_growth": ("industry_demand_growth",),
+    "earnings_growth": ("prosperity_cycle",),
+    "industry_prosperity": ("prosperity_cycle",),
+    "margin_profitability": ("prosperity_cycle",),
+    "revenue_growth": ("industry_demand_growth",),
+    "valuation_multiple": ("industry_valuation_cycle",),
+}
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
     "money_market_rate": ("macro.central_bank",),
@@ -20285,16 +20294,24 @@ def _claim_industry_cycle_buckets(claim: Mapping[str, Any]) -> tuple[str, ...]:
             str(claim.get("claim_text") or ""),
             target=_ensure_mapping(claim.get("target")),
         )
+    role_buckets = [
+        bucket
+        for bucket in (
+            _clean_context_bucket(value, default="")
+            for value in _ensure_list(
+                component_roles.get("industry_cycle_regime_context_types")
+            )
+        )
+        if bucket
+    ]
+    metric_buckets = [
+        bucket
+        for family in _claim_metric_families(claim)
+        for bucket in INDUSTRY_CYCLE_BUCKET_BY_METRIC_FAMILY.get(family, ())
+    ]
     return tuple(
         dict.fromkeys(
-            bucket
-            for bucket in (
-                _clean_context_bucket(value, default="")
-                for value in _ensure_list(
-                    component_roles.get("industry_cycle_regime_context_types")
-                )
-            )
-            if bucket
+            [*role_buckets, *metric_buckets]
         )
     )
 
