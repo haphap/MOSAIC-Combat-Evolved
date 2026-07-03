@@ -1203,6 +1203,41 @@ def test_record_delivery_evidence_blocks_private_fields(tmp_path: Path, monkeypa
     assert result["failures"]
 
 
+def test_delivery_evidence_audit_reports_recorded_and_missing_keys(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    missing = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-audit"},
+    )
+    dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-audit",
+            "paired_output_count": 1275,
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+        },
+    )
+    partial = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-audit"},
+    )
+
+    assert missing["evidence_status"] == "missing"
+    assert missing["recorded_key_count"] == 0
+    assert partial["evidence_status"] == "partial"
+    assert partial["recorded_keys"] == ["manual_review", "paired_output_count"]
+    assert "benchmark_evidence_refs" in partial["missing_keys"]
+    assert partial["delivery_readiness_can_load"] is True
+
+
 def test_delivery_readiness_loads_recorded_private_evidence(
     tmp_path: Path, monkeypatch
 ):

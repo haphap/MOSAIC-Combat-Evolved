@@ -1342,6 +1342,35 @@ def record_delivery_evidence(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.delivery_evidence_audit")
+def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
+    """Audit which delivery evidence refs are recorded without returning bodies."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    evidence, failures = _read_delivery_evidence(benchmark_run_id)
+    recorded_keys = sorted(evidence)
+    missing_keys = [key for key in _DELIVERY_EVIDENCE_KEYS if key not in evidence]
+    if failures:
+        evidence_status = "blocked"
+    elif not evidence:
+        evidence_status = "missing"
+    elif missing_keys:
+        evidence_status = "partial"
+    else:
+        evidence_status = "complete"
+
+    return {
+        "schema_version": "rke_delivery_evidence_audit_v1",
+        "evidence_status": evidence_status,
+        "benchmark_run_id": benchmark_run_id,
+        "private_rows_path": _DELIVERY_EVIDENCE_REL_PATH.as_posix(),
+        "recorded_key_count": len(recorded_keys),
+        "recorded_keys": recorded_keys,
+        "missing_keys": missing_keys,
+        "failures": failures,
+        "delivery_readiness_can_load": bool(evidence),
+    }
+
+
 @method("rke_benchmark.delivery_readiness")
 def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Aggregate E7 delivery readiness without running or promoting anything."""

@@ -898,6 +898,18 @@ export interface RkeDeliveryEvidenceRecordResult {
   failures: string[];
 }
 
+export interface RkeDeliveryEvidenceAuditResult {
+  schema_version: "rke_delivery_evidence_audit_v1";
+  evidence_status: "missing" | "partial" | "complete" | "blocked";
+  benchmark_run_id: string;
+  private_rows_path: string;
+  recorded_key_count: number;
+  recorded_keys: string[];
+  missing_keys: string[];
+  failures: string[];
+  delivery_readiness_can_load: boolean;
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -1645,6 +1657,15 @@ export class BridgeApi {
   }): Promise<RkeDeliveryEvidenceRecordResult> {
     return this.client.call<RkeDeliveryEvidenceRecordResult>(
       "rke_benchmark.record_delivery_evidence",
+      params,
+    );
+  }
+
+  rkeBenchmarkDeliveryEvidenceAudit(params: {
+    benchmark_run_id: string;
+  }): Promise<RkeDeliveryEvidenceAuditResult> {
+    return this.client.call<RkeDeliveryEvidenceAuditResult>(
+      "rke_benchmark.delivery_evidence_audit",
       params,
     );
   }

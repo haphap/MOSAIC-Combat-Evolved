@@ -447,6 +447,9 @@ Status 2026-07-03:
   private-local no-body evidence sink under `.mosaic/rke/all_agent_evolution/`
   so actual benchmark/replay runs can persist refs and later rerun
   `delivery_readiness` without resupplying every field.
+- Public bridge now exposes `rke_benchmark.delivery_evidence_audit`, a no-body
+  audit over that private store that reports recorded and missing proof-object
+  keys per benchmark run.
 - This implements the rollback proof-object preflight. E7 is not complete until
   real private branch mutations, benchmark/manual-review decisions, shadow or
   paper-trading gate evidence, monitor output, and post-rollback verification
