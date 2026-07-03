@@ -1347,6 +1347,7 @@ def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
     """Audit which delivery evidence refs are recorded without returning bodies."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
     evidence, failures = _read_delivery_evidence(benchmark_run_id)
+    readiness = delivery_readiness({"benchmark_run_id": benchmark_run_id})
     recorded_keys = sorted(evidence)
     missing_keys = [key for key in _DELIVERY_EVIDENCE_KEYS if key not in evidence]
     if failures:
@@ -1368,6 +1369,10 @@ def delivery_evidence_audit(params: dict[str, Any]) -> dict[str, Any]:
         "missing_keys": missing_keys,
         "failures": failures,
         "delivery_readiness_can_load": bool(evidence),
+        "delivery_readiness_status": readiness["readiness_status"],
+        "condition_count": readiness["condition_count"],
+        "ready_condition_count": readiness["ready_condition_count"],
+        "delivery_blocked_reasons": readiness["blocked_reasons"],
     }
 
 

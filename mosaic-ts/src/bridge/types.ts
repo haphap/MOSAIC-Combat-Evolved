@@ -908,6 +908,10 @@ export interface RkeDeliveryEvidenceAuditResult {
   missing_keys: string[];
   failures: string[];
   delivery_readiness_can_load: boolean;
+  delivery_readiness_status: "ready" | "blocked_preflight";
+  condition_count: number;
+  ready_condition_count: number;
+  delivery_blocked_reasons: string[];
 }
 
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)

@@ -1287,6 +1287,43 @@ def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypat
     )
 
 
+def test_delivery_evidence_audit_reports_readiness_when_keys_complete(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-key-complete",
+            "all_agent_prompt_release_checks": [],
+            "paired_output_count": 1275,
+            "benchmark_evidence_refs": {},
+            "manual_review": {},
+            "profile_evidence": {},
+            "downstream_outcome_metrics": {},
+            "prompt_mutation_provenance": {},
+            "candidates": [],
+            "prompt_mutation_release_checks": [],
+            "rollback_evidence": [],
+            "paper_trading_plan": {},
+            "promotion_evidence": {},
+        },
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": "bench-delivery-key-complete"},
+    )
+
+    assert audit["evidence_status"] == "complete"
+    assert audit["delivery_readiness_status"] == "blocked_preflight"
+    assert audit["condition_count"] == 10
+    assert audit["ready_condition_count"] < audit["condition_count"]
+    assert audit["delivery_blocked_reasons"]
+
+
 def test_delivery_readiness_loads_recorded_private_evidence(
     tmp_path: Path, monkeypatch
 ):
