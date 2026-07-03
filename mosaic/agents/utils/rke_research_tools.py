@@ -49,6 +49,9 @@ def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
     failures = audit["preflight_failures"]
     if failures:
         lines.append(f"Runtime preflight failures: {', '.join(failures)}")
+    if "public_safe_context_violation" in failures:
+        lines.extend(["", "RKE context body withheld: public-safe context violation."])
+        return "\n".join(lines)
     lines.extend(["", format_rke_agent_research_context(context)])
     return "\n".join(lines)
 

@@ -857,6 +857,8 @@ def test_rke_runtime_context_preflight_blocks_hidden_private_fields():
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
+                    "target_type": "macro_asset",
+                    "target_id": ".mosaic/rke/private.pdf",
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
                     "current_data_required": True,
@@ -877,7 +879,8 @@ def test_rke_runtime_context_preflight_blocks_hidden_private_fields():
 
     assert "runtime_preflight_status=blocked" in output
     assert "public_safe_context_violation" in output
-    assert "private prose" not in output
+    assert "RKE context body withheld: public-safe context violation." in output
+    assert ".mosaic/rke/private.pdf" not in output
 
 
 def test_rke_runtime_context_preflight_blocks_malformed_context_items():
