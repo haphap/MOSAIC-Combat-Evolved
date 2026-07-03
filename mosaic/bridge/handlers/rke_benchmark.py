@@ -1164,6 +1164,12 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
             _increment(blocked_reason_counts, reason)
 
     missing_artifact = "prompt_mutation_candidates_missing" in failures
+    action_counts: dict[str, int] = {}
+    for row in summaries:
+        _increment(action_counts, row["consumption_action"])
+    private_prompt_mutation_required = (
+        action_counts.get("private_prompt_branch_after_blockers_clear", 0) > 0
+    )
     manifest_status = (
         "blocked_preflight"
         if failures or not summaries
@@ -1177,11 +1183,12 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
         "refusal_count": refusal_count,
         "candidate_type_counts": dict(sorted(candidate_type_counts.items())),
         "target_scope_counts": dict(sorted(target_scope_counts.items())),
+        "consumption_action_counts": dict(sorted(action_counts.items())),
         "blocked_reason_counts": dict(sorted(blocked_reason_counts.items())),
         "candidate_summaries": summaries,
         "manifest_blockers": failures,
         "missing_artifact": missing_artifact,
-        "private_prompt_mutation_required": True,
+        "private_prompt_mutation_required": private_prompt_mutation_required,
         "production_prompt_change_allowed": False,
         "candidate_consumption_policy": (
             "part1_candidates_are_evidence_only_no_direct_prompt_write"

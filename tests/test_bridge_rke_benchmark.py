@@ -1890,6 +1890,10 @@ def test_candidate_consumption_manifest_preserves_refusal_blockers():
         "missing_validation_target": 1,
         "source_dependent_cluster": 1,
     }
+    assert manifest["consumption_action_counts"] == {
+        "private_prompt_branch_after_blockers_clear": 1,
+        "record_refusal_no_prompt_branch": 1,
+    }
     assert manifest["production_prompt_change_allowed"] is False
     assert manifest["private_prompt_mutation_required"] is True
     payload = json.dumps(manifest, ensure_ascii=False)
@@ -1913,6 +1917,10 @@ def test_candidate_consumption_manifest_classifies_data_acquisition_no_prompt():
     )
 
     assert manifest["manifest_status"] == "ready_for_private_prompt_lifecycle"
+    assert manifest["private_prompt_mutation_required"] is False
+    assert manifest["consumption_action_counts"] == {
+        "record_tooling_gap_no_prompt_branch": 1
+    }
     summary = manifest["candidate_summaries"][0]
     assert summary["consumption_action"] == "record_tooling_gap_no_prompt_branch"
     assert summary["blocked_by"] == ["data_engineering_review_required"]
