@@ -99,10 +99,10 @@ Status 2026-07-03:
   evidence before formal benchmark/replay can treat prompt provenance as ready.
   Release evidence must match the private `prompt_repo_id`,
   `prompt_repo_revision`, and prompt file path returned by `prompts.preflight`;
-  shadow/delivery aggregate gates also require it to bind to the same
-  `benchmark_run_id`. The gate preserves the preflight source summary so E7
-  blockers include repo-level dirty state, not only repeated row-level prompt
-  blockers.
+  it must include a positive integer prompt version id. Shadow/delivery aggregate
+  gates also require it to bind to the same `benchmark_run_id`. The gate
+  preserves the preflight source summary so E7 blockers include repo-level dirty
+  state, not only repeated row-level prompt blockers.
 - This implements the public E0 preflight mechanism. E0 is not fully closed
   until the private prompt repo has ready rows for all benchmark/replay agents
   and leak/drift/release checks have passed.
@@ -345,10 +345,11 @@ Status 2026-07-03:
   guard. Refusal rows only preserve the blocker reason and create no prompt
   branch; refusal-only input remains `blocked_preflight`.
 - Public bridge now exposes `rke_benchmark.prompt_mutation_release_readiness`,
-  a no-write gate that requires prompt version id, prompt repo/commit/hash,
-  lifecycle private branch, base prompt repo revision, overwrite target paths,
-  audit-version ref, `prompts.verify_release` evidence, and leak/drift check
-  evidence before a prompt mutation can feed formal benchmark/replay gates.
+  a no-write gate that requires positive integer prompt version id, prompt
+  repo/commit/hash, lifecycle private branch, base prompt repo revision,
+  overwrite target paths, audit-version ref, `prompts.verify_release` evidence,
+  and leak/drift check evidence before a prompt mutation can feed formal
+  benchmark/replay gates.
   Shadow/delivery aggregate gates also require release evidence to bind to the
   same `benchmark_run_id`.
 - This implements the lifecycle planning proof object. E4 is not complete until

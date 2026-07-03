@@ -418,6 +418,29 @@ def test_all_agent_prompt_provenance_readiness_requires_audit_versions(
     assert result["all_agent_prompt_provenance_ready"] is False
 
 
+def test_all_agent_prompt_provenance_readiness_rejects_bool_prompt_version(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    release_checks = _all_prompt_release_checks(preflight["rows"])
+    release_checks[0]["prompt_version_id"] = True
+
+    result = dispatch(
+        "rke_benchmark.all_agent_prompt_provenance_readiness",
+        {"release_checks": release_checks},
+    )
+
+    assert result["readiness_status"] == "blocked_preflight"
+    assert "prompt_version_id_missing" in result["blocked_reasons"]
+    assert result["prompt_rows"][0]["prompt_version_id"] is None
+    assert result["all_agent_prompt_provenance_ready"] is False
+
+
 def test_all_agent_prompt_provenance_readiness_blocks_release_repo_mismatch(
     tmp_path: Path, monkeypatch
 ):
@@ -1942,6 +1965,41 @@ def test_prompt_mutation_release_readiness_accepts_release_and_leak_drift(
     record = manifest["release_records"][0]
     assert record["prompt_version_id"] == 42
     assert record["release_ready"] is True
+
+
+def test_prompt_mutation_release_readiness_rejects_bool_prompt_version(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {
+            "candidates": candidates,
+            "release_checks": [
+                _prompt_release_check_for_candidates(
+                    candidates, prompt_version_id=True
+                )
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "prompt_version_id_missing" in manifest["blocked_reasons"]
+    assert manifest["release_records"][0]["prompt_version_id"] is None
+    assert manifest["prompt_release_ready"] is False
 
 
 def test_prompt_mutation_release_readiness_blocks_mismatched_lifecycle_evidence(

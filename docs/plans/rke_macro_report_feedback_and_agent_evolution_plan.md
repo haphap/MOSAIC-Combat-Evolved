@@ -2335,7 +2335,7 @@ Part 2 handoff notes，不计入 Part 1 完成判定：
 - `rke_benchmark.prompt_mutation_lifecycle_manifest` 已能把 safe candidate/refusal
   摘要转成 private prompt branch 生命周期预检；refusal-only row 只记录 blocker，不创建
   prompt branch，也不能作为条件 12 的完成证据。
-- `rke_benchmark.prompt_mutation_release_readiness` 已能检查 prompt version id、
+- `rke_benchmark.prompt_mutation_release_readiness` 已能检查 prompt version id 正整数、
   private prompt repo commit/hash、lifecycle private branch、base prompt repo revision、
   overwrite target paths、audit-version ref、`prompts.verify_release` 和 leak/drift
   evidence；在 shadow/delivery 聚合中使用时，release evidence 必须绑定同一个

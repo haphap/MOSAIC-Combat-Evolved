@@ -231,7 +231,8 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
             blockers.append("verify_release_not_passed")
         if release.get("leak_drift_passed") is not True:
             blockers.append("leak_drift_not_passed")
-        if not isinstance(release.get("prompt_version_id"), int):
+        prompt_version_id = _optional_positive_int(release.get("prompt_version_id"))
+        if prompt_version_id is None:
             blockers.append("prompt_version_id_missing")
         for key in (
             "audit_version_ref",
@@ -260,9 +261,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
                 "prompt_repo_revision": _clean_str(row.get("prompt_repo_revision")),
                 "prompt_sha256": _clean_str(row.get("prompt_sha256")),
                 "benchmark_run_id": _clean_str(release.get("benchmark_run_id")),
-                "prompt_version_id": release.get("prompt_version_id")
-                if isinstance(release.get("prompt_version_id"), int)
-                else None,
+                "prompt_version_id": prompt_version_id,
                 "audit_version_ref": _clean_str(release.get("audit_version_ref")),
                 "verify_release_ref": _clean_str(release.get("verify_release_ref")),
                 "leak_drift_check_ref": _clean_str(release.get("leak_drift_check_ref")),
@@ -1457,7 +1456,8 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 blockers.append("release_check_benchmark_run_id_missing")
             elif evidence_run_id != benchmark_run_id:
                 blockers.append("release_check_benchmark_run_id_mismatch")
-        if not isinstance(evidence.get("prompt_version_id"), int):
+        prompt_version_id = _optional_positive_int(evidence.get("prompt_version_id"))
+        if prompt_version_id is None:
             blockers.append("prompt_version_id_missing")
         for key in (
             "audit_version_ref",
@@ -1510,9 +1510,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 "private_prompt_branch": record["private_prompt_branch"],
                 "affected_agents": record["affected_agents"],
                 "benchmark_run_id": _clean_str(evidence.get("benchmark_run_id")),
-                "prompt_version_id": evidence.get("prompt_version_id")
-                if isinstance(evidence.get("prompt_version_id"), int)
-                else None,
+                "prompt_version_id": prompt_version_id,
                 "prompt_repo_id": prompt_repo_id,
                 "release_private_prompt_branch": release_private_branch,
                 "base_prompt_repo_revision": base_prompt_repo_revision,
