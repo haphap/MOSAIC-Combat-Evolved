@@ -1685,6 +1685,7 @@ def test_rke_runtime_context_preflight_blocks_top_level_policy_boundary():
                     "redacted_claim_id": "FCRED-1",
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
+                    "ranking_reason_codes": ["agent_specific_match"],
                     "current_data_required": True,
                     "current_data_required_fields": ["current_data_confirmation"],
                     "production_signal_allowed": False,
@@ -1816,7 +1817,7 @@ def test_rke_runtime_context_preflight_blocks_count_metadata_mismatch():
     assert "truncated_item_count_mismatch" in output
 
 
-def test_rke_runtime_context_preflight_blocks_missing_ranking_reasons():
+def test_rke_runtime_context_preflight_blocks_bad_ranking_reasons():
     output = rke_research_tools.format_rke_runtime_context(
         {
             "agent_id": "macro.dollar",
@@ -1829,6 +1830,7 @@ def test_rke_runtime_context_preflight_blocks_missing_ranking_reasons():
                     "redacted_claim_id": "FCRED-1",
                     "retrieval_rank": 1,
                     "priority_bucket": "high",
+                    "ranking_reason_codes": [""],
                     "current_data_required": True,
                     "current_data_required_fields": ["current_data_confirmation"],
                     "production_signal_allowed": False,

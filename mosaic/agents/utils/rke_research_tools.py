@@ -247,7 +247,15 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for summary in outcome_summaries
     ):
         failures.append("outcome_label_summary_invalid")
-    if items and any(not item.get("ranking_reason_codes") for item in items):
+    if items and any(
+        not isinstance(item.get("ranking_reason_codes"), (list, tuple))
+        or not item.get("ranking_reason_codes")
+        or not all(
+            isinstance(reason, str) and reason
+            for reason in item.get("ranking_reason_codes", [])
+        )
+        for item in items
+    ):
         failures.append("ranking_reason_codes_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
         failures.append("current_data_required_missing")
