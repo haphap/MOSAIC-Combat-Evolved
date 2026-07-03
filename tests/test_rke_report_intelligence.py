@@ -2805,6 +2805,110 @@ def test_report_intelligence_evolution_gate_checks_macro_branch():
     assert "macro_agent_prior_missing" not in passed_gate["blockers"]
 
 
+def test_report_intelligence_evolution_gate_checks_stock_industry_branches():
+    forecast_rows, outcome_rows = _full_evolution_outcome_fixture()
+    forecast_rows[0].update(
+        {
+            "report_id": "RPT-STOCK-GATE",
+            "target": {"target_type": "stock", "target_id": "000001.SZ"},
+            "metric_proxy_mapping": ["stock_forward_return"],
+            "direction": "positive",
+        }
+    )
+    forecast_rows[30].update(
+        {
+            "report_id": "RPT-INDUSTRY-GATE",
+            "target": {"target_type": "industry", "target_id": "半导体"},
+            "metric_proxy_mapping": ["industry_etf_forward_return"],
+            "direction": "positive",
+        }
+    )
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    previous_vintage_1 = "sha256:" + "1" * 64
+    previous_vintage_2 = "sha256:" + "2" * 64
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-STOCK-INDUSTRY-GATE",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
+        confidence_impact_monitor=clean_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary=_passing_forecast_gold_review_summary(),
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_proxy_label_ready_count": 30,
+            "industry_proxy_label_ready_count": 30,
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        metadata_rows=[
+            {
+                "report_id": "RPT-STOCK-GATE",
+                "report_type": "公司研报",
+                "ts_code": "000001.SZ",
+                "sector": "银行",
+                "publish_datetime": "2026-01-01T00:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-INDUSTRY-GATE",
+                "report_type": "行业研报",
+                "sector": "半导体",
+                "publish_datetime": "2026-01-01T00:00:00+08:00",
+            },
+        ],
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {**clean_monitor, "data_vintage_hash": previous_vintage_2},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
+        ],
+    )
+
+    checks = {row["check_id"]: row for row in gate["checks"]}
+    for check_id in (
+        "RI-STOCK-01",
+        "RI-STOCK-02",
+        "RI-STOCK-03",
+        "RI-STOCK-04",
+        "RI-INDUSTRY-01",
+        "RI-INDUSTRY-02",
+        "RI-INDUSTRY-03",
+        "RI-INDUSTRY-04",
+    ):
+        assert checks[check_id]["passed"] is True
+    assert checks["RI-STOCK-01"]["evidence"]["stock_forecast_row_count"] == 1
+    assert checks["RI-INDUSTRY-03"]["evidence"][
+        "industry_context_snapshot_count"
+    ] == 1
+
+
 def _write_source(
     path: Path,
     *,

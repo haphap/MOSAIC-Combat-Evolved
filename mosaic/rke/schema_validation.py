@@ -1146,6 +1146,8 @@ EVOLUTION_GATE_EXPECTED_CHECK_IDS = (
     "RI-EVOL-05",
     "RI-EVOL-06",
     "RI-EVOL-07",
+    "RI-EVOL-08",
+    "RI-EVOL-09",
 )
 EVOLUTION_GATE_OPTIONAL_CHECK_ID_GROUPS = (
     (
@@ -1156,6 +1158,18 @@ EVOLUTION_GATE_OPTIONAL_CHECK_ID_GROUPS = (
         "RI-MACRO-05",
         "RI-MACRO-06",
         "RI-MACRO-07",
+    ),
+    (
+        "RI-STOCK-01",
+        "RI-STOCK-02",
+        "RI-STOCK-03",
+        "RI-STOCK-04",
+    ),
+    (
+        "RI-INDUSTRY-01",
+        "RI-INDUSTRY-02",
+        "RI-INDUSTRY-03",
+        "RI-INDUSTRY-04",
     ),
 )
 
@@ -5154,38 +5168,44 @@ def _validate_evolution_readiness_gate_contract(
     if check_01:
         row_label = "evolution_readiness_gate.checks[RI-EVOL-01]"
         evidence = evidence_mapping(check_01, row_label)
-        require_int_at_least(
-            evidence,
-            "unique_outcome_claim_count",
-            int(thresholds.get("min_unique_outcome_claims") or 0),
-            row_label,
-        )
-        require_int_at_least(
-            evidence,
-            "stock_proxy_unique_claim_count",
-            int(thresholds.get("min_stock_proxy_claims") or 0),
-            row_label,
-        )
-        require_int_at_least(
-            evidence,
-            "industry_proxy_unique_claim_count",
-            int(thresholds.get("min_industry_proxy_claims") or 0),
-            row_label,
-        )
+        if check_01.get("passed") is True:
+            require_int_at_least(
+                evidence,
+                "unique_outcome_claim_count",
+                int(thresholds.get("min_unique_outcome_claims") or 0),
+                row_label,
+            )
+            require_int_at_least(
+                evidence,
+                "stock_proxy_unique_claim_count",
+                int(thresholds.get("min_stock_proxy_claims") or 0),
+                row_label,
+            )
+            require_int_at_least(
+                evidence,
+                "industry_proxy_unique_claim_count",
+                int(thresholds.get("min_industry_proxy_claims") or 0),
+                row_label,
+            )
 
     check_02 = checks_by_id.get("RI-EVOL-02")
     if check_02:
         row_label = "evolution_readiness_gate.checks[RI-EVOL-02]"
         evidence = evidence_mapping(check_02, row_label)
         min_recipes = int(thresholds.get("min_paper_trading_recipes") or 0)
-        require_int_at_least(evidence, "paper_trading_run_count", min_recipes, row_label)
-        require_int_at_least(evidence, "validation_pass_count", min_recipes, row_label)
+        if check_02.get("passed") is True:
+            require_int_at_least(
+                evidence, "paper_trading_run_count", min_recipes, row_label
+            )
+            require_int_at_least(
+                evidence, "validation_pass_count", min_recipes, row_label
+            )
         after_cost = evidence.get("after_cost_paper_trading_summary")
         if not isinstance(after_cost, Mapping):
             failures.append(
                 f"{row_label}.evidence.after_cost_paper_trading_summary: expected object"
             )
-        else:
+        elif check_02.get("passed") is True:
             if after_cost.get("status") != "computed":
                 failures.append(
                     f"{row_label}.evidence.after_cost_paper_trading_summary.status: expected computed"
@@ -5650,10 +5670,19 @@ def _validate_evolution_readiness_gate_contract(
     if check_07:
         row_label = "evolution_readiness_gate.checks[RI-EVOL-07]"
         evidence = evidence_mapping(check_07, row_label)
-        if evidence.get("coverage_gate_status") != "passed":
-            failures.append(f"{row_label}.evidence.coverage_gate_status: expected passed")
-        if _string_items(evidence.get("coverage_gate_blockers")):
-            failures.append(f"{row_label}.evidence.coverage_gate_blockers: must be empty")
+        coverage_gate_status = str(evidence.get("coverage_gate_status") or "").strip()
+        coverage_gate_blockers = _string_items(evidence.get("coverage_gate_blockers"))
+        if not coverage_gate_status:
+            failures.append(f"{row_label}.evidence.coverage_gate_status: required")
+        if check_07.get("passed") is True:
+            if coverage_gate_status != "passed":
+                failures.append(
+                    f"{row_label}.evidence.coverage_gate_status: expected passed"
+                )
+            if coverage_gate_blockers:
+                failures.append(
+                    f"{row_label}.evidence.coverage_gate_blockers: must be empty"
+                )
 
     return len(checks), failures
 

@@ -3708,6 +3708,70 @@ def test_evolution_readiness_gate_contract_rejects_partial_macro_check_group(
     )
 
 
+def test_evolution_readiness_gate_contract_allows_complete_stock_industry_check_groups(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["checks"].extend(
+        {
+            "check_id": check_id,
+            "requirement": "domain gate fixture",
+            "passed": True,
+            "evidence": {},
+            "blockers": [],
+        }
+        for check_id in (
+            "RI-STOCK-01",
+            "RI-STOCK-02",
+            "RI-STOCK-03",
+            "RI-STOCK-04",
+            "RI-INDUSTRY-01",
+            "RI-INDUSTRY-02",
+            "RI-INDUSTRY-03",
+            "RI-INDUSTRY-04",
+        )
+    )
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert record.accepted
+
+
+def test_evolution_readiness_gate_contract_rejects_partial_stock_check_group(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["checks"].append(
+        {
+            "check_id": "RI-STOCK-01",
+            "requirement": "stock gate fixture",
+            "passed": True,
+            "evidence": {},
+            "blockers": [],
+        }
+    )
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "incomplete optional check group: RI-STOCK-02" in item
+        for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     tmp_path: Path,
 ):

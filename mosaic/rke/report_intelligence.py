@@ -24498,6 +24498,338 @@ def _macro_readiness_gap_counts(readiness: Mapping[str, Any]) -> dict[str, int]:
     return counts
 
 
+def _stock_industry_evolution_gate_checks(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    outcome_labeling_readiness: Mapping[str, Any] | None,
+    metadata_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    metadata_by_key = _metadata_by_report_or_source(list(metadata_rows or ()))
+    stock_pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    industry_pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    for row in forecast_rows:
+        metadata = _claim_metadata_row(row, metadata_by_key)
+        target_type = str(_ensure_mapping(row.get("target")).get("target_type") or "")
+        if _is_stock_forecast_claim(row, metadata):
+            stock_pairs.append((row, metadata))
+        if _is_industry_research_report(metadata.get("report_type")) or target_type in {
+            "sector",
+            "industry",
+        }:
+            industry_pairs.append((row, metadata))
+
+    stock_labels = [
+        row
+        for row in outcome_label_rows
+        if str(row.get("label_type") or "") == "stock_price_proxy"
+    ]
+    industry_labels = [
+        row
+        for row in outcome_label_rows
+        if str(row.get("label_type") or "") == "industry_etf_proxy"
+    ]
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
+    industry_readiness = _ensure_mapping(readiness.get("industry_etf_proxy_readiness"))
+    stock_pending_count = len(
+        _ensure_list(stock_readiness.get("pending_future_forecast_claim_ids"))
+    ) or int(readiness.get("stock_proxy_label_pending_count") or 0)
+    industry_pending_count = len(
+        _ensure_list(industry_readiness.get("pending_future_forecast_claim_ids"))
+    ) or int(readiness.get("industry_proxy_label_pending_count") or 0)
+
+    def not_applicable(check_id: str, requirement: str) -> dict[str, Any]:
+        return _evolution_gate_check(
+            check_id=check_id,
+            requirement=requirement,
+            passed=True,
+            evidence={"status": "not_applicable_no_domain_rows"},
+            blockers=[],
+        )
+
+    def context_policy_evidence(
+        *,
+        domain: str,
+        agent_requests: Sequence[tuple[str, str]],
+        rows: Sequence[Mapping[str, Any]],
+    ) -> tuple[dict[str, Any], list[str]]:
+        from .agent_research_context import (  # local import avoids CLI startup coupling
+            SAFE_ACTIONABILITY,
+            assert_public_safe_context,
+            build_rke_agent_research_context_from_rows,
+        )
+
+        private_text_violation_count = 0
+        shadow_policy_violation_count = 0
+        current_data_guard_violation_count = 0
+        item_count = 0
+        for agent_id, layer in agent_requests:
+            context = build_rke_agent_research_context_from_rows(
+                agent_id=agent_id,
+                layer=layer,
+                max_items=3,
+                forecasts=rows,
+                metadata=list(metadata_rows or ()),
+            )
+            try:
+                assert_public_safe_context(context)
+            except ValueError:
+                private_text_violation_count += 1
+            if context.get("research_only") is not True:
+                shadow_policy_violation_count += 1
+            if context.get("production_signal_allowed") is not False:
+                shadow_policy_violation_count += 1
+            if context.get("actionability") != SAFE_ACTIONABILITY:
+                current_data_guard_violation_count += 1
+            for item in _ensure_list(context.get("context_items")):
+                item_map = _ensure_mapping(item)
+                if str(item_map.get("domain") or "") != domain:
+                    continue
+                item_count += 1
+                if item_map.get("production_signal_allowed") is not False:
+                    shadow_policy_violation_count += 1
+                if item_map.get("current_data_required") is not True:
+                    current_data_guard_violation_count += 1
+        blockers: list[str] = []
+        if private_text_violation_count:
+            blockers.append(f"{domain}_prior_privacy_violation")
+        if shadow_policy_violation_count:
+            blockers.append(f"{domain}_prior_shadow_policy_violation")
+        if current_data_guard_violation_count:
+            blockers.append(f"{domain}_prior_current_data_guard_violation")
+        return (
+            {
+                "audited_agent_count": len(agent_requests),
+                "context_item_count": item_count,
+                "private_text_violation_count": private_text_violation_count,
+                "shadow_policy_violation_count": shadow_policy_violation_count,
+                "current_data_guard_violation_count": current_data_guard_violation_count,
+            },
+            blockers,
+        )
+
+    checks: list[dict[str, Any]] = []
+    if not stock_pairs and not stock_labels:
+        checks.extend(
+            [
+                not_applicable(
+                    "RI-STOCK-01",
+                    "Stock target resolution is checked when stock rows exist.",
+                ),
+                not_applicable(
+                    "RI-STOCK-02",
+                    "Stock PIT label coverage is checked when stock rows exist.",
+                ),
+                not_applicable(
+                    "RI-STOCK-03",
+                    "Stock tradeability gaps are audited when stock rows exist.",
+                ),
+                not_applicable(
+                    "RI-STOCK-04",
+                    "Stock priors are public-safe and shadow-only when stock rows exist.",
+                ),
+            ]
+        )
+    else:
+        stock_resolution_gaps = [
+            _stock_target_resolution(row, metadata)["gap"]
+            for row, metadata in stock_pairs
+            if _stock_target_resolution(row, metadata)["gap"]
+        ]
+        stock_coverage_blockers: list[str] = []
+        if stock_pairs and not stock_labels and not stock_pending_count:
+            stock_coverage_blockers.append("stock_pit_label_coverage_missing")
+        stock_tradeability_blockers: list[str] = []
+        stock_gap_counts = _count_mapping_values(
+            _ensure_mapping(stock_readiness.get("data_gap_counts"))
+        )
+        if stock_pairs and not stock_readiness and not stock_labels:
+            stock_tradeability_blockers.append("stock_tradeability_readiness_missing")
+        stock_policy_evidence, stock_policy_blockers = context_policy_evidence(
+            domain="stock",
+            agent_requests=(("munger", "superinvestor"), ("cio", "decision")),
+            rows=[row for row, _metadata in stock_pairs],
+        )
+        checks.extend(
+            [
+                _evolution_gate_check(
+                    check_id="RI-STOCK-01",
+                    requirement=(
+                        "Stock report claims must resolve to a PIT-safe stock "
+                        "target or expose a target-resolution gap."
+                    ),
+                    passed=not stock_resolution_gaps,
+                    evidence={
+                        "stock_forecast_row_count": len(stock_pairs),
+                        "target_resolution_gap_counts": _count_mapping_values(
+                            Counter(stock_resolution_gaps)
+                        ),
+                    },
+                    blockers=(
+                        ["stock_target_resolution_gap"]
+                        if stock_resolution_gaps
+                        else []
+                    ),
+                ),
+                _evolution_gate_check(
+                    check_id="RI-STOCK-02",
+                    requirement=(
+                        "Stock viewpoints must have stock-price proxy PIT labels, "
+                        "pending windows, or explicit readiness gaps."
+                    ),
+                    passed=not stock_coverage_blockers,
+                    evidence={
+                        "stock_label_count": len(stock_labels),
+                        "stock_pending_count": stock_pending_count,
+                        "stock_ready_count": int(
+                            readiness.get("stock_proxy_label_ready_count") or 0
+                        ),
+                    },
+                    blockers=stock_coverage_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-STOCK-03",
+                    requirement=(
+                        "Stock tradeability and data-quality gaps must stay "
+                        "auditable instead of becoming hit/miss labels."
+                    ),
+                    passed=not stock_tradeability_blockers,
+                    evidence={
+                        "stock_data_gap_counts": stock_gap_counts,
+                        "stock_label_count": len(stock_labels),
+                    },
+                    blockers=stock_tradeability_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-STOCK-04",
+                    requirement=(
+                        "Stock priors consumed by superinvestor/decision agents "
+                        "must be public-safe, current-data guarded, and shadow-only."
+                    ),
+                    passed=not stock_policy_blockers,
+                    evidence=stock_policy_evidence,
+                    blockers=stock_policy_blockers,
+                ),
+            ]
+        )
+
+    if not industry_pairs and not industry_labels:
+        checks.extend(
+            [
+                not_applicable(
+                    "RI-INDUSTRY-01",
+                    "Industry ETF mapping is checked when industry rows exist.",
+                ),
+                not_applicable(
+                    "RI-INDUSTRY-02",
+                    "Industry proxy PIT label coverage is checked when rows exist.",
+                ),
+                not_applicable(
+                    "RI-INDUSTRY-03",
+                    "Industry proxy limitations are audited when rows exist.",
+                ),
+                not_applicable(
+                    "RI-INDUSTRY-04",
+                    "Industry priors are public-safe and shadow-only when rows exist.",
+                ),
+            ]
+        )
+    else:
+        industry_mapping_gaps = [
+            "industry_sector_mapping_missing"
+            for row, metadata in industry_pairs
+            if not _industry_claim_sector(row, metadata)
+        ]
+        industry_coverage_blockers: list[str] = []
+        if industry_pairs and not industry_labels and not industry_pending_count:
+            industry_coverage_blockers.append("industry_proxy_pit_label_coverage_missing")
+        industry_snapshots = build_industry_context_snapshots(
+            list(metadata_rows or ()),
+            forecast_rows=[row for row, _metadata in industry_pairs],
+            outcome_label_rows=industry_labels,
+            industry_etf_proxy_readiness=industry_readiness,
+        )
+        limitation_missing_count = sum(
+            1
+            for row in industry_snapshots
+            if not _ensure_list(row.get("known_proxy_limitations"))
+        )
+        industry_limitation_blockers: list[str] = []
+        if industry_pairs and not industry_snapshots:
+            industry_limitation_blockers.append("industry_proxy_limitation_audit_missing")
+        if limitation_missing_count:
+            industry_limitation_blockers.append("industry_proxy_limitation_missing")
+        industry_policy_evidence, industry_policy_blockers = context_policy_evidence(
+            domain="industry",
+            agent_requests=(("semiconductor", "sector"), ("cio", "decision")),
+            rows=[row for row, _metadata in industry_pairs],
+        )
+        checks.extend(
+            [
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-01",
+                    requirement=(
+                        "Industry claims must resolve to a canonical sector and "
+                        "governed ETF proxy mapping context."
+                    ),
+                    passed=not industry_mapping_gaps,
+                    evidence={
+                        "industry_forecast_row_count": len(industry_pairs),
+                        "mapping_gap_counts": _count_mapping_values(
+                            Counter(industry_mapping_gaps)
+                        ),
+                    },
+                    blockers=(
+                        ["industry_etf_mapping_gap"]
+                        if industry_mapping_gaps
+                        else []
+                    ),
+                ),
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-02",
+                    requirement=(
+                        "Industry viewpoints must have ETF proxy PIT labels, "
+                        "pending windows, or explicit readiness gaps."
+                    ),
+                    passed=not industry_coverage_blockers,
+                    evidence={
+                        "industry_label_count": len(industry_labels),
+                        "industry_pending_count": industry_pending_count,
+                        "industry_ready_count": int(
+                            readiness.get("industry_proxy_label_ready_count") or 0
+                        ),
+                    },
+                    blockers=industry_coverage_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-03",
+                    requirement=(
+                        "Industry ETF proxy priors must preserve proxy limitation "
+                        "evidence and cannot masquerade as direct industry returns."
+                    ),
+                    passed=not industry_limitation_blockers,
+                    evidence={
+                        "industry_context_snapshot_count": len(industry_snapshots),
+                        "limitation_missing_count": limitation_missing_count,
+                    },
+                    blockers=industry_limitation_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-04",
+                    requirement=(
+                        "Industry priors consumed by sector/decision agents must "
+                        "be public-safe, current-data guarded, and shadow-only."
+                    ),
+                    passed=not industry_policy_blockers,
+                    evidence=industry_policy_evidence,
+                    blockers=industry_policy_blockers,
+                ),
+            ]
+        )
+    return checks
+
+
 def _macro_evolution_gate_checks(
     *,
     forecast_rows: Sequence[Mapping[str, Any]],
@@ -25352,6 +25684,14 @@ def build_report_intelligence_evolution_readiness_gate(
                 ),
             },
             blockers=[] if coverage_passed else markdown_blockers,
+        )
+    )
+    checks.extend(
+        _stock_industry_evolution_gate_checks(
+            forecast_rows=forecast_rows,
+            outcome_label_rows=outcome_label_rows,
+            outcome_labeling_readiness=outcome_labeling_readiness,
+            metadata_rows=metadata_rows,
         )
     )
     checks.extend(
