@@ -439,6 +439,10 @@ Status 2026-07-03:
   monitor summary ref, second review timestamp, and lockbox decision ref before
   marking a mutation ready for operator promotion decision. It still keeps
   `production_allowed=false` and `promotion_allowed=false`.
+- Public bridge now exposes `rke_benchmark.delivery_readiness`, a no-write E7
+  aggregate audit that maps each delivery condition to its underlying readiness
+  gate and returns condition-level blockers. It does not run benchmark/replay or
+  enable production.
 - This implements the rollback proof-object preflight. E7 is not complete until
   real private branch mutations, benchmark/manual-review decisions, shadow or
   paper-trading gate evidence, monitor output, and post-rollback verification

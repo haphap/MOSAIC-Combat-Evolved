@@ -1161,3 +1161,174 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
     assert manifest["ready_for_operator_promotion_decision"] is True
     assert manifest["production_allowed"] is False
     assert manifest["promotion_allowed"] is False
+
+
+def test_delivery_readiness_blocks_missing_evidence(tmp_path: Path, monkeypatch):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": "bench-delivery-missing"},
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert manifest["condition_count"] == 10
+    assert manifest["ready_condition_count"] == 0
+    assert manifest["delivery_ready"] is False
+    assert any(
+        reason.startswith("all_agent_prompt_provenance:")
+        for reason in manifest["blocked_reasons"]
+    )
+    assert manifest["production_allowed"] is False
+    assert manifest["promotion_allowed"] is False
+
+
+def test_delivery_readiness_accepts_all_no_write_gate_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    all_prompt_release_checks = [
+        {
+            "agent": row["agent"],
+            "lang": row["lang"],
+            "prompt_version_id": index,
+            "prompt_sha256": row["prompt_sha256"],
+            "verify_release_ref": f"verify-all-{index}",
+            "leak_drift_check_ref": f"leak-all-{index}",
+            "verify_release_passed": True,
+            "leak_drift_passed": True,
+        }
+        for index, row in enumerate(preflight["rows"], 1)
+    ]
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-delivery-ready",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_context_hash": "a" * 64,
+                    "current_data_confirmed": True,
+                },
+                {
+                    "agent": "semiconductor",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "sector_claim",
+                    "target": {"target_type": "sector", "sector": "semiconductor"},
+                    "rke_context_hash": "b" * 64,
+                },
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "c" * 64,
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                },
+                {
+                    "agent": "cio",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "portfolio_action_claim",
+                    "target": {"target_type": "portfolio", "target_id": "cn_equity"},
+                    "rke_context_hash": "d" * 64,
+                },
+            ],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-ready",
+            "all_agent_prompt_release_checks": all_prompt_release_checks,
+            "paired_output_count": 1275,
+            "benchmark_evidence_refs": {
+                "paired_output_manifest_ref": "bench-delivery-paired",
+                "output_schema_validation_report_ref": "bench-delivery-schema",
+                "deterministic_score_table_ref": "bench-delivery-scores",
+                "investment_outcome_table_ref": "bench-delivery-outcomes",
+            },
+            "manual_review": {
+                "decision": "approved",
+                "reviewer_timestamp": "2026-07-03T12:00:00Z",
+            },
+            "profile_evidence": {
+                "profile_update_ref": "profile-delivery",
+                "evolution_input_ref": "evolution-delivery",
+                "no_source_prose_audit_ref": "no-source-delivery",
+            },
+            "downstream_outcome_metrics": {
+                "risk_adjusted_return": 0.11,
+                "alpha": 0.02,
+                "max_drawdown": -0.03,
+                "turnover": 0.5,
+                "cost_bps": 8,
+            },
+            "prompt_mutation_provenance": {
+                "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                "prompt_repo_revision": "a" * 40,
+                "prompt_sha256": "b" * 64,
+            },
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                )
+            ],
+            "prompt_mutation_release_checks": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "prompt_version_id": 51,
+                    "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                    "prompt_commit_hash": "a" * 40,
+                    "prompt_sha256": "b" * 64,
+                    "verify_release_ref": "verify-mutation-delivery",
+                    "leak_drift_check_ref": "leak-mutation-delivery",
+                    "verify_release_passed": True,
+                    "leak_drift_passed": True,
+                    "release_ready": True,
+                }
+            ],
+            "rollback_evidence": [
+                {
+                    "mutation_candidate_id": "PMUT-1",
+                    "rollback_trigger_definition": "delivery monitor breach",
+                    "rollback_command_or_procedure": "restore previous prompt commit",
+                    "monitor_output_ref": "monitor-delivery",
+                    "post_rollback_verification_ref": "verify-delivery",
+                }
+            ],
+            "paper_trading_plan": {
+                "paper_trading_plan_ref": "paper-plan-delivery",
+                "risk_limit_ref": "paper-risk-delivery",
+                "stop_loss_or_rollback_ref": "paper-stop-delivery",
+                "operator_review_timestamp": "2026-07-03T12:30:00Z",
+            },
+            "promotion_evidence": {
+                "paper_trading_result_ref": "paper-results-delivery",
+                "monitor_summary_ref": "monitor-summary-delivery",
+                "second_review_timestamp": "2026-07-03T13:00:00Z",
+                "lockbox_decision_ref": "lockbox-delivery",
+                "decision": "approved_for_promotion_review",
+            },
+        },
+    )
+
+    assert manifest["readiness_status"] == "ready"
+    assert manifest["ready_condition_count"] == manifest["condition_count"]
+    assert manifest["delivery_ready"] is True
+    assert manifest["production_allowed"] is False
+    assert manifest["promotion_allowed"] is False

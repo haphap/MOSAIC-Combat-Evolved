@@ -1288,6 +1288,148 @@ def promotion_decision_readiness(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("rke_benchmark.delivery_readiness")
+def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate E7 delivery readiness without running or promoting anything."""
+    benchmark_run_id = _require_str(params, "benchmark_run_id")
+    prompt_provenance = all_agent_prompt_provenance_readiness(
+        {
+            "cohort": params.get("cohort"),
+            "release_checks": params.get("all_agent_prompt_release_checks"),
+        }
+    )
+    benchmark = fixed_episode_benchmark_evidence(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "cohort": params.get("cohort"),
+            "paired_output_count": params.get("paired_output_count"),
+            "evidence_refs": params.get("benchmark_evidence_refs"),
+            "manual_review": params.get("manual_review"),
+        }
+    )
+    profile = agent_profile_evolution_readiness(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "profile_evidence": params.get("profile_evidence"),
+        }
+    )
+    darwinian = darwinian_autoresearch_input_manifest(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "downstream_outcome_metrics": params.get("downstream_outcome_metrics"),
+            "prompt_mutation_provenance": params.get("prompt_mutation_provenance"),
+        }
+    )
+    prompt_release = prompt_mutation_release_readiness(
+        {
+            "candidates": params.get("candidates"),
+            "release_checks": params.get("prompt_mutation_release_checks"),
+        }
+    )
+    rollback = prompt_mutation_rollback_readiness(
+        {
+            "candidates": params.get("candidates"),
+            "rollback_evidence": params.get("rollback_evidence"),
+        }
+    )
+    shadow = shadow_replay_readiness(params)
+    paper = paper_trading_readiness(params)
+    promotion = promotion_decision_readiness(params)
+
+    conditions = [
+        _delivery_condition(
+            "all_agent_prompt_provenance",
+            prompt_provenance["readiness_status"],
+            prompt_provenance["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "runtime_ranked_context_consumption",
+            shadow["readiness_status"],
+            [
+                reason
+                for reason in shadow["blocked_reasons"]
+                if reason
+                in {"runtime_context_hash_missing", "current_data_confirmation_missing"}
+            ],
+        ),
+        _delivery_condition(
+            "fixed_episode_benchmark",
+            benchmark["evidence_status"],
+            benchmark["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "agent_profile_evolution",
+            profile["readiness_status"],
+            profile["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "darwinian_autoresearch_inputs",
+            darwinian["manifest_status"],
+            darwinian["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "prompt_mutation_release",
+            prompt_release["readiness_status"],
+            prompt_release["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "rollback_evidence",
+            rollback["readiness_status"],
+            rollback["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "shadow_replay",
+            shadow["readiness_status"],
+            shadow["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "paper_trading_entry",
+            paper["readiness_status"],
+            paper["blocked_reasons"],
+        ),
+        _delivery_condition(
+            "promotion_decision",
+            promotion["readiness_status"],
+            promotion["blocked_reasons"],
+        ),
+    ]
+    blocked_reasons = sorted(
+        {
+            f"{condition['condition_id']}:{reason}"
+            for condition in conditions
+            for reason in condition["blocked_reasons"]
+        }
+    )
+    return {
+        "schema_version": "rke_all_agent_delivery_readiness_v1",
+        "readiness_status": "blocked_preflight" if blocked_reasons else "ready",
+        "benchmark_run_id": benchmark_run_id,
+        "condition_count": len(conditions),
+        "ready_condition_count": sum(
+            1 for condition in conditions if condition["ready"]
+        ),
+        "blocked_reasons": blocked_reasons,
+        "conditions": conditions,
+        "delivery_ready": not blocked_reasons,
+        "production_allowed": False,
+        "promotion_allowed": False,
+    }
+
+
+def _delivery_condition(
+    condition_id: str, status: str, blocked_reasons: list[str]
+) -> dict[str, Any]:
+    reasons = list(blocked_reasons)
+    if status != "ready" and not reasons:
+        reasons.append(f"{condition_id}_not_ready")
+    return {
+        "condition_id": condition_id,
+        "status": status,
+        "ready": status == "ready" and not reasons,
+        "blocked_reasons": reasons,
+    }
+
+
 def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
     component = _clean_str(item.get("target_component"))
     if "." in component:
