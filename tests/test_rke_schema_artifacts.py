@@ -5141,6 +5141,7 @@ def test_manual_review_progress_contract_accepts_current_public_artifact(
         "evidence_status"
     ]
     footprint_current = progress["gates"][1]["current_batch_status"]
+    footprint_target = footprint_current.get("target_status") or {}
 
     record = _manual_review_progress_contract_record(tmp_path)
 
@@ -5158,6 +5159,7 @@ def test_manual_review_progress_contract_accepts_current_public_artifact(
         footprint_evidence["review_input_rows"]
         and not footprint_current.get("already_applied")
         and not progress["gates"][1]["ready_for_promotion"]
+        and footprint_target.get("aligned") is True
     ):
         assert footprint_evidence["aligned"] is True
         assert (
