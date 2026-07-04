@@ -3199,6 +3199,28 @@ def test_shadow_replay_readiness_does_not_block_on_no_prompt_only_candidate(
     assert "rollback_readiness_not_ready" not in manifest["blocked_reasons"]
 
 
+def test_shadow_replay_readiness_does_not_block_on_refusal_only_candidate(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {
+            "benchmark_run_id": "bench-shadow-refusal-only",
+            "candidates": [_mutation_candidate()],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert manifest["prompt_release_readiness_status"] == "not_applicable"
+    assert manifest["rollback_readiness_status"] == "not_applicable"
+    assert "prompt_mutation_release_not_ready" not in manifest["blocked_reasons"]
+    assert "rollback_readiness_not_ready" not in manifest["blocked_reasons"]
+
+
 def test_shadow_replay_blocks_context_without_runtime_ranking_proof(
     tmp_path: Path, monkeypatch
 ):
@@ -3755,6 +3777,38 @@ def test_delivery_readiness_treats_no_prompt_only_candidate_as_not_applicable(
                     blocked_by=["data_engineering_review_required"],
                 )
             ],
+        },
+    )
+
+    by_id = {row["condition_id"]: row for row in manifest["conditions"]}
+    for condition_id in (
+        "prompt_mutation_release",
+        "patch_activation",
+        "rollback_evidence",
+    ):
+        assert by_id[condition_id]["status"] == "not_applicable"
+        assert by_id[condition_id]["ready"] is True
+        assert by_id[condition_id]["blocked_reasons"] == []
+    assert not any(
+        reason.startswith("prompt_mutation_release:")
+        or reason.startswith("patch_activation:")
+        or reason.startswith("rollback_evidence:")
+        for reason in manifest["blocked_reasons"]
+    )
+
+
+def test_delivery_readiness_treats_refusal_only_candidate_as_not_applicable(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {
+            "benchmark_run_id": "bench-delivery-refusal-only",
+            "candidates": [_mutation_candidate()],
         },
     )
 
