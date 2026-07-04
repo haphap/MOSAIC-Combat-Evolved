@@ -2683,6 +2683,11 @@ def _sanitize_claim_footprint_row(
     ):
         if key in row and row.get(key) is not False:
             raise ValueError(f"{key} must be false")
+    if (
+        "use_policy" in row
+        and _clean_str(row.get("use_policy")) != "shadow_agent_claim_footprint_only"
+    ):
+        raise ValueError("use_policy must be shadow_agent_claim_footprint_only")
     agent = _clean_str(row.get("agent"))
     if agent not in _LAYER_BY_AGENT:
         raise ValueError(f"unknown agent {agent!r}")
