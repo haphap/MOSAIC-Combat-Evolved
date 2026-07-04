@@ -4924,6 +4924,39 @@ def test_delivery_readiness_loads_recorded_private_evidence(
     )
 
 
+def test_delivery_readiness_loads_recorded_refusal_only_candidate(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": "bench-delivery-recorded-refusal",
+            "candidates": [_mutation_candidate()],
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": "bench-delivery-recorded-refusal"},
+    )
+
+    by_id = {row["condition_id"]: row for row in manifest["conditions"]}
+    assert record["record_status"] == "recorded"
+    assert record["recorded_key_count"] == 1
+    assert manifest["recorded_evidence_loaded"] is True
+    for condition_id in (
+        "prompt_mutation_release",
+        "patch_activation",
+        "rollback_evidence",
+    ):
+        assert by_id[condition_id]["status"] == "not_applicable"
+        assert by_id[condition_id]["ready"] is True
+        assert by_id[condition_id]["blocked_reasons"] == []
+
+
 def test_delivery_readiness_accepts_all_no_write_gate_evidence(
     tmp_path: Path, monkeypatch
 ):
