@@ -930,6 +930,43 @@ def test_capture_agent_claim_footprints_blocks_non_shadow_use_policy(
     assert not (project_root / result["private_rows_path"]).exists()
 
 
+def test_capture_agent_claim_footprints_blocks_invalid_boolean_evidence(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+
+    for key in (
+        "current_data_confirmed",
+        "stale_prior_rejected",
+        "contradictory_prior_handled",
+    ):
+        result = dispatch(
+            "rke_benchmark.capture_agent_claim_footprints",
+            {
+                "benchmark_run_id": f"bench-invalid-boolean-{key}",
+                "rows": [
+                    {
+                        "agent": "dollar",
+                        "as_of_date": "2026-06-18",
+                        "claim_type": "macro_series_claim",
+                        "target": {
+                            "target_type": "macro_series",
+                            "target_id": "USDCNY",
+                        },
+                        key: "yes",
+                    }
+                ],
+            },
+        )
+
+        assert result["capture_status"] == "blocked"
+        assert result["captured_count"] == 0
+        assert f"{key} must be boolean" in result["failures"][0]
+    assert not (project_root / result["private_rows_path"]).exists()
+
+
 def test_capture_agent_claim_footprints_blocks_cross_run_rows(
     tmp_path: Path, monkeypatch
 ):
