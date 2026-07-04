@@ -1154,6 +1154,7 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
     candidate_type_counts: dict[str, int] = {}
     target_scope_counts: dict[str, int] = {}
     blocked_reason_counts: dict[str, int] = {}
+    forbidden_field_violation_count = 0
     refusal_count = 0
     for index, row in enumerate(candidates, 1):
         if not isinstance(row, dict):
@@ -1161,6 +1162,7 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
             continue
         forbidden_paths = _forbidden_paths(row)
         if forbidden_paths:
+            forbidden_field_violation_count += 1
             failures.append(
                 f"candidate {index}: forbidden private/prose fields "
                 + ", ".join(forbidden_paths[:5])
@@ -1241,7 +1243,7 @@ def candidate_consumption_manifest(params: dict[str, Any]) -> dict[str, Any]:
         "privacy_scan": {
             "private_text_included": False,
             "source_prose_included": False,
-            "forbidden_field_violation_count": len(failures),
+            "forbidden_field_violation_count": forbidden_field_violation_count,
         },
     }
 

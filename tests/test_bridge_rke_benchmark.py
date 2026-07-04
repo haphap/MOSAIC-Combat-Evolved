@@ -2196,6 +2196,39 @@ def test_candidate_consumption_manifest_blocks_unknown_candidate_type():
         "candidate 1: unsupported candidate_type unknown_prompt_repair_rule"
         in manifest["manifest_blockers"]
     )
+    assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 0
+
+
+def test_candidate_consumption_manifest_counts_only_forbidden_privacy_fields():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="unknown_prompt_repair_rule",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                ),
+                _mutation_candidate(
+                    mutation_candidate_id="PMUT-PRIVATE",
+                    claim_text="private source prose",
+                ),
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert manifest["candidate_count"] == 0
+    assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 1
+    assert any(
+        "unsupported candidate_type unknown_prompt_repair_rule" in failure
+        for failure in manifest["manifest_blockers"]
+    )
+    assert any(
+        "forbidden private/prose fields $.claim_text" in failure
+        for failure in manifest["manifest_blockers"]
+    )
 
 
 def test_candidate_consumption_manifest_rejects_prompt_bypass():
