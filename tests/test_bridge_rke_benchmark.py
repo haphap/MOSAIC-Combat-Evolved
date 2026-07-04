@@ -4375,6 +4375,72 @@ def test_delivery_evidence_audit_reports_recorded_and_missing_keys(
     assert partial["delivery_readiness_can_load"] is True
 
 
+def test_delivery_evidence_audit_keeps_complete_keys_separate_from_readiness(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    benchmark_run_id = "bench-delivery-complete-blocked"
+
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "all_agent_prompt_release_checks": [
+                {
+                    "agent": "dollar",
+                    "lang": "zh",
+                    "prompt_file_path": "prompts/mosaic/cohort_default/macro/dollar.zh.md",
+                    "benchmark_run_id": benchmark_run_id,
+                }
+            ],
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(benchmark_run_id),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(benchmark_run_id),
+            "manual_review": _manual_review(benchmark_run_id),
+            "profile_evidence": _profile_evidence(benchmark_run_id),
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                benchmark_run_id
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                benchmark_run_id
+            ),
+            "darwinian_autoresearch_consumption_evidence": (
+                _darwinian_consumption_evidence(benchmark_run_id)
+            ),
+            "candidates": [_mutation_candidate()],
+            "patch_activation_evidence": [
+                {"mutation_candidate_id": "PMUT-1", "benchmark_run_id": benchmark_run_id}
+            ],
+            "prompt_mutation_release_checks": [
+                {"mutation_candidate_id": "PMUT-1", "benchmark_run_id": benchmark_run_id}
+            ],
+            "rollback_evidence": [
+                {"mutation_candidate_id": "PMUT-1", "benchmark_run_id": benchmark_run_id}
+            ],
+            "paper_trading_plan": _paper_trading_plan(benchmark_run_id),
+            "promotion_evidence": _promotion_evidence(benchmark_run_id),
+        },
+    )
+
+    audit = dispatch(
+        "rke_benchmark.delivery_evidence_audit",
+        {"benchmark_run_id": benchmark_run_id},
+    )
+    conditions = {row["condition_id"]: row for row in audit["delivery_conditions"]}
+
+    assert record["record_status"] == "recorded"
+    assert audit["evidence_status"] == "complete"
+    assert audit["recorded_key_count"] == 16
+    assert audit["missing_keys"] == []
+    assert audit["delivery_readiness_can_load"] is True
+    assert audit["delivery_readiness_status"] == "blocked_preflight"
+    assert conditions["all_agent_prompt_provenance"]["ready"] is False
+    assert audit["delivery_blocked_reasons"]
+
+
 def test_delivery_evidence_audit_keeps_context_out_of_proof_keys(
     tmp_path: Path, monkeypatch
 ):
