@@ -179,6 +179,17 @@ def _resolve_input_path(root_path: Path, input_path: str | Path) -> Path:
     return path if path.is_absolute() else root_path / path
 
 
+def _load_jsonl_with_missing_blocker(
+    path: Path,
+    *,
+    label: str,
+) -> tuple[list[tuple[int, Any]], tuple[str, ...]]:
+    try:
+        return load_jsonl_with_errors(path, label=label)
+    except FileNotFoundError:
+        return [], (f"{label} missing: {path}",)
+
+
 def _duplicates(ids: Sequence[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     duplicates: set[str] = set()
@@ -524,11 +535,11 @@ def apply_gold_set_review_import(
     root_path = Path(root)
     resolved_input_path = _resolve_input_path(root_path, input_path)
     target_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
-    input_rows, input_parse_blockers = load_jsonl_with_errors(
+    input_rows, input_parse_blockers = _load_jsonl_with_missing_blocker(
         resolved_input_path,
         label="gold-set review import",
     )
-    raw_target_rows, target_parse_blockers = load_jsonl_with_errors(
+    raw_target_rows, target_parse_blockers = _load_jsonl_with_missing_blocker(
         target_path,
         label="gold-set target review",
     )
@@ -626,11 +637,11 @@ def apply_source_license_review_import(
     root_path = Path(root)
     resolved_input_path = _resolve_input_path(root_path, input_path)
     target_path = root_path / LICENSE_REVIEW_TEMPLATE_PATH
-    input_rows, input_parse_blockers = load_jsonl_with_errors(
+    input_rows, input_parse_blockers = _load_jsonl_with_missing_blocker(
         resolved_input_path,
         label="source-license review import",
     )
-    raw_target_rows, target_parse_blockers = load_jsonl_with_errors(
+    raw_target_rows, target_parse_blockers = _load_jsonl_with_missing_blocker(
         target_path,
         label="source-license target review",
     )

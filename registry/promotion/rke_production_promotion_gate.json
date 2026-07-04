@@ -13,7 +13,7 @@
       "blocker": "",
       "criterion_id": "PG02",
       "description": "Manual gold-set review passed before staged production.",
-      "evidence": "125 / 125 gold-set claims reviewed",
+      "evidence": "500 / 500 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
       "passed": true
     },
@@ -21,7 +21,7 @@
       "blocker": "",
       "criterion_id": "PG03",
       "description": "Source-license review approves production runtime retrieval.",
-      "evidence": "17529 / 17529 sources approved for production runtime",
+      "evidence": "51 / 51 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
       "passed": true
     },

@@ -37,7 +37,7 @@
     "review_kind": "gold_set",
     "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
     "target_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
-    "total_rows": 125
+    "total_rows": 500
   },
   "ready_for_manual_review": true,
   "source_license": {
@@ -60,7 +60,7 @@
     "review_kind": "source_license",
     "review_packet_path": "registry/compliance/tushare_license_review_packet.json",
     "target_path": "registry/compliance/tushare_license_review_template.jsonl",
-    "total_rows": 17529
+    "total_rows": 51
   },
   "status_id": "RKE-MANUAL-REVIEW-BATCH-STATUS-20260606"
 }
