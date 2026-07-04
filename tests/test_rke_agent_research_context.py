@@ -321,6 +321,45 @@ def test_superinvestor_context_uses_role_filtered_reason_codes():
         )
 
 
+def test_superinvestor_runtime_preflight_blocks_generic_unfiltered_context():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="munger",
+        layer="superinvestor",
+        as_of_date="2026-06-27",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-MUNGER-RUNTIME",
+                "report_id": "RPT-MUNGER-RUNTIME",
+                "target": {"target_type": "stock", "target_id": "600519.SH"},
+                "metric_proxy_mapping": ["moat", "roic", "free_cash_flow"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-MUNGER-RUNTIME",
+                "report_type": "个股研报",
+                "ts_code": "600519.SH",
+            }
+        ],
+    )
+    assert "runtime_preflight_status=passed" in (
+        rke_research_tools.format_rke_runtime_context(context)
+    )
+    item = context["context_items"][0]
+    item["role_filter_reason_codes"] = []
+    item["ranking_reason_codes"] = [
+        reason
+        for reason in item["ranking_reason_codes"]
+        if not reason.startswith("role_filter_")
+    ]
+
+    output = rke_research_tools.format_rke_runtime_context(context)
+
+    assert "runtime_preflight_status=blocked" in output
+    assert "superinvestor_role_filter_missing" in output
+
+
 def test_superinvestor_context_uses_available_stock_snapshot():
     context = build_rke_agent_research_context_from_rows(
         agent_id="munger",

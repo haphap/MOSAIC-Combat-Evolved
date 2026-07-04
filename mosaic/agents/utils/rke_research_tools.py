@@ -333,6 +333,15 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for item in items
     ):
         failures.append("ranking_reason_codes_missing")
+    if agent_id.startswith("superinvestor.") and items and any(
+        not isinstance(item.get("role_filter_reason_codes"), (list, tuple))
+        or not any(
+            isinstance(reason, str) and reason.startswith("role_filter_")
+            for reason in item.get("role_filter_reason_codes", [])
+        )
+        for item in items
+    ):
+        failures.append("superinvestor_role_filter_missing")
     if items and any(item.get("current_data_required") is not True for item in items):
         failures.append("current_data_required_missing")
     if items and any(
