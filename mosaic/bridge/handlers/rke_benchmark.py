@@ -2652,7 +2652,11 @@ def _candidate_evidence_by_id(
 
 def _outcome_metrics_ready(metrics: dict[str, Any]) -> bool:
     required = ("risk_adjusted_return", "alpha", "max_drawdown", "turnover", "cost_bps")
-    return all(isinstance(metrics.get(key), (int, float)) for key in required)
+    return all(
+        isinstance(metrics.get(key), (int, float))
+        and not isinstance(metrics.get(key), bool)
+        for key in required
+    )
 
 
 def _prompt_mutation_provenance_ready(provenance: dict[str, Any]) -> bool:
@@ -2667,6 +2671,7 @@ def _safe_metric_subset(metrics: dict[str, Any], keys: tuple[str, ...]) -> dict[
         key: float(metrics[key])
         for key in keys
         if isinstance(metrics.get(key), (int, float))
+        and not isinstance(metrics.get(key), bool)
     }
 
 

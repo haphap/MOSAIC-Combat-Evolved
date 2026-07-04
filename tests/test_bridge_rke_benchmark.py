@@ -1693,6 +1693,52 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
     )
 
 
+def test_darwinian_autoresearch_manifest_rejects_bool_outcome_metrics(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-bool-outcome-metrics",
+            "rows": [
+                {
+                    "agent": "dollar",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "macro_series_claim",
+                    "target": {"target_type": "macro_series", "target_id": "USDCNY"},
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "rke_context_hash": "b" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:macro-usdcny-bool"],
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+    metrics = _downstream_outcome_metrics("bench-bool-outcome-metrics")
+    metrics["risk_adjusted_return"] = True
+
+    manifest = dispatch(
+        "rke_benchmark.darwinian_autoresearch_input_manifest",
+        {
+            "benchmark_run_id": "bench-bool-outcome-metrics",
+            "downstream_outcome_metrics": metrics,
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-bool-outcome-metrics"
+            ),
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "downstream_outcome_metrics_missing" in manifest["blocked_reasons"]
+    outcome = manifest["skill_inputs"]["risk_adjusted_downstream_outcome"]
+    assert outcome["status"] == "missing"
+    assert "risk_adjusted_return" not in outcome["metrics"]
+
+
 def test_darwinian_autoresearch_manifest_blocks_partial_current_data_confirmation(
     tmp_path: Path, monkeypatch
 ):
