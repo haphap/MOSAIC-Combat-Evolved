@@ -2174,6 +2174,30 @@ def test_candidate_consumption_manifest_blocks_unmapped_prompt_candidate_branch(
     )
 
 
+def test_candidate_consumption_manifest_blocks_unknown_candidate_type():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    candidate_type="unknown_prompt_repair_rule",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert manifest["candidate_count"] == 0
+    assert manifest["private_prompt_mutation_required"] is False
+    assert (
+        "candidate 1: unsupported candidate_type unknown_prompt_repair_rule"
+        in manifest["manifest_blockers"]
+    )
+
+
 def test_candidate_consumption_manifest_rejects_prompt_bypass():
     manifest = dispatch(
         "rke_benchmark.candidate_consumption_manifest",

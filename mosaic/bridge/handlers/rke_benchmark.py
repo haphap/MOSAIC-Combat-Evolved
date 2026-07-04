@@ -123,6 +123,43 @@ _DELIVERY_EVIDENCE_REL_PATH = Path(
 _PROMPT_MUTATION_CANDIDATES_REL_PATH = Path(
     "registry/report_intelligence/prompt_mutation_candidates.jsonl"
 )
+_PROMPT_BRANCH_CANDIDATE_TYPES = frozenset(
+    {
+        "agent_assignment_mapping_rule",
+        "footprint_quality_prompt_repair_rule",
+        "gold_quality_prompt_repair_rule",
+        "horizon_direction_rule",
+        "industry_prior_recipe_rule_candidate",
+        "macro_prior_rule_parameter_candidate",
+        "recipe_paper_trading_rule",
+        "regime_mechanism_extraction_rule",
+        "stock_prior_recipe_rule_candidate",
+        "target_mapping_rule",
+    }
+)
+_REFUSAL_CANDIDATE_TYPES = frozenset(
+    {
+        "industry_prior_recipe_rule_refusal",
+        "macro_prior_rule_parameter_refusal",
+        "stock_prior_recipe_rule_refusal",
+    }
+)
+_TOOLING_GAP_CANDIDATE_TYPES = frozenset(
+    {
+        "calibration_fix_required",
+        "data_acquisition_prioritization_rule",
+        "evolution_input_load_gap",
+        "evolution_refresh_stability_rule",
+        "forecast_gold_set_review_rule",
+        "industry_proxy_mapping_rule",
+        "markdown_coverage_expansion_rule",
+        "markdown_quality_rule",
+        "outcome_coverage_expansion_rule",
+        "recipe_paper_trading_expansion_rule",
+        "tool_gap_prioritization_rule",
+    }
+)
+_POLICY_GATE_CANDIDATE_TYPES = frozenset({"confidence_gate_rule"})
 _DELIVERY_EVIDENCE_KEYS = (
     "all_agent_prompt_release_checks",
     "paired_output_count",
@@ -2519,24 +2556,15 @@ def _affected_agents_from_candidate(item: dict[str, Any]) -> list[str]:
 
 
 def _candidate_consumption_action(candidate_type: str) -> str:
-    if "refusal" in candidate_type:
+    if candidate_type in _REFUSAL_CANDIDATE_TYPES:
         return "record_refusal_no_prompt_branch"
-    if candidate_type in {
-        "calibration_fix_required",
-        "data_acquisition_prioritization_rule",
-        "evolution_refresh_stability_rule",
-        "forecast_gold_set_review_rule",
-        "industry_proxy_mapping_rule",
-        "markdown_coverage_expansion_rule",
-        "markdown_quality_rule",
-        "outcome_coverage_expansion_rule",
-        "recipe_paper_trading_expansion_rule",
-        "tool_gap_prioritization_rule",
-    }:
+    if candidate_type in _TOOLING_GAP_CANDIDATE_TYPES:
         return "record_tooling_gap_no_prompt_branch"
-    if candidate_type == "confidence_gate_rule":
+    if candidate_type in _POLICY_GATE_CANDIDATE_TYPES:
         return "record_policy_gate_no_prompt_branch"
-    return "private_prompt_branch_after_blockers_clear"
+    if candidate_type in _PROMPT_BRANCH_CANDIDATE_TYPES:
+        return "private_prompt_branch_after_blockers_clear"
+    return "unsupported_candidate_type"
 
 
 def _candidate_manifest_no_prompt_only(manifest: dict[str, Any]) -> bool:
@@ -2599,6 +2627,12 @@ def _candidate_contract_failures(row: dict[str, Any], index: int) -> list[str]:
         failures.append(f"{prefix}: manual_review_required must be true")
     if _clean_str(row.get("promotion_state")) != "shadow_candidate_only":
         failures.append(f"{prefix}: promotion_state must remain shadow_candidate_only")
+    candidate_type = _clean_str(row.get("candidate_type"))
+    if (
+        candidate_type
+        and _candidate_consumption_action(candidate_type) == "unsupported_candidate_type"
+    ):
+        failures.append(f"{prefix}: unsupported candidate_type {candidate_type}")
     for key in (
         "mutation_candidate_id",
         "candidate_type",
