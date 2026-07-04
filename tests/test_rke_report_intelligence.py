@@ -3001,6 +3001,14 @@ def test_report_intelligence_evolution_gate_checks_stock_industry_branches():
             "direction": "positive",
         }
     )
+    forecast_rows[1].update(
+        {
+            "report_id": "RPT-STOCK-GAP",
+            "target": {},
+            "metric_proxy_mapping": ["stock_forward_return"],
+            "direction": "positive",
+        }
+    )
     forecast_rows[30].update(
         {
             "report_id": "RPT-INDUSTRY-GATE",
@@ -3045,7 +3053,9 @@ def test_report_intelligence_evolution_gate_checks_stock_industry_branches():
             "mapping_gap_counts": {},
             "stock_proxy_label_ready_count": 30,
             "industry_proxy_label_ready_count": 30,
-            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "stock_price_proxy_readiness": {
+                "data_gap_counts": {"stock_target_mapping_missing": 1}
+            },
             "industry_etf_proxy_readiness": {"data_gap_counts": {}},
         },
         metadata_rows=[
@@ -3053,6 +3063,12 @@ def test_report_intelligence_evolution_gate_checks_stock_industry_branches():
                 "report_id": "RPT-STOCK-GATE",
                 "report_type": "公司研报",
                 "ts_code": "000001.SZ",
+                "sector": "银行",
+                "publish_datetime": "2026-01-01T00:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-STOCK-GAP",
+                "report_type": "公司研报",
                 "sector": "银行",
                 "publish_datetime": "2026-01-01T00:00:00+08:00",
             },
@@ -3089,7 +3105,13 @@ def test_report_intelligence_evolution_gate_checks_stock_industry_branches():
         "RI-INDUSTRY-04",
     ):
         assert checks[check_id]["passed"] is True
-    assert checks["RI-STOCK-01"]["evidence"]["stock_forecast_row_count"] == 1
+    assert checks["RI-STOCK-01"]["evidence"]["stock_forecast_row_count"] == 2
+    assert checks["RI-STOCK-01"]["evidence"][
+        "target_resolution_gap_counts"
+    ] == {"stock_target_mapping_missing": 1}
+    assert checks["RI-STOCK-01"]["evidence"][
+        "unaudited_target_resolution_gap_counts"
+    ] == {}
     assert checks["RI-INDUSTRY-03"]["evidence"][
         "industry_context_snapshot_count"
     ] == 1

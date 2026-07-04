@@ -24959,6 +24959,17 @@ def _stock_industry_evolution_gate_checks(
             for row, metadata in stock_pairs
             if _stock_target_resolution(row, metadata)["gap"]
         ]
+        stock_resolution_gap_counts = _count_mapping_values(
+            Counter(stock_resolution_gaps)
+        )
+        audited_stock_gap_counts = _count_mapping_values(
+            _ensure_mapping(stock_readiness.get("data_gap_counts"))
+        )
+        unaudited_stock_resolution_gap_counts = {
+            gap: count
+            for gap, count in stock_resolution_gap_counts.items()
+            if audited_stock_gap_counts.get(gap, 0) < count
+        }
         stock_coverage_blockers: list[str] = []
         if stock_pairs and not stock_labels and not stock_pending_count:
             stock_coverage_blockers.append("stock_pit_label_coverage_missing")
@@ -24981,16 +24992,21 @@ def _stock_industry_evolution_gate_checks(
                         "Stock report claims must resolve to a PIT-safe stock "
                         "target or expose a target-resolution gap."
                     ),
-                    passed=not stock_resolution_gaps,
+                    passed=not unaudited_stock_resolution_gap_counts,
                     evidence={
                         "stock_forecast_row_count": len(stock_pairs),
-                        "target_resolution_gap_counts": _count_mapping_values(
-                            Counter(stock_resolution_gaps)
+                        "target_resolution_gap_counts": stock_resolution_gap_counts,
+                        "audited_target_resolution_gap_counts": {
+                            gap: audited_stock_gap_counts.get(gap, 0)
+                            for gap in stock_resolution_gap_counts
+                        },
+                        "unaudited_target_resolution_gap_counts": (
+                            unaudited_stock_resolution_gap_counts
                         ),
                     },
                     blockers=(
                         ["stock_target_resolution_gap"]
-                        if stock_resolution_gaps
+                        if unaudited_stock_resolution_gap_counts
                         else []
                     ),
                 ),
