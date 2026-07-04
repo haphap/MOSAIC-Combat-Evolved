@@ -43,6 +43,31 @@ As of 2026-07-03:
 - The Python prompt bridge has to stay in sync with the TS canonical roster;
   this is part of the roster preflight, not an optional cleanup.
 
+## Critical Path And Execution Owner
+
+All formal E1-E7 execution is gated on E0 prompt provenance. The public bridge
+preflights can report blockers, but they cannot substitute for complete private
+prompt content. As of this plan revision, complete private prompt repo rows are
+still the critical path for all 25 benchmark/replay agents × 2 languages; the
+pending Munger/Burry role-specific private prompt upgrades are part of that
+blocker. Until E0 returns ready private prompt rows with release, audit-version,
+and leak/drift evidence, E2-E7 can only produce blocked proof objects.
+
+The E2 fixed-episode benchmark also requires a named execution engine. The
+`rke_benchmark.*` bridge methods are no-write validators and evidence sinks;
+they do not run LLMs. The formal executor must be a TS benchmark harness that
+wraps `buildDailyCycleGraph` / the existing `daily-cycle` run primitive, applies
+`prompts.preflight`, iterates the fixed E2 manifest across 17 as-of dates, all
+25 agents, and the required model configs, and records no-body output/evidence
+refs under `.mosaic/rke/all_agent_evolution/` for later validation by
+`rke_benchmark.fixed_episode_benchmark_evidence` and `delivery_readiness`.
+`mosaic-ts/src/cli/commands/backtest.ts` can support portfolio replay and
+outcome measurement, but it is not sufficient by itself to close E2 because E2
+needs per-agent/date/model paired LLM outputs, prompt pins, context hashes,
+schema results, and deterministic score refs. If that dedicated fixed-episode
+harness has not been implemented or configured for a run, E2 is blocked with
+`benchmark_runner_missing`.
+
 ## E0: Prompt Repo And Roster Preflight
 
 Before any benchmark or replay:
@@ -176,6 +201,22 @@ Status 2026-07-03:
 Run this before full replay, autoresearch mutation, Darwinian weight updates, or
 RKE profile/retrieval evolution.
 
+Execution engine:
+
+- E2 is executed by a TS fixed-episode benchmark harness, not by the Python
+  no-write bridge validators. The harness should reuse the same runtime graph as
+  `mosaic-ts/src/cli/commands/daily-cycle.ts`, apply E0 prompt-source overrides,
+  and emit one paired output record per agent/as-of-date/model config.
+- The harness must iterate the canonical E2 manifest exactly: 8 episodes,
+  17 as-of dates, all 25 agents, and the required model config slots. It must
+  preserve per-row prompt repo revision/hash, RKE context hash, model config id,
+  timeout/error status, schema validation status, and no-body output refs.
+- Existing `backtest` / `backtest-fill` infrastructure may be used downstream
+  for portfolio replay and investment outcome calculation, but it cannot replace
+  the fixed-episode runner because it does not produce the per-agent paired LLM
+  output matrix required by E2. If the fixed-episode harness is absent, E2 is
+  `blocked_preflight` with `benchmark_runner_missing`.
+
 Initial benchmark size:
 
 - Start with 8 fixed episodes.
@@ -230,9 +271,13 @@ Deterministic scoring:
 
 Manual review gate:
 
-- First benchmark may be approved by one operator.
-- Promotion beyond shadow/paper-trading requires a second explicit review or a
-  separate promotion gate.
+- First benchmark may be approved by one operator only while the result remains
+  strictly shadow-only.
+- Entry into paper-trading or any promotion gate requires a second explicit
+  review by an independent reviewer who did not author the prompt mutation and
+  did not provide the first benchmark approval. If a single-operator exception is
+  used, paper-trading stays blocked with `reviewer_independence_unavailable`
+  until an independent review is recorded.
 - A model/config cannot advance if it has severe safety violations, uses
   fallback prompts as formal inputs, ignores current-data confirmation, or has
   systematic schema failures.
@@ -261,7 +306,8 @@ Status 2026-07-03:
 - This implements the episode/model/input manifest and benchmark-evidence proof
   object preflight. E2 is not complete until real paired LLM outputs, schema
   validation, deterministic score tables, investment outcome tables, and manual
-  review decisions exist from actual runs.
+  review decisions exist from actual runs produced by the named fixed-episode
+  runner.
 
 ## E3: Agent Claim And Footprint Capture
 
@@ -305,22 +351,29 @@ Status 2026-07-03:
 Prompt mutation output is not a direct runtime change.
 
 Optimized prompts may directly overwrite the current agent prompt files in
-`https://github.com/haphap/MOSAIC-Prompts`. The overwrite is the intended update
-mode; rollback comes from private git history, not from keeping parallel prompt
-copies in the public repo.
+`https://github.com/haphap/MOSAIC-Prompts`, but only on a private feature or
+release-candidate branch before approval. The overwrite is the intended update
+mode for the prompt path within that branch; rollback comes from private git
+history, not from keeping parallel prompt copies in the public repo. The default
+branch of the private prompt repo must not receive an unreviewed prompt
+mutation. Formal benchmark/replay rows pin the candidate branch commit/hash, and
+default-branch promotion happens only after leak/drift checks, fixed-episode
+benchmark, manual review, shadow/paper-trading gates, and the promotion decision
+allow it.
 
 Lifecycle:
 
 ```text
 candidate
-  -> private prompt branch
-  -> overwrite current private prompt file
+  -> private prompt feature/release branch
+  -> overwrite current private prompt file on that branch
   -> leak/drift check
   -> fixed-episode benchmark
   -> manual review
   -> shadow replay
   -> paper-trading
   -> promotion gate
+  -> merge/promote to private prompt default branch
   -> rollback monitor
 ```
 
@@ -328,6 +381,7 @@ Each mutation must record:
 
 - prompt file path
 - overwrite target path in `https://github.com/haphap/MOSAIC-Prompts`
+- private prompt branch name and base revision
 - private prompt repo revision/hash
 - affected agents
 - RKE prior usage hypothesis
@@ -445,8 +499,10 @@ This plan is complete only when:
   distribution, truncation audit, and current-data confirmation audit.
 - Fixed-episode LLM benchmark has passed manual review.
   Proof objects: episode manifest, as-of date list, model/config manifest,
-  output schema validation report, deterministic score table, investment
-  outcome table, manual review decision, and reviewer timestamp.
+  named fixed-episode runner id/version, output schema validation report,
+  deterministic score table, investment outcome table, manual review decision,
+  reviewer timestamp, and independent second-review evidence before
+  paper-trading or promotion.
 - Agent claims and footprints enter RKE profile/evolution paths.
   Proof objects: private agent claim/footprint rows, redacted aggregate profile
   summary, privacy scan result, and no-source-prose audit.
@@ -459,7 +515,8 @@ This plan is complete only when:
   gated promotion.
   Proof objects: private prompt branch, prompt version id, leak/drift checks,
   benchmark evidence link, manual review decision, shadow/paper-trading gate,
-  and promotion decision.
+  promotion decision, and proof that the private prompt default branch was not
+  overwritten before approval.
 - Rollback evidence exists for any prompt/rule/parameter that leaves shadow
   mode.
   Proof objects: rollback trigger definition, previous prompt hash, rollback
