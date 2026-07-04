@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Stock Context Snapshot",
+  "type": "object",
+  "required": [
+    "snapshot_id",
+    "schema_version",
+    "as_of_date",
+    "stock_symbol",
+    "sector",
+    "market_cap_bucket",
+    "liquidity_bucket",
+    "stock_outcome_age_bucket",
+    "benchmark_family",
+    "source_claim_count",
+    "report_count",
+    "outcome_label_count",
+    "missing_feature_reasons",
+    "background_only",
+    "claim_validation_allowed",
+    "source_policy",
+    "use_policy",
+    "data_vintage_hash",
+    "private_text_included"
+  ],
+  "properties": {
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "stock_context_snapshot_v1"},
+    "as_of_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "stock_symbol": {"type": "string", "pattern": "^\\d{6}\\.(SH|SZ|BJ)$"},
+    "sector": {"type": "string", "minLength": 1},
+    "market_cap_bucket": {"type": "string", "minLength": 1},
+    "liquidity_bucket": {"type": "string", "minLength": 1},
+    "stock_outcome_age_bucket": {"type": "string", "minLength": 1},
+    "benchmark_family": {"type": "string", "minLength": 1},
+    "fundamental_metric_family_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "source_claim_count": {"type": "integer", "minimum": 0},
+    "report_count": {"type": "integer", "minimum": 0},
+    "outcome_label_count": {"type": "integer", "minimum": 0},
+    "missing_feature_reasons": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "background_only": {"const": true},
+    "claim_validation_allowed": {"const": false},
+    "source_policy": {"const": "public_safe_aggregate_no_source_prose"},
+    "use_policy": {"const": "background_only_not_claim_validation"},
+    "data_vintage_hash": {"type": "string", "minLength": 1},
+    "private_text_included": {"const": false}
+  },
+  "additionalProperties": false
+}

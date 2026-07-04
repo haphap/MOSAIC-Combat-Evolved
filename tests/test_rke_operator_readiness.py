@@ -736,7 +736,11 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
         assert {step["result"] for step in steps.values()} == {"already_applied"}
     else:
         assert isinstance(dry_run_payload["production_allowed_after_simulation"], bool)
-        assert dry_run_payload["after_next_state"] in {"staged_production", "production"}
+        assert dry_run_payload["after_next_state"] in {
+            "paper_trading",
+            "staged_production",
+            "production",
+        }
         assert steps["gold_set"]["result"] == "already_applied"
         assert steps["footprint_review"]["result"] in {
             "already_applied",

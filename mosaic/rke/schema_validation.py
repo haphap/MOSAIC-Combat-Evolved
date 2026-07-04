@@ -465,6 +465,18 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         True,
     ),
     (
+        "schemas/report_intelligence_stock_context_snapshot.schema.json",
+        "registry/report_intelligence/stock_context_snapshots.jsonl",
+        "jsonl",
+        True,
+    ),
+    (
+        "schemas/report_intelligence_industry_context_snapshot.schema.json",
+        "registry/report_intelligence/industry_context_snapshots.jsonl",
+        "jsonl",
+        True,
+    ),
+    (
         "schemas/report_intelligence_method_performance_profile.schema.json",
         "registry/report_intelligence/method_performance_profiles.jsonl",
         "jsonl",
@@ -1134,6 +1146,8 @@ EVOLUTION_GATE_EXPECTED_CHECK_IDS = (
     "RI-EVOL-05",
     "RI-EVOL-06",
     "RI-EVOL-07",
+    "RI-EVOL-08",
+    "RI-EVOL-09",
 )
 EVOLUTION_GATE_OPTIONAL_CHECK_ID_GROUPS = (
     (
@@ -1144,6 +1158,18 @@ EVOLUTION_GATE_OPTIONAL_CHECK_ID_GROUPS = (
         "RI-MACRO-05",
         "RI-MACRO-06",
         "RI-MACRO-07",
+    ),
+    (
+        "RI-STOCK-01",
+        "RI-STOCK-02",
+        "RI-STOCK-03",
+        "RI-STOCK-04",
+    ),
+    (
+        "RI-INDUSTRY-01",
+        "RI-INDUSTRY-02",
+        "RI-INDUSTRY-03",
+        "RI-INDUSTRY-04",
     ),
 )
 
@@ -1270,6 +1296,22 @@ PROMPT_MUTATION_REQUIRED_VALIDATION_REQUIREMENTS = (
     "statistical_robustness_audit_pass",
     "shadow_paper_trading_pass",
 )
+PRIOR_COMPILER_REFUSAL_CANDIDATE_TYPES = {
+    "stock_prior_recipe_rule_refusal",
+    "industry_prior_recipe_rule_refusal",
+    "macro_prior_rule_parameter_refusal",
+}
+PRIOR_COMPILER_CANDIDATE_TYPES = {
+    "stock_prior_recipe_rule_candidate",
+    "industry_prior_recipe_rule_candidate",
+    "macro_prior_rule_parameter_candidate",
+}
+PRIOR_COMPILER_ALLOWED_REFUSAL_REASONS = {
+    "insufficient_effective_n",
+    "missing_pit_outcome",
+    "missing_validation_target",
+    "source_dependent_cluster",
+}
 PROMPT_MUTATION_PUBLIC_EVIDENCE_PREFIXES = (
     "registry/report_intelligence/",
     "registry/gold_sets/",
@@ -5142,38 +5184,44 @@ def _validate_evolution_readiness_gate_contract(
     if check_01:
         row_label = "evolution_readiness_gate.checks[RI-EVOL-01]"
         evidence = evidence_mapping(check_01, row_label)
-        require_int_at_least(
-            evidence,
-            "unique_outcome_claim_count",
-            int(thresholds.get("min_unique_outcome_claims") or 0),
-            row_label,
-        )
-        require_int_at_least(
-            evidence,
-            "stock_proxy_unique_claim_count",
-            int(thresholds.get("min_stock_proxy_claims") or 0),
-            row_label,
-        )
-        require_int_at_least(
-            evidence,
-            "industry_proxy_unique_claim_count",
-            int(thresholds.get("min_industry_proxy_claims") or 0),
-            row_label,
-        )
+        if check_01.get("passed") is True:
+            require_int_at_least(
+                evidence,
+                "unique_outcome_claim_count",
+                int(thresholds.get("min_unique_outcome_claims") or 0),
+                row_label,
+            )
+            require_int_at_least(
+                evidence,
+                "stock_proxy_unique_claim_count",
+                int(thresholds.get("min_stock_proxy_claims") or 0),
+                row_label,
+            )
+            require_int_at_least(
+                evidence,
+                "industry_proxy_unique_claim_count",
+                int(thresholds.get("min_industry_proxy_claims") or 0),
+                row_label,
+            )
 
     check_02 = checks_by_id.get("RI-EVOL-02")
     if check_02:
         row_label = "evolution_readiness_gate.checks[RI-EVOL-02]"
         evidence = evidence_mapping(check_02, row_label)
         min_recipes = int(thresholds.get("min_paper_trading_recipes") or 0)
-        require_int_at_least(evidence, "paper_trading_run_count", min_recipes, row_label)
-        require_int_at_least(evidence, "validation_pass_count", min_recipes, row_label)
+        if check_02.get("passed") is True:
+            require_int_at_least(
+                evidence, "paper_trading_run_count", min_recipes, row_label
+            )
+            require_int_at_least(
+                evidence, "validation_pass_count", min_recipes, row_label
+            )
         after_cost = evidence.get("after_cost_paper_trading_summary")
         if not isinstance(after_cost, Mapping):
             failures.append(
                 f"{row_label}.evidence.after_cost_paper_trading_summary: expected object"
             )
-        else:
+        elif check_02.get("passed") is True:
             if after_cost.get("status") != "computed":
                 failures.append(
                     f"{row_label}.evidence.after_cost_paper_trading_summary.status: expected computed"
@@ -5638,10 +5686,48 @@ def _validate_evolution_readiness_gate_contract(
     if check_07:
         row_label = "evolution_readiness_gate.checks[RI-EVOL-07]"
         evidence = evidence_mapping(check_07, row_label)
-        if evidence.get("coverage_gate_status") != "passed":
-            failures.append(f"{row_label}.evidence.coverage_gate_status: expected passed")
-        if _string_items(evidence.get("coverage_gate_blockers")):
-            failures.append(f"{row_label}.evidence.coverage_gate_blockers: must be empty")
+        coverage_gate_status = str(evidence.get("coverage_gate_status") or "").strip()
+        coverage_gate_blockers = _string_items(evidence.get("coverage_gate_blockers"))
+        if not coverage_gate_status:
+            failures.append(f"{row_label}.evidence.coverage_gate_status: required")
+        if check_07.get("passed") is True:
+            if coverage_gate_status != "passed":
+                failures.append(
+                    f"{row_label}.evidence.coverage_gate_status: expected passed"
+                )
+            if coverage_gate_blockers:
+                failures.append(
+                    f"{row_label}.evidence.coverage_gate_blockers: must be empty"
+                )
+
+    check_08 = checks_by_id.get("RI-EVOL-08")
+    if check_08:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-08]"
+        evidence = evidence_mapping(check_08, row_label)
+        if str(evidence.get("status") or "") != (
+            "not_applicable_prompt_mutation_candidates_not_supplied"
+        ):
+            prior_count = _int_or_none(evidence.get("prior_compiler_candidate_count"))
+            actionable_count = _int_or_none(
+                evidence.get("prior_compiler_actionable_candidate_count")
+            )
+            if prior_count is None:
+                failures.append(
+                    f"{row_label}.evidence.prior_compiler_candidate_count: expected integer"
+                )
+            if actionable_count is None:
+                failures.append(
+                    f"{row_label}.evidence.prior_compiler_actionable_candidate_count: expected integer"
+                )
+            elif (
+                prior_count
+                and actionable_count == 0
+                and "prior_compiler_refusal_only"
+                not in _string_items(check_08.get("blockers"))
+            ):
+                failures.append(
+                    f"{row_label}.blockers: prior_compiler_refusal_only required"
+                )
 
     return len(checks), failures
 
@@ -6465,6 +6551,54 @@ def _tool_gap_prompt_candidate_expected_evidence_refs(
     ]
 
 
+def _data_acquisition_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    rows, row_failures, _rows_present = _load_public_semantic_jsonl(
+        root_path,
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
+    )
+    failures.extend(row_failures)
+    active_rows = [
+        row
+        for row in rows
+        if str(row.get("decision_status") or "pending_review") != "rejected"
+    ]
+    priority_counts: dict[str, int] = {}
+    pit_counts: dict[str, int] = {}
+    license_counts: dict[str, int] = {}
+    for row in active_rows:
+        priority = str(row.get("business_priority") or "").strip() or "unknown"
+        pit_status = str(row.get("pit_feasibility_status") or "").strip() or "unknown"
+        license_status = str(row.get("license_status") or "").strip() or "unknown"
+        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        pit_counts[pit_status] = pit_counts.get(pit_status, 0) + 1
+        license_counts[license_status] = license_counts.get(license_status, 0) + 1
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/data_acquisition_proposals.jsonl",
+            "field": "decision_status",
+            "proposal_count": len(active_rows),
+            "business_priority_counts": dict(sorted(priority_counts.items())),
+            "pit_feasibility_status_counts": dict(sorted(pit_counts.items())),
+            "license_status_counts": dict(sorted(license_counts.items())),
+            "market_cap_metadata_gap_count": sum(
+                1
+                for row in active_rows
+                if row.get("tool_gap_id")
+                == "stock_context_market_cap_metadata_missing"
+            ),
+            "top_tool_gap_ids": [
+                str(row.get("tool_gap_id") or "")
+                for row in active_rows[:10]
+                if str(row.get("tool_gap_id") or "").strip()
+            ],
+        }
+    ]
+
+
 def _paper_trading_diagnostic_evidence(
     summary: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -6882,6 +7016,19 @@ def _validate_prompt_mutation_governed_evidence(
             evidence_source="tool gap priority",
             failures=failures,
         )
+    elif candidate_type == "data_acquisition_prioritization_rule":
+        expected_refs = _data_acquisition_prompt_candidate_expected_evidence_refs(
+            root_path=root_path,
+            failures=failures,
+        )
+        _validate_prompt_mutation_expected_refs(
+            row,
+            row_label=row_label,
+            candidate_type=candidate_type,
+            expected_refs=expected_refs,
+            evidence_source="data acquisition proposals",
+            failures=failures,
+        )
     elif candidate_type == "recipe_paper_trading_rule":
         expected_refs = _recipe_paper_trading_prompt_candidate_expected_evidence_refs(
             root_path=root_path,
@@ -6895,6 +7042,57 @@ def _validate_prompt_mutation_governed_evidence(
             evidence_source="recipe paper-trading",
             failures=failures,
         )
+    return failures
+
+
+def _validate_prior_compiler_candidate_contract(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+) -> list[str]:
+    candidate_type = str(row.get("candidate_type") or "")
+    if candidate_type not in (
+        PRIOR_COMPILER_REFUSAL_CANDIDATE_TYPES | PRIOR_COMPILER_CANDIDATE_TYPES
+    ):
+        return []
+    failures: list[str] = []
+    blocked_by = set(_string_items(row.get("blocked_by")))
+    evidence_refs = row.get("evidence_refs")
+    if not isinstance(evidence_refs, Sequence) or isinstance(evidence_refs, str):
+        return failures
+    refusal_reasons: set[str] = set()
+    candidate_kinds: set[str] = set()
+    for evidence in evidence_refs:
+        if not isinstance(evidence, Mapping):
+            continue
+        candidate_kind = str(evidence.get("candidate_kind") or "").strip()
+        if candidate_kind:
+            candidate_kinds.add(candidate_kind)
+        refusal_reasons.update(_string_items(evidence.get("refusal_reasons")))
+    if candidate_type in PRIOR_COMPILER_REFUSAL_CANDIDATE_TYPES:
+        if not refusal_reasons:
+            failures.append(f"{row_label}.evidence_refs.refusal_reasons: required")
+        unsupported = sorted(refusal_reasons - PRIOR_COMPILER_ALLOWED_REFUSAL_REASONS)
+        if unsupported:
+            failures.append(
+                f"{row_label}.evidence_refs.refusal_reasons: unsupported "
+                + ", ".join(unsupported)
+            )
+        missing_blockers = sorted(refusal_reasons - blocked_by)
+        if missing_blockers:
+            failures.append(
+                f"{row_label}.blocked_by: must include refusal reasons "
+                + ", ".join(missing_blockers)
+            )
+        if not any(kind.endswith("_refusal") for kind in candidate_kinds):
+            failures.append(f"{row_label}.evidence_refs.candidate_kind: must be refusal")
+    else:
+        if refusal_reasons:
+            failures.append(
+                f"{row_label}.evidence_refs.refusal_reasons: must be empty for candidate"
+            )
+        if not any(kind.endswith("_candidate") for kind in candidate_kinds):
+            failures.append(f"{row_label}.evidence_refs.candidate_kind: must be candidate")
     return failures
 
 
@@ -6984,6 +7182,9 @@ def _validate_prompt_mutation_candidate_contract(
                 root_path=root_path,
             )
         )
+        failures.extend(
+            _validate_prior_compiler_candidate_contract(row, row_label=row_label)
+        )
         failures.extend(_public_forbidden_text_failures(row, path=row_label))
 
     return len(candidate_rows), failures
@@ -7002,6 +7203,35 @@ PROFILE_OUTCOME_LAYER_REQUIRED_SUMMARY_FIELDS = (
     "statistical_reliability_bucket",
 )
 
+PROFILE_OUTCOME_LAYER_BASE_KEY_FIELDS = (
+    "label_type",
+    "benchmark_family",
+    "cost_model_id",
+)
+
+PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS = (
+    "target_family",
+    "agent_layer",
+    "regime_bucket",
+)
+
+DOMAIN_RATING_SUPPORT_REQUIRED_COUNT_FIELDS = (
+    "rating_bucket_counts",
+    "failure_mode_counts",
+    "fundamental_metric_family_counts",
+    "target_family_counts",
+    "agent_layer_counts",
+    "regime_bucket_counts",
+    "mapping_confidence_counts",
+)
+
+DOMAIN_RATING_ALLOWED_BUCKETS = {
+    "supportive_evidence",
+    "mixed_evidence",
+    "contradictory_evidence",
+    "pending_or_unrated",
+}
+
 
 def _profile_layer_expected_effective_n(
     profile: Mapping[str, Any],
@@ -7013,6 +7243,55 @@ def _profile_layer_expected_effective_n(
             return 0.0
         return _float_or_none(source_support.get("n_effective_reports")) or 0.0
     return _float_or_none(profile.get("n_effective")) or 0.0
+
+
+def _profile_layer_uses_extended_keys(
+    *,
+    policy: str,
+    summaries: Sequence[Any],
+    keys: Sequence[Any],
+) -> bool:
+    if any(field in policy for field in PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS):
+        return True
+    for row in (*summaries, *keys):
+        if isinstance(row, Mapping) and any(
+            field in row for field in PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS
+        ):
+            return True
+    return False
+
+
+def _profile_layer_key(
+    row: Mapping[str, Any],
+    fields: Sequence[str],
+) -> tuple[str, ...]:
+    return tuple(str(row.get(field) or "") for field in fields)
+
+
+def _validate_domain_rating_support(value: Any, *, row_label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, Mapping):
+        return [f"{row_label}: expected object"]
+    failures = _public_forbidden_text_failures(value, path=row_label)
+    if value.get("privacy_policy") != "redacted_internal_rating_aggregate_only":
+        failures.append(
+            f"{row_label}.privacy_policy: must be redacted_internal_rating_aggregate_only"
+        )
+    for field in DOMAIN_RATING_SUPPORT_REQUIRED_COUNT_FIELDS:
+        counts = value.get(field)
+        if not isinstance(counts, Mapping):
+            failures.append(f"{row_label}.{field}: expected object")
+            continue
+        for key, count in counts.items():
+            if not str(key).strip():
+                failures.append(f"{row_label}.{field}: blank key forbidden")
+            int_count = _int_or_none(count)
+            if int_count is None or int_count < 0:
+                failures.append(f"{row_label}.{field}.{key}: count must be nonnegative")
+            if field == "rating_bucket_counts" and key not in DOMAIN_RATING_ALLOWED_BUCKETS:
+                failures.append(f"{row_label}.{field}.{key}: unsupported rating bucket")
+    return failures
 
 
 def _validate_profile_outcome_layer_support(
@@ -7074,12 +7353,28 @@ def _validate_profile_outcome_layer_support(
                     f"{row_label}.outcome_layer_support.mixed_layer_profile: must match layer_count > 1"
                 )
             policy = str(support.get("layering_policy") or "")
-            for required_text in ("label_type", "benchmark_family", "cost_model_id"):
+            key_fields = PROFILE_OUTCOME_LAYER_BASE_KEY_FIELDS
+            if _profile_layer_uses_extended_keys(
+                policy=policy,
+                summaries=summaries,
+                keys=keys,
+            ):
+                key_fields = (
+                    *PROFILE_OUTCOME_LAYER_BASE_KEY_FIELDS,
+                    *PROFILE_OUTCOME_LAYER_EXTENDED_KEY_FIELDS,
+                )
+            for required_text in key_fields:
                 if required_text not in policy:
                     failures.append(
                         f"{row_label}.outcome_layer_support.layering_policy: must mention {required_text}"
                     )
-            summary_keys: list[tuple[str, str, str]] = []
+            failures.extend(
+                _validate_domain_rating_support(
+                    support.get("domain_rating_support"),
+                    row_label=f"{row_label}.outcome_layer_support.domain_rating_support",
+                )
+            )
+            summary_keys: list[tuple[str, ...]] = []
             n_effective_sum = 0.0
             for summary_index, summary in enumerate(summaries, 1):
                 summary_label = (
@@ -7091,14 +7386,16 @@ def _validate_profile_outcome_layer_support(
                 for field in PROFILE_OUTCOME_LAYER_REQUIRED_SUMMARY_FIELDS:
                     if field not in summary:
                         failures.append(f"{summary_label}.{field}: required")
-                key = (
-                    str(summary.get("label_type") or ""),
-                    str(summary.get("benchmark_family") or ""),
-                    str(summary.get("cost_model_id") or ""),
+                failures.extend(
+                    _validate_domain_rating_support(
+                        summary.get("domain_rating_support"),
+                        row_label=f"{summary_label}.domain_rating_support",
+                    )
                 )
+                key = _profile_layer_key(summary, key_fields)
                 if not all(key):
                     failures.append(
-                        f"{summary_label}: label_type, benchmark_family, and cost_model_id required"
+                        f"{summary_label}: {', '.join(key_fields)} required"
                     )
                 summary_keys.append(key)
                 n_effective = _float_or_none(summary.get("n_effective"))
@@ -7106,7 +7403,7 @@ def _validate_profile_outcome_layer_support(
                     failures.append(f"{summary_label}.n_effective: must be nonnegative")
                 else:
                     n_effective_sum += n_effective
-            observed_keys: list[tuple[str, str, str]] = []
+            observed_keys: list[tuple[str, ...]] = []
             for key_index, key_row in enumerate(keys, 1):
                 key_label = (
                     f"{row_label}.outcome_layer_support.layer_keys[{key_index}]"
@@ -7114,14 +7411,10 @@ def _validate_profile_outcome_layer_support(
                 if not isinstance(key_row, Mapping):
                     failures.append(f"{key_label}: expected object")
                     continue
-                key = (
-                    str(key_row.get("label_type") or ""),
-                    str(key_row.get("benchmark_family") or ""),
-                    str(key_row.get("cost_model_id") or ""),
-                )
+                key = _profile_layer_key(key_row, key_fields)
                 if not all(key):
                     failures.append(
-                        f"{key_label}: label_type, benchmark_family, and cost_model_id required"
+                        f"{key_label}: {', '.join(key_fields)} required"
                     )
                 observed_keys.append(key)
             if sorted(observed_keys) != sorted(summary_keys):

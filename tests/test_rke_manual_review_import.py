@@ -183,6 +183,16 @@ def test_apply_gold_set_review_import_dry_run_does_not_modify_template(tmp_path:
     assert review_path.read_text(encoding="utf-8") == original
 
 
+def test_apply_gold_set_review_import_reports_missing_private_target(tmp_path: Path):
+    import_path = tmp_path / "gold_import.jsonl"
+    _write_jsonl(import_path, [{"claim_id": "missing-target"}])
+
+    report = apply_gold_set_review_import(tmp_path, import_path, dry_run=True)
+
+    assert not report.accepted
+    assert any("gold-set target review missing" in blocker for blocker in report.blockers)
+
+
 def test_apply_gold_set_review_import_rejects_mismatched_template_references(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "gold_import_bad_refs.jsonl"
@@ -466,6 +476,19 @@ def test_apply_license_review_import_rejects_mismatched_template_references(tmp_
     assert report.applied_rows == 0
     assert "review_context_ref must match registry/compliance/tushare_license_review_packet.json" in reasons
     assert "publish_date does not match target review row" in reasons
+
+
+def test_apply_license_review_import_reports_missing_private_target(tmp_path: Path):
+    import_path = tmp_path / "license_import.jsonl"
+    _write_jsonl(import_path, [{"source_id": "missing-target"}])
+
+    report = apply_source_license_review_import(tmp_path, import_path, dry_run=True)
+
+    assert not report.accepted
+    assert any(
+        "source-license target review missing" in blocker
+        for blocker in report.blockers
+    )
 
 
 def test_apply_license_review_import_rejects_stale_target_row_hash(tmp_path: Path):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 from mosaic.rke import review_progress as review_progress_module
 from mosaic.rke.cli import main
@@ -204,6 +205,53 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+    )
+
+
+def test_gold_progress_blocks_when_private_target_template_missing(
+    tmp_path: Path, monkeypatch
+):
+    reviewed_path = tmp_path / GOLD_FULL_REVIEWED_IMPORT_PATH
+    reviewed_path.parent.mkdir(parents=True)
+    reviewed_path.write_text("{}\n", encoding="utf-8")
+    summary = SimpleNamespace(
+        review_complete=False,
+        total_claims=7,
+        reviewed_claims=0,
+        pending_claims=7,
+        passed=False,
+        blockers=(),
+        quality_gap_targets={},
+    )
+    monkeypatch.setattr(review_progress_module, "_gold_batch_status", lambda _root: {})
+    monkeypatch.setattr(
+        review_progress_module,
+        "summarize_gold_set_review",
+        lambda _root: summary,
+    )
+    monkeypatch.setattr(review_progress_module, "_read_mapping_json", lambda _path: {})
+    monkeypatch.setattr(review_progress_module, "_copy_registry", lambda _root, _tmp: None)
+
+    def missing_target(*_args, **_kwargs):
+        raise FileNotFoundError(
+            "missing",
+            "No such file",
+            "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        )
+
+    monkeypatch.setattr(
+        review_progress_module,
+        "apply_gold_set_review_import",
+        missing_target,
+    )
+
+    gate = review_progress_module._gold_progress(tmp_path)
+
+    assert gate.input_exists is True
+    assert gate.ready_for_promotion is False
+    assert gate.blockers == (
+        "registry/gold_sets/tushare_research_reports.review_template.jsonl "
+        "missing; regenerate private gold review template",
     )
 
 

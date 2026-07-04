@@ -11,7 +11,7 @@
     {
       "blocker": "",
       "check_id": "handoff_ready_for_operator",
-      "evidence": "gates=['footprint_review', 'gold_set', 'lockbox', 'source_license'], next_state=production",
+      "evidence": "gates=['footprint_review', 'gold_set', 'lockbox', 'source_license'], next_state=paper_trading",
       "passed": true
     },
     {
@@ -35,7 +35,7 @@
     {
       "blocker": "",
       "check_id": "manual_batch_promotion_inputs_separated",
-      "evidence": "gates=2, batches=0, failures=0",
+      "evidence": "gates=2, batches=1, failures=0",
       "passed": true
     },
     {
@@ -71,7 +71,7 @@
     {
       "blocker": "",
       "check_id": "lockbox_upstream_cli_guard_enforced",
-      "evidence": "pending=none; ready=gold_set,footprint_review,source_license; blockers=0",
+      "evidence": "pending=footprint_review; ready=gold_set,source_license; blockers=1",
       "passed": true
     },
     {
@@ -89,13 +89,13 @@
     {
       "blocker": "",
       "check_id": "blank_bundle_dry_run_does_not_promote",
-      "evidence": "accepted=False, before_next_state=production, after_next_state=production",
+      "evidence": "accepted=False, before_next_state=production, after_next_state=paper_trading",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_review_bundle_manifest_current",
-      "evidence": "artifact_count=11, blockers=0, dry_run_accepted=True",
+      "evidence": "artifact_count=11, blockers=0, dry_run_accepted=False",
       "passed": true
     },
     {

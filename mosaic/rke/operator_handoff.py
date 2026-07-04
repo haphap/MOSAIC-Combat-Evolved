@@ -863,13 +863,23 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             if str(blocker).strip()
         )
     )
+    manual_gates_passed = all(gate.passed for gate in gates)
+    production_allowed = promotion.production_allowed and manual_gates_passed
+    staged_production_allowed = promotion.staged_production_allowed and manual_gates_passed
+    next_state = (
+        promotion.next_state
+        if production_allowed
+        else "paper_trading"
+        if promotion.paper_trading_allowed
+        else "candidate"
+    )
     return OperatorHandoff(
         handoff_id="RKE-OPERATOR-HANDOFF-20260606",
-        production_allowed=promotion.production_allowed,
-        staged_production_allowed=promotion.staged_production_allowed,
+        production_allowed=production_allowed,
+        staged_production_allowed=staged_production_allowed,
         paper_trading_allowed=promotion.paper_trading_allowed,
-        next_state=promotion.next_state,
-        direct_production_forbidden=promotion.direct_production_forbidden,
+        next_state=next_state,
+        direct_production_forbidden=not production_allowed,
         ready_for_operator_review=bool(batch_status.ready_for_manual_review),
         remaining_blockers=remaining_blockers,
         gates=gates,

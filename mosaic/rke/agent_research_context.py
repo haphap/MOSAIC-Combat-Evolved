@@ -13,13 +13,56 @@ import re
 from collections import defaultdict
 from functools import lru_cache
 from hashlib import sha256
+from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
 SCHEMA_VERSION = "rke_agent_research_context_v1"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
+RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
+RANKING_POLICY_ID = "rke_agent_research_context_rank_v1"
+FORBIDDEN_FIELD_POLICY = "source_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
+RATING_BUCKETS = frozenset(
+    {
+        "supportive_evidence",
+        "mixed_evidence",
+        "contradictory_evidence",
+        "pending_or_unrated",
+    }
+)
+RELIABILITY_BUCKETS = frozenset(
+    {
+        "high_effective_n",
+        "medium_effective_n",
+        "low_effective_n",
+        "limited",
+        "insufficient_data",
+    }
+)
+AGENT_TARGET_SPECIFICITY_BUCKETS = frozenset(
+    {
+        "direct_agent_target_match",
+        "explicit_agent_candidate",
+        "strong_role_style_match",
+        "sector_target_match",
+        "metric_or_regime_match",
+        "role_style_match",
+        "decision_stock_prior",
+        "decision_industry_prior",
+        "decision_macro_prior",
+        "generic_agent_match",
+    }
+)
+PERFORMANCE_CONTEXT_BUCKETS = frozenset(
+    {
+        "source_and_viewpoint_profile_match",
+        "viewpoint_profile_match",
+        "source_profile_match",
+        "insufficient_data",
+    }
+)
 
 MACRO_AGENTS = frozenset(
     {
@@ -47,6 +90,7 @@ SECTOR_AGENTS = frozenset(
     }
 )
 SUPERINVESTOR_AGENTS = frozenset({"ackman", "burry", "druckenmiller", "munger"})
+DECISION_AGENTS = frozenset({"alpha_discovery", "cio", "cro", "execution"})
 
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
@@ -228,6 +272,7 @@ FORBIDDEN_FIELD_NAMES = frozenset(
         "pdf",
         "pdf_path",
         "review_note",
+        "source_excerpt",
         "source_span_id",
         "source_span_ids",
         "source_text",
@@ -251,6 +296,8 @@ def normalize_agent_id(agent_id: str, layer: str = "") -> str:
         return f"sector.{raw}"
     if layer_slug in {"superinvestor", "investor"} or raw in SUPERINVESTOR_AGENTS:
         return f"superinvestor.{raw}"
+    if layer_slug == "decision" or raw in DECISION_AGENTS:
+        return f"decision.{raw}"
     return raw
 
 
@@ -283,6 +330,15 @@ def build_rke_agent_research_context(
         ),
         "recipes": _read_jsonl(registry_path / "analysis_recipes.jsonl"),
         "tool_gaps": _read_jsonl(registry_path / "tool_gaps.jsonl"),
+        "weighted_research_contexts": _read_jsonl(
+            registry_path / "weighted_research_contexts.jsonl"
+        ),
+        "stock_context_snapshots": _read_jsonl(
+            registry_path / "stock_context_snapshots.jsonl"
+        ),
+        "industry_context_snapshots": _read_jsonl(
+            registry_path / "industry_context_snapshots.jsonl"
+        ),
     }
     return build_rke_agent_research_context_from_rows(
         agent_id=agent_id,
@@ -305,6 +361,9 @@ def build_rke_agent_research_context_from_rows(
     viewpoint_profiles: Sequence[Mapping[str, Any]] = (),
     recipes: Sequence[Mapping[str, Any]] = (),
     tool_gaps: Sequence[Mapping[str, Any]] = (),
+    weighted_research_contexts: Sequence[Mapping[str, Any]] = (),
+    stock_context_snapshots: Sequence[Mapping[str, Any]] = (),
+    industry_context_snapshots: Sequence[Mapping[str, Any]] = (),
     as_of_date: str = "",
     layer: str = "",
     ticker: str = "",
@@ -315,11 +374,12 @@ def build_rke_agent_research_context_from_rows(
     max_count = max(0, int(max_items or 0))
     metadata_by_report = _index_metadata(metadata)
     outcomes_by_claim = _group_by(outcomes, "forecast_claim_id")
+    weighted_by_claim = _weighted_claims_by_forecast_id(
+        weighted_research_contexts, normalized_agent
+    )
 
     items: list[dict[str, Any]] = []
-    for claim in forecasts:
-        if len(items) >= max_count:
-            break
+    for original_index, claim in enumerate(forecasts):
         if as_of_date and _claim_as_of_date(claim, metadata_by_report) > as_of_date:
             continue
         report_meta = metadata_by_report.get(_claim_report_key(claim), {})
@@ -331,17 +391,29 @@ def build_rke_agent_research_context_from_rows(
             sector=sector,
         ):
             continue
+        claim_id = str(claim.get("forecast_claim_id") or "")
         item = _public_claim_item(
             claim,
             report_meta=report_meta,
             agent_id=normalized_agent,
+            as_of_date=as_of_date,
+            original_input_index=original_index,
+            weighted_claim=weighted_by_claim.get(claim_id, {}),
             source_profiles=source_profiles,
             viewpoint_profiles=viewpoint_profiles,
-            outcomes=outcomes_by_claim.get(str(claim.get("forecast_claim_id") or ""), []),
+            outcomes=outcomes_by_claim.get(claim_id, []),
             recipes=recipes,
             tool_gaps=tool_gaps,
+            stock_context_snapshots=stock_context_snapshots,
+            industry_context_snapshots=industry_context_snapshots,
         )
         items.append(item)
+    ranked_items = _rank_context_items(items)
+    for rank, item in enumerate(ranked_items, 1):
+        item["retrieval_rank"] = rank
+        item["priority_bucket"] = _priority_bucket(rank, len(ranked_items))
+        item["ranking_reason_codes"] = _ranking_reason_codes(item)
+    visible_items = ranked_items[:max_count]
 
     context = {
         "schema_version": SCHEMA_VERSION,
@@ -352,13 +424,18 @@ def build_rke_agent_research_context_from_rows(
         "research_only": True,
         "production_signal_allowed": False,
         "actionability": SAFE_ACTIONABILITY,
-        "context_items": items,
+        "ranking_policy_id": RANKING_POLICY_ID,
+        "context_items": visible_items,
         "summary": {
-            "item_count": len(items),
+            "item_count": len(visible_items),
+            "matched_item_count": len(ranked_items),
+            "truncated_item_count": max(0, len(ranked_items) - len(visible_items)),
+            "no_prior_reason": _no_prior_reason(normalized_agent, ranked_items),
             "private_text_included": False,
-            "forbidden_field_policy": "source_prose_and_private_references_omitted",
+            "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
             "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
             "current_data_required": True,
+            "ranking_policy_id": RANKING_POLICY_ID,
         },
     }
     assert_public_safe_context(context)
@@ -381,6 +458,7 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
         return "\n".join(lines)
     for item in items:
         item_map = _ensure_mapping(item)
+        outcome_summary = _ensure_mapping(item_map.get("outcome_label_summary"))
         lines.extend(
             [
                 "",
@@ -389,6 +467,13 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                     f"- Target: {item_map.get('target_type')} "
                     f"{item_map.get('target_id')}, "
                     f"metric_family={item_map.get('metric_family')}"
+                ),
+                (
+                    "- Ranking: "
+                    f"rank={item_map.get('retrieval_rank')}; "
+                    f"priority={item_map.get('priority_bucket')}; "
+                    "reasons="
+                    f"{', '.join(_ensure_str_list(item_map.get('ranking_reason_codes'))) or 'none'}"
                 ),
                 f"- Expected direction: {item_map.get('expected_direction')}",
                 f"- Horizon: {item_map.get('horizon_bucket')}",
@@ -408,6 +493,14 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                     f"{', '.join(_ensure_str_list(item_map.get('known_failure_mode_tags'))) or 'none'}"
                 ),
                 (
+                    "- Outcome labels: "
+                    f"count={outcome_summary.get('label_count')}; "
+                    f"pending_share={outcome_summary.get('pending_share')}; "
+                    "types="
+                    f"{', '.join(_ensure_str_list(outcome_summary.get('label_types'))) or 'none'}; "
+                    f"latest_completed_exit={outcome_summary.get('latest_completed_exit_date') or 'none'}"
+                ),
+                (
                     "- Recipes: "
                     f"{', '.join(_ensure_str_list(item_map.get('recipe_ids'))) or 'none'}"
                 ),
@@ -415,7 +508,19 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                     "- Tool gaps: "
                     f"{', '.join(_ensure_str_list(item_map.get('tool_gap_ids'))) or 'none'}"
                 ),
-                "- Current data required: true",
+                (
+                    "- Current data required: "
+                    f"{str(item_map.get('current_data_required') is True).lower()}; "
+                    "fields="
+                    f"{', '.join(_ensure_str_list(item_map.get('current_data_required_fields'))) or 'none'}"
+                ),
+                (
+                    "- Prior guard: "
+                    f"use_policy={item_map.get('use_policy')}; "
+                    f"actionability_guard={item_map.get('actionability_guard')}; "
+                    "production_signal_allowed="
+                    f"{str(item_map.get('production_signal_allowed')).lower()}"
+                ),
             ]
         )
         if item_map.get("ticker"):
@@ -440,24 +545,59 @@ def _public_claim_item(
     *,
     report_meta: Mapping[str, Any],
     agent_id: str,
+    as_of_date: str,
+    original_input_index: int,
+    weighted_claim: Mapping[str, Any],
     source_profiles: Sequence[Mapping[str, Any]],
     viewpoint_profiles: Sequence[Mapping[str, Any]],
     outcomes: Sequence[Mapping[str, Any]],
     recipes: Sequence[Mapping[str, Any]],
     tool_gaps: Sequence[Mapping[str, Any]],
+    stock_context_snapshots: Sequence[Mapping[str, Any]],
+    industry_context_snapshots: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     target = _ensure_mapping(claim.get("target"))
+    domain = _claim_domain(claim, report_meta)
     metric_families = _claim_metric_families(claim)
     regime_types = _claim_regime_types(claim, agent_id)
     source_profile = _best_source_profile(report_meta, source_profiles)
     viewpoint_profile = _best_viewpoint_profile(metric_families, viewpoint_profiles)
     matched_gaps = _matching_tool_gap_ids(metric_families, agent_id, tool_gaps)
     matched_recipes = _matching_recipe_ids(metric_families, recipes)
+    outcome_summary = _outcome_summary(outcomes)
+    combined_weight = _round_float(
+        weighted_claim.get("combined_research_prior_weight") or 1.0
+    )
+    performance_context_match = _performance_context_bucket(
+        weighted_claim.get("performance_context_match")
+    )
+    stock_context_snapshot = (
+        _matching_stock_context_snapshot(claim, report_meta, stock_context_snapshots)
+        if domain == "stock"
+        else {}
+    )
+    industry_context_snapshot = (
+        _matching_industry_context_snapshot(
+            claim,
+            report_meta,
+            industry_context_snapshots,
+        )
+        if domain == "industry"
+        else {}
+    )
+    context_snapshot_missing_reasons = _context_snapshot_missing_reasons(
+        agent_id,
+        claim,
+        report_meta,
+        stock_context_snapshot=stock_context_snapshot,
+        industry_context_snapshot=industry_context_snapshot,
+    )
     item = {
         "redacted_claim_id": _redacted_id(
             "FCRED",
             claim.get("forecast_claim_id") or claim.get("claim_id") or "",
         ),
+        "domain": domain,
         "target_type": _safe_token(target.get("target_type") or "unknown"),
         "target_id": _safe_token(target.get("target_id") or target.get("target_name") or "unknown"),
         "metric_family": metric_families[0] if metric_families else "unknown",
@@ -468,26 +608,59 @@ def _public_claim_item(
         ),
         "regime_bucket": "|".join(regime_types) if regime_types else "unknown",
         "regime_types": regime_types,
-        "source_performance_bucket": _safe_token(
-            source_profile.get("shrunk_performance_bucket") or "insufficient_data"
+        "source_performance_bucket": _rating_bucket(
+            source_profile.get("shrunk_performance_bucket")
         ),
-        "viewpoint_performance_bucket": _safe_token(
-            viewpoint_profile.get("shrunk_performance_bucket") or "insufficient_data"
+        "viewpoint_performance_bucket": _rating_bucket(
+            viewpoint_profile.get("shrunk_performance_bucket")
         ),
         "n_effective": _round_float(
             viewpoint_profile.get("n_effective") or source_profile.get("n_effective")
         ),
-        "statistical_reliability_bucket": _safe_token(
+        "statistical_reliability_bucket": _reliability_bucket(
             viewpoint_profile.get("statistical_reliability_bucket")
             or source_profile.get("statistical_reliability_bucket")
-            or "insufficient_data"
+        ),
+        "source_weight_multiplier": _round_float(
+            weighted_claim.get("source_weight_multiplier") or 1.0
+        ),
+        "viewpoint_weight_multiplier": _round_float(
+            weighted_claim.get("viewpoint_weight_multiplier") or 1.0
+        ),
+        "combined_research_prior_weight": combined_weight,
+        "performance_context_match": performance_context_match,
+        "agent_target_specificity_bucket": _agent_target_specificity_bucket(
+            agent_id, claim, report_meta
         ),
         "known_failure_mode_tags": _failure_mode_tags(claim, viewpoint_profile),
+        "role_filter_reason_codes": _role_filter_reason_codes(
+            agent_id, claim, report_meta
+        ),
         "recipe_ids": matched_recipes,
         "tool_gap_ids": matched_gaps,
-        "outcome_label_summary": _outcome_summary(outcomes),
+        "outcome_label_summary": outcome_summary,
+        "latest_completed_exit_date": outcome_summary.get("latest_completed_exit_date")
+        or "",
+        "freshness_bucket": _freshness_bucket(
+            latest_completed_exit_date=str(
+                outcome_summary.get("latest_completed_exit_date") or ""
+            ),
+            as_of_date=as_of_date,
+        ),
         "current_data_required": True,
+        "current_data_required_fields": _current_data_required_fields(agent_id),
+        "context_snapshot_status": _context_snapshot_status(
+            stock_context_snapshot,
+            industry_context_snapshot,
+            context_snapshot_missing_reasons,
+        ),
+        "context_snapshot_missing_reasons": context_snapshot_missing_reasons,
         "actionability": SAFE_ACTIONABILITY,
+        "actionability_guard": SAFE_ACTIONABILITY,
+        "use_policy": RESEARCH_PRIOR_USE_POLICY,
+        "production_signal_allowed": False,
+        "no_prior_reason": "",
+        "original_input_index": original_input_index,
     }
     if agent_id.startswith("sector."):
         item["sector"] = _safe_token(
@@ -498,6 +671,79 @@ def _public_claim_item(
             report_meta.get("ts_code") or target.get("target_id") or ""
         )
         item["style_fit"] = _style_fit_bucket(agent_id, claim, report_meta)
+    if stock_context_snapshot:
+        item.update(
+            {
+                "context_snapshot_id": str(
+                    stock_context_snapshot.get("snapshot_id") or ""
+                ),
+                "market_cap_bucket": _safe_token(
+                    stock_context_snapshot.get("market_cap_bucket") or "unknown"
+                ),
+                "liquidity_bucket": _safe_token(
+                    stock_context_snapshot.get("liquidity_bucket") or "unknown"
+                ),
+                "stock_outcome_age_bucket": _safe_token(
+                    stock_context_snapshot.get("stock_outcome_age_bucket")
+                    or "unknown"
+                ),
+                "benchmark_family": _safe_token(
+                    stock_context_snapshot.get("benchmark_family") or "unknown"
+                ),
+                "fundamental_metric_family_counts": dict(
+                    sorted(
+                        _ensure_mapping(
+                            stock_context_snapshot.get(
+                                "fundamental_metric_family_counts"
+                            )
+                        ).items()
+                    )
+                ),
+                "context_snapshot_feature_missing_reasons": _ensure_str_list(
+                    stock_context_snapshot.get("missing_feature_reasons")
+                ),
+            }
+        )
+    if industry_context_snapshot:
+        known_proxy_limitations = _ensure_str_list(
+            industry_context_snapshot.get("known_proxy_limitations")
+        )
+        item["known_failure_mode_tags"] = list(
+            dict.fromkeys(
+                [
+                    *_ensure_str_list(item.get("known_failure_mode_tags")),
+                    *known_proxy_limitations,
+                ]
+            )
+        )
+        item.update(
+            {
+                "context_snapshot_id": str(
+                    industry_context_snapshot.get("snapshot_id") or ""
+                ),
+                "industry_cycle_bucket": _safe_token(
+                    industry_context_snapshot.get("industry_cycle_bucket")
+                    or "unknown"
+                ),
+                "proxy_symbol": _safe_token(
+                    industry_context_snapshot.get("proxy_symbol") or "unknown"
+                ),
+                "proxy_liquidity_bucket": _safe_token(
+                    industry_context_snapshot.get("proxy_liquidity_bucket")
+                    or "unknown"
+                ),
+                "mapping_confidence": _safe_token(
+                    industry_context_snapshot.get("mapping_confidence") or "unknown"
+                ),
+                "benchmark_family": _safe_token(
+                    industry_context_snapshot.get("benchmark_family") or "unknown"
+                ),
+                "known_proxy_limitations": known_proxy_limitations,
+                "context_snapshot_feature_missing_reasons": _ensure_str_list(
+                    industry_context_snapshot.get("missing_feature_reasons")
+                ),
+            }
+        )
     return item
 
 
@@ -530,7 +776,51 @@ def _claim_matches_request(
         if str(report_meta.get("report_type") or "") != "个股研报":
             return False
         return _style_fit_score(agent_id, claim, report_meta) > 0
+    if agent_id.startswith("decision."):
+        return _claim_domain(claim, report_meta) in {"stock", "industry", "macro"}
     return False
+
+
+def _claim_domain(claim: Mapping[str, Any], report_meta: Mapping[str, Any]) -> str:
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "")
+    report_type = str(report_meta.get("report_type") or "")
+    if target_type in {"stock", "company"} or report_type == "个股研报":
+        return "stock"
+    if target_type in {"sector", "industry"} or report_type == "行业研报":
+        return "industry"
+    if _is_macro_claim(claim, report_meta):
+        return "macro"
+    return "unknown"
+
+
+def _agent_target_specificity_bucket(
+    agent_id: str, claim: Mapping[str, Any], report_meta: Mapping[str, Any]
+) -> str:
+    target = _ensure_mapping(claim.get("target"))
+    explicit_agents = {
+        str(value).strip()
+        for value in [
+            *_ensure_list(claim.get("target_agent_candidates")),
+            *_ensure_list(target.get("target_agent_candidates")),
+        ]
+        if str(value).strip()
+    }
+    if agent_id in explicit_agents:
+        return "explicit_agent_candidate"
+    if agent_id.startswith("superinvestor.") and _style_fit_score(
+        agent_id, claim, report_meta
+    ) >= 3:
+        return "strong_role_style_match"
+    if agent_id.startswith("superinvestor."):
+        return "role_style_match"
+    if agent_id.startswith("sector.") and _sector_agent_for_claim(claim, report_meta):
+        return "sector_target_match"
+    if agent_id.startswith("macro.") and agent_id in _macro_agent_candidates(claim):
+        return "metric_or_regime_match"
+    if agent_id.startswith("decision."):
+        return f"decision_{_claim_domain(claim, report_meta)}_prior"
+    return "generic_agent_match"
 
 
 def _is_macro_claim(claim: Mapping[str, Any], report_meta: Mapping[str, Any]) -> bool:
@@ -673,6 +963,157 @@ def _best_by_effective_n(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]
     return sorted(rows, key=lambda row: float(row.get("n_effective") or 0), reverse=True)[0]
 
 
+def _weighted_claims_by_forecast_id(
+    contexts: Sequence[Mapping[str, Any]], agent_id: str
+) -> dict[str, Mapping[str, Any]]:
+    rows: dict[str, tuple[int, Mapping[str, Any]]] = {}
+    for context in contexts:
+        context_agent = str(context.get("agent_id") or "")
+        priority = 0 if context_agent == agent_id else 1 if context_agent == "research.general" else 2
+        for claim in _ensure_list(context.get("retrieved_claims")):
+            claim_map = _ensure_mapping(claim)
+            forecast_claim_id = str(claim_map.get("forecast_claim_id") or "")
+            if not forecast_claim_id:
+                continue
+            previous = rows.get(forecast_claim_id)
+            if previous is None or priority < previous[0]:
+                rows[forecast_claim_id] = (priority, claim_map)
+    return {claim_id: row for claim_id, (_, row) in rows.items()}
+
+
+def _rank_context_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(items, key=_context_item_rank_key)
+
+
+def _context_item_rank_key(item: Mapping[str, Any]) -> tuple[Any, ...]:
+    return (
+        _specificity_rank(item.get("agent_target_specificity_bucket")),
+        _performance_context_rank(item.get("performance_context_match")),
+        -_safe_float(item.get("combined_research_prior_weight"), 1.0),
+        _reliability_rank(item.get("statistical_reliability_bucket")),
+        -_safe_float(item.get("n_effective"), 0.0),
+        _freshness_rank(item.get("freshness_bucket")),
+        _reverse_date_key(item.get("latest_completed_exit_date")),
+        _safe_int(item.get("original_input_index"), 0),
+    )
+
+
+def _specificity_rank(value: Any) -> int:
+    ranks = {
+        "direct_agent_target_match": 0,
+        "explicit_agent_candidate": 0,
+        "strong_role_style_match": 1,
+        "sector_target_match": 1,
+        "metric_or_regime_match": 1,
+        "role_style_match": 2,
+        "decision_stock_prior": 2,
+        "decision_industry_prior": 2,
+        "decision_macro_prior": 2,
+        "generic_agent_match": 3,
+    }
+    return ranks.get(str(value or ""), 9)
+
+
+def _performance_context_rank(value: Any) -> int:
+    ranks = {
+        "source_and_viewpoint_profile_match": 0,
+        "viewpoint_profile_match": 1,
+        "source_profile_match": 1,
+        "insufficient_data": 2,
+    }
+    return ranks.get(str(value or ""), 9)
+
+
+def _reliability_rank(value: Any) -> int:
+    ranks = {
+        "high_effective_n": 0,
+        "medium_effective_n": 1,
+        "low_effective_n": 2,
+        "limited": 3,
+        "insufficient_data": 4,
+    }
+    return ranks.get(str(value or ""), 9)
+
+
+def _freshness_rank(value: Any) -> int:
+    ranks = {
+        "historical_completed_exit": 0,
+        "completed_exit_after_prior_as_of": 1,
+        "pending_no_completed_exit": 2,
+    }
+    return ranks.get(str(value or ""), 9)
+
+
+def _reverse_date_key(value: Any) -> str:
+    date = _date_key(value)
+    return "".join(str(9 - int(char)) if char.isdigit() else char for char in date)
+
+
+def _priority_bucket(rank: int, total: int) -> str:
+    if total <= 0:
+        return "low"
+    if rank <= 3:
+        return "high"
+    if rank <= 10:
+        return "medium"
+    return "low"
+
+
+def _ranking_reason_codes(item: Mapping[str, Any]) -> list[str]:
+    reasons = [str(item.get("agent_target_specificity_bucket") or "generic_agent_match")]
+    reasons.extend(_ensure_str_list(item.get("role_filter_reason_codes")))
+    performance_context = str(item.get("performance_context_match") or "insufficient_data")
+    if performance_context != "insufficient_data":
+        reasons.append(performance_context)
+    weight = _safe_float(item.get("combined_research_prior_weight"), 1.0)
+    if weight > 1.0:
+        reasons.append("research_prior_weight_above_neutral")
+    elif weight < 1.0:
+        reasons.append("research_prior_weight_below_neutral")
+    reliability = str(item.get("statistical_reliability_bucket") or "insufficient_data")
+    if reliability != "insufficient_data":
+        reasons.append(f"reliability_{reliability}")
+    freshness = str(item.get("freshness_bucket") or "")
+    if freshness:
+        reasons.append(freshness)
+    outcome_summary = _ensure_mapping(item.get("outcome_label_summary"))
+    if _safe_int(outcome_summary.get("label_count"), 0) > 0:
+        reasons.append("market_feedback_available")
+    reasons.extend(_ensure_str_list(item.get("context_snapshot_missing_reasons")))
+    return list(dict.fromkeys(reasons))
+
+
+def _role_filter_reason_codes(
+    agent_id: str,
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+) -> list[str]:
+    if not agent_id.startswith("superinvestor."):
+        return []
+    if _style_fit_score(agent_id, claim, report_meta) <= 0:
+        return []
+    if agent_id == "superinvestor.munger":
+        return ["role_filter_quality_moat_cashflow"]
+    if agent_id == "superinvestor.burry":
+        return ["role_filter_value_contrarian_balance_sheet"]
+    if agent_id == "superinvestor.ackman":
+        return ["role_filter_quality_catalyst_capital_allocation"]
+    if agent_id == "superinvestor.druckenmiller":
+        return ["role_filter_cycle_trend_policy_momentum"]
+    return ["role_filter_unknown_superinvestor_style"]
+
+
+def _no_prior_reason(agent_id: str, ranked_items: Sequence[Mapping[str, Any]]) -> str:
+    if ranked_items:
+        return ""
+    if agent_id.startswith("superinvestor."):
+        raw_agent = agent_id.split(".", 1)[1]
+        if raw_agent not in SUPERINVESTOR_AGENTS:
+            return "unsupported_superinvestor_agent"
+        return "no_role_filtered_stock_prior_for_superinvestor"
+    return "no_applicable_prior_for_agent_request"
+
+
 def _matching_tool_gap_ids(
     metric_families: Sequence[str],
     agent_id: str,
@@ -741,10 +1182,31 @@ def _failure_mode_tags(
 
 def _outcome_summary(outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     if not outcomes:
-        return {"label_count": 0, "directional_hit_count": 0, "label_types": []}
+        return {
+            "label_count": 0,
+            "directional_hit_count": 0,
+            "pending_label_count": 0,
+            "pending_share": 0.0,
+            "label_types": [],
+            "latest_completed_exit_date": "",
+        }
+    pending_count = sum(
+        1
+        for row in outcomes
+        if str(row.get("label_status") or row.get("status") or "completed")
+        == "pending"
+    )
+    completed_exit_dates = [
+        _date_key(row.get("exit_datetime") or row.get("exit_date") or "")
+        for row in outcomes
+        if str(row.get("label_status") or row.get("status") or "completed")
+        == "completed"
+    ]
     return {
         "label_count": len(outcomes),
         "directional_hit_count": sum(1 for row in outcomes if row.get("directional_hit") is True),
+        "pending_label_count": pending_count,
+        "pending_share": round(pending_count / len(outcomes), 4),
         "label_types": sorted(
             {
                 str(row.get("label_type") or "")
@@ -752,7 +1214,212 @@ def _outcome_summary(outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 if str(row.get("label_type") or "")
             }
         ),
+        "latest_completed_exit_date": max(completed_exit_dates, default=""),
     }
+
+
+def _freshness_bucket(*, latest_completed_exit_date: str, as_of_date: str) -> str:
+    if not latest_completed_exit_date:
+        return "pending_no_completed_exit"
+    if as_of_date and latest_completed_exit_date >= as_of_date:
+        return "completed_exit_after_prior_as_of"
+    return "historical_completed_exit"
+
+
+def _rating_bucket(value: Any) -> str:
+    bucket = _safe_token(value or "pending_or_unrated")
+    return bucket if bucket in RATING_BUCKETS else "pending_or_unrated"
+
+
+def _reliability_bucket(value: Any) -> str:
+    bucket = _safe_token(value or "insufficient_data")
+    return bucket if bucket in RELIABILITY_BUCKETS else "insufficient_data"
+
+
+def _performance_context_bucket(value: Any) -> str:
+    bucket = _safe_token(value or "insufficient_data")
+    return bucket if bucket in PERFORMANCE_CONTEXT_BUCKETS else "insufficient_data"
+
+
+def _current_data_required_fields(agent_id: str) -> list[str]:
+    if agent_id == "superinvestor.munger":
+        return [
+            "roic_roe",
+            "gross_margin",
+            "free_cash_flow",
+            "balance_sheet",
+            "valuation",
+            "business_predictability",
+        ]
+    if agent_id == "superinvestor.burry":
+        return [
+            "valuation_metrics",
+            "fcf_yield",
+            "balance_sheet",
+            "debt_cash",
+            "catalyst_status",
+            "downside_risk",
+        ]
+    if agent_id == "superinvestor.ackman":
+        return [
+            "free_cash_flow",
+            "pricing_power",
+            "management_actions",
+            "capital_allocation",
+            "valuation",
+        ]
+    if agent_id == "superinvestor.druckenmiller":
+        return [
+            "price_trend",
+            "earnings_revision",
+            "policy_liquidity",
+            "risk_reward",
+        ]
+    if agent_id.startswith("sector."):
+        return ["orders", "inventory", "prices", "policy", "supply_chain", "liquidity"]
+    if agent_id.startswith("macro."):
+        return [
+            "latest_macro_series",
+            "market_price_or_rate",
+            "policy_event_status",
+            "risk_flags",
+        ]
+    if agent_id.startswith("decision."):
+        return [
+            "current_price",
+            "portfolio_context",
+            "risk_budget",
+            "liquidity",
+            "prior_conflict_check",
+        ]
+    return ["current_data_confirmation"]
+
+
+def _claim_context_as_of_date(
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+) -> str:
+    return _date_key(
+        claim.get("signal_datetime")
+        or claim.get("as_of_datetime")
+        or report_meta.get("publish_datetime")
+        or report_meta.get("accessible_datetime")
+        or report_meta.get("publish_date")
+    )
+
+
+def _latest_snapshot_on_or_before(
+    snapshots: Sequence[Mapping[str, Any]],
+    as_of_date: str,
+) -> Mapping[str, Any]:
+    if not snapshots:
+        return {}
+    if not as_of_date:
+        return sorted(
+            snapshots,
+            key=lambda row: str(row.get("as_of_date") or ""),
+            reverse=True,
+        )[0]
+    exact = [row for row in snapshots if str(row.get("as_of_date") or "") == as_of_date]
+    if exact:
+        return exact[0]
+    eligible = [
+        row
+        for row in snapshots
+        if str(row.get("as_of_date") or "") <= as_of_date
+    ]
+    return sorted(
+        eligible,
+        key=lambda row: str(row.get("as_of_date") or ""),
+        reverse=True,
+    )[0] if eligible else {}
+
+
+def _matching_stock_context_snapshot(
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+    snapshots: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    target = _ensure_mapping(claim.get("target"))
+    stock_symbol = str(
+        report_meta.get("ts_code") or target.get("target_id") or ""
+    ).strip().upper()
+    if not stock_symbol:
+        return {}
+    candidates = [
+        row
+        for row in snapshots
+        if str(row.get("stock_symbol") or "").strip().upper() == stock_symbol
+    ]
+    return _latest_snapshot_on_or_before(
+        candidates,
+        _claim_context_as_of_date(claim, report_meta),
+    )
+
+
+def _matching_industry_context_snapshot(
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+    snapshots: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    target = _ensure_mapping(claim.get("target"))
+    sector = str(
+        report_meta.get("sector")
+        or report_meta.get("industry")
+        or target.get("target_id")
+        or target.get("target_name")
+        or ""
+    ).strip()
+    if not sector:
+        return {}
+    candidates = [
+        row
+        for row in snapshots
+        if sector in str(row.get("canonical_sector") or "")
+        or str(row.get("canonical_sector") or "") in sector
+    ]
+    return _latest_snapshot_on_or_before(
+        candidates,
+        _claim_context_as_of_date(claim, report_meta),
+    )
+
+
+def _context_snapshot_status(
+    stock_context_snapshot: Mapping[str, Any],
+    industry_context_snapshot: Mapping[str, Any],
+    missing_reasons: Sequence[str],
+) -> str:
+    if missing_reasons:
+        return "missing"
+    if stock_context_snapshot or industry_context_snapshot:
+        return "available"
+    return "not_required"
+
+
+def _context_snapshot_missing_reasons(
+    agent_id: str,
+    claim: Mapping[str, Any],
+    report_meta: Mapping[str, Any],
+    *,
+    stock_context_snapshot: Mapping[str, Any] | None = None,
+    industry_context_snapshot: Mapping[str, Any] | None = None,
+) -> list[str]:
+    domain = _claim_domain(claim, report_meta)
+    if domain == "stock" and (
+        agent_id.startswith("superinvestor.")
+        or agent_id.startswith("decision.")
+        or agent_id == "sector.relationship_mapper"
+    ):
+        if stock_context_snapshot:
+            return []
+        return ["stock_context_snapshot_missing"]
+    if domain == "industry" and (
+        agent_id.startswith("sector.") or agent_id.startswith("decision.")
+    ):
+        if industry_context_snapshot:
+            return []
+        return ["industry_context_snapshot_missing"]
+    return []
 
 
 def _index_metadata(rows: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
@@ -851,9 +1518,18 @@ def _date_key(value: Any) -> str:
 
 def _round_float(value: Any) -> float:
     try:
-        return round(float(value), 4)
+        number = float(value)
     except (TypeError, ValueError):
         return 0.0
+    return round(number, 4) if isfinite(number) else 0.0
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if isfinite(number) else default
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -861,6 +1537,13 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _ensure_mapping(value: Any) -> Mapping[str, Any]:

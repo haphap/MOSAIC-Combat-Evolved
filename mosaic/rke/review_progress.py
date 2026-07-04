@@ -1684,8 +1684,35 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
     with rke_temporary_directory(prefix="mosaic-rke-review-progress-") as tmp_dir:
         temp_root = Path(tmp_dir)
         _copy_registry(root_path, temp_root)
-        report = apply_gold_set_review_import(temp_root, resolved_input, dry_run=False)
-        summary = summarize_gold_set_review(temp_root)
+        try:
+            report = apply_gold_set_review_import(
+                temp_root, resolved_input, dry_run=False
+            )
+            summary = summarize_gold_set_review(temp_root)
+        except FileNotFoundError as exc:
+            missing_path = str(exc.filename or exc)
+            return ManualReviewGateProgress(
+                review_kind="gold_set",
+                input_path=input_path,
+                input_exists=True,
+                target_rows=target_rows,
+                input_rows=input_rows,
+                complete_rows=0,
+                pending_rows=target_rows,
+                simulation_accepted=False,
+                ready_for_promotion=False,
+                blockers=(f"{missing_path} missing; regenerate private gold review template",),
+                prepare_command=prepare_command,
+                dry_run_command=dry_run_command,
+                apply_command=apply_command,
+                next_batch_commands=_gold_commands_for_current_batch(
+                    _gold_next_batch_commands(target_rows),
+                    current_batch_status,
+                ),
+                batch_plan=_manual_review_batch_plan("gold_set", target_rows),
+                current_batch_status=current_batch_status,
+                quality_gap_targets=current_quality_gap_targets,
+            )
     quality_gap_targets = (
         _gold_quality_gap_targets_from_review_summary(
             summary,

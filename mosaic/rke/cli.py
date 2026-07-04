@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .audit_viewer import build_audit_trace_view, write_audit_trace_view
+from .agent_research_context import build_rke_agent_research_context
 from .claim_vocabulary import (
     build_claim_variable_validation_report,
     write_claim_variable_validation_report,
@@ -1913,6 +1914,53 @@ def build_parser() -> argparse.ArgumentParser:
         help="Drop any row that fails the public-safe no-source-prose guard.",
     )
 
+    export_agent_context = subparsers.add_parser(
+        "export-rke-agent-context",
+        help="Export redacted ranked RKE research context for one downstream agent.",
+    )
+    export_agent_context.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    export_agent_context.add_argument(
+        "--registry-dir",
+        default="registry/report_intelligence",
+        help=(
+            "Report Intelligence registry directory. Defaults to "
+            "registry/report_intelligence."
+        ),
+    )
+    export_agent_context.add_argument(
+        "--agent-id",
+        required=True,
+        help="Agent id such as macro.dollar, sector.semiconductor, munger, or cio.",
+    )
+    export_agent_context.add_argument(
+        "--as-of-date",
+        default="",
+        help="Only include context available on or before this YYYY-MM-DD date.",
+    )
+    export_agent_context.add_argument(
+        "--layer",
+        default="",
+        help="Optional agent layer for TS-style ids, e.g. macro or superinvestor.",
+    )
+    export_agent_context.add_argument(
+        "--ticker",
+        default="",
+        help="Optional stock ticker filter.",
+    )
+    export_agent_context.add_argument(
+        "--sector",
+        default="",
+        help="Optional sector filter.",
+    )
+    export_agent_context.add_argument(
+        "--max-items",
+        type=int,
+        default=12,
+        help="Maximum ranked context items to return. Defaults to 12.",
+    )
+
     macro_series_backfill = subparsers.add_parser(
         "macro-series-backfill",
         help="Backfill scorecard macro_series from existing macro dataflow adapters.",
@@ -2943,6 +2991,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(result)
         return 0 if result.get("accepted") else 2
+
+    if args.command == "export-rke-agent-context":
+        result = build_rke_agent_research_context(
+            root=root,
+            registry_dir=args.registry_dir,
+            agent_id=args.agent_id,
+            as_of_date=args.as_of_date,
+            layer=args.layer,
+            ticker=args.ticker,
+            sector=args.sector,
+            max_items=args.max_items,
+        )
+        _print_json(result)
+        return 0
 
     if args.command == "macro-series-backfill":
         from mosaic.scorecard.macro_series_backfill import backfill_macro_series

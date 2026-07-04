@@ -3,49 +3,49 @@
   "artifact_count": 11,
   "artifacts": [
     {
-      "bytes": 27671,
+      "bytes": 36705,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:5a4d97d8b628b873c5ec112c322232dfb9a127bb737f45486fcc5362ec97a917"
+      "sha256": "sha256:1334e76e7d7067012108332115da13966f8e233649bca252bfbcfa919751c4a2"
     },
     {
-      "bytes": 19665,
+      "bytes": 20686,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:f8d29d172be7c654802295e1874a11a99ca789ce07e356310e855f5934bafe7c"
+      "sha256": "sha256:022fe3e917f3a2e64e4e1d56dcac9b34f0ec4911b778c43bffe62f9390dcc3cd"
     },
     {
-      "bytes": 2878,
+      "bytes": 2875,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_batch_status.json",
       "role": "manual_review_batch_status",
       "row_count": null,
-      "sha256": "sha256:5ace732e821057cfb3ae20902568bccb718676eaa063b2b9b3223182865116a4"
+      "sha256": "sha256:f63a4ff9675ac5456371f6d13dc0633807249cd2f3b7c2bee22329eab21dd970"
     },
     {
-      "bytes": 22200,
+      "bytes": 28851,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:e54f770b582c7c300ff1ead5513dcd6d5dfdd54b9aa4bc9b121ae38eae962a07"
+      "sha256": "sha256:1f53cd436c7fffdb72dd4e8c07313ff7bec4ba7118eee201f8f2f46f24159af6"
     },
     {
-      "bytes": 21178,
+      "bytes": 24215,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:239f669888dc10c5a7e0e4ee536d09fe09b66943ff97b279beb65cfad39feafc"
+      "sha256": "sha256:57f83304a321bb18e8a3c674a748e5c5c4bb4695e445643f6229bff8b496deff"
     },
     {
       "bytes": 1339,
@@ -57,13 +57,13 @@
       "sha256": "sha256:38aa037911f748474d4b850db106c9c485e556cb6ca4892043abd2263433ced5"
     },
     {
-      "bytes": 1031,
+      "bytes": 1028,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/source_license_policy_import_report.json",
       "role": "license_policy_blank_import_report",
       "row_count": null,
-      "sha256": "sha256:41cd02824912d25f633a9b5c54eccfc4e4bf0a2417fe6eac0d16edcb89335dc3"
+      "sha256": "sha256:3ea1688a3588a28fc8c8c9ac464f1dcf716779203e212b6796434c0645fc5f26"
     },
     {
       "bytes": 2176,
@@ -93,36 +93,38 @@
       "sha256": "sha256:673be822842ce0e8c059f0cb164afd672b8bb685b19ca8688c102e97feb02f16"
     },
     {
-      "bytes": 1302,
+      "bytes": 1407,
       "exists": true,
       "format": "json",
       "path": "registry/promotion/rke_promotion_dry_run_report.json",
       "role": "promotion_dry_run_report",
       "row_count": null,
-      "sha256": "sha256:597e59ff94ef07e5829c4e649c2bacafdc3c1d8abc345ae7d0d8444d1f79415f"
+      "sha256": "sha256:8e70a09e405e33486be9253c0fe3d4e6d04a035841eb87311513d7ddeab7ebcc"
     }
   ],
   "blockers": [],
   "manifest_id": "RKE-MANUAL-REVIEW-BUNDLE-MANIFEST-20260606",
   "promotion_dry_run": {
-    "accepted": true,
+    "accepted": false,
     "accepted_steps": [
       "gold_set",
-      "footprint_review",
       "source_license",
       "lockbox"
     ],
-    "after_next_state": "production",
+    "after_next_state": "paper_trading",
     "already_applied_steps": [
       "gold_set",
-      "footprint_review",
       "source_license",
       "lockbox"
     ],
-    "missing_steps": [],
-    "production_allowed_after_simulation": true,
+    "missing_steps": [
+      "footprint_review"
+    ],
+    "production_allowed_after_simulation": false,
     "provided_steps": [],
-    "rejected_steps": [],
-    "staged_production_allowed_after_simulation": true
+    "rejected_steps": [
+      "footprint_review"
+    ],
+    "staged_production_allowed_after_simulation": false
   }
 }

@@ -1,17 +1,14 @@
 /**
  * Wire-level type definitions for the JSON-RPC methods exposed by
- * `mosaic.bridge` (62 RPC methods across 13 namespaces: tools / config / cache /
- * calendar / paper / backtest / scorecard / darwinian / prompts / autoresearch /
- * prism / janus / mirofish).
+ * `mosaic.bridge`.
  *
  * Keep this file as the single source of truth for the wire-level shapes.
  * If a method's params/result change on the Python side, update the type
  * here in the same commit.
  *
- * The :class:`BridgeApi` helper at the bottom provides typed wrappers for all
- * 13 namespaces (incl. the Phase 8 paper-trading write surface and the
- * `mirofish.{save,get}_context` pair wrapped in 7M Step 2). The only registered
- * method without a typed wrapper today is `cache.details` — reachable via
+ * The :class:`BridgeApi` helper at the bottom provides typed wrappers for the
+ * bridge namespaces used by the TS runtime. The only registered method without
+ * a typed wrapper today is `cache.details` — reachable via
  * ``client.call(method, params)``.
  */
 
@@ -429,6 +426,41 @@ export interface PromptVersionAuditRow {
   modification_summary?: string | null;
 }
 
+export interface PromptPreflightRow {
+  agent: string;
+  layer: string;
+  cohort: string;
+  lang: PromptLang;
+  status: "ready" | "blocked";
+  blocked_reason?:
+    | "private_prompt_unavailable"
+    | "prompt_provenance_unavailable"
+    | "private_prompt_repo_dirty";
+  prompt_repo_id?: string;
+  prompt_repo_revision?: string;
+  prompt_file_path?: string;
+  prompt_sha256?: string;
+  resolved_source?: "private_repo" | "private_root";
+  fallback_used: boolean;
+}
+
+export interface PromptPreflightResult {
+  ready: boolean;
+  cohort: string;
+  expected_prompt_repo_id: string;
+  source_status: {
+    ready: boolean;
+    blocked_reason: string;
+    resolved_source: "" | "private_repo" | "private_root";
+    prompt_repo_id: string;
+    prompt_repo_revision: string;
+    prompt_repo_dirty_count: number;
+  };
+  row_count: number;
+  blocked_count: number;
+  rows: PromptPreflightRow[];
+}
+
 export interface PromptReleaseCheckResult {
   ready: boolean;
   checks: Record<string, boolean>;
@@ -442,6 +474,619 @@ export interface PromptReleaseCheckResult {
     prompt_commit_hash?: string | null;
     prompt_sha256?: string | null;
   };
+}
+
+// --------------------------------------------------------- rke (Part 1 context/export)
+
+export interface RkeAgentResearchContextResult {
+  schema_version: "rke_agent_research_context_v1";
+  agent_id: string;
+  layer: string;
+  as_of_date: string;
+  ranking_policy_id: string;
+  research_only: boolean;
+  production_signal_allowed: boolean;
+  actionability: string;
+  summary: Record<string, unknown>;
+  context_items: Array<Record<string, unknown>>;
+  no_prior_reasons: string[];
+}
+
+export interface RkeMacroAgentPriorsResult {
+  accepted: boolean;
+  schema_version: string;
+  agent_id: string;
+  as_of_date: string;
+  prior_count: number;
+  priors: Array<Record<string, unknown>>;
+  gap_reasons: string[];
+  no_source_prose: boolean;
+  source_policy: string;
+  use_policy: string;
+  production_signal_allowed: boolean;
+}
+
+// --------------------------------------------------------- rke_benchmark (Part 2 E2)
+
+export interface RkeBenchmarkEpisode {
+  episode_id: string;
+  regime: string;
+  as_of_dates: string[];
+}
+
+export interface RkeBenchmarkModelConfig {
+  model_config_id: string;
+  runner: string;
+  model_family?: string;
+  required: boolean;
+}
+
+export interface RkeBenchmarkPromptPreflightSummary {
+  ready: boolean;
+  row_count: number;
+  blocked_count: number;
+  blocked_reasons: string[];
+  source_status: PromptPreflightResult["source_status"];
+  fallback_used: boolean;
+}
+
+export interface RkeAllAgentPromptProvenanceRow {
+  agent: string;
+  layer: string;
+  lang: string;
+  prompt_file_path: string;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_sha256: string;
+  benchmark_run_id: string;
+  prompt_version_id: number | null;
+  audit_version_ref: string;
+  verify_release_ref: string;
+  leak_drift_check_ref: string;
+  fallback_used: boolean;
+  ready: boolean;
+  blockers: string[];
+}
+
+export interface RkeAllAgentPromptProvenanceReadinessResult {
+  schema_version: "rke_all_agent_prompt_provenance_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  cohort: string;
+  blocked_reasons: string[];
+  agent_count: number;
+  prompt_row_count: number;
+  ready_prompt_row_count: number;
+  release_check_count: number;
+  prompt_source_status: PromptPreflightResult["source_status"];
+  prompt_rows: RkeAllAgentPromptProvenanceRow[];
+  all_agent_prompt_provenance_ready: boolean;
+  fallback_used: boolean;
+  production_prompt_change_allowed: boolean;
+}
+
+export interface RkeFixedEpisodeManifestResult {
+  schema_version: "rke_fixed_episode_benchmark_manifest_v1";
+  benchmark_status: "ready_to_run" | "blocked_preflight";
+  cohort: string;
+  episode_count: number;
+  as_of_date_count: number;
+  agent_count: number;
+  model_config_count: number;
+  planned_run_count: number;
+  episodes: RkeBenchmarkEpisode[];
+  agents_by_layer: Record<string, string[]>;
+  model_configs: RkeBenchmarkModelConfig[];
+  input_requirements: string[];
+  scoring_metrics: string[];
+  prompt_preflight: RkeBenchmarkPromptPreflightSummary;
+  manual_review: {
+    status: "not_run";
+    required: boolean;
+    reviewer_timestamp: string | null;
+  };
+  promotion_allowed: boolean;
+}
+
+export interface RkeFixedEpisodeBenchmarkEvidenceResult {
+  schema_version: "rke_fixed_episode_benchmark_evidence_v1";
+  evidence_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  episode_count: number;
+  as_of_date_count: number;
+  agent_count: number;
+  required_model_config_count: number;
+  required_model_config_ids: string[];
+  required_per_model_output_count: number;
+  required_paired_output_count: number;
+  paired_output_count: number;
+  model_config_output_counts: Record<string, number>;
+  benchmark_quality_summary: {
+    benchmark_run_id: string;
+    quality_gate_ref: string;
+    schema_failure_gate_passed: boolean;
+    severe_safety_violation_count: number | null;
+    current_data_confirmation_violation_count: number | null;
+    fallback_prompt_run_count: number | null;
+    covered_episode_count: number | null;
+    covered_as_of_date_count: number | null;
+    covered_agent_count: number | null;
+  };
+  prompt_source_status: PromptPreflightResult["source_status"];
+  evidence_refs: {
+    benchmark_run_id: string;
+    episode_manifest_ref: string;
+    as_of_date_manifest_ref: string;
+    model_config_manifest_ref: string;
+    paired_output_manifest_ref: string;
+    output_schema_validation_report_ref: string;
+    deterministic_score_table_ref: string;
+    investment_outcome_table_ref: string;
+  };
+  manual_review: {
+    benchmark_run_id: string;
+    decision: string;
+    reviewer_timestamp: string;
+  };
+  promotion_allowed: boolean;
+}
+
+export interface RkeAgentClaimFootprintInput {
+  agent: string;
+  layer?: string;
+  as_of_date: string;
+  claim_type:
+    | "macro_regime_claim"
+    | "macro_series_claim"
+    | "macro_asset_claim"
+    | "sector_claim"
+    | "ticker_metric_claim"
+    | "style_candidate_claim"
+    | "rejection_reason"
+    | "portfolio_action_claim"
+    | "risk_claim"
+    | "dissent_note";
+  target: Partial<
+    Record<"target_type" | "target_id" | "metric_family" | "ticker" | "sector", string>
+  >;
+  direction?: string;
+  horizon_bucket?: string;
+  confidence_bucket?: string;
+  rke_context_hash?: string;
+  ranking_policy_id?: string;
+  retrieval_rank?: number;
+  priority_bucket?: string;
+  truncated_item_count?: number;
+  rke_prior_usage_quality?: string;
+  current_data_confirmed?: boolean;
+  stale_prior_rejected?: boolean;
+  contradictory_prior_handled?: boolean;
+  reason_codes?: string[];
+  failure_mode_tags?: string[];
+  tool_refs?: string[];
+  report_claim_refs?: string[];
+}
+
+export interface RkeAgentClaimFootprintCaptureResult {
+  capture_status: "captured" | "blocked";
+  captured_count: number;
+  private_rows_path: string;
+  failures?: string[];
+  aggregate_profile_summary?: {
+    benchmark_run_id: string;
+    layer_counts: Record<string, number>;
+    claim_type_counts: Record<string, number>;
+    current_data_confirmed_count: number;
+    rke_context_hash_count: number;
+    report_claim_ref_count: number;
+    report_claim_linked_row_count: number;
+    rke_context_report_claim_linked_count: number;
+    ranking_policy_id_counts: Record<string, number>;
+    retrieval_rank_count: number;
+    priority_bucket_counts: Record<string, number>;
+    truncation_audit_count: number;
+  };
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+}
+
+export interface RkeAgentFootprintSummaryResult {
+  summary_status: "ready" | "blocked" | "empty";
+  private_rows_path: string;
+  benchmark_run_id: string;
+  row_count: number;
+  layer_counts: Record<string, number>;
+  claim_type_counts: Record<string, number>;
+  rke_prior_usage_quality_counts: Record<string, number>;
+  current_data_confirmed_count: number;
+  stale_prior_rejected_count: number;
+  contradictory_prior_handled_count: number;
+  rke_context_hash_count: number;
+  report_claim_ref_count: number;
+  report_claim_linked_row_count: number;
+  rke_context_report_claim_linked_count: number;
+  ranking_policy_id_counts: Record<string, number>;
+  retrieval_rank_count: number;
+  priority_bucket_counts: Record<string, number>;
+  truncation_audit_count: number;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+  failures: string[];
+}
+
+export interface RkeAgentProfileEvolutionReadinessResult {
+  schema_version: "rke_agent_profile_evolution_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  summary_status: "ready" | "blocked" | "empty";
+  row_count: number;
+  required_layers: string[];
+  observed_layers: string[];
+  missing_layers: string[];
+  layer_counts: Record<string, number>;
+  claim_type_counts: Record<string, number>;
+  rke_context_hash_count: number;
+  report_claim_ref_count: number;
+  report_claim_linked_row_count: number;
+  rke_context_report_claim_linked_count: number;
+  ranking_policy_id_counts: Record<string, number>;
+  retrieval_rank_count: number;
+  priority_bucket_counts: Record<string, number>;
+  truncation_audit_count: number;
+  current_data_confirmed_count: number;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+  profile_evidence: {
+    benchmark_run_id: string;
+    profile_update_ref: string;
+    evolution_input_ref: string;
+    no_source_prose_audit_ref: string;
+  };
+  profile_evolution_ready: boolean;
+  production_signal_allowed: boolean;
+}
+
+export interface RkeDarwinianAutoresearchInputManifestResult {
+  schema_version: "rke_darwinian_autoresearch_input_manifest_v1";
+  manifest_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  rke_prior_treated_as_current_data: boolean;
+  skill_inputs: Record<string, unknown>;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+  promotion_allowed: boolean;
+}
+
+export interface RkeDarwinianAutoresearchConsumptionReadinessResult {
+  schema_version: "rke_darwinian_autoresearch_consumption_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  input_manifest_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  consumption_evidence: {
+    benchmark_run_id: string;
+    replay_run_id: string;
+    input_manifest_ref: string;
+    rke_prior_usage_metrics_ref: string;
+    downstream_outcome_metrics_ref: string;
+    darwinian_weight_update_ref: string;
+    autoresearch_update_ref: string;
+    rollback_readiness_ref: string;
+    darwinian_consumed: boolean;
+    autoresearch_consumed: boolean;
+  };
+  rke_prior_treated_as_current_data: boolean;
+  darwinian_autoresearch_consumption_ready: boolean;
+  production_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkeCandidateConsumptionSummary {
+  mutation_candidate_id: string;
+  candidate_type: string;
+  target_scope: string;
+  target_component: string;
+  severity: string;
+  blocked_by: string[];
+  promotion_state: string;
+  manual_review_required: boolean;
+  production_prompt_change_allowed: boolean;
+  private_text_included: boolean;
+  trigger_sources: string[];
+  validation_requirements: string[];
+}
+
+export interface RkeCandidateConsumptionManifestResult {
+  schema_version: "rke_candidate_consumption_manifest_v1";
+  manifest_status: "ready_for_private_prompt_lifecycle" | "blocked_preflight";
+  artifact_path: string;
+  candidate_count: number;
+  refusal_count: number;
+  candidate_type_counts: Record<string, number>;
+  target_scope_counts: Record<string, number>;
+  blocked_reason_counts: Record<string, number>;
+  candidate_summaries: RkeCandidateConsumptionSummary[];
+  manifest_blockers: string[];
+  missing_artifact: boolean;
+  private_prompt_mutation_required: boolean;
+  production_prompt_change_allowed: boolean;
+  candidate_consumption_policy: string;
+  privacy_scan: {
+    private_text_included: boolean;
+    source_prose_included: boolean;
+    forbidden_field_violation_count: number;
+  };
+}
+
+export interface RkePromptMutationPromptPin {
+  agent: string;
+  lang: string;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_file_path: string;
+  prompt_sha256: string;
+  fallback_used: boolean;
+}
+
+export interface RkePromptMutationLifecycleRecord {
+  mutation_candidate_id: string;
+  candidate_type: string;
+  target_component: string;
+  affected_agents: string[];
+  candidate_action:
+    | "private_prompt_branch_after_blockers_clear"
+    | "record_refusal_no_prompt_branch";
+  private_prompt_branch: string;
+  overwrite_target_paths: string[];
+  prompt_pins: RkePromptMutationPromptPin[];
+  lifecycle_stages: string[];
+  rke_prior_usage_hypothesis: string;
+  expected_improvement_metric: string;
+  fallback_rollback_rule: string;
+  benchmark_evidence_required: boolean;
+  manual_review_required: boolean;
+  promotion_allowed: boolean;
+  blocked_by: string[];
+}
+
+export interface RkePromptMutationLifecycleManifestResult {
+  schema_version: "rke_prompt_mutation_lifecycle_manifest_v1";
+  manifest_status: "ready_for_private_branch" | "blocked_preflight";
+  blocked_reasons: string[];
+  candidate_count: number;
+  affected_agents: string[];
+  prompt_preflight: {
+    ready: boolean;
+    row_count: number;
+    blocked_count: number;
+  };
+  lifecycle_records: RkePromptMutationLifecycleRecord[];
+  private_prompt_repo_required: boolean;
+  direct_prompt_write_allowed: boolean;
+  promotion_allowed: boolean;
+  rollback_required_before_promotion: boolean;
+}
+
+export interface RkePromptMutationReleaseRecord {
+  mutation_candidate_id: string;
+  private_prompt_branch: string;
+  affected_agents: string[];
+  benchmark_run_id: string;
+  prompt_version_id: number | null;
+  prompt_repo_id: string;
+  release_private_prompt_branch: string;
+  base_prompt_repo_revision: string;
+  overwrite_target_paths: string[];
+  audit_version_ref: string;
+  prompt_commit_hash: string;
+  prompt_sha256: string;
+  verify_release_ref: string;
+  leak_drift_check_ref: string;
+  release_ready: boolean;
+  blockers: string[];
+}
+
+export interface RkePromptMutationReleaseReadinessResult {
+  schema_version: "rke_prompt_mutation_release_readiness_v1";
+  benchmark_run_id: string;
+  readiness_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
+  branch_candidate_count: number;
+  release_record_count: number;
+  release_records: RkePromptMutationReleaseRecord[];
+  required_evidence: string[];
+  prompt_release_ready: boolean;
+  direct_prompt_write_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkePromptMutationRollbackRecord {
+  mutation_candidate_id: string;
+  private_prompt_branch: string;
+  affected_agents: string[];
+  previous_prompt_hashes: string[];
+  rollback_previous_prompt_hashes: string[];
+  benchmark_run_id: string;
+  rollback_trigger_definition: string;
+  rollback_command_or_procedure: string;
+  monitor_output_ref: string;
+  post_rollback_verification_ref: string;
+  rollback_ready: boolean;
+  blockers: string[];
+}
+
+export interface RkePromptMutationRollbackReadinessResult {
+  schema_version: "rke_prompt_mutation_rollback_readiness_v1";
+  benchmark_run_id: string;
+  readiness_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
+  branch_candidate_count: number;
+  rollback_record_count: number;
+  rollback_records: RkePromptMutationRollbackRecord[];
+  required_evidence: string[];
+  rollback_gate_ready: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkePatchActivationRecord {
+  mutation_candidate_id: string;
+  candidate_type: string;
+  target_scope: string;
+  target_component: string;
+  benchmark_run_id: string;
+  patch_artifact_ref: string;
+  patch_validation_ref: string;
+  shadow_apply_ref: string;
+  runtime_activation_ref: string;
+  runtime_proof_ref: string;
+  rollback_ref: string;
+  patch_activation_ready: boolean;
+  blockers: string[];
+}
+
+export interface RkePatchActivationReadinessResult {
+  schema_version: "rke_patch_activation_readiness_v1";
+  benchmark_run_id: string;
+  readiness_status: "ready" | "blocked_preflight";
+  blocked_reasons: string[];
+  candidate_manifest_status: "ready_for_private_prompt_lifecycle" | "blocked_preflight";
+  patch_candidate_count: number;
+  activation_record_count: number;
+  activation_records: RkePatchActivationRecord[];
+  required_evidence: string[];
+  patch_activation_ready: boolean;
+  direct_runtime_write_allowed: boolean;
+  production_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkeShadowReplayReadinessResult {
+  schema_version: "rke_shadow_replay_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  prompt_provenance_readiness_status: "ready" | "blocked_preflight";
+  benchmark_evidence_status: "ready" | "blocked_preflight";
+  darwinian_manifest_status: "ready" | "blocked_preflight";
+  prompt_release_readiness_status: "ready" | "blocked_preflight";
+  rollback_readiness_status: "ready" | "blocked_preflight";
+  rke_context_hash_count: number;
+  ranking_policy_id_counts: Record<string, number>;
+  retrieval_rank_count: number;
+  priority_bucket_counts: Record<string, number>;
+  truncation_audit_count: number;
+  current_data_confirmed_count: number;
+  shadow_replay_ready: boolean;
+  paper_trading_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkePaperTradingReadinessResult {
+  schema_version: "rke_paper_trading_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  shadow_replay_status: "ready" | "blocked_preflight";
+  paper_trading_plan: {
+    benchmark_run_id: string;
+    paper_trading_plan_ref: string;
+    risk_limit_ref: string;
+    stop_loss_or_rollback_ref: string;
+    operator_review_timestamp: string;
+    operator_review_approved: boolean;
+  };
+  paper_trading_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkePromotionDecisionReadinessResult {
+  schema_version: "rke_promotion_decision_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  blocked_reasons: string[];
+  paper_trading_status: "ready" | "blocked_preflight";
+  promotion_evidence: {
+    benchmark_run_id: string;
+    paper_trading_result_ref: string;
+    monitor_summary_ref: string;
+    second_review_timestamp: string;
+    lockbox_decision_ref: string;
+    decision: string;
+    second_review_approved: boolean;
+  };
+  ready_for_operator_promotion_decision: boolean;
+  production_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkeDeliveryCondition {
+  condition_id: string;
+  status: string;
+  ready: boolean;
+  blocked_reasons: string[];
+  evidence_summary: Record<string, unknown>;
+}
+
+export interface RkeDeliveryReadinessResult {
+  schema_version: "rke_all_agent_delivery_readiness_v1";
+  readiness_status: "ready" | "blocked_preflight";
+  benchmark_run_id: string;
+  cohort: string;
+  condition_count: number;
+  ready_condition_count: number;
+  blocked_reasons: string[];
+  conditions: RkeDeliveryCondition[];
+  recorded_evidence_loaded: boolean;
+  delivery_input_failures: string[];
+  delivery_ready: boolean;
+  production_allowed: boolean;
+  promotion_allowed: boolean;
+}
+
+export interface RkeDeliveryEvidenceRecordResult {
+  record_status: "recorded" | "blocked";
+  benchmark_run_id: string;
+  private_rows_path: string;
+  recorded_key_count: number;
+  recorded_context_key_count: number;
+  failures: string[];
+}
+
+export interface RkeDeliveryEvidenceAuditResult {
+  schema_version: "rke_delivery_evidence_audit_v1";
+  evidence_status: "missing" | "partial" | "complete" | "blocked";
+  benchmark_run_id: string;
+  cohort: string;
+  private_rows_path: string;
+  recorded_key_count: number;
+  recorded_context_keys: string[];
+  recorded_keys: string[];
+  recorded_prompt_source_status: Record<string, unknown>;
+  missing_keys: string[];
+  failures: string[];
+  delivery_readiness_can_load: boolean;
+  delivery_readiness_status: "ready" | "blocked_preflight";
+  condition_count: number;
+  ready_condition_count: number;
+  delivery_conditions: RkeDeliveryCondition[];
+  delivery_blocked_reasons: string[];
 }
 
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
@@ -917,6 +1562,37 @@ export class BridgeApi {
     });
   }
 
+  scorecardCompareMacroLabelSources(
+    cohort: string,
+    today: string,
+    since?: string,
+  ): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>("scorecard.compare_macro_label_sources", {
+      cohort,
+      today,
+      ...(since ? { since } : {}),
+    });
+  }
+
+  scorecardClassifyMacroDocuments(params?: {
+    source?: string;
+    discovered_at_lte?: string;
+    only_unclassified?: boolean;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>(
+      "scorecard.classify_macro_documents",
+      params ?? {},
+    );
+  }
+
+  scorecardMacroSentimentIndex(params: {
+    agent: string;
+    as_of: string;
+    lookback_days?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>("scorecard.macro_sentiment_index", params);
+  }
+
   scorecardLatestCioActions(cohort: string): Promise<CioActions> {
     return this.client.call<CioActions>("scorecard.latest_cio_actions", { cohort });
   }
@@ -989,11 +1665,313 @@ export class BridgeApi {
     );
   }
 
+  promptsPreflight(params?: {
+    cohort?: string;
+    agents?: string[];
+    langs?: PromptLang[];
+  }): Promise<PromptPreflightResult> {
+    return this.client.call<PromptPreflightResult>("prompts.preflight", params ?? {});
+  }
+
   promptsVerifyRelease(params: {
     version_id: number;
     require_kept?: boolean;
   }): Promise<PromptReleaseCheckResult> {
     return this.client.call<PromptReleaseCheckResult>("prompts.verify_release", params);
+  }
+
+  // rke.* (Part 1 context/export)
+  rkeAgentResearchContext(params: {
+    agent_id: string;
+    root?: string;
+    registry_dir?: string;
+    as_of_date?: string;
+    layer?: string;
+    ticker?: string;
+    sector?: string;
+    max_items?: number;
+  }): Promise<RkeAgentResearchContextResult> {
+    return this.client.call<RkeAgentResearchContextResult>("rke.agentResearchContext", params);
+  }
+
+  rkeMacroAgentPriors(params?: {
+    root?: string;
+    registry_dir?: string;
+    as_of_date?: string;
+    agent_id?: string;
+    no_source_prose?: boolean;
+  }): Promise<RkeMacroAgentPriorsResult> {
+    return this.client.call<RkeMacroAgentPriorsResult>("rke.macroAgentPriors", params ?? {});
+  }
+
+  // rke_benchmark.* (Part 2 E2)
+  rkeBenchmarkAllAgentPromptProvenanceReadiness(params?: {
+    benchmark_run_id?: string;
+    cohort?: string;
+    release_checks?: Array<Record<string, unknown>>;
+  }): Promise<RkeAllAgentPromptProvenanceReadinessResult> {
+    return this.client.call<RkeAllAgentPromptProvenanceReadinessResult>(
+      "rke_benchmark.all_agent_prompt_provenance_readiness",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkFixedEpisodeManifest(params?: {
+    cohort?: string;
+  }): Promise<RkeFixedEpisodeManifestResult> {
+    return this.client.call<RkeFixedEpisodeManifestResult>(
+      "rke_benchmark.fixed_episode_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkFixedEpisodeBenchmarkEvidence(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
+    evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+  }): Promise<RkeFixedEpisodeBenchmarkEvidenceResult> {
+    return this.client.call<RkeFixedEpisodeBenchmarkEvidenceResult>(
+      "rke_benchmark.fixed_episode_benchmark_evidence",
+      params,
+    );
+  }
+
+  rkeBenchmarkCaptureAgentClaimFootprints(params: {
+    benchmark_run_id: string;
+    rows: RkeAgentClaimFootprintInput[];
+  }): Promise<RkeAgentClaimFootprintCaptureResult> {
+    return this.client.call<RkeAgentClaimFootprintCaptureResult>(
+      "rke_benchmark.capture_agent_claim_footprints",
+      params,
+    );
+  }
+
+  rkeBenchmarkAgentFootprintSummary(params?: {
+    benchmark_run_id?: string;
+  }): Promise<RkeAgentFootprintSummaryResult> {
+    return this.client.call<RkeAgentFootprintSummaryResult>(
+      "rke_benchmark.agent_footprint_summary",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkAgentProfileEvolutionReadiness(params: {
+    benchmark_run_id: string;
+    profile_evidence?: Record<string, unknown>;
+  }): Promise<RkeAgentProfileEvolutionReadinessResult> {
+    return this.client.call<RkeAgentProfileEvolutionReadinessResult>(
+      "rke_benchmark.agent_profile_evolution_readiness",
+      params,
+    );
+  }
+
+  rkeBenchmarkDarwinianAutoresearchInputManifest(params?: {
+    benchmark_run_id?: string;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: {
+      benchmark_run_id?: string;
+      prompt_repo_id?: string;
+      prompt_repo_revision?: string;
+      prompt_sha256?: string;
+      prompt_commit_hash?: string;
+    };
+  }): Promise<RkeDarwinianAutoresearchInputManifestResult> {
+    return this.client.call<RkeDarwinianAutoresearchInputManifestResult>(
+      "rke_benchmark.darwinian_autoresearch_input_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkDarwinianAutoresearchConsumptionReadiness(params?: {
+    benchmark_run_id?: string;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    consumption_evidence?: Record<string, unknown>;
+  }): Promise<RkeDarwinianAutoresearchConsumptionReadinessResult> {
+    return this.client.call<RkeDarwinianAutoresearchConsumptionReadinessResult>(
+      "rke_benchmark.darwinian_autoresearch_consumption_readiness",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkCandidateConsumptionManifest(params?: {
+    candidates?: Array<Record<string, unknown>>;
+  }): Promise<RkeCandidateConsumptionManifestResult> {
+    return this.client.call<RkeCandidateConsumptionManifestResult>(
+      "rke_benchmark.candidate_consumption_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkPromptMutationLifecycleManifest(params?: {
+    candidates?: Array<Record<string, unknown>>;
+  }): Promise<RkePromptMutationLifecycleManifestResult> {
+    return this.client.call<RkePromptMutationLifecycleManifestResult>(
+      "rke_benchmark.prompt_mutation_lifecycle_manifest",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkPromptMutationReleaseReadiness(params?: {
+    benchmark_run_id?: string;
+    candidates?: Array<Record<string, unknown>>;
+    release_checks?: Array<Record<string, unknown>>;
+  }): Promise<RkePromptMutationReleaseReadinessResult> {
+    return this.client.call<RkePromptMutationReleaseReadinessResult>(
+      "rke_benchmark.prompt_mutation_release_readiness",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkPromptMutationRollbackReadiness(params?: {
+    benchmark_run_id?: string;
+    candidates?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+  }): Promise<RkePromptMutationRollbackReadinessResult> {
+    return this.client.call<RkePromptMutationRollbackReadinessResult>(
+      "rke_benchmark.prompt_mutation_rollback_readiness",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkPatchActivationReadiness(params?: {
+    benchmark_run_id?: string;
+    candidates?: Array<Record<string, unknown>>;
+    patch_activation_evidence?: Array<Record<string, unknown>>;
+  }): Promise<RkePatchActivationReadinessResult> {
+    return this.client.call<RkePatchActivationReadinessResult>(
+      "rke_benchmark.patch_activation_readiness",
+      params ?? {},
+    );
+  }
+
+  rkeBenchmarkShadowReplayReadiness(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+  }): Promise<RkeShadowReplayReadinessResult> {
+    return this.client.call<RkeShadowReplayReadinessResult>(
+      "rke_benchmark.shadow_replay_readiness",
+      params,
+    );
+  }
+
+  rkeBenchmarkPaperTradingReadiness(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+    paper_trading_plan?: Record<string, unknown>;
+  }): Promise<RkePaperTradingReadinessResult> {
+    return this.client.call<RkePaperTradingReadinessResult>(
+      "rke_benchmark.paper_trading_readiness",
+      params,
+    );
+  }
+
+  rkeBenchmarkPromotionDecisionReadiness(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+    paper_trading_plan?: Record<string, unknown>;
+    promotion_evidence?: Record<string, unknown>;
+  }): Promise<RkePromotionDecisionReadinessResult> {
+    return this.client.call<RkePromotionDecisionReadinessResult>(
+      "rke_benchmark.promotion_decision_readiness",
+      params,
+    );
+  }
+
+  rkeBenchmarkRecordDeliveryEvidence(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    prompt_source_status?: Record<string, unknown>;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    profile_evidence?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    patch_activation_evidence?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+    paper_trading_plan?: Record<string, unknown>;
+    promotion_evidence?: Record<string, unknown>;
+  }): Promise<RkeDeliveryEvidenceRecordResult> {
+    return this.client.call<RkeDeliveryEvidenceRecordResult>(
+      "rke_benchmark.record_delivery_evidence",
+      params,
+    );
+  }
+
+  rkeBenchmarkDeliveryEvidenceAudit(params: {
+    benchmark_run_id: string;
+  }): Promise<RkeDeliveryEvidenceAuditResult> {
+    return this.client.call<RkeDeliveryEvidenceAuditResult>(
+      "rke_benchmark.delivery_evidence_audit",
+      params,
+    );
+  }
+
+  rkeBenchmarkDeliveryReadiness(params: {
+    benchmark_run_id: string;
+    cohort?: string;
+    all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    paired_output_count?: number;
+    model_config_output_counts?: Record<string, number>;
+    benchmark_quality_summary?: Record<string, unknown>;
+    benchmark_evidence_refs?: Record<string, unknown>;
+    manual_review?: Record<string, unknown>;
+    profile_evidence?: Record<string, unknown>;
+    downstream_outcome_metrics?: Record<string, number>;
+    prompt_mutation_provenance?: Record<string, unknown>;
+    darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
+    candidates?: Array<Record<string, unknown>>;
+    patch_activation_evidence?: Array<Record<string, unknown>>;
+    prompt_mutation_release_checks?: Array<Record<string, unknown>>;
+    rollback_evidence?: Array<Record<string, unknown>>;
+    paper_trading_plan?: Record<string, unknown>;
+    promotion_evidence?: Record<string, unknown>;
+  }): Promise<RkeDeliveryReadinessResult> {
+    return this.client.call<RkeDeliveryReadinessResult>("rke_benchmark.delivery_readiness", params);
   }
 
   // autoresearch.* (Phase 4C/4D)

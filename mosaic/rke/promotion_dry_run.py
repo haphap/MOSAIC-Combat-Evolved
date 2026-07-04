@@ -253,6 +253,21 @@ def build_promotion_dry_run_report(
         after = build_production_promotion_gate_report(temp_root)
 
     accepted = all(step.accepted for step in steps)
+    step_blockers = tuple(
+        dict.fromkeys(blocker for step in steps for blocker in step.blockers)
+    )
+    after_blockers = (
+        tuple(after.blockers)
+        if accepted
+        else tuple(dict.fromkeys((*after.blockers, *step_blockers)))
+    )
+    after_next_state = (
+        after.next_state
+        if accepted
+        else "paper_trading"
+        if before.paper_trading_allowed
+        else "candidate"
+    )
     return PromotionDryRunReport(
         report_id="RKE-PROMOTION-DRY-RUN-REPORT-20260606",
         simulated=True,
@@ -260,11 +275,13 @@ def build_promotion_dry_run_report(
         root=str(root_path),
         accepted=accepted,
         before_blockers=tuple(before.blockers),
-        after_blockers=tuple(after.blockers),
+        after_blockers=after_blockers,
         before_next_state=before.next_state,
-        after_next_state=after.next_state,
-        staged_production_allowed_after_simulation=after.staged_production_allowed,
-        production_allowed_after_simulation=after.production_allowed,
+        after_next_state=after_next_state,
+        staged_production_allowed_after_simulation=(
+            accepted and after.staged_production_allowed
+        ),
+        production_allowed_after_simulation=accepted and after.production_allowed,
         steps=tuple(steps),
     )
 

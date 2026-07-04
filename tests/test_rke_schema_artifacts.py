@@ -58,6 +58,8 @@ REQUIRED_SCHEMA_FILES = {
     "report_intelligence_macro_regime_snapshot.schema.json",
     "report_intelligence_macro_agent_research_prior.schema.json",
     "report_intelligence_macro_market_series_catalog.schema.json",
+    "report_intelligence_stock_context_snapshot.schema.json",
+    "report_intelligence_industry_context_snapshot.schema.json",
     "report_intelligence_method_performance_profile.schema.json",
     "report_intelligence_metric_candidate.schema.json",
     "report_intelligence_monitoring_report.schema.json",
@@ -1185,6 +1187,59 @@ def test_profile_outcome_layer_contract_accepts_current_public_artifacts(
     assert record.failures == ()
 
 
+def _seed_profile_outcome_layer(profile):
+    profile["n_effective"] = 1.0
+    support = profile["outcome_layer_support"]
+    support["layer_count"] = 1
+    support["mixed_layer_profile"] = False
+    support["layering_policy"] = (
+        "compare by label_type, target_family, benchmark_family, cost_model_id, "
+        "agent_layer, and regime_bucket"
+    )
+    summary = {
+        "label_type": "stock_price_proxy",
+        "target_family": "stock",
+        "benchmark_family": "CSI300_ETF_PROXY",
+        "cost_model_id": "single_stock_round_trip_20bps_v1",
+        "agent_layer": "superinvestor",
+        "regime_bucket": "company_quality",
+        "n_nominal": 1,
+        "n_effective": 1.0,
+        "mean_after_cost_alpha": 0.01,
+        "hit_rate": 1.0,
+        "shrunk_after_cost_alpha": 0.001,
+        "shrunk_hit_rate": 0.55,
+        "statistical_reliability_bucket": "insufficient_data",
+    }
+    key = {
+        "label_type": "stock_price_proxy",
+        "target_family": "stock",
+        "benchmark_family": "CSI300_ETF_PROXY",
+        "cost_model_id": "single_stock_round_trip_20bps_v1",
+        "agent_layer": "superinvestor",
+        "regime_bucket": "company_quality",
+    }
+    domain_support = {
+        "rating_row_count": 1,
+        "rating_bucket_counts": {"supportive_evidence": 1},
+        "failure_mode_counts": {},
+        "tradeability_blocker_count": 0,
+        "target_price_hit_count": 0,
+        "fundamental_metric_family_counts": {"inventory_to_sales": 1},
+        "target_family_counts": {"stock": 1},
+        "agent_layer_counts": {"superinvestor": 1},
+        "regime_bucket_counts": {"company_quality": 1},
+        "mapping_confidence_counts": {},
+        "proxy_limitation_tags": [],
+        "privacy_policy": "redacted_internal_rating_aggregate_only",
+    }
+    summary["domain_rating_support"] = dict(domain_support)
+    support["layer_summaries"] = [summary]
+    support["layer_keys"] = [key]
+    support["domain_rating_support"] = dict(domain_support)
+    return support, summary, key
+
+
 def test_profile_outcome_layer_contract_rejects_layer_drift(
     tmp_path: Path,
 ):
@@ -1195,17 +1250,12 @@ def test_profile_outcome_layer_contract_rejects_layer_drift(
         for line in profiles_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    profile = next(
-        row
-        for row in profiles
-        if row["outcome_layer_support"]["layer_summaries"]
-    )
-    support = profile["outcome_layer_support"]
+    support, summary, _key = _seed_profile_outcome_layer(profiles[0])
     support["layer_count"] = 0
     support["mixed_layer_profile"] = False
     support["layer_keys"] = []
-    support["layer_summaries"][0]["n_effective"] = 0.0
-    support["layer_summaries"][0].pop("benchmark_family", None)
+    summary["n_effective"] = 0.0
+    summary.pop("benchmark_family", None)
     profiles_path.write_text(
         "\n".join(
             json.dumps(row, ensure_ascii=False, sort_keys=True) for row in profiles
@@ -1221,6 +1271,62 @@ def test_profile_outcome_layer_contract_rejects_layer_drift(
     assert any("benchmark_family" in failure for failure in record.failures)
     assert any("layer_keys: must match" in failure for failure in record.failures)
     assert any("n_effective: expected sum" in failure for failure in record.failures)
+
+
+def test_profile_outcome_layer_contract_rejects_incomplete_extended_keys(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    profiles_path = registry / "source_performance_profiles.jsonl"
+    profiles = [
+        json.loads(line)
+        for line in profiles_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    _support, summary, key = _seed_profile_outcome_layer(profiles[0])
+    summary.pop("target_family")
+    key.pop("agent_layer")
+    profiles_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) for row in profiles
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _profile_outcome_layer_record(tmp_path)
+
+    assert not record.accepted
+    assert any("target_family" in failure for failure in record.failures)
+    assert any("agent_layer" in failure for failure in record.failures)
+
+
+def test_profile_outcome_layer_contract_rejects_bad_domain_rating_support(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    profiles_path = registry / "source_performance_profiles.jsonl"
+    profiles = [
+        json.loads(line)
+        for line in profiles_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    support, summary, _key = _seed_profile_outcome_layer(profiles[0])
+    support["domain_rating_support"]["rating_bucket_counts"] = {"generic_good": 1}
+    summary["domain_rating_support"].pop("target_family_counts")
+    profiles_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) for row in profiles
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _profile_outcome_layer_record(tmp_path)
+
+    assert not record.accepted
+    assert any("unsupported rating bucket" in failure for failure in record.failures)
+    assert any("target_family_counts: expected object" in failure for failure in record.failures)
 
 
 def test_extraction_report_contract_accepts_current_public_artifact(tmp_path: Path):
@@ -1521,6 +1627,17 @@ def _evolution_readiness_gate_record(tmp_path: Path):
         if record.schema_path
         == "schemas/report_intelligence_evolution_readiness_gate_rules"
     )
+
+
+def _write_evolution_readiness_gate(tmp_path: Path, gate: dict[str, object]) -> Path:
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True, exist_ok=True)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return gate_path
 
 
 def _copy_gold_review_summary(tmp_path: Path) -> Path:
@@ -3706,6 +3823,70 @@ def test_evolution_readiness_gate_contract_rejects_partial_macro_check_group(
     )
 
 
+def test_evolution_readiness_gate_contract_allows_complete_stock_industry_check_groups(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["checks"].extend(
+        {
+            "check_id": check_id,
+            "requirement": "domain gate fixture",
+            "passed": True,
+            "evidence": {},
+            "blockers": [],
+        }
+        for check_id in (
+            "RI-STOCK-01",
+            "RI-STOCK-02",
+            "RI-STOCK-03",
+            "RI-STOCK-04",
+            "RI-INDUSTRY-01",
+            "RI-INDUSTRY-02",
+            "RI-INDUSTRY-03",
+            "RI-INDUSTRY-04",
+        )
+    )
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert record.accepted
+
+
+def test_evolution_readiness_gate_contract_rejects_partial_stock_check_group(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["checks"].append(
+        {
+            "check_id": "RI-STOCK-01",
+            "requirement": "stock gate fixture",
+            "passed": True,
+            "evidence": {},
+            "blockers": [],
+        }
+    )
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "incomplete optional check group: RI-STOCK-02" in item
+        for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     tmp_path: Path,
 ):
@@ -3739,6 +3920,69 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
         "evolution_readiness_gate.promotion_state: expected blocked_before_prompt_evolution"
         in item
         for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_synthetic_prior_refusal_only_pass(
+    tmp_path: Path,
+):
+    gate = {
+        "blocker_count": 0,
+        "blockers": [],
+        "checks": [
+            {
+                "blockers": [],
+                "check_id": "RI-EVOL-08",
+                "evidence": {
+                    "prior_compiler_actionable_candidate_count": 0,
+                    "prior_compiler_candidate_count": 4,
+                },
+                "passed": True,
+                "requirement": "prior compiler fixture",
+            }
+        ],
+        "gate_status": "passed",
+        "private_text_included": False,
+        "production_prompt_change_allowed": False,
+        "promotion_state": "ready_for_shadow_evolution_candidate",
+        "thresholds": {},
+    }
+    _write_evolution_readiness_gate(tmp_path, gate)
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "prior_compiler_refusal_only required" in item for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_prior_compiler_refusal_only_pass(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-08")
+    check["blockers"] = []
+    check["passed"] = True
+    check["evidence"]["prior_compiler_actionable_candidate_count"] = 0
+    gate["blockers"] = [
+        blocker
+        for blocker in gate["blockers"]
+        if blocker != "prior_compiler_refusal_only"
+    ]
+    gate["blocker_count"] = len(gate["blockers"])
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "prior_compiler_refusal_only required" in item for item in record.failures
     )
 
 
@@ -4298,6 +4542,30 @@ def test_prompt_mutation_candidate_contract_requires_full_validation_matrix(
     assert any("shadow_paper_trading_pass" in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_rejects_prior_refusal_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    refusal = next(
+        row for row in candidates if str(row["candidate_type"]).endswith("_refusal")
+    )
+    refusal["blocked_by"] = []
+    evidence = refusal["evidence_refs"][0]
+    assert isinstance(evidence, dict)
+    evidence["candidate_kind"] = "macro_rule_parameter_candidate"
+    evidence["refusal_reasons"] = ["unsupported_refusal"]
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("unsupported unsupported_refusal" in item for item in record.failures)
+    assert any("blocked_by: must include refusal reasons" in item for item in record.failures)
+    assert any("candidate_kind: must be refusal" in item for item in record.failures)
+
+
 def test_prompt_mutation_candidate_contract_requires_existing_public_evidence(
     tmp_path: Path,
 ):
@@ -4672,6 +4940,78 @@ def test_prompt_mutation_candidate_contract_rejects_remaining_public_evidence_dr
         assert any(fragment in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_rejects_data_acquisition_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    proposals_path = registry / "data_acquisition_proposals.jsonl"
+    proposals_path.write_text(
+        json.dumps(
+            {
+                "data_proposal_id": "DAP-MARKET-CAP",
+                "tool_gap_id": "stock_context_market_cap_metadata_missing",
+                "business_priority": "medium",
+                "pit_feasibility_status": "requires_pit_backfill_review",
+                "license_status": "pending_review",
+                "decision_status": "pending_review",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidate = dict(candidates[0])
+    candidate.update(
+        {
+            "mutation_candidate_id": "PMUT-DATA-ACQUISITION-TEST",
+            "candidate_type": "data_acquisition_prioritization_rule",
+            "target_scope": "report_intelligence.data_acquisition",
+            "target_component": "data_acquisition_review_queue",
+            "proposed_change": "Keep data acquisition gaps blocked until review.",
+            "trigger_sources": ["data_acquisition_proposals"],
+            "evidence_refs": [
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/"
+                        "data_acquisition_proposals.jsonl"
+                    ),
+                    "field": "decision_status",
+                    "proposal_count": 0,
+                    "business_priority_counts": {},
+                    "pit_feasibility_status_counts": {},
+                    "license_status_counts": {},
+                    "market_cap_metadata_gap_count": 0,
+                    "top_tool_gap_ids": [],
+                }
+            ],
+            "severity": "medium",
+            "blocked_by": ["data_engineering_review_required"],
+            "promotion_state": "shadow_candidate_only",
+            "manual_review_required": True,
+            "production_prompt_change_allowed": False,
+            "private_text_included": False,
+        }
+    )
+    candidates.append(candidate)
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    expected_fragments = [
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.proposal_count",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.business_priority_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.pit_feasibility_status_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.license_status_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.market_cap_metadata_gap_count",
+        "data_acquisition_prioritization_rule.evidence_refs.decision_status.top_tool_gap_ids",
+    ]
+    for fragment in expected_fragments:
+        assert any(fragment in item for item in record.failures)
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
@@ -4801,6 +5141,7 @@ def test_manual_review_progress_contract_accepts_current_public_artifact(
         "evidence_status"
     ]
     footprint_current = progress["gates"][1]["current_batch_status"]
+    footprint_target = footprint_current.get("target_status") or {}
 
     record = _manual_review_progress_contract_record(tmp_path)
 
@@ -4818,6 +5159,7 @@ def test_manual_review_progress_contract_accepts_current_public_artifact(
         footprint_evidence["review_input_rows"]
         and not footprint_current.get("already_applied")
         and not progress["gates"][1]["ready_for_promotion"]
+        and footprint_target.get("aligned") is True
     ):
         assert footprint_evidence["aligned"] is True
         assert (

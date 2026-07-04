@@ -53,6 +53,7 @@ from mosaic.rke.report_intelligence import (
     build_macro_curve_directional_outcome_labels,
     build_macro_curve_directional_readiness,
     build_industry_etf_proxy_pit_availability,
+    build_industry_context_snapshots,
     build_macro_market_series_catalog,
     build_macro_regime_snapshots,
     build_macro_series_directional_outcome_labels,
@@ -67,7 +68,9 @@ from mosaic.rke.report_intelligence import (
     build_report_intelligence_extraction_provenance_audit,
     build_report_intelligence_statistical_robustness_audit,
     build_source_performance_profiles,
+    build_stock_context_snapshots,
     build_data_acquisition_proposals,
+    build_domain_claim_ratings,
     build_tool_design_proposals,
     build_viewpoint_performance_profiles,
     build_weighted_research_contexts,
@@ -107,6 +110,7 @@ from mosaic.rke.report_intelligence import (
     _paper_trading_chronological_split_metrics,
     _paper_trading_train_oos_split_items,
     _select_report_forecast_claims,
+    _split_agent_and_entity_candidates,
     _stable_id,
     _text_grounded_indicator_mentions,
     _user_prompt,
@@ -1105,6 +1109,300 @@ def test_report_intelligence_builds_public_safe_macro_regime_snapshots():
     assert "FC-MACRO-TRACE-1" not in snapshot_dump
 
 
+def test_report_intelligence_builds_public_safe_stock_context_snapshots():
+    metadata_rows = [
+        {
+            "source_id": "SRC-STOCK-1",
+            "report_id": "RPT-STOCK-1",
+            "report_type": "个股研报",
+            "ts_code": "600519.SH",
+            "sector": "食品饮料",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-STOCK-1",
+            "source_id": "SRC-STOCK-1",
+            "claim_text": "private prose",
+            "target": {"target_type": "stock", "target_id": "600519.SH"},
+            "metric_proxy_mapping": ["inventory_to_sales"],
+            "direction": "positive",
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+        }
+    ]
+    outcome_rows = [
+        {
+            "forecast_claim_id": "FC-STOCK-1",
+            "label_type": "stock_price_proxy",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "entry_liquidity_check": "positive_volume_and_limit_lock_screen",
+            "exit_liquidity_check": "positive_volume_and_limit_lock_screen",
+        }
+    ]
+
+    snapshots = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        stock_price_proxy_readiness={
+            "labelable_forecast_claim_ids": ["FC-STOCK-1"],
+            "eligible_forecast_claim_ids": ["FC-STOCK-1"],
+            "benchmark_family": "CSI300_ETF_PROXY",
+        },
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["schema_version"] == "stock_context_snapshot_v1"
+    assert snapshot["as_of_date"] == "2026-01-10"
+    assert snapshot["stock_symbol"] == "600519.SH"
+    assert snapshot["sector"] == "食品饮料"
+    assert snapshot["liquidity_bucket"] == "tradable_proxy_observed"
+    assert snapshot["stock_outcome_age_bucket"] == "stock_outcome_pending"
+    assert snapshot["benchmark_family"] == "CSI300_ETF_PROXY"
+    assert snapshot["fundamental_metric_family_counts"] == {"inventory_to_sales": 1}
+    assert snapshot["background_only"] is True
+    assert snapshot["claim_validation_allowed"] is False
+    assert snapshot["private_text_included"] is False
+    assert "market_cap_bucket_missing" in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private prose" not in snapshot_dump
+    assert "private title" not in snapshot_dump
+    assert "FC-STOCK-1" not in snapshot_dump
+
+
+def test_report_intelligence_stock_context_buckets_tushare_market_cap():
+    metadata_rows = [
+        {
+            "source_id": "SRC-STOCK-MV",
+            "report_id": "RPT-STOCK-MV",
+            "report_type": "个股研报",
+            "ts_code": "600519.SH",
+            "sector": "食品饮料",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "total_mv": 15_000_000,
+            "title": "private title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-STOCK-MV",
+            "source_id": "SRC-STOCK-MV",
+            "claim_text": "private prose",
+            "target": {"target_type": "stock", "target_id": "600519.SH"},
+            "direction": "positive",
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+        }
+    ]
+
+    snapshots = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-MV",
+                "label_type": "stock_price_proxy",
+            }
+        ],
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["market_cap_bucket"] == "large_cap"
+    assert "market_cap_bucket_missing" not in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private prose" not in snapshot_dump
+    assert "FC-STOCK-MV" not in snapshot_dump
+
+
+def test_report_intelligence_builds_public_safe_industry_context_snapshots():
+    metadata_rows = [
+        {
+            "source_id": "SRC-IND-1",
+            "report_id": "RPT-IND-1",
+            "report_type": "行业研报",
+            "sector": "半导体",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-IND-1",
+            "source_id": "SRC-IND-1",
+            "claim_text": "private prose",
+            "target": {"target_type": "sector", "target_id": "半导体"},
+            "direction": "positive",
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+        }
+    ]
+    mapping_rows = [
+        {
+            "mapping_id": "IETF-MAP-SEMI",
+            "mapping_version": 1,
+            "sector_name": "半导体",
+            "sector_aliases": ["半导体"],
+            "taxonomy": "operator_seeded_tushare_industry",
+            "etf_symbol": "512480.SH",
+            "etf_name": "半导体ETF",
+            "benchmark_symbol": "510300.SH",
+            "benchmark_source": "qlib_cn_etf",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "industry_etf_round_trip_10bps_v1",
+            "mapping_confidence": "operator_seeded_exact_sector",
+            "mapping_rationale": "test mapping",
+            "status": "primary",
+            "review_required": False,
+        }
+    ]
+
+    snapshots = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=[
+            {
+                "forecast_claim_id": "FC-IND-1",
+                "label_type": "industry_etf_proxy",
+                "benchmark_family": "CSI300_ETF_PROXY",
+            }
+        ],
+        industry_etf_proxy_map_rows=mapping_rows,
+        industry_etf_proxy_readiness={"benchmark_family": "CSI300_ETF_PROXY"},
+        industry_etf_proxy_pit_availability={
+            "mapping_records": [
+                {"mapping_id": "IETF-MAP-SEMI", "pit_available": True}
+            ]
+        },
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["schema_version"] == "industry_context_snapshot_v1"
+    assert snapshot["as_of_date"] == "2026-01-10"
+    assert snapshot["canonical_sector"] == "半导体"
+    assert snapshot["proxy_symbol"] == "512480.SH"
+    assert snapshot["mapping_confidence"] == "operator_seeded_exact_sector"
+    assert snapshot["proxy_liquidity_bucket"] == "proxy_outcome_observed"
+    assert snapshot["benchmark_family"] == "CSI300_ETF_PROXY"
+    assert "broad_etf_proxy_not_direct_industry_portfolio" in snapshot[
+        "known_proxy_limitations"
+    ]
+    assert "operator_seeded_proxy_mapping" in snapshot["known_proxy_limitations"]
+    assert snapshot["missing_feature_reasons"] == ["industry_cycle_bucket_missing"]
+    assert snapshot["background_only"] is True
+    assert snapshot["claim_validation_allowed"] is False
+    assert snapshot["private_text_included"] is False
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private prose" not in snapshot_dump
+    assert "private title" not in snapshot_dump
+    assert "FC-IND-1" not in snapshot_dump
+
+
+def test_report_intelligence_industry_context_uses_claim_cycle_bucket():
+    metadata_rows = [
+        {
+            "source_id": "SRC-IND-CYCLE",
+            "report_id": "RPT-IND-CYCLE",
+            "report_type": "行业研报",
+            "sector": "半导体",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private cycle title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-IND-CYCLE",
+            "source_id": "SRC-IND-CYCLE",
+            "claim_text": "private cycle prose",
+            "target": {"target_type": "sector", "target_id": "半导体"},
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+            "extraction_quality": {
+                "claim_component_roles": {
+                    "industry_cycle_regime_context_types": ["technology_cycle"]
+                }
+            },
+        }
+    ]
+
+    snapshots = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        industry_etf_proxy_map_rows=[
+            {
+                "mapping_id": "IETF-MAP-SEMI",
+                "sector_name": "半导体",
+                "sector_aliases": ["半导体"],
+                "etf_symbol": "512480.SH",
+                "benchmark_family": "CSI300_ETF_PROXY",
+                "mapping_confidence": "operator_seeded_exact_sector",
+                "status": "primary",
+            }
+        ],
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["industry_cycle_bucket"] == "technology_cycle"
+    assert "industry_cycle_bucket_missing" not in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private cycle prose" not in snapshot_dump
+    assert "FC-IND-CYCLE" not in snapshot_dump
+
+
+def test_report_intelligence_industry_context_uses_metric_cycle_bucket():
+    metadata_rows = [
+        {
+            "source_id": "SRC-IND-METRIC-CYCLE",
+            "report_id": "RPT-IND-METRIC-CYCLE",
+            "report_type": "行业研报",
+            "sector": "汽车零部件",
+            "publish_datetime": "2026-01-10T09:00:00+08:00",
+            "title": "private metric cycle title",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-IND-METRIC-CYCLE",
+            "source_id": "SRC-IND-METRIC-CYCLE",
+            "claim_text": "private metric cycle prose",
+            "target": {"target_type": "sector", "target_id": "汽车零部件"},
+            "signal_datetime": "2026-01-10T09:00:00+08:00",
+            "metric_proxy_mapping": ["demand_growth"],
+        }
+    ]
+
+    snapshots = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        industry_etf_proxy_map_rows=[
+            {
+                "mapping_id": "IETF-MAP-AUTO-PARTS",
+                "sector_name": "汽车零部件",
+                "sector_aliases": ["汽车零部件"],
+                "etf_symbol": "516110.SH",
+                "benchmark_family": "CSI300_ETF_PROXY",
+                "mapping_confidence": "operator_seeded_exact_sector",
+                "status": "primary",
+            }
+        ],
+    )
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot["industry_cycle_bucket"] == "industry_demand_growth"
+    assert "industry_cycle_bucket_missing" not in snapshot["missing_feature_reasons"]
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "private metric cycle prose" not in snapshot_dump
+    assert "FC-IND-METRIC-CYCLE" not in snapshot_dump
+
+
 def test_report_intelligence_builds_deferred_snapshot_for_candidate_macro_agent():
     forecast_rows = [
         {
@@ -1220,6 +1518,7 @@ def test_report_intelligence_builds_redacted_macro_agent_research_priors():
     assert dollar_prior["metric_families"] == ["fx_rate"]
     assert dollar_prior["metric_family"] == "fx_rate"
     assert dollar_prior["target_series_family"] == "fx"
+    assert dollar_prior["cross_asset_consistency"] == "not_applicable"
     assert dollar_prior["expected_direction"] == "positive"
     assert dollar_prior["latest_completed_exit_date"] == "2026-04-15"
     assert dollar_prior["freshness_bucket"] == "completed_exit_after_prior_as_of"
@@ -1236,6 +1535,46 @@ def test_report_intelligence_builds_redacted_macro_agent_research_priors():
     assert "source_span_ids" not in prior_dump
     assert "若政策干预超预期" not in prior_dump
     assert "FC-MACRO-PRIOR-1" not in prior_dump
+
+
+def test_report_intelligence_macro_prior_flags_cross_asset_incompatibility():
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-PARENT-1:YIELD",
+            "parent_forecast_claim_id": "FC-MACRO-PARENT-1",
+            "macro_claim_leg_id": "MCL-YIELD-UP",
+            "target": {
+                "target_type": "macro_series",
+                "target_id": "CN10Y",
+                "metric_family": "bond_yield_level",
+            },
+            "direction": "positive",
+            "metric_proxy_mapping": ["bond_yield_level"],
+            "claim_regime_trace": {"as_of_date": "2026-01-15", "macro": {}},
+        },
+        {
+            "forecast_claim_id": "FC-MACRO-PARENT-1:BOND",
+            "parent_forecast_claim_id": "FC-MACRO-PARENT-1",
+            "macro_claim_leg_id": "MCL-BOND-UP",
+            "target": {
+                "target_type": "macro_asset",
+                "target_id": "CN_BOND",
+                "metric_family": "bond_etf_forward_return",
+            },
+            "direction": "positive",
+            "metric_proxy_mapping": ["bond_etf_forward_return"],
+            "claim_regime_trace": {"as_of_date": "2026-01-15", "macro": {}},
+        },
+    ]
+
+    profiles = build_viewpoint_performance_profiles(forecast_rows)
+    priors = build_macro_agent_research_priors(
+        forecast_rows,
+        viewpoint_performance_profile_rows=profiles,
+        macro_regime_snapshot_rows=build_macro_regime_snapshots(forecast_rows),
+    )
+
+    assert {row["cross_asset_consistency"] for row in priors} == {"contradictory"}
 
 
 def test_report_intelligence_macro_prior_uses_plan_pending_bucket():
@@ -2328,6 +2667,134 @@ def test_outcome_readiness_excludes_pending_proxy_claims_from_unlabelable_gaps()
     ]
 
 
+def test_outcome_readiness_tracks_agent_assignment_gap():
+    readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-SECTOR-INFERRED-OWNER",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-SECTOR-OWNER",
+                "target": {
+                    "target_type": "sector",
+                    "target_id": "半导体",
+                    "target_agent_candidates": ["sector.semiconductor"],
+                },
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-STOCK-INFERRED-OWNER",
+                "target": {"target_type": "stock", "target_id": "600519.SH"},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-COMMODITY-INFERRED-OWNER",
+                "target": {"target_type": "commodity", "target_id": "铜"},
+                "metric_proxy_mapping": ["commodity_price"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-STYLE-INFERRED-OWNER",
+                "target": {"target_type": "style_index", "target_id": "CN_A_SHARE_GROWTH"},
+                "metric_proxy_mapping": ["equity_index_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-MACRO-GROWTH-INFERRED-OWNER",
+                "target": {
+                    "target_type": "macro_series",
+                    "target_id": "CN_RETAIL_SALES_GROWTH",
+                },
+                "metric_proxy_mapping": ["retail_sales_growth"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+            {
+                "forecast_claim_id": "FC-UNKNOWN-OWNER",
+                "target": {"target_type": "factor", "target_id": "quality"},
+                "metric_proxy_mapping": ["factor_forward_return"],
+                "direction": "positive",
+                "horizon": {"preferred_days": 20},
+            },
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-SECTOR-INFERRED-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-SECTOR-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-STOCK-INFERRED-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-COMMODITY-INFERRED-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-STYLE-INFERRED-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-MACRO-GROWTH-INFERRED-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-UNKNOWN-OWNER",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+        ],
+    )
+
+    assert readiness["assignment_gap_counts"] == {"agent_assignment_missing": 1}
+    assert readiness["assignment_gap_forecast_claim_ids"] == ["FC-UNKNOWN-OWNER"]
+    assert readiness["assignment_inferred_rule_counts"] == {
+        "industry_default_agents": 1,
+        "macro_target_mapping": 3,
+        "stock_default_agents": 1,
+    }
+    assert readiness["assignment_inferred_agent_counts"][
+        "sector.semiconductor"
+    ] == 1
+    assert readiness["assignment_inferred_agent_counts"][
+        "superinvestor.munger"
+    ] == 1
+    assert readiness["assignment_inferred_agent_counts"]["macro.commodities"] == 1
+    assert readiness["assignment_inferred_agent_counts"]["macro.china"] == 2
+    assert readiness["rating_readiness_bucket_counts"]["blocked_assignment"] == 1
+
+
+def test_report_intelligence_agent_candidate_filter_keeps_investor_and_decision_ids():
+    agents, entities = _split_agent_and_entity_candidates(
+        [
+            "superinvestor.munger",
+            "decision.cio",
+            "sector.semiconductor",
+            "Anthropic",
+        ]
+    )
+
+    assert agents == [
+        "superinvestor.munger",
+        "decision.cio",
+        "sector.semiconductor",
+    ]
+    assert entities == ["Anthropic"]
+
+
 def _passing_forecast_gold_review_summary(**overrides):
     summary = {
         "passed": True,
@@ -2522,6 +2989,132 @@ def test_report_intelligence_evolution_gate_checks_macro_branch():
     }
     assert all(row["passed"] is True for row in macro_checks.values())
     assert "macro_agent_prior_missing" not in passed_gate["blockers"]
+
+
+def test_report_intelligence_evolution_gate_checks_stock_industry_branches():
+    forecast_rows, outcome_rows = _full_evolution_outcome_fixture()
+    forecast_rows[0].update(
+        {
+            "report_id": "RPT-STOCK-GATE",
+            "target": {"target_type": "stock", "target_id": "000001.SZ"},
+            "metric_proxy_mapping": ["stock_forward_return"],
+            "direction": "positive",
+        }
+    )
+    forecast_rows[1].update(
+        {
+            "report_id": "RPT-STOCK-GAP",
+            "target": {},
+            "metric_proxy_mapping": ["stock_forward_return"],
+            "direction": "positive",
+        }
+    )
+    forecast_rows[30].update(
+        {
+            "report_id": "RPT-INDUSTRY-GATE",
+            "target": {"target_type": "industry", "target_id": "半导体"},
+            "metric_proxy_mapping": ["industry_etf_forward_return"],
+            "direction": "positive",
+        }
+    )
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    previous_vintage_1 = "sha256:" + "1" * 64
+    previous_vintage_2 = "sha256:" + "2" * 64
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-STOCK-INDUSTRY-GATE",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
+        confidence_impact_monitor=clean_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary=_passing_forecast_gold_review_summary(),
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_proxy_label_ready_count": 30,
+            "industry_proxy_label_ready_count": 30,
+            "stock_price_proxy_readiness": {
+                "data_gap_counts": {"stock_target_mapping_missing": 1}
+            },
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        metadata_rows=[
+            {
+                "report_id": "RPT-STOCK-GATE",
+                "report_type": "公司研报",
+                "ts_code": "000001.SZ",
+                "sector": "银行",
+                "publish_datetime": "2026-01-01T00:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-STOCK-GAP",
+                "report_type": "公司研报",
+                "sector": "银行",
+                "publish_datetime": "2026-01-01T00:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-INDUSTRY-GATE",
+                "report_type": "行业研报",
+                "sector": "半导体",
+                "publish_datetime": "2026-01-01T00:00:00+08:00",
+            },
+        ],
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {**clean_monitor, "data_vintage_hash": previous_vintage_2},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
+        ],
+    )
+
+    checks = {row["check_id"]: row for row in gate["checks"]}
+    for check_id in (
+        "RI-STOCK-01",
+        "RI-STOCK-02",
+        "RI-STOCK-03",
+        "RI-STOCK-04",
+        "RI-INDUSTRY-01",
+        "RI-INDUSTRY-02",
+        "RI-INDUSTRY-03",
+        "RI-INDUSTRY-04",
+    ):
+        assert checks[check_id]["passed"] is True
+    assert checks["RI-STOCK-01"]["evidence"]["stock_forecast_row_count"] == 2
+    assert checks["RI-STOCK-01"]["evidence"][
+        "target_resolution_gap_counts"
+    ] == {"stock_target_mapping_missing": 1}
+    assert checks["RI-STOCK-01"]["evidence"][
+        "unaudited_target_resolution_gap_counts"
+    ] == {}
+    assert checks["RI-INDUSTRY-03"]["evidence"][
+        "industry_context_snapshot_count"
+    ] == 1
 
 
 def _write_source(
@@ -6560,6 +7153,44 @@ def test_markdown_coverage_does_not_bucket_stock_query_key_as_sector():
     )
 
 
+def test_markdown_coverage_groups_forecasts_by_report_id_before_source_id():
+    summary = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-REPORT-ID-GROUPING-TEST",
+        metadata_rows=[
+            {
+                "source_id": "SRC-BATCH",
+                "report_id": "RPT-1",
+                "report_type": "宏观研报",
+                "pdf": {"status": "downloaded"},
+                "markdown": {"status": "converted", "bytes": 200},
+                "extraction": {"llm_status": "processed"},
+            },
+            {
+                "source_id": "SRC-BATCH",
+                "report_id": "RPT-2",
+                "report_type": "宏观研报",
+                "pdf": {"status": "downloaded"},
+                "markdown": {"status": "converted", "bytes": 200},
+                "extraction": {"llm_status": "processed"},
+            },
+        ],
+        forecast_rows=[
+            {
+                "source_id": "SRC-BATCH",
+                "report_id": "RPT-1",
+                "horizon": {"preferred_days": 20},
+                "target": {"target_type": "macro_variable"},
+            }
+        ],
+    )
+
+    assert summary["report_horizon_bucket_counts"] == {
+        "20d": 1,
+        "no_extracted_forecast_horizon": 1,
+    }
+    assert summary["forecast_horizon_bucket_counts"] == {"20d": 1}
+
+
 def test_markdown_coverage_tracks_quality_review_false_positive_risk():
     summary = build_markdown_coverage_summary(
         run_id="RIR-MARKDOWN-REVIEW-QUEUE-TEST",
@@ -9246,6 +9877,226 @@ def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence(
     assert outcome_check["evidence"]["industry_proxy_unique_claim_count"] == 30
 
 
+def test_report_intelligence_evolution_gate_audits_prior_compiler_paths():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-PRIOR-COMPILER-GATE",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        prompt_mutation_candidate_rows=[
+            {
+                "candidate_type": "stock_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "stock"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "industry_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "industry"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_candidate",
+                "evidence_refs": [{"agent_id": "macro.central_bank"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_refusal",
+                "evidence_refs": [{"agent_id": "macro.yield_curve"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-08")
+    assert check["passed"] is True
+    assert check["evidence"]["macro_compiler_agent_count"] == 2
+    assert check["evidence"]["candidate_type_counts"][
+        "stock_prior_recipe_rule_refusal"
+    ] == 1
+    assert check["evidence"]["private_text_violation_count"] == 0
+
+
+def test_report_intelligence_evolution_gate_blocks_prior_compiler_refusal_only():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-PRIOR-COMPILER-REFUSAL-ONLY",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        prompt_mutation_candidate_rows=[
+            {
+                "candidate_type": "stock_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "stock"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "industry_prior_recipe_rule_refusal",
+                "evidence_refs": [{"domain": "industry"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_refusal",
+                "evidence_refs": [{"agent_id": "macro.central_bank"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+            {
+                "candidate_type": "macro_prior_rule_parameter_refusal",
+                "evidence_refs": [{"agent_id": "macro.yield_curve"}],
+                "production_prompt_change_allowed": False,
+                "private_text_included": False,
+            },
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-08")
+    assert check["passed"] is False
+    assert "prior_compiler_refusal_only" in check["blockers"]
+    assert check["evidence"]["prior_compiler_actionable_candidate_count"] == 0
+    assert gate["gate_status"] == "blocked"
+
+
+def test_report_intelligence_evolution_gate_audits_agent_context_ranking_contract():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-AGENT-CONTEXT-GATE",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        agent_context_forecast_rows=[
+            {
+                "forecast_claim_id": "FC-SEMI-1",
+                "report_id": "RPT-SEMI-1",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata_rows=[
+            {
+                "report_id": "RPT-SEMI-1",
+                "report_type": "行业研报",
+                "sector": "半导体",
+            }
+        ],
+        weighted_research_context_rows=[
+            {
+                "agent_id": "sector.semiconductor",
+                "retrieved_claims": [
+                    {
+                        "forecast_claim_id": "FC-SEMI-1",
+                        "combined_research_prior_weight": 1.2,
+                        "performance_context_match": "source_and_viewpoint_profile_match",
+                    }
+                ],
+            }
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
+    assert check["passed"] is True
+    evidence = check["evidence"]
+    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v1"
+    assert evidence["ranked_context_agent_count"] >= 1
+    assert evidence["no_prior_reason_agent_count"] >= 1
+    assert evidence["current_data_guard_violation_count"] == 0
+    assert evidence["private_text_violation_count"] == 0
+    assert {
+        row["agent_id"] for row in evidence["sampled_agent_contexts"]
+    } >= {"sector.semiconductor", "decision.cio"}
+
+
+def test_report_intelligence_evolution_gate_blocks_invalid_agent_context_metadata(
+    monkeypatch,
+):
+    from mosaic.rke import agent_research_context as context_module
+
+    def bad_context(*, agent_id, layer, **_kwargs):
+        return {
+            "agent_id": agent_id,
+            "layer": layer,
+            "research_only": True,
+            "production_signal_allowed": False,
+            "actionability": context_module.SAFE_ACTIONABILITY,
+            "ranking_policy_id": context_module.RANKING_POLICY_ID,
+            "context_items": [
+                {
+                    "redacted_claim_id": "FC-BAD-RANKING-METADATA",
+                    "retrieval_rank": True,
+                    "priority_bucket": "agent_specific",
+                    "ranking_reason_codes": ["test_regression"],
+                    "current_data_required": True,
+                    "current_data_required_fields": ["current_data_confirmation"],
+                    "production_signal_allowed": False,
+                }
+            ],
+            "summary": {
+                "ranking_policy_id": context_module.RANKING_POLICY_ID,
+                "matched_item_count": 1,
+                "truncated_item_count": -1,
+                "current_data_required": True,
+            },
+        }
+
+    monkeypatch.setattr(
+        context_module, "build_rke_agent_research_context_from_rows", bad_context
+    )
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-AGENT-CONTEXT-BAD-METADATA",
+        forecast_rows=[],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={},
+        confidence_impact_monitor={},
+        markdown_coverage_summary={},
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        gold_review_summary={},
+        agent_context_forecast_rows=[
+            {
+                "forecast_claim_id": "FC-BAD-RANKING-METADATA",
+                "report_id": "RPT-BAD-RANKING-METADATA",
+            }
+        ],
+        weighted_research_context_rows=[
+            {
+                "agent_id": "sector.semiconductor",
+                "retrieved_claims": [
+                    {"forecast_claim_id": "FC-BAD-RANKING-METADATA"}
+                ],
+            }
+        ],
+    )
+
+    check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
+    assert check["passed"] is False
+    assert "agent_context_ranking_policy_violation" in check["blockers"]
+    assert check["evidence"]["ranking_policy_violation_count"] > 0
+
+
 def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
     outcome_rows = []
     forecast_rows = []
@@ -9510,6 +10361,39 @@ def test_report_intelligence_prompt_mutation_candidates_track_regime_mechanism_g
     candidate_dump = json.dumps(candidate, ensure_ascii=False)
     assert "claim_text" not in candidate_dump
     assert "source_span_ids" not in candidate_dump
+
+
+def test_report_intelligence_prompt_mutation_candidates_track_agent_assignment_gap():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-ASSIGNMENT-GAP",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "assignment_gap_counts": {"agent_assignment_missing": 2},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "markdown_quality_gap_counts": {},
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    candidate = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "agent_assignment_mapping_rule"
+    )
+    evidence = candidate["evidence_refs"][0]
+    assert evidence["field"] == "assignment_gap_counts"
+    assert evidence["gap_counts"] == {"agent_assignment_missing": 2}
+    assert evidence["rating_bucket"] == "blocked_assignment"
+    assert "agent_assignment_review_required" in candidate["blocked_by"]
 
 
 def test_report_intelligence_prompt_mutation_candidates_keep_company_only_regime_gap_diagnostic():
@@ -10287,6 +11171,126 @@ def test_report_intelligence_prompt_mutation_candidates_track_aggregate_calibrat
     assert calibration[0]["production_prompt_change_allowed"] is False
 
 
+def test_report_intelligence_prompt_mutation_candidates_compile_macro_priors():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        macro_agent_research_prior_rows=[
+            {
+                "prior_id": "MAP-CB",
+                "agent_id": "macro.central_bank",
+                "metric_family": "policy_rate_level",
+                "rating_bucket": "supportive_evidence",
+                "n_effective": 4.0,
+                "private_text_included": False,
+            },
+            {
+                "prior_id": "MAP-YC",
+                "agent_id": "macro.yield_curve",
+                "metric_family": "bond_yield_level",
+                "rating_bucket": "mixed_evidence",
+                "n_effective": 5.0,
+                "private_text_included": False,
+            },
+        ],
+    )
+
+    macro_candidates = [
+        row
+        for row in candidates
+        if row["candidate_type"] == "macro_prior_rule_parameter_candidate"
+    ]
+    assert {row["evidence_refs"][0]["agent_id"] for row in macro_candidates} == {
+        "macro.central_bank",
+        "macro.yield_curve",
+    }
+    for row in macro_candidates:
+        evidence = row["evidence_refs"][0]
+        assert evidence["candidate_kind"] == "macro_rule_parameter_candidate"
+        assert evidence["qualified_prior_count"] == 1
+        assert evidence["refusal_reasons"] == []
+        assert row["production_prompt_change_allowed"] is False
+        assert row["private_text_included"] is False
+
+
+def test_report_intelligence_prompt_mutation_candidates_prior_refusal_reasons():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {
+                "data_gap_counts": {
+                    "sector_etf_mapping_missing": 2,
+                    "proxy_series_missing": 1,
+                }
+            },
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        outcome_label_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-1",
+                "label_type": "stock_price_proxy",
+            },
+            {
+                "forecast_claim_id": "FC-STOCK-2",
+                "label_type": "stock_price_proxy",
+            },
+            {
+                "forecast_claim_id": "FC-STOCK-3",
+                "label_type": "stock_price_proxy",
+            },
+        ],
+        weighted_research_context_rows=[
+            {
+                "agent_id": "research.general",
+                "retrieved_claims": [
+                    {
+                        "forecast_claim_id": "FC-DEPENDENT",
+                        "copying_risk_bucket": "source_dependent",
+                    }
+                ],
+            }
+        ],
+    )
+
+    stock = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "stock_prior_recipe_rule_refusal"
+    )
+    industry = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "industry_prior_recipe_rule_refusal"
+    )
+    assert "source_dependent_cluster" in stock["evidence_refs"][0]["refusal_reasons"]
+    refusal_reasons = set(industry["evidence_refs"][0]["refusal_reasons"])
+    assert {
+        "insufficient_effective_n",
+        "missing_pit_outcome",
+        "missing_validation_target",
+        "source_dependent_cluster",
+    } <= refusal_reasons
+    assert industry["private_text_included"] is False
+    assert "claim_text" not in json.dumps(industry, ensure_ascii=False)
+
+
 def test_report_intelligence_can_select_historical_sources_by_date(
     tmp_path: Path,
 ):
@@ -10419,6 +11423,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
                             "benchmark_id": "CSI300",
                         },
                         "direction": "positive",
+                        "metric_proxy_mapping": ["inventory_to_sales"],
                         "horizon": {
                             "min_days": 20,
                             "max_days": 120,
@@ -10455,6 +11460,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     )
     assert {row["horizon_days"] for row in outcome_labels} == {20, 60, 120}
     assert {row["label_type"] for row in outcome_labels} == {"industry_etf_proxy"}
+    assert {row["metric_family"] for row in outcome_labels} == {"inventory_to_sales"}
     assert {row["proxy_symbol"] for row in outcome_labels} == {"SH560860"}
     assert {row["proxy_sector"] for row in outcome_labels} == {"工业金属"}
     assert {row["benchmark_symbol"] for row in outcome_labels} == {"SH510300"}
@@ -11673,6 +12679,7 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
                         },
                         "benchmark": {},
                         "direction": "positive",
+                        "metric_proxy_mapping": ["earnings_growth"],
                         "horizon": {
                             "min_days": 5,
                             "max_days": 120,
@@ -11708,6 +12715,7 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
         key=lambda row: row["horizon_days"],
     )
     assert {row["label_type"] for row in outcome_labels} == {"stock_price_proxy"}
+    assert {row["metric_family"] for row in outcome_labels} == {"earnings_growth"}
     assert [row["horizon_days"] for row in outcome_labels] == [5, 20, 60, 120]
     assert [row["effective_n_weight"] for row in outcome_labels] == [
         0.2,
@@ -14993,7 +16001,14 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "exit_datetime": "2026-01-30",
             "directional_hit": True,
             "directional_after_cost_return": 0.02,
+            "after_cost_alpha": -0.01,
             "performance_value_basis": "directional_after_cost_return",
+            "relative_directional_hit": False,
+            "target_price_hit": True,
+            "target_family": "stock",
+            "agent_layer": "superinvestor",
+            "regime_bucket": "company_quality",
+            "metric_family": "inventory_to_sales",
             "effective_n_weight": 0.5,
             "pit_valid": True,
         },
@@ -15006,7 +16021,16 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
             "exit_datetime": "2026-02-28",
             "directional_hit": False,
             "directional_after_cost_return": -0.01,
+            "after_cost_alpha": -0.02,
             "performance_value_basis": "directional_after_cost_return",
+            "mapping_id": "IETF-MAP-SEMI",
+            "proxy_symbol": "512480.SH",
+            "proxy_mapping_confidence": "operator_seeded_exact_sector",
+            "pit_availability_status": "unverified",
+            "target_family": "industry",
+            "agent_layer": "sector",
+            "regime_bucket": "industry_cycle",
+            "metric_family": "industry_cycle_regime",
             "effective_n_weight": 0.5,
             "pit_valid": True,
         },
@@ -15024,21 +16048,30 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     layer_keys = {
         (
             row["label_type"],
+            row["target_family"],
             row["benchmark_family"],
             row["cost_model_id"],
+            row["agent_layer"],
+            row["regime_bucket"],
         )
         for row in layer_support["layer_summaries"]
     }
     assert layer_keys == {
         (
             "stock_price_proxy",
+            "stock",
             "CSI300_ETF_PROXY",
             "single_stock_round_trip_20bps_v1",
+            "superinvestor",
+            "company_quality",
         ),
         (
             "industry_etf_proxy",
+            "industry",
             "CSI500_ETF_PROXY",
             "industry_etf_round_trip_10bps_v1",
+            "sector",
+            "industry_cycle",
         ),
     }
     stock_layer = next(
@@ -15055,6 +16088,60 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     assert stock_layer["mean_after_cost_alpha"] == 0.02
     assert industry_layer["n_effective"] == 0.5
     assert industry_layer["mean_after_cost_alpha"] == -0.01
+    assert stock_layer["domain_rating_support"]["rating_bucket_counts"] == {
+        "supportive_evidence": 1
+    }
+    assert stock_layer["domain_rating_support"]["target_price_hit_count"] == 1
+    assert stock_layer["domain_rating_support"]["failure_mode_counts"] == {
+        "fundamental_without_relative_followthrough": 1
+    }
+    assert stock_layer["domain_rating_support"]["fundamental_metric_family_counts"] == {
+        "inventory_to_sales": 1
+    }
+    assert stock_layer["domain_rating_support"]["target_family_counts"] == {"stock": 1}
+    assert stock_layer["domain_rating_support"]["agent_layer_counts"] == {
+        "superinvestor": 1
+    }
+    assert stock_layer["domain_rating_support"]["regime_bucket_counts"] == {
+        "company_quality": 1
+    }
+    assert industry_layer["domain_rating_support"]["rating_bucket_counts"] == {
+        "contradictory_evidence": 1
+    }
+    assert industry_layer["domain_rating_support"]["fundamental_metric_family_counts"] == {
+        "industry_cycle_regime": 1
+    }
+    assert industry_layer["domain_rating_support"]["mapping_confidence_counts"] == {
+        "operator_seeded_exact_sector": 1
+    }
+    assert "broad_etf_proxy_not_direct_industry_portfolio" in industry_layer[
+        "domain_rating_support"
+    ]["proxy_limitation_tags"]
+    assert "proxy_liquidity_unverified" in industry_layer["domain_rating_support"][
+        "proxy_limitation_tags"
+    ]
+    domain_ratings = build_domain_claim_ratings(outcome_rows)
+    assert {row["domain"] for row in domain_ratings} == {"stock", "industry"}
+    assert {row["fundamental_metric_family"] for row in domain_ratings} == {
+        "industry_cycle_regime",
+        "inventory_to_sales",
+    }
+    assert {row["n_effective"] for row in domain_ratings} == {0.5}
+    assert {
+        row["statistical_reliability_bucket"] for row in domain_ratings
+    } == {"insufficient_data"}
+    assert {row["pending_share"] for row in domain_ratings} == {0.0}
+    assert {row["target_family"] for row in domain_ratings} == {"stock", "industry"}
+    assert {row["agent_layer"] for row in domain_ratings} == {
+        "sector",
+        "superinvestor",
+    }
+    assert {row["regime_bucket"] for row in domain_ratings} == {
+        "company_quality",
+        "industry_cycle",
+    }
+    assert "claim_text" not in json.dumps(domain_ratings, ensure_ascii=False)
+    assert "source_span_ids" not in json.dumps(domain_ratings, ensure_ascii=False)
 
     viewpoint_profiles = build_viewpoint_performance_profiles(
         forecast_rows,
@@ -15063,9 +16150,35 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     viewpoint_support = viewpoint_profiles[0]["outcome_layer_support"]
     assert viewpoint_support["mixed_layer_profile"] is True
     assert viewpoint_support["layer_count"] == 2
-    assert "label_type, benchmark_family, and cost_model_id" in viewpoint_support[
-        "layering_policy"
-    ]
+    for field in (
+        "label_type",
+        "target_family",
+        "benchmark_family",
+        "cost_model_id",
+        "agent_layer",
+        "regime_bucket",
+    ):
+        assert field in viewpoint_support["layering_policy"]
+
+
+def test_domain_claim_ratings_preserve_pending_share():
+    ratings = build_domain_claim_ratings(
+        [
+            {
+                "outcome_id": "OUT-PENDING",
+                "forecast_claim_id": "FC-PENDING",
+                "label_type": "stock_price_proxy",
+                "entry_datetime": "2026-01-03",
+                "exit_datetime": "2026-01-30",
+                "effective_n_weight": 0.25,
+            }
+        ]
+    )
+
+    assert ratings[0]["rating_bucket"] == "pending_or_unrated"
+    assert ratings[0]["n_effective"] == 0.25
+    assert ratings[0]["statistical_reliability_bucket"] == "insufficient_data"
+    assert ratings[0]["pending_share"] == 1.0
 
 
 def test_report_intelligence_method_profiles_use_direct_outcome_layers():
@@ -15139,20 +16252,29 @@ def test_report_intelligence_method_profiles_use_direct_outcome_layers():
     assert {
         (
             row["label_type"],
+            row["target_family"],
             row["benchmark_family"],
             row["cost_model_id"],
+            row["agent_layer"],
+            row["regime_bucket"],
         )
         for row in layered["outcome_layer_support"]["layer_summaries"]
     } == {
         (
             "stock_price_proxy",
+            "stock",
             "CSI300_ETF_PROXY",
             "single_stock_round_trip_20bps_v1",
+            "superinvestor|decision|sector",
+            "unknown",
         ),
         (
             "industry_etf_proxy",
+            "industry",
             "CSI500_ETF_PROXY",
             "industry_etf_round_trip_10bps_v1",
+            "sector|decision",
+            "unknown",
         ),
     }
 
@@ -17525,6 +18647,97 @@ def test_report_intelligence_retires_tool_gaps_with_existing_coverage():
     assert "metric_now_has_existing_tool_coverage" in rows[0]["priority_reasons"]
     assert build_data_acquisition_proposals(rows) == []
     assert build_tool_design_proposals(rows) == []
+
+
+def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
+    proposals = build_data_acquisition_proposals(
+        [],
+        stock_context_snapshot_rows=[
+            {
+                "snapshot_id": "SCS-MISSING-MV",
+                "missing_feature_reasons": ["market_cap_bucket_missing"],
+            },
+            {
+                "snapshot_id": "SCS-COVERED",
+                "missing_feature_reasons": [],
+            },
+        ],
+    )
+
+    assert len(proposals) == 1
+    proposal = proposals[0]
+    assert proposal["tool_gap_id"] == "stock_context_market_cap_metadata_missing"
+    assert proposal["requested_dataset"] == "stock_market_cap_pit_metadata"
+    assert "total_market_cap_cny" in proposal["required_fields"]
+    assert proposal["pit_requirements"]["survivorship_issue"] is True
+    assert proposal["decision_status"] == "pending_review"
+    assert proposal["evidence_summary"] == {
+        "missing_feature": "market_cap_bucket_missing",
+        "affected_stock_context_snapshot_count": 1,
+    }
+
+
+def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals():
+    proposals = build_data_acquisition_proposals(
+        [],
+        stock_context_snapshot_rows=[
+            {
+                "snapshot_id": "SCS-MISSING-MV",
+                "missing_feature_reasons": ["market_cap_bucket_missing"],
+            },
+        ],
+    )
+
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-DATA-ACQUISITION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        data_acquisition_proposal_rows=proposals,
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "markdown_quality_gap_counts": {},
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    candidate = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "data_acquisition_prioritization_rule"
+    )
+    assert candidate["target_component"] == "data_acquisition_review_queue"
+    assert "data_engineering_review_required" in candidate["blocked_by"]
+    assert "pit_backfill_review_required" in candidate["blocked_by"]
+    assert "license_review_required" in candidate["blocked_by"]
+    evidence = candidate["evidence_refs"][0]
+    assert (
+        evidence["artifact_path"]
+        == "registry/report_intelligence/data_acquisition_proposals.jsonl"
+    )
+    assert evidence["field"] == "decision_status"
+    assert evidence["proposal_count"] == 1
+    assert evidence["business_priority_counts"] == {"medium": 1}
+    assert evidence["pit_feasibility_status_counts"] == {
+        "requires_pit_backfill_review": 1
+    }
+    assert evidence["license_status_counts"] == {"pending_review": 1}
+    assert evidence["market_cap_metadata_gap_count"] == 1
+    assert evidence["top_tool_gap_ids"] == [
+        "stock_context_market_cap_metadata_missing"
+    ]
+    assert candidate["production_prompt_change_allowed"] is False
+    assert candidate["private_text_included"] is False
+    candidate_dump = json.dumps(candidate, ensure_ascii=False)
+    assert "claim_text" not in candidate_dump
+    assert "source_span_ids" not in candidate_dump
 
 
 def test_report_intelligence_defaults_to_vlm_mineru_backend():

@@ -68,8 +68,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
 
     assert handoff.handoff_id == "RKE-OPERATOR-HANDOFF-20260606"
     assert handoff.paper_trading_allowed is True
-    assert handoff.production_allowed is True
-    assert handoff.direct_production_forbidden is False
+    assert handoff.production_allowed is False
+    assert handoff.staged_production_allowed is False
+    assert handoff.direct_production_forbidden is True
+    assert handoff.next_state == "paper_trading"
     assert handoff.ready_for_operator_review is True
     assert handoff.run_order == tuple(step.step_id for step in handoff.command_sequence)
     assert handoff.run_order[:5] == (
@@ -159,6 +161,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert gold.exported_rows == expected_gold_pending_rows
     assert footprint.pending_rows == progress_footprint.pending_rows
     assert footprint.passed is progress_footprint.ready_for_promotion
+    assert footprint.passed is False
+    assert footprint.blocker in handoff.remaining_blockers
     assert (
         footprint.import_template_path
         == "registry/report_intelligence/analytical_footprint_review_template.jsonl"

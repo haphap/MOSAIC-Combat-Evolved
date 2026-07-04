@@ -23,12 +23,13 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
 from math import ceil, floor
 from pathlib import Path
-from typing import Any, Callable, Container, Literal, Mapping, Sequence
+from typing import Any, Callable, Container, Literal, Sequence
 
 from .claim_text_filters import (
     is_boilerplate_risk_warning_text,
@@ -151,6 +152,12 @@ REPORT_INTELLIGENCE_MACRO_REGIME_SNAPSHOTS_PATH = (
 REPORT_INTELLIGENCE_MACRO_AGENT_RESEARCH_PRIORS_PATH = (
     "registry/report_intelligence/macro_agent_research_priors.jsonl"
 )
+REPORT_INTELLIGENCE_STOCK_CONTEXT_SNAPSHOTS_PATH = (
+    "registry/report_intelligence/stock_context_snapshots.jsonl"
+)
+REPORT_INTELLIGENCE_INDUSTRY_CONTEXT_SNAPSHOTS_PATH = (
+    "registry/report_intelligence/industry_context_snapshots.jsonl"
+)
 REPORT_INTELLIGENCE_MACRO_MARKET_SERIES_CATALOG_PATH = (
     "registry/report_intelligence/macro_market_series_catalog.jsonl"
 )
@@ -182,6 +189,7 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/gap_distribution_history.jsonl",
+        REPORT_INTELLIGENCE_INDUSTRY_CONTEXT_SNAPSHOTS_PATH,
         REPORT_INTELLIGENCE_MACRO_AGENT_RESEARCH_PRIORS_PATH,
         REPORT_INTELLIGENCE_MACRO_REGIME_SNAPSHOTS_PATH,
         "registry/report_intelligence/method_patterns.jsonl",
@@ -196,6 +204,7 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/report_outcome_labels.jsonl",
         "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
         "registry/report_intelligence/source_performance_profiles.jsonl",
+        REPORT_INTELLIGENCE_STOCK_CONTEXT_SNAPSHOTS_PATH,
         "registry/report_intelligence/tool_coverage_matches.jsonl",
         "registry/report_intelligence/tool_design_proposals.jsonl",
         "registry/report_intelligence/tool_gaps.jsonl",
@@ -548,8 +557,10 @@ ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS: Mapping[str, float] = {
     "proprietary_leakage_free_rate": 1.00,
 }
 KNOWN_AGENT_ID_PREFIXES = {
+    "decision",
     "macro",
     "sector",
+    "superinvestor",
     "style",
     "portfolio",
     "risk",
@@ -560,6 +571,20 @@ KNOWN_AGENT_ID_PREFIXES = {
     "industry",
     "stock",
 }
+STOCK_ASSIGNMENT_AGENT_CANDIDATES = (
+    "superinvestor.munger",
+    "superinvestor.burry",
+    "superinvestor.ackman",
+    "superinvestor.druckenmiller",
+    "decision.cio",
+    "decision.alpha_discovery",
+    "sector.relationship_mapper",
+)
+INDUSTRY_ASSIGNMENT_FALLBACK_AGENT_CANDIDATES = (
+    "sector.relationship_mapper",
+    "decision.cio",
+    "decision.alpha_discovery",
+)
 
 
 def _report_intelligence_feature_flag_payload() -> dict[str, Any]:
@@ -1251,6 +1276,8 @@ class ReportIntelligenceRunResult:
     source_performance_profile_rows: int
     viewpoint_performance_profile_rows: int
     macro_market_series_catalog_rows: int
+    stock_context_snapshot_rows: int
+    industry_context_snapshot_rows: int
     macro_regime_snapshot_rows: int
     macro_agent_research_prior_rows: int
     method_performance_profile_rows: int
@@ -1788,6 +1815,8 @@ def _blocked_report_intelligence_derived_refresh_result(
         source_performance_profile_rows=0,
         viewpoint_performance_profile_rows=0,
         macro_market_series_catalog_rows=0,
+        stock_context_snapshot_rows=0,
+        industry_context_snapshot_rows=0,
         macro_regime_snapshot_rows=0,
         macro_agent_research_prior_rows=0,
         method_performance_profile_rows=0,
@@ -3573,6 +3602,18 @@ def _ensure_list(value: Any) -> list[Any]:
 
 def _ensure_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _optional_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return None
 
 
 def _threshold_shortfall(
@@ -8275,6 +8316,94 @@ def _forecast_mapping_gaps(record: Mapping[str, Any]) -> list[str]:
     ):
         gaps.append("horizon")
     return gaps
+
+
+def _explicit_agent_candidates(record: Mapping[str, Any]) -> list[str]:
+    target = _ensure_mapping(record.get("target"))
+    values: list[Any] = []
+    for payload in (record, target):
+        for key in (
+            "target_agent_candidates",
+            "target_agents",
+            "owner_agent",
+            "owner_agent_id",
+            "owning_agent",
+            "owning_agent_id",
+            "agent_id",
+        ):
+            raw = payload.get(key)
+            values.extend(_ensure_list(raw) if isinstance(raw, list | tuple) else [raw])
+    return list(
+        dict.fromkeys(
+            agent_id for value in values if (agent_id := _known_agent_id(value))
+        )
+    )
+
+
+def _sector_assignment_agent_candidates(record: Mapping[str, Any]) -> list[str]:
+    from .agent_research_context import SECTOR_AGENT_KEYWORDS
+
+    target = _ensure_mapping(record.get("target"))
+    text = " ".join(
+        str(value)
+        for value in (
+            target.get("target_id"),
+            target.get("target_name"),
+            target.get("target_label"),
+            record.get("sector"),
+        )
+        if str(value or "").strip()
+    ).lower()
+    agents = [
+        agent_id
+        for agent_id, keywords in SECTOR_AGENT_KEYWORDS.items()
+        if any(str(keyword).lower() in text for keyword in keywords)
+    ]
+    agents.extend(INDUSTRY_ASSIGNMENT_FALLBACK_AGENT_CANDIDATES)
+    return list(dict.fromkeys(agents))
+
+
+_MACRO_ASSIGNMENT_TARGET_TYPES = frozenset(
+    {
+        "asset_class",
+        "bond",
+        "broad_market",
+        "commodity",
+        "equity_index",
+        "market_index",
+        "style_index",
+    }
+)
+
+
+def _inferred_agent_assignment(record: Mapping[str, Any]) -> tuple[str, list[str]]:
+    target = _ensure_mapping(record.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type.startswith("macro") or target_type in _MACRO_ASSIGNMENT_TARGET_TYPES:
+        agents = list(_claim_macro_agent_candidates(record))
+        return ("macro_target_mapping", agents) if agents else ("", [])
+    if target_type in {"stock", "company"}:
+        return "stock_default_agents", list(STOCK_ASSIGNMENT_AGENT_CANDIDATES)
+    if target_type in {"sector", "industry"}:
+        return "industry_default_agents", _sector_assignment_agent_candidates(record)
+    return "", []
+
+
+def _assignment_gaps(record: Mapping[str, Any]) -> list[str]:
+    target = _ensure_mapping(record.get("target"))
+    target_type = str(target.get("target_type") or "").strip()
+    target_id = _target_id(target)
+    if (
+        target_type in {"", "unknown"}
+        or target_id == "unknown"
+        or not _claim_metric_families(record)
+    ):
+        return []
+    if _explicit_agent_candidates(record):
+        return []
+    if _inferred_agent_assignment(record)[1]:
+        return []
+    return ["agent_assignment_missing"]
 
 
 PRE_REVIEW_DECISIONS = {"include", "exclude", "rewrite_needed"}
@@ -13742,6 +13871,11 @@ def build_outcome_labeling_readiness_report(
     mechanism_impact_variable_counts: dict[str, int] = {}
     mechanism_gap_counts: dict[str, int] = {}
     mechanism_gap_ids: list[str] = []
+    assignment_gap_counts: dict[str, int] = {}
+    assignment_gap_ids: list[str] = []
+    assignment_inferred_agent_counts: dict[str, int] = {}
+    assignment_inferred_rule_counts: dict[str, int] = {}
+    assignment_inferred_ids: list[str] = []
     macro_regime_counts: dict[str, int] = {}
     source_text_macro_regime_counts: dict[str, int] = {}
     as_of_date_macro_regime_counts: dict[str, int] = {}
@@ -13945,6 +14079,26 @@ def build_outcome_labeling_readiness_report(
             mechanism_gap_ids.append(forecast_claim_id)
         for gap in mechanism_gaps:
             mechanism_gap_counts[gap] = mechanism_gap_counts.get(gap, 0) + 1
+        assignment_rule, inferred_agents = (
+            ("", [])
+            if _explicit_agent_candidates(forecast)
+            else _inferred_agent_assignment(forecast)
+        )
+        if inferred_agents and forecast_claim_id:
+            assignment_inferred_ids.append(forecast_claim_id)
+        if assignment_rule:
+            assignment_inferred_rule_counts[assignment_rule] = (
+                assignment_inferred_rule_counts.get(assignment_rule, 0) + 1
+            )
+        for agent_id in inferred_agents:
+            assignment_inferred_agent_counts[agent_id] = (
+                assignment_inferred_agent_counts.get(agent_id, 0) + 1
+            )
+        assignment_gaps = _assignment_gaps(forecast)
+        if assignment_gaps and forecast_claim_id:
+            assignment_gap_ids.append(forecast_claim_id)
+        for gap in assignment_gaps:
+            assignment_gap_counts[gap] = assignment_gap_counts.get(gap, 0) + 1
     for ledger in forecast_ledger_rows:
         forecast_claim_id = str(ledger.get("forecast_claim_id") or "")
         status = str(ledger.get("test_status") or "unknown")
@@ -14023,6 +14177,21 @@ def build_outcome_labeling_readiness_report(
             sorted(mechanism_impact_variable_counts.items())
         ),
         "mechanism_gap_counts": dict(sorted(mechanism_gap_counts.items())),
+        "assignment_gap_counts": dict(sorted(assignment_gap_counts.items())),
+        "assignment_inferred_agent_counts": dict(
+            sorted(assignment_inferred_agent_counts.items())
+        ),
+        "assignment_inferred_rule_counts": dict(
+            sorted(assignment_inferred_rule_counts.items())
+        ),
+        "rating_readiness_bucket_counts": {
+            "blocked_assignment": len(set(assignment_gap_ids)),
+            "blocked_mapping": len(blocked_ids),
+            "blocked_quality": len(set([*regime_gap_ids, *mechanism_gap_ids])),
+            "pending_window": len(proxy_label_pending_only_ids),
+            "completed": len(proxy_label_ready_ids),
+            "insufficient_sample": 0,
+        },
         "ready_forecast_claim_ids": ready_ids,
         "standard_blocked_forecast_claim_ids": standard_blocked_ids,
         "proxy_label_ready_forecast_claim_ids": proxy_label_ready_ids,
@@ -14042,6 +14211,10 @@ def build_outcome_labeling_readiness_report(
         "blocked_forecast_claim_ids": blocked_ids,
         "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
         "mechanism_gap_forecast_claim_ids": sorted(set(mechanism_gap_ids)),
+        "assignment_gap_forecast_claim_ids": sorted(set(assignment_gap_ids)),
+        "assignment_inferred_forecast_claim_ids": sorted(
+            set(assignment_inferred_ids)
+        ),
         "blocked_reason": blocked_reason,
         "minimum_required_mapping": [
             "target",
@@ -15006,7 +15179,7 @@ def _coverage_stock_outcome_age_bucket(
 
 
 def _coverage_report_key(row: Mapping[str, Any]) -> str:
-    return str(row.get("source_id") or row.get("report_id") or "").strip()
+    return str(row.get("report_id") or row.get("source_id") or "").strip()
 
 
 def _coverage_forecast_rows_by_report(
@@ -17766,6 +17939,30 @@ def build_macro_curve_directional_readiness(
     }
 
 
+_DOMAIN_MARKET_PROXY_METRIC_FAMILIES = frozenset(
+    {
+        "stock_forward_return",
+        "stock_relative_alpha",
+        "target_price_path",
+        "industry_etf_forward_return",
+    }
+)
+
+
+def _domain_claim_metric_family(claim: Mapping[str, Any]) -> str:
+    target = _ensure_mapping(claim.get("target"))
+    values = [
+        *_ensure_list(claim.get("metric_proxy_mapping")),
+        *_ensure_list(target.get("metric_proxy_mapping")),
+        target.get("metric_family") or "",
+    ]
+    cleaned = [str(value).strip() for value in values if str(value or "").strip()]
+    for value in cleaned:
+        if value not in _DOMAIN_MARKET_PROXY_METRIC_FAMILIES:
+            return value
+    return cleaned[0] if cleaned else "unknown"
+
+
 def build_industry_etf_proxy_outcome_labels(
     *,
     root_path: Path,
@@ -17832,6 +18029,7 @@ def build_industry_etf_proxy_outcome_labels(
         claim_horizon = _ensure_mapping(claim.get("horizon"))
         source_horizon_days = _horizon_preferred_days(claim_horizon)
         source_horizon_bucket = _horizon_bucket(claim_horizon)
+        metric_family = _domain_claim_metric_family(claim)
         market_regime_fields = _as_of_date_market_regime_fields(
             claim.get("signal_datetime")
         )
@@ -17944,6 +18142,7 @@ def build_industry_etf_proxy_outcome_labels(
                     "pit_valid": True,
                     "survivorship_safe": True,
                     "label_type": "industry_etf_proxy",
+                    "metric_family": metric_family,
                     "proxy_symbol": etf_symbol,
                     "proxy_label": proxy.get("mapping_label")
                     or proxy.get("etf_name")
@@ -18133,6 +18332,7 @@ def build_stock_price_proxy_outcome_labels(
         claim_horizon = _ensure_mapping(claim.get("horizon"))
         source_horizon_days = _horizon_preferred_days(claim_horizon)
         source_horizon_bucket = _horizon_bucket(claim_horizon)
+        metric_family = _domain_claim_metric_family(claim)
         target = _ensure_mapping(claim.get("target"))
         target_price_info = _stock_target_price_info(claim)
         market_regime_fields = _as_of_date_market_regime_fields(
@@ -18255,6 +18455,7 @@ def build_stock_price_proxy_outcome_labels(
                 "pit_valid": True,
                 "survivorship_safe": False,
                 "label_type": "stock_price_proxy",
+                "metric_family": metric_family,
                 "proxy_symbol": ts_code,
                 "proxy_label": str(target.get("target_name") or ts_code),
                 "proxy_return": round(stock_return, 8),
@@ -19145,28 +19346,251 @@ def _shrunk_performance_summary(
     }
 
 
-def _outcome_layer_key(label: Mapping[str, Any]) -> tuple[str, str, str]:
+def _outcome_layer_key(label: Mapping[str, Any]) -> tuple[str, str, str, str, str, str]:
     return (
         str(label.get("label_type") or "standard"),
+        _domain_label_target_family(label),
         str(label.get("benchmark_family") or "unknown_benchmark_family"),
         str(label.get("cost_model_id") or "unknown_cost_model"),
+        _domain_label_agent_layer(label),
+        _domain_label_regime_bucket(label),
     )
+
+
+def _domain_rating_bucket(label: Mapping[str, Any]) -> str:
+    label_type = str(label.get("label_type") or "")
+    if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+        return ""
+    values = [
+        _float_or_none(label.get("after_cost_alpha")),
+        _float_or_none(label.get("directional_after_cost_return")),
+    ]
+    observed = [value for value in values if value is not None]
+    if not observed:
+        return "pending_or_unrated"
+    if any(value > 0 for value in observed):
+        return "supportive_evidence"
+    return "contradictory_evidence"
+
+
+def _domain_rating_failure_tags(label: Mapping[str, Any]) -> list[str]:
+    label_type = str(label.get("label_type") or "")
+    tags: list[str] = []
+    if label_type == "stock_price_proxy":
+        if label.get("entry_tradable") is False or label.get("exit_tradable") is False:
+            tags.append("entry_tradeability_blocked")
+        if label.get("entry_limit_locked") is True or label.get("exit_limit_locked") is True:
+            tags.append("entry_tradeability_blocked")
+        if label.get("target_price_hit") is True and _domain_rating_bucket(label) != "supportive_evidence":
+            tags.append("target_price_only_auxiliary")
+        if label.get("relative_directional_hit") is False:
+            tags.append("fundamental_without_relative_followthrough")
+    elif label_type == "industry_etf_proxy":
+        tags.append("broad_etf_proxy_not_direct_industry_portfolio")
+        if not str(label.get("mapping_id") or "").strip():
+            tags.append("sector_etf_mapping_missing")
+        if str(label.get("pit_availability_status") or "") not in {"", "available"}:
+            tags.append("proxy_liquidity_unverified")
+        if str(label.get("proxy_mapping_confidence") or label.get("mapping_confidence") or "") == "operator_seeded_exact_sector":
+            tags.append("operator_seeded_proxy_mapping")
+    return list(dict.fromkeys(tags))
+
+
+def _domain_label_metric_family(label: Mapping[str, Any]) -> str:
+    for key in ("fundamental_metric_family", "metric_family"):
+        value = str(label.get(key) or "").strip()
+        if value:
+            return value
+    for key in ("metric_proxy_mapping", "metric_families"):
+        for value in _ensure_list(label.get(key)):
+            text = str(value).strip()
+            if text:
+                return text
+    return "unknown"
+
+
+def _domain_label_target_family(label: Mapping[str, Any]) -> str:
+    for key in ("target_family", "target_type"):
+        value = str(label.get(key) or "").strip()
+        if value:
+            return value
+    target_type = str(_ensure_mapping(label.get("target")).get("target_type") or "").strip()
+    if target_type:
+        return target_type
+    label_type = str(label.get("label_type") or "")
+    if label_type == "stock_price_proxy":
+        return "stock"
+    if label_type == "industry_etf_proxy":
+        return "industry"
+    return "unknown"
+
+
+def _domain_label_agent_layer(label: Mapping[str, Any]) -> str:
+    explicit = str(label.get("agent_layer") or "").strip()
+    if explicit:
+        return explicit
+    agents = [
+        str(agent).split(".", 1)[0]
+        for agent in _ensure_list(label.get("target_agent_candidates"))
+        if str(agent).strip()
+    ]
+    if agents:
+        return "|".join(dict.fromkeys(agents))
+    label_type = str(label.get("label_type") or "")
+    if label_type == "stock_price_proxy":
+        return "superinvestor|decision|sector"
+    if label_type == "industry_etf_proxy":
+        return "sector|decision"
+    return "unknown"
+
+
+def _domain_label_regime_bucket(label: Mapping[str, Any]) -> str:
+    return str(label.get("regime_bucket") or "unknown").strip() or "unknown"
+
+
+def build_domain_claim_ratings(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    *,
+    domain: str = "",
+) -> list[dict[str, Any]]:
+    domain_label_types = {
+        "stock": {"stock_price_proxy"},
+        "industry": {"industry_etf_proxy"},
+        "": {"stock_price_proxy", "industry_etf_proxy"},
+    }
+    allowed = domain_label_types.get(domain, domain_label_types[""])
+    rows: list[dict[str, Any]] = []
+    for label in outcome_label_rows:
+        label_type = str(label.get("label_type") or "")
+        if label_type not in allowed:
+            continue
+        rating_bucket = _domain_rating_bucket(label)
+        if not rating_bucket:
+            continue
+        n_effective = round(_label_weight(label), 6)
+        row = {
+            "rating_id": _stable_id(
+                "DCR",
+                {
+                    "outcome_id": label.get("outcome_id"),
+                    "label_type": label_type,
+                    "entry_datetime": label.get("entry_datetime"),
+                    "exit_datetime": label.get("exit_datetime"),
+                },
+            ),
+            "domain": "stock" if label_type == "stock_price_proxy" else "industry",
+            "label_type": label_type,
+            "rating_bucket": rating_bucket,
+            "n_effective": n_effective,
+            "statistical_reliability_bucket": _performance_reliability_bucket(
+                n_effective
+            ),
+            "pending_share": 1.0 if rating_bucket == "pending_or_unrated" else 0.0,
+            "benchmark_family": str(label.get("benchmark_family") or "unknown_benchmark_family"),
+            "cost_model_id": str(label.get("cost_model_id") or "unknown_cost_model"),
+            "holding_window_bucket": str(label.get("window_role") or "unknown"),
+            "target_family": _domain_label_target_family(label),
+            "agent_layer": _domain_label_agent_layer(label),
+            "regime_bucket": _domain_label_regime_bucket(label),
+            "fundamental_metric_family": _domain_label_metric_family(label),
+            "failure_mode_tags": _domain_rating_failure_tags(label),
+            "after_cost_alpha": _float_or_none(label.get("after_cost_alpha")),
+            "directional_after_cost_return": _float_or_none(
+                label.get("directional_after_cost_return")
+            ),
+            "relative_directional_hit": label.get("relative_directional_hit")
+            if isinstance(label.get("relative_directional_hit"), bool)
+            else None,
+            "target_price_hit": label.get("target_price_hit")
+            if isinstance(label.get("target_price_hit"), bool)
+            else None,
+            "mapping_confidence": str(
+                label.get("proxy_mapping_confidence")
+                or label.get("mapping_confidence")
+                or ""
+            ),
+            "proxy_symbol": str(label.get("proxy_symbol") or ""),
+            "proxy_liquidity_bucket": "pit_available"
+            if str(label.get("pit_availability_status") or "") == "available"
+            else "unverified",
+        }
+        rows.append(row)
+    return rows
+
+
+def _domain_rating_support(labels: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    ratings = build_domain_claim_ratings(labels)
+    rating_bucket_counts: dict[str, int] = {}
+    failure_mode_counts: dict[str, int] = {}
+    mapping_confidence_counts: dict[str, int] = {}
+    fundamental_metric_family_counts: dict[str, int] = {}
+    target_family_counts: dict[str, int] = {}
+    agent_layer_counts: dict[str, int] = {}
+    regime_bucket_counts: dict[str, int] = {}
+    for rating in ratings:
+        _increment_count(rating_bucket_counts, rating.get("rating_bucket"))
+        _increment_count(target_family_counts, rating.get("target_family"))
+        _increment_count(agent_layer_counts, rating.get("agent_layer"))
+        _increment_count(regime_bucket_counts, rating.get("regime_bucket"))
+        _increment_count(
+            fundamental_metric_family_counts,
+            rating.get("fundamental_metric_family"),
+        )
+        for tag in _ensure_list(rating.get("failure_mode_tags")):
+            _increment_count(failure_mode_counts, tag)
+        mapping_confidence = str(rating.get("mapping_confidence") or "").strip()
+        if mapping_confidence:
+            _increment_count(mapping_confidence_counts, mapping_confidence)
+    return {
+        "rating_row_count": len(ratings),
+        "rating_bucket_counts": dict(sorted(rating_bucket_counts.items())),
+        "failure_mode_counts": dict(sorted(failure_mode_counts.items())),
+        "tradeability_blocker_count": int(
+            failure_mode_counts.get("entry_tradeability_blocked") or 0
+        ),
+        "target_price_hit_count": sum(
+            1 for rating in ratings if rating.get("target_price_hit") is True
+        ),
+        "fundamental_metric_family_counts": dict(
+            sorted(fundamental_metric_family_counts.items())
+        ),
+        "target_family_counts": dict(sorted(target_family_counts.items())),
+        "agent_layer_counts": dict(sorted(agent_layer_counts.items())),
+        "regime_bucket_counts": dict(sorted(regime_bucket_counts.items())),
+        "mapping_confidence_counts": dict(sorted(mapping_confidence_counts.items())),
+        "proxy_limitation_tags": sorted(
+            tag
+            for tag in failure_mode_counts
+            if "proxy" in tag or "mapping" in tag or "sector_etf" in tag
+        ),
+        "privacy_policy": "redacted_internal_rating_aggregate_only",
+    }
 
 
 def _outcome_layer_support(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    grouped: dict[tuple[str, str, str, str, str, str], list[Mapping[str, Any]]] = {}
     for label in labels:
         grouped.setdefault(_outcome_layer_key(label), []).append(label)
     layer_summaries: list[dict[str, Any]] = []
-    for (label_type, benchmark_family, cost_model_id), rows in sorted(grouped.items()):
+    for (
+        label_type,
+        target_family,
+        benchmark_family,
+        cost_model_id,
+        agent_layer,
+        regime_bucket,
+    ), rows in sorted(grouped.items()):
         summary = _shrunk_performance_summary(rows)
         layer_summaries.append(
             {
                 "label_type": label_type,
+                "target_family": target_family,
                 "benchmark_family": benchmark_family,
                 "cost_model_id": cost_model_id,
+                "agent_layer": agent_layer,
+                "regime_bucket": regime_bucket,
                 "n_nominal": summary["n_nominal"],
                 "n_effective": summary["n_effective"],
                 "mean_after_cost_alpha": summary["mean_after_cost_alpha"],
@@ -19176,6 +19600,7 @@ def _outcome_layer_support(
                 "statistical_reliability_bucket": summary[
                     "statistical_reliability_bucket"
                 ],
+                "domain_rating_support": _domain_rating_support(rows),
             }
         )
     return {
@@ -19184,16 +19609,21 @@ def _outcome_layer_support(
         "layer_keys": [
             {
                 "label_type": row["label_type"],
+                "target_family": row["target_family"],
                 "benchmark_family": row["benchmark_family"],
                 "cost_model_id": row["cost_model_id"],
+                "agent_layer": row["agent_layer"],
+                "regime_bucket": row["regime_bucket"],
             }
             for row in layer_summaries
         ],
         "layer_summaries": layer_summaries,
+        "domain_rating_support": _domain_rating_support(labels),
         "layering_policy": (
             "overall profile metrics are diagnostic only; compare performance by "
-            "label_type, benchmark_family, and cost_model_id before interpreting "
-            "alpha or hit-rate across heterogeneous proxy channels"
+            "label_type, target_family, benchmark_family, cost_model_id, "
+            "agent_layer, and regime_bucket before interpreting alpha or hit-rate "
+            "across heterogeneous proxy channels"
         ),
     }
 
@@ -19455,6 +19885,17 @@ MACRO_REGIME_SNAPSHOT_USE_POLICY = "background_only_not_claim_validation"
 MACRO_AGENT_RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
 MACRO_AGENT_RESEARCH_PRIOR_SCHEMA_VERSION = "macro_agent_research_prior_v1"
 MACRO_REGIME_SNAPSHOT_SCHEMA_VERSION = "macro_regime_snapshot_v1"
+STOCK_CONTEXT_SNAPSHOT_SCHEMA_VERSION = "stock_context_snapshot_v1"
+INDUSTRY_CONTEXT_SNAPSHOT_SCHEMA_VERSION = "industry_context_snapshot_v1"
+INDUSTRY_CYCLE_BUCKET_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
+    "commodity_price_cycle": ("price_cycle",),
+    "demand_growth": ("industry_demand_growth",),
+    "earnings_growth": ("prosperity_cycle",),
+    "industry_prosperity": ("prosperity_cycle",),
+    "margin_profitability": ("prosperity_cycle",),
+    "revenue_growth": ("industry_demand_growth",),
+    "valuation_multiple": ("industry_valuation_cycle",),
+}
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
     "money_market_rate": ("macro.central_bank",),
@@ -19471,6 +19912,10 @@ MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "volatility_index": ("macro.volatility",),
     "risk_off_asset_path": ("macro.geopolitical", "macro.volatility"),
     "growth_inflation_release": ("macro.china", "macro.commodities"),
+    "retail_sales_growth": ("macro.china",),
+    "revenue_growth": ("macro.china",),
+    "demand_growth": ("macro.china",),
+    "industry_prosperity": ("macro.china",),
     "liquidity_credit_condition": ("macro.central_bank", "macro.yield_curve"),
 }
 MACRO_AGENT_BY_ASSET_TARGET: Mapping[str, tuple[str, ...]] = {
@@ -19591,6 +20036,553 @@ def _claim_trace_as_of_date(claim: Mapping[str, Any]) -> str:
         claim.get("as_of_datetime")
         or claim.get("publish_datetime")
         or claim.get("publish_date")
+    )
+
+
+def _metadata_by_report_or_source(
+    metadata_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Mapping[str, Any]]:
+    rows: dict[str, Mapping[str, Any]] = {}
+    for row in metadata_rows:
+        for key in (row.get("source_id"), row.get("report_id")):
+            text = str(key or "").strip()
+            if text:
+                rows[text] = row
+    return rows
+
+
+def _claim_metadata_row(
+    claim: Mapping[str, Any],
+    metadata_by_key: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    for key in (claim.get("source_id"), claim.get("report_id")):
+        text = str(key or "").strip()
+        if text and text in metadata_by_key:
+            return metadata_by_key[text]
+    return {}
+
+
+def _claim_snapshot_as_of_date(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> str:
+    return _date_key(
+        claim.get("signal_datetime")
+        or claim.get("as_of_datetime")
+        or metadata.get("publish_datetime")
+        or metadata.get("accessible_datetime")
+        or metadata.get("publish_date")
+    )
+
+
+def _clean_context_bucket(value: Any, *, default: str = "unknown") -> str:
+    text = str(value or "").strip()
+    if text.casefold() in {"", "nan", "none", "null"}:
+        return default
+    return text
+
+
+def _first_sorted(values: set[str], *, default: str = "unknown") -> str:
+    cleaned = sorted(value for value in values if value)
+    return cleaned[0] if cleaned else default
+
+
+def _context_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    text = str(value or "").replace(",", "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _stock_market_cap_bucket_from_billion_cny(value: float | None) -> str:
+    if value is None or value <= 0:
+        return "unknown"
+    if value >= 500:
+        return "mega_cap"
+    if value >= 100:
+        return "large_cap"
+    if value >= 30:
+        return "mid_cap"
+    return "small_cap"
+
+
+def _stock_market_cap_bucket(metadata_rows: Sequence[Mapping[str, Any]]) -> str:
+    for row in metadata_rows:
+        for field in (
+            "market_cap_bucket",
+            "float_market_cap_bucket",
+            "total_market_cap_bucket",
+        ):
+            bucket = _clean_context_bucket(row.get(field), default="")
+            if bucket:
+                return bucket
+        for field in (
+            "market_cap_cny_billion",
+            "total_market_cap_cny_billion",
+            "float_market_cap_cny_billion",
+        ):
+            bucket = _stock_market_cap_bucket_from_billion_cny(
+                _context_float(row.get(field))
+            )
+            if bucket != "unknown":
+                return bucket
+        for field in ("market_cap_cny", "total_market_cap_cny", "float_market_cap_cny"):
+            value = _context_float(row.get(field))
+            bucket = _stock_market_cap_bucket_from_billion_cny(
+                None if value is None else value / 1_000_000_000
+            )
+            if bucket != "unknown":
+                return bucket
+        for field in ("total_mv", "circ_mv", "float_mv"):
+            value = _context_float(row.get(field))
+            bucket = _stock_market_cap_bucket_from_billion_cny(
+                None if value is None else value / 100_000
+            )
+            if bucket != "unknown":
+                return bucket
+    return "unknown"
+
+
+def _stock_liquidity_bucket(
+    *,
+    claim_ids: set[str],
+    outcome_rows: Sequence[Mapping[str, Any]],
+    readiness: Mapping[str, Any],
+) -> str:
+    if any(
+        row.get("entry_liquidity_check") == STOCK_PRICE_PROXY_TRADABILITY_CHECK
+        and row.get("exit_liquidity_check") == STOCK_PRICE_PROXY_TRADABILITY_CHECK
+        for row in outcome_rows
+    ):
+        return "tradable_proxy_observed"
+    labelable_ids = {
+        str(value)
+        for value in _ensure_list(readiness.get("labelable_forecast_claim_ids"))
+    }
+    eligible_ids = {
+        str(value) for value in _ensure_list(readiness.get("eligible_forecast_claim_ids"))
+    }
+    if claim_ids & labelable_ids:
+        return "stock_proxy_labelable"
+    if claim_ids & eligible_ids:
+        return "stock_proxy_eligible_unlabelable"
+    return "unknown"
+
+
+def _stock_context_missing_reasons(
+    *,
+    market_cap_bucket: str,
+    liquidity_bucket: str,
+    stock_outcome_age_bucket: str,
+    outcome_label_count: int,
+) -> list[str]:
+    reasons: list[str] = []
+    if market_cap_bucket == "unknown":
+        reasons.append("market_cap_bucket_missing")
+    if liquidity_bucket == "unknown":
+        reasons.append("liquidity_bucket_missing")
+    if stock_outcome_age_bucket in {
+        "stock_report_date_missing",
+        "stock_outcome_age_unbucketed",
+        "stock_ts_code_missing",
+        "non_stock_report",
+    }:
+        reasons.append("stock_outcome_age_bucket_missing")
+    if outcome_label_count <= 0:
+        reasons.append("stock_price_proxy_outcome_missing")
+    return reasons
+
+
+def build_stock_context_snapshots(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    stock_price_proxy_readiness: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    metadata_by_key = _metadata_by_report_or_source(metadata_rows)
+    outcomes_by_claim: dict[str, list[Mapping[str, Any]]] = {}
+    for row in outcome_label_rows:
+        if row.get("label_type") != "stock_price_proxy":
+            continue
+        outcomes_by_claim.setdefault(str(row.get("forecast_claim_id") or ""), []).append(
+            row
+        )
+    corpus_as_of = _coverage_corpus_as_of(metadata_rows)
+    aggregates: dict[tuple[str, str], dict[str, Any]] = {}
+    for claim in forecast_rows:
+        metadata = _claim_metadata_row(claim, metadata_by_key)
+        if not _is_stock_forecast_claim(claim, metadata):
+            continue
+        resolution = _stock_target_resolution(claim, metadata)
+        if resolution["gap"]:
+            continue
+        as_of_date = _claim_snapshot_as_of_date(claim, metadata)
+        stock_symbol = resolution["ts_code"]
+        if not as_of_date or not stock_symbol:
+            continue
+        key = (stock_symbol, as_of_date)
+        aggregate = aggregates.setdefault(
+            key,
+            {
+                "_claim_ids": set(),
+                "_report_keys": set(),
+                "_metadata_rows": [],
+                "_outcome_rows": [],
+                "_sectors": set(),
+                "_fundamental_metric_family_counts": {},
+            },
+        )
+        claim_id = str(claim.get("forecast_claim_id") or "")
+        if claim_id:
+            aggregate["_claim_ids"].add(claim_id)
+            aggregate["_outcome_rows"].extend(outcomes_by_claim.get(claim_id, ()))
+        metric_family = _domain_claim_metric_family(claim)
+        if metric_family != "unknown":
+            _increment_count(
+                aggregate["_fundamental_metric_family_counts"],
+                metric_family,
+            )
+        report_key = str(claim.get("source_id") or claim.get("report_id") or "")
+        if report_key:
+            aggregate["_report_keys"].add(report_key)
+        if metadata:
+            aggregate["_metadata_rows"].append(metadata)
+        sector = _clean_industry_sector_value(metadata.get("sector"))
+        if sector:
+            aggregate["_sectors"].add(sector)
+
+    readiness = _ensure_mapping(stock_price_proxy_readiness)
+    rows: list[dict[str, Any]] = []
+    for (stock_symbol, as_of_date), aggregate in sorted(aggregates.items()):
+        metadata_group = list(aggregate["_metadata_rows"])
+        representative_metadata = (
+            metadata_group[0]
+            if metadata_group
+            else {"ts_code": stock_symbol, "publish_datetime": as_of_date}
+        )
+        outcome_rows = list(aggregate["_outcome_rows"])
+        market_cap_bucket = _stock_market_cap_bucket(metadata_group)
+        liquidity_bucket = _stock_liquidity_bucket(
+            claim_ids=set(aggregate["_claim_ids"]),
+            outcome_rows=outcome_rows,
+            readiness=readiness,
+        )
+        stock_outcome_age_bucket = _coverage_stock_outcome_age_bucket(
+            representative_metadata,
+            corpus_as_of=corpus_as_of,
+        )
+        benchmark_family = next(
+            (
+                str(row.get("benchmark_family") or "").strip()
+                for row in outcome_rows
+                if str(row.get("benchmark_family") or "").strip()
+            ),
+            str(readiness.get("benchmark_family") or STOCK_PRICE_PROXY_BENCHMARK_FAMILY),
+        )
+        record = {
+            "snapshot_id": _stable_id(
+                "SCS",
+                {"stock_symbol": stock_symbol, "as_of_date": as_of_date},
+            ),
+            "schema_version": STOCK_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
+            "as_of_date": as_of_date,
+            "stock_symbol": stock_symbol,
+            "sector": _first_sorted(set(aggregate["_sectors"])),
+            "market_cap_bucket": market_cap_bucket,
+            "liquidity_bucket": liquidity_bucket,
+            "stock_outcome_age_bucket": stock_outcome_age_bucket,
+            "benchmark_family": benchmark_family,
+            "fundamental_metric_family_counts": dict(
+                sorted(aggregate["_fundamental_metric_family_counts"].items())
+            ),
+            "source_claim_count": len(aggregate["_claim_ids"]),
+            "report_count": len(aggregate["_report_keys"]),
+            "outcome_label_count": len(outcome_rows),
+            "missing_feature_reasons": _stock_context_missing_reasons(
+                market_cap_bucket=market_cap_bucket,
+                liquidity_bucket=liquidity_bucket,
+                stock_outcome_age_bucket=stock_outcome_age_bucket,
+                outcome_label_count=len(outcome_rows),
+            ),
+            "background_only": True,
+            "claim_validation_allowed": False,
+            "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
+            "use_policy": MACRO_REGIME_SNAPSHOT_USE_POLICY,
+            "data_vintage_hash": _stable_id(
+                "SCV",
+                {
+                    "stock_symbol": stock_symbol,
+                    "as_of_date": as_of_date,
+                    "market_cap_bucket": market_cap_bucket,
+                    "fundamental_metric_family_counts": dict(
+                        sorted(
+                            aggregate["_fundamental_metric_family_counts"].items()
+                        )
+                    ),
+                    "claim_count": len(aggregate["_claim_ids"]),
+                    "outcome_label_count": len(outcome_rows),
+                },
+            ),
+        }
+        record["private_text_included"] = _public_payload_private_text_included(record)
+        rows.append(record)
+    return rows
+
+
+def _industry_proxy_liquidity_bucket(
+    *,
+    mapping: Mapping[str, Any] | None,
+    outcome_rows: Sequence[Mapping[str, Any]],
+    availability_by_mapping_id: Mapping[str, Mapping[str, Any]],
+) -> str:
+    if outcome_rows:
+        return "proxy_outcome_observed"
+    if mapping is None:
+        return "unknown"
+    availability = (
+        availability_by_mapping_id.get(str(mapping.get("mapping_id") or "")) or {}
+    )
+    if availability.get("pit_available") is True:
+        return "pit_available"
+    if availability:
+        return "pit_unavailable"
+    return "unknown"
+
+
+def _industry_known_proxy_limitations(
+    *,
+    mapping: Mapping[str, Any] | None,
+    proxy_liquidity_bucket: str,
+) -> list[str]:
+    limitations = ["broad_etf_proxy_not_direct_industry_portfolio"]
+    if mapping is None:
+        limitations.append("sector_etf_mapping_missing")
+    else:
+        if _is_operator_seeded_default_industry_mapping(mapping):
+            limitations.append("operator_seeded_proxy_mapping")
+        if bool(mapping.get("review_required")):
+            limitations.append("mapping_review_required")
+    if proxy_liquidity_bucket in {"unknown", "pit_unavailable"}:
+        limitations.append("proxy_pit_unavailable")
+    return list(dict.fromkeys(limitations))
+
+
+def _claim_industry_cycle_buckets(claim: Mapping[str, Any]) -> tuple[str, ...]:
+    extraction_quality = _ensure_mapping(claim.get("extraction_quality"))
+    component_roles = _ensure_mapping(extraction_quality.get("claim_component_roles"))
+    if not component_roles:
+        component_roles = _ensure_mapping(claim.get("claim_component_roles"))
+    if not component_roles:
+        component_roles = _infer_claim_component_roles(
+            str(claim.get("claim_text") or ""),
+            target=_ensure_mapping(claim.get("target")),
+        )
+    role_buckets = [
+        bucket
+        for bucket in (
+            _clean_context_bucket(value, default="")
+            for value in _ensure_list(
+                component_roles.get("industry_cycle_regime_context_types")
+            )
+        )
+        if bucket
+    ]
+    metric_buckets = [
+        bucket
+        for family in _claim_metric_families(claim)
+        for bucket in INDUSTRY_CYCLE_BUCKET_BY_METRIC_FAMILY.get(family, ())
+    ]
+    return tuple(
+        dict.fromkeys(
+            [*role_buckets, *metric_buckets]
+        )
+    )
+
+
+def build_industry_context_snapshots(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    industry_etf_proxy_map_rows: Sequence[Mapping[str, Any]] = (),
+    industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
+    industry_etf_proxy_pit_availability: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    metadata_by_key = _metadata_by_report_or_source(metadata_rows)
+    mapping_rows = tuple(
+        industry_etf_proxy_map_rows or build_default_industry_etf_proxy_map_rows()
+    )
+    availability_by_mapping_id = _industry_pit_availability_by_mapping_id(
+        industry_etf_proxy_pit_availability
+    )
+    outcomes_by_claim: dict[str, list[Mapping[str, Any]]] = {}
+    for row in outcome_label_rows:
+        if row.get("label_type") != "industry_etf_proxy":
+            continue
+        outcomes_by_claim.setdefault(str(row.get("forecast_claim_id") or ""), []).append(
+            row
+        )
+    aggregates: dict[tuple[str, str], dict[str, Any]] = {}
+    for claim in forecast_rows:
+        metadata = _claim_metadata_row(claim, metadata_by_key)
+        if not _is_industry_research_report(metadata.get("report_type")):
+            continue
+        sector = _industry_claim_sector(claim, metadata)
+        as_of_date = _claim_snapshot_as_of_date(claim, metadata)
+        if not sector or not as_of_date:
+            continue
+        key = (sector, as_of_date)
+        aggregate = aggregates.setdefault(
+            key,
+            {
+                "_claim_ids": set(),
+                "_report_keys": set(),
+                "_outcome_rows": [],
+                "_industry_cycle_buckets": set(),
+                "_mapping": _industry_etf_proxy_for_sector(
+                    sector,
+                    mapping_rows,
+                    as_of_datetime=str(claim.get("signal_datetime") or ""),
+                ),
+            },
+        )
+        claim_id = str(claim.get("forecast_claim_id") or "")
+        if claim_id:
+            aggregate["_claim_ids"].add(claim_id)
+            aggregate["_outcome_rows"].extend(outcomes_by_claim.get(claim_id, ()))
+        report_key = str(claim.get("source_id") or claim.get("report_id") or "")
+        if report_key:
+            aggregate["_report_keys"].add(report_key)
+        aggregate["_industry_cycle_buckets"].update(
+            _claim_industry_cycle_buckets(claim)
+        )
+
+    readiness = _ensure_mapping(industry_etf_proxy_readiness)
+    rows: list[dict[str, Any]] = []
+    for (sector, as_of_date), aggregate in sorted(aggregates.items()):
+        mapping = aggregate["_mapping"]
+        outcome_rows = list(aggregate["_outcome_rows"])
+        proxy_liquidity_bucket = _industry_proxy_liquidity_bucket(
+            mapping=mapping,
+            outcome_rows=outcome_rows,
+            availability_by_mapping_id=availability_by_mapping_id,
+        )
+        benchmark_family = next(
+            (
+                str(row.get("benchmark_family") or "").strip()
+                for row in outcome_rows
+                if str(row.get("benchmark_family") or "").strip()
+            ),
+            str(
+                (mapping or {}).get("benchmark_family")
+                or readiness.get("benchmark_family")
+                or INDUSTRY_ETF_BENCHMARK_FAMILY
+            ),
+        )
+        proxy_symbol = str((mapping or {}).get("etf_symbol") or "")
+        mapping_confidence = str((mapping or {}).get("mapping_confidence") or "missing")
+        industry_cycle_bucket = _first_sorted(set(aggregate["_industry_cycle_buckets"]))
+        missing_feature_reasons = []
+        if industry_cycle_bucket == "unknown":
+            missing_feature_reasons.append("industry_cycle_bucket_missing")
+        if not proxy_symbol:
+            missing_feature_reasons.append("proxy_symbol_missing")
+        if mapping_confidence == "missing":
+            missing_feature_reasons.append("mapping_confidence_missing")
+        if proxy_liquidity_bucket == "unknown":
+            missing_feature_reasons.append("proxy_liquidity_bucket_missing")
+        record = {
+            "snapshot_id": _stable_id(
+                "ICS",
+                {"canonical_sector": sector, "as_of_date": as_of_date},
+            ),
+            "schema_version": INDUSTRY_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
+            "as_of_date": as_of_date,
+            "canonical_sector": sector,
+            "industry_cycle_bucket": industry_cycle_bucket,
+            "proxy_symbol": proxy_symbol,
+            "mapping_confidence": mapping_confidence,
+            "proxy_liquidity_bucket": proxy_liquidity_bucket,
+            "benchmark_family": benchmark_family,
+            "known_proxy_limitations": _industry_known_proxy_limitations(
+                mapping=mapping,
+                proxy_liquidity_bucket=proxy_liquidity_bucket,
+            ),
+            "source_claim_count": len(aggregate["_claim_ids"]),
+            "report_count": len(aggregate["_report_keys"]),
+            "outcome_label_count": len(outcome_rows),
+            "missing_feature_reasons": missing_feature_reasons,
+            "background_only": True,
+            "claim_validation_allowed": False,
+            "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
+            "use_policy": MACRO_REGIME_SNAPSHOT_USE_POLICY,
+            "data_vintage_hash": _stable_id(
+                "ICV",
+                {
+                    "canonical_sector": sector,
+                    "as_of_date": as_of_date,
+                    "industry_cycle_bucket": industry_cycle_bucket,
+                    "claim_count": len(aggregate["_claim_ids"]),
+                    "outcome_label_count": len(outcome_rows),
+                },
+            ),
+        }
+        record["private_text_included"] = _public_payload_private_text_included(record)
+        rows.append(record)
+    return rows
+
+
+def _registry_output_path(
+    root: str | Path,
+    registry_dir: str | Path,
+    relative_path: str,
+) -> Path:
+    root_path = Path(root).expanduser().resolve()
+    registry_path = Path(registry_dir)
+    if not registry_path.is_absolute():
+        registry_path = root_path / registry_path
+    return _report_intelligence_registry_path(
+        root_path=root_path,
+        registry_dir=registry_path,
+        relative_path=relative_path,
+    )
+
+
+def write_stock_context_snapshots(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+) -> dict[str, Any]:
+    return _write_jsonl(
+        _registry_output_path(
+            root,
+            registry_dir,
+            REPORT_INTELLIGENCE_STOCK_CONTEXT_SNAPSHOTS_PATH,
+        ),
+        rows,
+    )
+
+
+def write_industry_context_snapshots(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+) -> dict[str, Any]:
+    return _write_jsonl(
+        _registry_output_path(
+            root,
+            registry_dir,
+            REPORT_INTELLIGENCE_INDUSTRY_CONTEXT_SNAPSHOTS_PATH,
+        ),
+        rows,
     )
 
 
@@ -19782,6 +20774,82 @@ def _macro_prior_target_series_family(
     return "unknown"
 
 
+def _macro_cross_asset_leg_direction(claim: Mapping[str, Any]) -> tuple[str, str] | None:
+    direction = _normalize_forecast_direction(claim.get("direction"))
+    if direction not in {"positive", "negative"}:
+        return None
+    sign = "up" if direction == "positive" else "down"
+    target = _ensure_mapping(claim.get("target"))
+    target_id = str(target.get("target_id") or target.get("target_name") or "")
+    families = {
+        str(item)
+        for item in (
+            *_ensure_list(claim.get("metric_proxy_mapping")),
+            *_ensure_list(target.get("metric_proxy_mapping")),
+            target.get("metric_family") or "",
+        )
+        if str(item).strip()
+    }
+    if families & {"bond_yield_level", "policy_rate_level", "money_market_rate"}:
+        return ("bond_yield", sign)
+    if "bond_etf_forward_return" in families or target_id in {
+        "CN_BOND",
+        "CN_CREDIT_BOND",
+        "CN_POLICY_BANK_BOND",
+    }:
+        return ("bond_price", sign)
+    if "fx_rate" in families:
+        return ("fx_quote", sign)
+    if families & {"commodity_price", "commodity_price_cycle", "gold_etf_forward_return"}:
+        return ("commodity_price", sign)
+    if families & {"equity_index_forward_return", "macro_asset_forward_return"}:
+        return ("equity_price", sign)
+    if families & {"yield_curve_slope", "cross_market_yield_spread"}:
+        return ("curve", sign)
+    if "volatility_index" in families:
+        return ("volatility", sign)
+    return None
+
+
+def _macro_cross_asset_consistency_for_parent(
+    claims: Sequence[Mapping[str, Any]],
+) -> str:
+    if len(claims) < 2:
+        return "not_applicable"
+    mapped = [
+        direction
+        for claim in claims
+        if (direction := _macro_cross_asset_leg_direction(claim)) is not None
+    ]
+    if len(mapped) < 2:
+        return "blocked_mapping"
+    conflict_leg_indexes: set[int] = set()
+    for left_index, (left_kind, left_sign) in enumerate(mapped):
+        for right_index, (right_kind, right_sign) in enumerate(
+            mapped[left_index + 1 :],
+            start=left_index + 1,
+        ):
+            if {left_kind, right_kind} == {"bond_yield", "bond_price"} and left_sign == right_sign:
+                conflict_leg_indexes.update({left_index, right_index})
+    if conflict_leg_indexes:
+        return (
+            "contradictory"
+            if len(conflict_leg_indexes) / len(mapped) >= 0.5
+            else "mixed"
+        )
+    if len(mapped) < len(claims):
+        return "mixed"
+    return "consistent"
+
+
+def _macro_prior_cross_asset_consistency(buckets: Iterable[str]) -> str:
+    bucket_set = {str(bucket) for bucket in buckets if str(bucket).strip()}
+    for bucket in ("contradictory", "mixed", "blocked_mapping", "consistent"):
+        if bucket in bucket_set:
+            return bucket
+    return "not_applicable"
+
+
 def _macro_prior_freshness_bucket(
     *,
     latest_completed_exit_date: str,
@@ -19800,6 +20868,20 @@ def build_macro_agent_research_priors(
     viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
     macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
+    claims_by_parent: dict[str, list[Mapping[str, Any]]] = {}
+    for claim in forecast_rows:
+        parent_id = str(
+            claim.get("parent_forecast_claim_id")
+            or claim.get("forecast_claim_id")
+            or claim.get("claim_id")
+            or ""
+        ).strip()
+        if parent_id:
+            claims_by_parent.setdefault(parent_id, []).append(claim)
+    consistency_by_parent = {
+        parent_id: _macro_cross_asset_consistency_for_parent(claims)
+        for parent_id, claims in claims_by_parent.items()
+    }
     claim_context_by_profile: dict[str, dict[str, Any]] = {}
     for claim in forecast_rows:
         cluster_id, mechanism_chain = _viewpoint_cluster_id(claim)
@@ -19813,6 +20895,7 @@ def build_macro_agent_research_priors(
                 "mechanism_chain": set(mechanism_chain),
                 "directions": set(),
                 "macro_claim_leg_ids": set(),
+                "cross_asset_consistency": set(),
             },
         )
         context["agents"].update(_claim_macro_agent_candidates(claim))
@@ -19826,6 +20909,16 @@ def build_macro_agent_research_priors(
         leg_id = str(claim.get("macro_claim_leg_id") or "").strip()
         if leg_id:
             context["macro_claim_leg_ids"].add(leg_id)
+        parent_id = str(
+            claim.get("parent_forecast_claim_id")
+            or claim.get("forecast_claim_id")
+            or claim.get("claim_id")
+            or ""
+        ).strip()
+        if parent_id:
+            context["cross_asset_consistency"].add(
+                consistency_by_parent.get(parent_id, "not_applicable")
+            )
 
     snapshots_by_agent_date = {
         (
@@ -19906,6 +20999,9 @@ def build_macro_agent_research_priors(
                 "target_series_family": _macro_prior_target_series_family(
                     metric_families=metric_families,
                     profile=profile,
+                ),
+                "cross_asset_consistency": _macro_prior_cross_asset_consistency(
+                    context.get("cross_asset_consistency") or ()
                 ),
                 "expected_direction": expected_direction,
                 "regime_snapshot_id": snapshot_id,
@@ -20162,6 +21258,8 @@ def _tool_gap_engineering_effort(gap: Mapping[str, Any]) -> str:
 
 def build_data_acquisition_proposals(
     tool_gap_rows: Sequence[Mapping[str, Any]],
+    *,
+    stock_context_snapshot_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     proposals: list[dict[str, Any]] = []
     for gap in tool_gap_rows:
@@ -20200,6 +21298,58 @@ def build_data_acquisition_proposals(
                 "business_priority": str(gap.get("priority_bucket") or "low"),
                 "source_tool_gap_priority": str(gap.get("priority_bucket") or "low"),
                 "decision_status": "pending_review",
+            }
+        )
+    market_cap_missing_count = sum(
+        1
+        for row in stock_context_snapshot_rows
+        if "market_cap_bucket_missing" in _ensure_list(row.get("missing_feature_reasons"))
+    )
+    if market_cap_missing_count:
+        proposals.append(
+            {
+                "data_proposal_id": _stable_id(
+                    "DAP",
+                    {"tool_gap_id": "stock_context_market_cap_metadata_missing"},
+                ),
+                "tool_gap_id": "stock_context_market_cap_metadata_missing",
+                "owner": "data_engineering",
+                "requested_dataset": "stock_market_cap_pit_metadata",
+                "required_fields": [
+                    "stock_symbol",
+                    "as_of_date",
+                    "total_market_cap_cny",
+                    "float_market_cap_cny",
+                    "source_timestamp",
+                    "quality_flags",
+                ],
+                "pit_requirements": {
+                    "timestamp_required": True,
+                    "revision_tracking_required": True,
+                    "minimum_history_years": 5,
+                    "survivorship_issue": True,
+                },
+                "license_requirements": {
+                    "internal_model_use": True,
+                    "derived_metric_storage": True,
+                    "external_redistribution": False,
+                },
+                "license_status": "pending_review",
+                "pit_feasibility_status": "requires_pit_backfill_review",
+                "expected_use_cases": [
+                    "stock_context_market_cap_bucket",
+                    "superinvestor_stock_prior_stratification",
+                    "decision_agent_risk_context",
+                ],
+                "estimated_engineering_effort": "medium",
+                "estimated_vendor_cost_bucket": "unknown",
+                "business_priority": "medium",
+                "source_tool_gap_priority": "medium",
+                "decision_status": "pending_review",
+                "evidence_summary": {
+                    "missing_feature": "market_cap_bucket_missing",
+                    "affected_stock_context_snapshot_count": market_cap_missing_count,
+                },
             }
         )
     return proposals
@@ -23670,6 +24820,354 @@ def _macro_readiness_gap_counts(readiness: Mapping[str, Any]) -> dict[str, int]:
     return counts
 
 
+def _stock_industry_evolution_gate_checks(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    outcome_labeling_readiness: Mapping[str, Any] | None,
+    metadata_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    metadata_by_key = _metadata_by_report_or_source(list(metadata_rows or ()))
+    stock_pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    industry_pairs: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    for row in forecast_rows:
+        metadata = _claim_metadata_row(row, metadata_by_key)
+        target_type = str(_ensure_mapping(row.get("target")).get("target_type") or "")
+        if _is_stock_forecast_claim(row, metadata):
+            stock_pairs.append((row, metadata))
+        if _is_industry_research_report(metadata.get("report_type")) or target_type in {
+            "sector",
+            "industry",
+        }:
+            industry_pairs.append((row, metadata))
+
+    stock_labels = [
+        row
+        for row in outcome_label_rows
+        if str(row.get("label_type") or "") == "stock_price_proxy"
+    ]
+    industry_labels = [
+        row
+        for row in outcome_label_rows
+        if str(row.get("label_type") or "") == "industry_etf_proxy"
+    ]
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
+    industry_readiness = _ensure_mapping(readiness.get("industry_etf_proxy_readiness"))
+    stock_pending_count = len(
+        _ensure_list(stock_readiness.get("pending_future_forecast_claim_ids"))
+    ) or int(readiness.get("stock_proxy_label_pending_count") or 0)
+    industry_pending_count = len(
+        _ensure_list(industry_readiness.get("pending_future_forecast_claim_ids"))
+    ) or int(readiness.get("industry_proxy_label_pending_count") or 0)
+
+    def not_applicable(check_id: str, requirement: str) -> dict[str, Any]:
+        return _evolution_gate_check(
+            check_id=check_id,
+            requirement=requirement,
+            passed=True,
+            evidence={"status": "not_applicable_no_domain_rows"},
+            blockers=[],
+        )
+
+    def context_policy_evidence(
+        *,
+        domain: str,
+        agent_requests: Sequence[tuple[str, str]],
+        rows: Sequence[Mapping[str, Any]],
+    ) -> tuple[dict[str, Any], list[str]]:
+        from .agent_research_context import (  # local import avoids CLI startup coupling
+            SAFE_ACTIONABILITY,
+            assert_public_safe_context,
+            build_rke_agent_research_context_from_rows,
+        )
+
+        private_text_violation_count = 0
+        shadow_policy_violation_count = 0
+        current_data_guard_violation_count = 0
+        item_count = 0
+        for agent_id, layer in agent_requests:
+            context = build_rke_agent_research_context_from_rows(
+                agent_id=agent_id,
+                layer=layer,
+                max_items=3,
+                forecasts=rows,
+                metadata=list(metadata_rows or ()),
+            )
+            try:
+                assert_public_safe_context(context)
+            except ValueError:
+                private_text_violation_count += 1
+            if context.get("research_only") is not True:
+                shadow_policy_violation_count += 1
+            if context.get("production_signal_allowed") is not False:
+                shadow_policy_violation_count += 1
+            if context.get("actionability") != SAFE_ACTIONABILITY:
+                current_data_guard_violation_count += 1
+            for item in _ensure_list(context.get("context_items")):
+                item_map = _ensure_mapping(item)
+                if str(item_map.get("domain") or "") != domain:
+                    continue
+                item_count += 1
+                if item_map.get("production_signal_allowed") is not False:
+                    shadow_policy_violation_count += 1
+                if item_map.get("current_data_required") is not True:
+                    current_data_guard_violation_count += 1
+        blockers: list[str] = []
+        if private_text_violation_count:
+            blockers.append(f"{domain}_prior_privacy_violation")
+        if shadow_policy_violation_count:
+            blockers.append(f"{domain}_prior_shadow_policy_violation")
+        if current_data_guard_violation_count:
+            blockers.append(f"{domain}_prior_current_data_guard_violation")
+        return (
+            {
+                "audited_agent_count": len(agent_requests),
+                "context_item_count": item_count,
+                "private_text_violation_count": private_text_violation_count,
+                "shadow_policy_violation_count": shadow_policy_violation_count,
+                "current_data_guard_violation_count": current_data_guard_violation_count,
+            },
+            blockers,
+        )
+
+    checks: list[dict[str, Any]] = []
+    if not stock_pairs and not stock_labels:
+        checks.extend(
+            [
+                not_applicable(
+                    "RI-STOCK-01",
+                    "Stock target resolution is checked when stock rows exist.",
+                ),
+                not_applicable(
+                    "RI-STOCK-02",
+                    "Stock PIT label coverage is checked when stock rows exist.",
+                ),
+                not_applicable(
+                    "RI-STOCK-03",
+                    "Stock tradeability gaps are audited when stock rows exist.",
+                ),
+                not_applicable(
+                    "RI-STOCK-04",
+                    "Stock priors are public-safe and shadow-only when stock rows exist.",
+                ),
+            ]
+        )
+    else:
+        stock_resolution_gaps = [
+            _stock_target_resolution(row, metadata)["gap"]
+            for row, metadata in stock_pairs
+            if _stock_target_resolution(row, metadata)["gap"]
+        ]
+        stock_resolution_gap_counts = _count_mapping_values(
+            Counter(stock_resolution_gaps)
+        )
+        audited_stock_gap_counts = _count_mapping_values(
+            _ensure_mapping(stock_readiness.get("data_gap_counts"))
+        )
+        unaudited_stock_resolution_gap_counts = {
+            gap: count
+            for gap, count in stock_resolution_gap_counts.items()
+            if audited_stock_gap_counts.get(gap, 0) < count
+        }
+        stock_coverage_blockers: list[str] = []
+        if stock_pairs and not stock_labels and not stock_pending_count:
+            stock_coverage_blockers.append("stock_pit_label_coverage_missing")
+        stock_tradeability_blockers: list[str] = []
+        stock_gap_counts = _count_mapping_values(
+            _ensure_mapping(stock_readiness.get("data_gap_counts"))
+        )
+        if stock_pairs and not stock_readiness and not stock_labels:
+            stock_tradeability_blockers.append("stock_tradeability_readiness_missing")
+        stock_policy_evidence, stock_policy_blockers = context_policy_evidence(
+            domain="stock",
+            agent_requests=(("munger", "superinvestor"), ("cio", "decision")),
+            rows=[row for row, _metadata in stock_pairs],
+        )
+        checks.extend(
+            [
+                _evolution_gate_check(
+                    check_id="RI-STOCK-01",
+                    requirement=(
+                        "Stock report claims must resolve to a PIT-safe stock "
+                        "target or expose a target-resolution gap."
+                    ),
+                    passed=not unaudited_stock_resolution_gap_counts,
+                    evidence={
+                        "stock_forecast_row_count": len(stock_pairs),
+                        "target_resolution_gap_counts": stock_resolution_gap_counts,
+                        "audited_target_resolution_gap_counts": {
+                            gap: audited_stock_gap_counts.get(gap, 0)
+                            for gap in stock_resolution_gap_counts
+                        },
+                        "unaudited_target_resolution_gap_counts": (
+                            unaudited_stock_resolution_gap_counts
+                        ),
+                    },
+                    blockers=(
+                        ["stock_target_resolution_gap"]
+                        if unaudited_stock_resolution_gap_counts
+                        else []
+                    ),
+                ),
+                _evolution_gate_check(
+                    check_id="RI-STOCK-02",
+                    requirement=(
+                        "Stock viewpoints must have stock-price proxy PIT labels, "
+                        "pending windows, or explicit readiness gaps."
+                    ),
+                    passed=not stock_coverage_blockers,
+                    evidence={
+                        "stock_label_count": len(stock_labels),
+                        "stock_pending_count": stock_pending_count,
+                        "stock_ready_count": int(
+                            readiness.get("stock_proxy_label_ready_count") or 0
+                        ),
+                    },
+                    blockers=stock_coverage_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-STOCK-03",
+                    requirement=(
+                        "Stock tradeability and data-quality gaps must stay "
+                        "auditable instead of becoming hit/miss labels."
+                    ),
+                    passed=not stock_tradeability_blockers,
+                    evidence={
+                        "stock_data_gap_counts": stock_gap_counts,
+                        "stock_label_count": len(stock_labels),
+                    },
+                    blockers=stock_tradeability_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-STOCK-04",
+                    requirement=(
+                        "Stock priors consumed by superinvestor/decision agents "
+                        "must be public-safe, current-data guarded, and shadow-only."
+                    ),
+                    passed=not stock_policy_blockers,
+                    evidence=stock_policy_evidence,
+                    blockers=stock_policy_blockers,
+                ),
+            ]
+        )
+
+    if not industry_pairs and not industry_labels:
+        checks.extend(
+            [
+                not_applicable(
+                    "RI-INDUSTRY-01",
+                    "Industry ETF mapping is checked when industry rows exist.",
+                ),
+                not_applicable(
+                    "RI-INDUSTRY-02",
+                    "Industry proxy PIT label coverage is checked when rows exist.",
+                ),
+                not_applicable(
+                    "RI-INDUSTRY-03",
+                    "Industry proxy limitations are audited when rows exist.",
+                ),
+                not_applicable(
+                    "RI-INDUSTRY-04",
+                    "Industry priors are public-safe and shadow-only when rows exist.",
+                ),
+            ]
+        )
+    else:
+        industry_mapping_gaps = [
+            "industry_sector_mapping_missing"
+            for row, metadata in industry_pairs
+            if not _industry_claim_sector(row, metadata)
+        ]
+        industry_coverage_blockers: list[str] = []
+        if industry_pairs and not industry_labels and not industry_pending_count:
+            industry_coverage_blockers.append("industry_proxy_pit_label_coverage_missing")
+        industry_snapshots = build_industry_context_snapshots(
+            list(metadata_rows or ()),
+            forecast_rows=[row for row, _metadata in industry_pairs],
+            outcome_label_rows=industry_labels,
+            industry_etf_proxy_readiness=industry_readiness,
+        )
+        limitation_missing_count = sum(
+            1
+            for row in industry_snapshots
+            if not _ensure_list(row.get("known_proxy_limitations"))
+        )
+        industry_limitation_blockers: list[str] = []
+        if industry_pairs and not industry_snapshots:
+            industry_limitation_blockers.append("industry_proxy_limitation_audit_missing")
+        if limitation_missing_count:
+            industry_limitation_blockers.append("industry_proxy_limitation_missing")
+        industry_policy_evidence, industry_policy_blockers = context_policy_evidence(
+            domain="industry",
+            agent_requests=(("semiconductor", "sector"), ("cio", "decision")),
+            rows=[row for row, _metadata in industry_pairs],
+        )
+        checks.extend(
+            [
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-01",
+                    requirement=(
+                        "Industry claims must resolve to a canonical sector and "
+                        "governed ETF proxy mapping context."
+                    ),
+                    passed=not industry_mapping_gaps,
+                    evidence={
+                        "industry_forecast_row_count": len(industry_pairs),
+                        "mapping_gap_counts": _count_mapping_values(
+                            Counter(industry_mapping_gaps)
+                        ),
+                    },
+                    blockers=(
+                        ["industry_etf_mapping_gap"]
+                        if industry_mapping_gaps
+                        else []
+                    ),
+                ),
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-02",
+                    requirement=(
+                        "Industry viewpoints must have ETF proxy PIT labels, "
+                        "pending windows, or explicit readiness gaps."
+                    ),
+                    passed=not industry_coverage_blockers,
+                    evidence={
+                        "industry_label_count": len(industry_labels),
+                        "industry_pending_count": industry_pending_count,
+                        "industry_ready_count": int(
+                            readiness.get("industry_proxy_label_ready_count") or 0
+                        ),
+                    },
+                    blockers=industry_coverage_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-03",
+                    requirement=(
+                        "Industry ETF proxy priors must preserve proxy limitation "
+                        "evidence and cannot masquerade as direct industry returns."
+                    ),
+                    passed=not industry_limitation_blockers,
+                    evidence={
+                        "industry_context_snapshot_count": len(industry_snapshots),
+                        "limitation_missing_count": limitation_missing_count,
+                    },
+                    blockers=industry_limitation_blockers,
+                ),
+                _evolution_gate_check(
+                    check_id="RI-INDUSTRY-04",
+                    requirement=(
+                        "Industry priors consumed by sector/decision agents must "
+                        "be public-safe, current-data guarded, and shadow-only."
+                    ),
+                    passed=not industry_policy_blockers,
+                    evidence=industry_policy_evidence,
+                    blockers=industry_policy_blockers,
+                ),
+            ]
+        )
+    return checks
+
+
 def _macro_evolution_gate_checks(
     *,
     forecast_rows: Sequence[Mapping[str, Any]],
@@ -23898,6 +25396,261 @@ def _macro_evolution_gate_checks(
     ]
 
 
+PRIOR_COMPILER_CANDIDATE_TYPES = frozenset(
+    {
+        "stock_prior_recipe_rule_candidate",
+        "stock_prior_recipe_rule_refusal",
+        "industry_prior_recipe_rule_candidate",
+        "industry_prior_recipe_rule_refusal",
+        "macro_prior_rule_parameter_candidate",
+        "macro_prior_rule_parameter_refusal",
+    }
+)
+PRIOR_COMPILER_ACTIONABLE_CANDIDATE_TYPES = frozenset(
+    {
+        "stock_prior_recipe_rule_candidate",
+        "industry_prior_recipe_rule_candidate",
+        "macro_prior_rule_parameter_candidate",
+    }
+)
+
+
+def _prior_compiler_gate_check(
+    prompt_mutation_candidate_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    prior_rows = [
+        row
+        for row in prompt_mutation_candidate_rows
+        if str(row.get("candidate_type") or "") in PRIOR_COMPILER_CANDIDATE_TYPES
+    ]
+    if not prompt_mutation_candidate_rows:
+        return _evolution_gate_check(
+            check_id="RI-EVOL-08",
+            requirement=(
+                "Redacted stock, industry, and macro priors must enter a "
+                "candidate compiler or explicit refusal path."
+            ),
+            passed=True,
+            evidence={
+                "status": "not_applicable_prompt_mutation_candidates_not_supplied"
+            },
+            blockers=[],
+    )
+    type_counts = Counter(str(row.get("candidate_type") or "") for row in prior_rows)
+    actionable_candidate_count = sum(
+        type_counts[candidate_type]
+        for candidate_type in PRIOR_COMPILER_ACTIONABLE_CANDIDATE_TYPES
+    )
+    macro_agent_ids = sorted(
+        {
+            str(_ensure_mapping(_ensure_list(row.get("evidence_refs"))[0]).get("agent_id") or "")
+            for row in prior_rows
+            if str(row.get("candidate_type") or "").startswith("macro_prior_")
+            and _ensure_list(row.get("evidence_refs"))
+        }
+        - {""}
+    )
+    private_text_violation_count = sum(
+        1
+        for row in prior_rows
+        if row.get("private_text_included") is not False
+        or _public_payload_private_text_included(row)
+    )
+    signal_violation_count = sum(
+        1 for row in prior_rows if row.get("production_prompt_change_allowed") is not False
+    )
+    blockers: list[str] = []
+    if not (
+        type_counts["stock_prior_recipe_rule_candidate"]
+        or type_counts["stock_prior_recipe_rule_refusal"]
+    ):
+        blockers.append("stock_prior_compiler_path_missing")
+    if not (
+        type_counts["industry_prior_recipe_rule_candidate"]
+        or type_counts["industry_prior_recipe_rule_refusal"]
+    ):
+        blockers.append("industry_prior_compiler_path_missing")
+    if len(macro_agent_ids) < 2:
+        blockers.append("macro_prior_compiler_agent_coverage_missing")
+    if prior_rows and actionable_candidate_count == 0:
+        blockers.append("prior_compiler_refusal_only")
+    if private_text_violation_count:
+        blockers.append("prior_compiler_private_text_violation")
+    if signal_violation_count:
+        blockers.append("prior_compiler_shadow_policy_violation")
+    return _evolution_gate_check(
+        check_id="RI-EVOL-08",
+        requirement=(
+            "Redacted stock, industry, and macro priors must enter a "
+            "candidate compiler or explicit refusal path."
+        ),
+        passed=not blockers,
+        evidence={
+            "prior_compiler_candidate_count": len(prior_rows),
+            "prior_compiler_actionable_candidate_count": actionable_candidate_count,
+            "candidate_type_counts": dict(sorted(type_counts.items())),
+            "macro_compiler_agent_ids": macro_agent_ids,
+            "macro_compiler_agent_count": len(macro_agent_ids),
+            "private_text_violation_count": private_text_violation_count,
+            "shadow_policy_violation_count": signal_violation_count,
+        },
+        blockers=blockers,
+    )
+
+
+AGENT_CONTEXT_AUDIT_REQUESTS = (
+    ("macro.dollar", "macro"),
+    ("sector.semiconductor", "sector"),
+    ("superinvestor.munger", "superinvestor"),
+    ("cio", "decision"),
+)
+AGENT_CONTEXT_PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
+
+
+def _agent_context_export_gate_check(
+    *,
+    agent_context_forecast_rows: Sequence[Mapping[str, Any]] | None,
+    metadata_rows: Sequence[Mapping[str, Any]] | None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    if weighted_research_context_rows is None:
+        return _evolution_gate_check(
+            check_id="RI-EVOL-09",
+            requirement=(
+                "Agent-facing RKE context exports must retain ranked retrieval "
+                "evidence, no-prior reasons, and current-data guards."
+            ),
+            passed=True,
+            evidence={"status": "not_applicable_agent_context_inputs_not_supplied"},
+            blockers=[],
+        )
+
+    from .agent_research_context import (  # local import avoids CLI startup coupling
+        RANKING_POLICY_ID,
+        SAFE_ACTIONABILITY,
+        assert_public_safe_context,
+        build_rke_agent_research_context_from_rows,
+    )
+
+    forecast_rows = list(agent_context_forecast_rows or ())
+    metadata = list(metadata_rows or ())
+    weighted_rows = list(weighted_research_context_rows)
+    blockers: list[str] = []
+    context_summaries: list[dict[str, Any]] = []
+    ranked_context_agent_count = 0
+    no_prior_reason_agent_count = 0
+    private_text_violation_count = 0
+    current_data_guard_violation_count = 0
+    shadow_policy_violation_count = 0
+    ranking_policy_violation_count = 0
+
+    if not weighted_rows:
+        blockers.append("weighted_research_context_rows_missing")
+    if not forecast_rows:
+        blockers.append("agent_context_forecast_rows_missing")
+
+    if forecast_rows:
+        for agent_id, layer in AGENT_CONTEXT_AUDIT_REQUESTS:
+            context = build_rke_agent_research_context_from_rows(
+                agent_id=agent_id,
+                layer=layer,
+                max_items=3,
+                forecasts=forecast_rows,
+                metadata=metadata,
+                weighted_research_contexts=weighted_rows,
+            )
+            try:
+                assert_public_safe_context(context)
+            except ValueError:
+                private_text_violation_count += 1
+            summary = _ensure_mapping(context.get("summary"))
+            items = [
+                _ensure_mapping(item)
+                for item in _ensure_list(context.get("context_items"))
+                if isinstance(item, Mapping)
+            ]
+            if context.get("ranking_policy_id") != RANKING_POLICY_ID:
+                ranking_policy_violation_count += 1
+            if summary.get("ranking_policy_id") != RANKING_POLICY_ID:
+                ranking_policy_violation_count += 1
+            if context.get("research_only") is not True:
+                shadow_policy_violation_count += 1
+            if context.get("production_signal_allowed") is not False:
+                shadow_policy_violation_count += 1
+            if context.get("actionability") != SAFE_ACTIONABILITY:
+                current_data_guard_violation_count += 1
+            if items:
+                ranked_context_agent_count += 1
+            elif str(summary.get("no_prior_reason") or "").strip():
+                no_prior_reason_agent_count += 1
+            else:
+                blockers.append(f"agent_context_no_prior_reason_missing:{agent_id}")
+            for expected_rank, item in enumerate(items, 1):
+                if _optional_positive_int(item.get("retrieval_rank")) != expected_rank:
+                    ranking_policy_violation_count += 1
+                if (
+                    str(item.get("priority_bucket") or "").strip()
+                    not in AGENT_CONTEXT_PRIORITY_BUCKETS
+                ):
+                    ranking_policy_violation_count += 1
+                if not _ensure_list(item.get("ranking_reason_codes")):
+                    ranking_policy_violation_count += 1
+                if item.get("current_data_required") is not True:
+                    current_data_guard_violation_count += 1
+                if not _ensure_list(item.get("current_data_required_fields")):
+                    current_data_guard_violation_count += 1
+                if item.get("production_signal_allowed") is not False:
+                    shadow_policy_violation_count += 1
+            matched_item_count = _optional_non_negative_int(
+                summary.get("matched_item_count")
+            )
+            truncated_item_count = _optional_non_negative_int(
+                summary.get("truncated_item_count")
+            )
+            if matched_item_count is None or truncated_item_count is None:
+                ranking_policy_violation_count += 1
+            context_summaries.append(
+                {
+                    "agent_id": str(context.get("agent_id") or agent_id),
+                    "layer": layer,
+                    "item_count": len(items),
+                    "matched_item_count": matched_item_count or 0,
+                    "truncated_item_count": truncated_item_count or 0,
+                    "no_prior_reason": str(summary.get("no_prior_reason") or ""),
+                }
+            )
+    if forecast_rows and ranked_context_agent_count <= 0:
+        blockers.append("agent_context_ranked_export_evidence_missing")
+    if private_text_violation_count:
+        blockers.append("agent_context_private_text_violation")
+    if current_data_guard_violation_count:
+        blockers.append("agent_context_current_data_guard_violation")
+    if shadow_policy_violation_count:
+        blockers.append("agent_context_shadow_policy_violation")
+    if ranking_policy_violation_count:
+        blockers.append("agent_context_ranking_policy_violation")
+    return _evolution_gate_check(
+        check_id="RI-EVOL-09",
+        requirement=(
+            "Agent-facing RKE context exports must retain ranked retrieval "
+            "evidence, no-prior reasons, and current-data guards."
+        ),
+        passed=not blockers,
+        evidence={
+            "ranking_policy_id": RANKING_POLICY_ID,
+            "sampled_agent_contexts": context_summaries,
+            "weighted_research_context_row_count": len(weighted_rows),
+            "ranked_context_agent_count": ranked_context_agent_count,
+            "no_prior_reason_agent_count": no_prior_reason_agent_count,
+            "private_text_violation_count": private_text_violation_count,
+            "current_data_guard_violation_count": current_data_guard_violation_count,
+            "shadow_policy_violation_count": shadow_policy_violation_count,
+            "ranking_policy_violation_count": ranking_policy_violation_count,
+        },
+        blockers=blockers,
+    )
+
+
 def build_report_intelligence_evolution_readiness_gate(
     *,
     run_id: str,
@@ -23914,6 +25667,10 @@ def build_report_intelligence_evolution_readiness_gate(
     schema_validation_report: Mapping[str, Any] | None = None,
     macro_regime_snapshot_rows: Sequence[Mapping[str, Any]] = (),
     macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
+    prompt_mutation_candidate_rows: Sequence[Mapping[str, Any]] = (),
+    agent_context_forecast_rows: Sequence[Mapping[str, Any]] | None = None,
+    metadata_rows: Sequence[Mapping[str, Any]] | None = None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None = None,
     monitor_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     audit_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
     gap_distribution_history_rows: Sequence[Mapping[str, Any]] = (),
@@ -24292,12 +26049,28 @@ def build_report_intelligence_evolution_readiness_gate(
         )
     )
     checks.extend(
+        _stock_industry_evolution_gate_checks(
+            forecast_rows=forecast_rows,
+            outcome_label_rows=outcome_label_rows,
+            outcome_labeling_readiness=outcome_labeling_readiness,
+            metadata_rows=metadata_rows,
+        )
+    )
+    checks.extend(
         _macro_evolution_gate_checks(
             forecast_rows=forecast_rows,
             outcome_label_rows=outcome_label_rows,
             outcome_labeling_readiness=outcome_labeling_readiness,
             macro_regime_snapshot_rows=macro_regime_snapshot_rows,
             macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        )
+    )
+    checks.append(_prior_compiler_gate_check(prompt_mutation_candidate_rows))
+    checks.append(
+        _agent_context_export_gate_check(
+            agent_context_forecast_rows=agent_context_forecast_rows,
+            metadata_rows=metadata_rows,
+            weighted_research_context_rows=weighted_research_context_rows,
         )
     )
 
@@ -24533,6 +26306,16 @@ def write_report_intelligence_evolution_readiness_gate(
         blockers=blockers,
     )
     macro_read_blockers: list[str] = []
+    agent_context_forecast_rows = _read_registry_jsonl(
+        registry_path / "forecast_claims.jsonl",
+        label="forecast_claims",
+        blockers=macro_read_blockers,
+    )
+    metadata_rows = _read_registry_jsonl(
+        registry_path / "report_metadata.jsonl",
+        label="report_metadata",
+        blockers=macro_read_blockers,
+    )
     macro_regime_snapshot_rows = _read_registry_jsonl(
         registry_path / "macro_regime_snapshots.jsonl",
         label="macro_regime_snapshots",
@@ -24541,6 +26324,16 @@ def write_report_intelligence_evolution_readiness_gate(
     macro_agent_research_prior_rows = _read_registry_jsonl(
         registry_path / "macro_agent_research_priors.jsonl",
         label="macro_agent_research_priors",
+        blockers=macro_read_blockers,
+    )
+    prompt_mutation_candidate_rows = _read_registry_jsonl(
+        registry_path / "prompt_mutation_candidates.jsonl",
+        label="prompt_mutation_candidates",
+        blockers=macro_read_blockers,
+    )
+    weighted_research_context_rows = _read_registry_jsonl(
+        registry_path / "weighted_research_contexts.jsonl",
+        label="weighted_research_contexts",
         blockers=macro_read_blockers,
     )
     gate = build_report_intelligence_evolution_readiness_gate(
@@ -24558,6 +26351,10 @@ def write_report_intelligence_evolution_readiness_gate(
         schema_validation_report=_read_schema_validation_report(root_path),
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=agent_context_forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=monitor_refresh_history_rows,
         audit_refresh_history_rows=audit_refresh_history_rows,
         gap_distribution_history_rows=gap_distribution_history_rows,
@@ -25470,6 +27267,245 @@ def _outcome_coverage_counts(
     }
 
 
+def _prior_compiler_refusal_reasons(
+    *,
+    unique_claim_count: int,
+    gap_counts: Mapping[str, int],
+    source_dependent_cluster_count: int = 0,
+) -> list[str]:
+    reasons: list[str] = []
+    gap_keys = " ".join(str(key) for key in gap_counts)
+    if unique_claim_count < 3:
+        reasons.append("insufficient_effective_n")
+    if any(token in gap_keys for token in ("pit", "series", "calendar", "price")):
+        reasons.append("missing_pit_outcome")
+    if any(token in gap_keys for token in ("mapping", "target", "assignment")):
+        reasons.append("missing_validation_target")
+    if source_dependent_cluster_count:
+        reasons.append("source_dependent_cluster")
+    return reasons or ["missing_validation_target"]
+
+
+def _source_dependent_cluster_count(
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+) -> int:
+    count = 0
+    for row in _iter_context_retrieved_claims(weighted_research_context_rows):
+        copying_risk = str(row.get("copying_risk_bucket") or "")
+        source_dependency = _float_or_none(row.get("source_dependency_score")) or 0.0
+        if copying_risk in {"source_dependent", "high"} or source_dependency >= 0.5:
+            count += 1
+    return count
+
+
+def _add_prior_candidate_compiler_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    run_id: str,
+    outcome_labeling_readiness: Mapping[str, Any],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    macro_agent_research_prior_rows: Sequence[Mapping[str, Any]],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+) -> None:
+    labels_by_type: dict[str, list[Mapping[str, Any]]] = {}
+    for row in outcome_label_rows:
+        labels_by_type.setdefault(str(row.get("label_type") or ""), []).append(row)
+    source_dependent_count = _source_dependent_cluster_count(
+        weighted_research_context_rows
+    )
+    for domain, label_type, target_component in (
+        ("stock", "stock_price_proxy", "stock_prior_recipe_rule_compiler"),
+        ("industry", "industry_etf_proxy", "industry_prior_recipe_rule_compiler"),
+    ):
+        labels = labels_by_type.get(label_type, [])
+        unique_claim_count = len(
+            {
+                str(row.get("forecast_claim_id") or "")
+                for row in labels
+                if str(row.get("forecast_claim_id") or "").strip()
+            }
+        )
+        domain_readiness = _ensure_mapping(
+            outcome_labeling_readiness.get(f"{label_type}_readiness")
+        )
+        gap_counts = _count_mapping_values(
+            _ensure_mapping(domain_readiness.get("data_gap_counts"))
+        )
+        refusal_reasons = _prior_compiler_refusal_reasons(
+            unique_claim_count=unique_claim_count,
+            gap_counts=gap_counts,
+            source_dependent_cluster_count=source_dependent_count,
+        )
+        if unique_claim_count >= 3 and "source_dependent_cluster" not in refusal_reasons:
+            _add_prompt_mutation_candidate(
+                candidates,
+                run_id=run_id,
+                candidate_type=f"{domain}_prior_recipe_rule_candidate",
+                target_scope="report_intelligence.prior_candidate_compiler",
+                target_component=target_component,
+                proposed_change=(
+                    f"Compile redacted {domain} prior performance into a "
+                    "shadow recipe/rule candidate with current-data validation "
+                    "requirements before any agent can use it beyond research context."
+                ),
+                trigger_sources=[
+                    "report_outcome_labels",
+                    "outcome_labeling_readiness",
+                    "weighted_research_contexts",
+                ],
+                evidence_refs=[
+                    {
+                        "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
+                        "field": label_type,
+                        "domain": domain,
+                        "candidate_kind": "recipe_rule_candidate",
+                        "unique_claim_count": unique_claim_count,
+                        "label_count": len(labels),
+                        "refusal_reasons": [],
+                    }
+                ],
+                severity="medium",
+                blocked_by=[
+                    "shadow_validation_required",
+                    "current_data_confirmation_required",
+                ],
+            )
+            continue
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type=f"{domain}_prior_recipe_rule_refusal",
+            target_scope="report_intelligence.prior_candidate_compiler",
+            target_component=target_component,
+            proposed_change=(
+                f"Refuse {domain} prior recipe/rule compilation until PIT "
+                "outcome coverage, validation targets, sample size, and source "
+                "independence are sufficient."
+            ),
+            trigger_sources=[
+                "report_outcome_labels",
+                "outcome_labeling_readiness",
+                "weighted_research_contexts",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": f"{label_type}_readiness.data_gap_counts",
+                    "domain": domain,
+                    "candidate_kind": "recipe_rule_refusal",
+                    "unique_claim_count": unique_claim_count,
+                    "label_count": len(labels),
+                    "gap_counts": dict(gap_counts),
+                    "source_dependent_cluster_count": source_dependent_count,
+                    "refusal_reasons": refusal_reasons,
+                }
+            ],
+            severity="medium",
+            blocked_by=refusal_reasons,
+        )
+
+    macro_by_agent: dict[str, list[Mapping[str, Any]]] = {}
+    for prior in macro_agent_research_prior_rows:
+        agent_id = str(prior.get("agent_id") or "")
+        if agent_id.startswith("macro.") and prior.get("private_text_included") is not True:
+            macro_by_agent.setdefault(agent_id, []).append(prior)
+    for agent_id, priors in sorted(macro_by_agent.items()):
+        qualified = [
+            prior
+            for prior in priors
+            if (_float_or_none(prior.get("n_effective")) or 0.0) >= 3.0
+            and str(prior.get("rating_bucket") or "") != "pending_or_unrated"
+        ]
+        if not qualified:
+            refusal_reasons = _prior_compiler_refusal_reasons(
+                unique_claim_count=0,
+                gap_counts={},
+                source_dependent_cluster_count=source_dependent_count,
+            )
+            _add_prompt_mutation_candidate(
+                candidates,
+                run_id=run_id,
+                candidate_type="macro_prior_rule_parameter_refusal",
+                target_scope="report_intelligence.prior_candidate_compiler",
+                target_component="macro_prior_rule_parameter_compiler",
+                proposed_change=(
+                    "Refuse macro rule/parameter compilation until redacted "
+                    "macro priors have sufficient PIT-backed evidence and "
+                    "validation targets."
+                ),
+                trigger_sources=[
+                    "macro_agent_research_priors",
+                    "weighted_research_contexts",
+                ],
+                evidence_refs=[
+                    {
+                        "artifact_path": "registry/report_intelligence/macro_agent_research_priors.jsonl",
+                        "field": "agent_id",
+                        "agent_id": agent_id,
+                        "candidate_kind": "macro_rule_parameter_refusal",
+                        "prior_count": len(priors),
+                        "qualified_prior_count": 0,
+                        "source_dependent_cluster_count": source_dependent_count,
+                        "refusal_reasons": refusal_reasons,
+                    }
+                ],
+                severity="medium",
+                blocked_by=refusal_reasons,
+            )
+            continue
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="macro_prior_rule_parameter_candidate",
+            target_scope="report_intelligence.prior_candidate_compiler",
+            target_component="macro_prior_rule_parameter_compiler",
+            proposed_change=(
+                "Compile redacted macro priors into shadow macro rule and "
+                "parameter-prior candidates; validation must remain PIT-only "
+                "and cannot read report prose."
+            ),
+            trigger_sources=[
+                "macro_agent_research_priors",
+                "weighted_research_contexts",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/macro_agent_research_priors.jsonl",
+                    "field": "agent_id",
+                    "agent_id": agent_id,
+                    "candidate_kind": "macro_rule_parameter_candidate",
+                    "prior_count": len(priors),
+                    "qualified_prior_count": len(qualified),
+                    "redacted_prior_ids": [
+                        str(prior.get("prior_id") or "")
+                        for prior in qualified[:10]
+                        if str(prior.get("prior_id") or "").strip()
+                    ],
+                    "metric_families": sorted(
+                        {
+                            str(prior.get("metric_family") or "")
+                            for prior in qualified
+                            if str(prior.get("metric_family") or "").strip()
+                        }
+                    ),
+                    "rating_buckets": sorted(
+                        {
+                            str(prior.get("rating_bucket") or "")
+                            for prior in qualified
+                            if str(prior.get("rating_bucket") or "").strip()
+                        }
+                    ),
+                    "refusal_reasons": [],
+                }
+            ],
+            severity="medium",
+            blocked_by=[
+                "shadow_validation_required",
+                "current_data_confirmation_required",
+            ],
+        )
+
+
 def _evolution_gate_check_by_id(
     evolution_readiness_gate: Mapping[str, Any],
     check_id: str,
@@ -25511,8 +27547,11 @@ def build_prompt_mutation_candidates(
     confidence_impact_monitor: Mapping[str, Any],
     markdown_coverage_summary: Mapping[str, Any],
     industry_etf_proxy_pit_availability: Mapping[str, Any],
+    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]] = (),
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] = (),
     recipe_paper_trading_summary: Mapping[str, Any] | None = None,
     evolution_readiness_gate: Mapping[str, Any] | None = None,
     gold_review_summary: Mapping[str, Any] | None = None,
@@ -25540,6 +27579,9 @@ def build_prompt_mutation_candidates(
     )
     mechanism_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mechanism_gap_counts"))
+    )
+    assignment_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("assignment_gap_counts"))
     )
     macro_regime_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("macro_regime_counts"))
@@ -25569,6 +27611,14 @@ def build_prompt_mutation_candidates(
                 outcome_counts[key] = int(outcome_gate_evidence.get(key) or 0)
             except (TypeError, ValueError):
                 pass
+    _add_prior_candidate_compiler_candidates(
+        candidates,
+        run_id=run_id,
+        outcome_labeling_readiness=readiness,
+        outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+    )
     outcome_threshold_gaps = {
         "unique_outcome_claim_count": max(
             EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS
@@ -25975,6 +28025,39 @@ def build_prompt_mutation_candidates(
             ],
             severity="medium",
         )
+    assignment_gap_count = sum(assignment_gap_counts.values())
+    if assignment_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="agent_assignment_mapping_rule",
+            target_scope="report_intelligence.agent_assignment",
+            target_component="forecast_extraction_prompt",
+            proposed_change=(
+                "Emit explicit owning agent candidates, or preserve an "
+                "agent_assignment_missing readiness gap, when target_type, "
+                "target_id, and metric family are clean but no downstream "
+                "agent can own the prior."
+            ),
+            trigger_sources=[
+                "outcome_labeling_readiness",
+                "weighted_research_contexts",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": "assignment_gap_counts",
+                    "gap_counts": assignment_gap_counts,
+                    "total_gap_count": assignment_gap_count,
+                    "rating_bucket": "blocked_assignment",
+                }
+            ],
+            severity="medium",
+            blocked_by=[
+                "agent_assignment_review_required",
+                "no_applicable_prior_reason_required",
+            ],
+        )
     regime_mechanism_gap_count = sum(regime_gap_counts.values()) + sum(
         mechanism_gap_counts.values()
     )
@@ -26152,6 +28235,76 @@ def build_prompt_mutation_candidates(
             ],
             severity="medium",
             blocked_by=["data_engineering_review_required"],
+        )
+    active_data_proposals = [
+        row
+        for row in data_acquisition_proposal_rows
+        if str(row.get("decision_status") or "pending_review") != "rejected"
+    ]
+    if active_data_proposals:
+        data_priority_counts: dict[str, int] = {}
+        data_pit_counts: dict[str, int] = {}
+        data_license_counts: dict[str, int] = {}
+        for proposal in active_data_proposals:
+            _increment_count(data_priority_counts, proposal.get("business_priority"))
+            _increment_count(
+                data_pit_counts,
+                proposal.get("pit_feasibility_status"),
+            )
+            _increment_count(data_license_counts, proposal.get("license_status"))
+        market_cap_gap_count = sum(
+            1
+            for proposal in active_data_proposals
+            if proposal.get("tool_gap_id")
+            == "stock_context_market_cap_metadata_missing"
+        )
+        blockers = ["data_engineering_review_required"]
+        if any(
+            str(proposal.get("pit_feasibility_status") or "")
+            != "pit_feasible"
+            for proposal in active_data_proposals
+        ):
+            blockers.append("pit_backfill_review_required")
+        if any(
+            str(proposal.get("license_status") or "") != "cleared"
+            for proposal in active_data_proposals
+        ):
+            blockers.append("license_review_required")
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="data_acquisition_prioritization_rule",
+            target_scope="report_intelligence.data_acquisition",
+            target_component="data_acquisition_review_queue",
+            proposed_change=(
+                "Keep agent-facing context gaps as no-prior reasons until "
+                "required PIT datasets, license status, and engineering review "
+                "are explicit in data acquisition proposals."
+            ),
+            trigger_sources=["data_acquisition_proposals"],
+            evidence_refs=[
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/"
+                        "data_acquisition_proposals.jsonl"
+                    ),
+                    "field": "decision_status",
+                    "proposal_count": len(active_data_proposals),
+                    "business_priority_counts": dict(
+                        sorted(data_priority_counts.items())
+                    ),
+                    "pit_feasibility_status_counts": dict(sorted(data_pit_counts.items())),
+                    "license_status_counts": dict(sorted(data_license_counts.items())),
+                    "market_cap_metadata_gap_count": market_cap_gap_count,
+                    "top_tool_gap_ids": [
+                        str(proposal.get("tool_gap_id") or "")
+                        for proposal in active_data_proposals[:10]
+                        if str(proposal.get("tool_gap_id") or "").strip()
+                    ],
+                }
+            ],
+            severity="medium",
+            blocked_by=blockers,
         )
     paper_diagnostic_evidence = _paper_trading_summary_diagnostic_evidence(
         recipe_paper_trading_summary
@@ -26517,6 +28670,11 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="tool_gaps",
         blockers=blockers,
     )
+    data_acquisition_proposal_rows = _read_registry_jsonl(
+        registry_path / "data_acquisition_proposals.jsonl",
+        label="data_acquisition_proposals",
+        blockers=blockers,
+    )
     recipe_paper_trading_run_rows = _read_registry_jsonl(
         registry_path / "recipe_paper_trading_runs.jsonl",
         label="recipe_paper_trading_runs",
@@ -26552,6 +28710,16 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="analytical_footprint_review_summary",
         blockers=blockers,
     )
+    macro_agent_research_prior_rows = _read_registry_jsonl(
+        registry_path / "macro_agent_research_priors.jsonl",
+        label="macro_agent_research_priors",
+        blockers=blockers,
+    )
+    weighted_research_context_rows = _read_registry_jsonl(
+        registry_path / "weighted_research_contexts.jsonl",
+        label="weighted_research_contexts",
+        blockers=blockers,
+    )
     forecast_rows = _read_registry_jsonl(
         registry_path / "report_forecast_ledger.jsonl",
         label="report_forecast_ledger",
@@ -26576,6 +28744,7 @@ def write_report_intelligence_prompt_mutation_candidates(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -26583,6 +28752,8 @@ def write_report_intelligence_prompt_mutation_candidates(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         footprint_review_summary=footprint_review_summary,
@@ -32805,6 +34976,20 @@ def run_report_intelligence_derived_refresh(
         macro_curve_directional_readiness=macro_curve_directional_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
+    stock_context_snapshot_rows = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        stock_price_proxy_readiness=stock_price_proxy_readiness,
+    )
+    industry_context_snapshot_rows = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
+        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+    )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
         forecast_rows=forecast_rows,
@@ -32827,6 +35012,7 @@ def run_report_intelligence_derived_refresh(
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
     data_acquisition_proposal_rows = build_data_acquisition_proposals(
         tool_gap_rows,
+        stock_context_snapshot_rows=stock_context_snapshot_rows,
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
@@ -32870,6 +35056,7 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -32877,6 +35064,7 @@ def run_report_intelligence_derived_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
@@ -33064,6 +35252,10 @@ def run_report_intelligence_derived_refresh(
         schema_validation_report=schema_validation_report,
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -33072,6 +35264,7 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -33079,10 +35272,35 @@ def run_report_intelligence_derived_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
         footprint_review_summary=footprint_review_summary,
+    )
+    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
     )
 
     outputs = {
@@ -33167,6 +35385,18 @@ def run_report_intelligence_derived_refresh(
             _write_jsonl(
                 registry_dir / "macro_market_series_catalog.jsonl",
                 macro_market_series_catalog_rows,
+            )["path"]
+        ),
+        "stock_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "stock_context_snapshots.jsonl",
+                stock_context_snapshot_rows,
+            )["path"]
+        ),
+        "industry_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "industry_context_snapshots.jsonl",
+                industry_context_snapshot_rows,
             )["path"]
         ),
         "macro_regime_snapshots": str(
@@ -33418,6 +35648,8 @@ def run_report_intelligence_derived_refresh(
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
         macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
+        stock_context_snapshot_rows=len(stock_context_snapshot_rows),
+        industry_context_snapshot_rows=len(industry_context_snapshot_rows),
         macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
         macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
@@ -33939,6 +36171,20 @@ def run_report_intelligence_refresh(
         macro_curve_directional_readiness=macro_curve_directional_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
+    stock_context_snapshot_rows = build_stock_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        stock_price_proxy_readiness=stock_price_proxy_readiness,
+    )
+    industry_context_snapshot_rows = build_industry_context_snapshots(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
+        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+    )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
         forecast_rows=forecast_rows,
@@ -33961,6 +36207,7 @@ def run_report_intelligence_refresh(
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
     data_acquisition_proposal_rows = build_data_acquisition_proposals(
         tool_gap_rows,
+        stock_context_snapshot_rows=stock_context_snapshot_rows,
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
@@ -34004,11 +36251,15 @@ def run_report_intelligence_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
@@ -34195,6 +36446,10 @@ def run_report_intelligence_refresh(
         schema_validation_report=schema_validation_report,
         macro_regime_snapshot_rows=macro_regime_snapshot_rows,
         macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
@@ -34203,6 +36458,7 @@ def run_report_intelligence_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -34210,10 +36466,35 @@ def run_report_intelligence_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
         footprint_review_summary=footprint_review_summary,
+    )
+    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
+        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
+        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
+        agent_context_forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
     )
 
     outputs = {
@@ -34297,6 +36578,18 @@ def run_report_intelligence_refresh(
             _write_jsonl(
                 registry_dir / "macro_market_series_catalog.jsonl",
                 macro_market_series_catalog_rows,
+            )["path"]
+        ),
+        "stock_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "stock_context_snapshots.jsonl",
+                stock_context_snapshot_rows,
+            )["path"]
+        ),
+        "industry_context_snapshots": str(
+            _write_jsonl(
+                registry_dir / "industry_context_snapshots.jsonl",
+                industry_context_snapshot_rows,
             )["path"]
         ),
         "macro_regime_snapshots": str(
@@ -34550,6 +36843,8 @@ def run_report_intelligence_refresh(
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
         macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
+        stock_context_snapshot_rows=len(stock_context_snapshot_rows),
+        industry_context_snapshot_rows=len(industry_context_snapshot_rows),
         macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
         macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
