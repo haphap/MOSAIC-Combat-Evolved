@@ -2861,6 +2861,19 @@ def test_prompt_mutation_release_readiness_skips_no_prompt_only_candidate():
     assert manifest["prompt_release_ready"] is False
 
 
+def test_prompt_mutation_release_readiness_skips_refusal_only_candidate():
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_release_readiness",
+        {"candidates": [_mutation_candidate()]},
+    )
+
+    assert manifest["readiness_status"] == "not_applicable"
+    assert manifest["blocked_reasons"] == []
+    assert manifest["branch_candidate_count"] == 0
+    assert manifest["release_record_count"] == 0
+    assert manifest["prompt_release_ready"] is False
+
+
 def test_prompt_mutation_rollback_readiness_blocks_missing_evidence(
     tmp_path: Path, monkeypatch
 ):
@@ -3114,6 +3127,19 @@ def test_prompt_mutation_rollback_readiness_skips_no_prompt_only_candidate():
                 )
             ]
         },
+    )
+
+    assert manifest["readiness_status"] == "not_applicable"
+    assert manifest["blocked_reasons"] == []
+    assert manifest["branch_candidate_count"] == 0
+    assert manifest["rollback_record_count"] == 0
+    assert manifest["rollback_gate_ready"] is False
+
+
+def test_prompt_mutation_rollback_readiness_skips_refusal_only_candidate():
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_rollback_readiness",
+        {"candidates": [_mutation_candidate()]},
     )
 
     assert manifest["readiness_status"] == "not_applicable"

@@ -2584,11 +2584,16 @@ def _lifecycle_no_prompt_only(lifecycle: dict[str, Any]) -> bool:
     records = lifecycle.get("lifecycle_records")
     if not isinstance(records, list) or not records:
         return False
+    no_prompt_blockers = {
+        "no_prompt_branch_candidate_only",
+        "refusal_only_no_prompt_branch_candidate",
+    }
+    blocker_set = set(lifecycle.get("blocked_reasons") or [])
     return all(
         isinstance(record, dict)
         and record.get("candidate_action") != "private_prompt_branch_after_blockers_clear"
         for record in records
-    ) and lifecycle.get("blocked_reasons") == ["no_prompt_branch_candidate_only"]
+    ) and bool(blocker_set) and blocker_set <= no_prompt_blockers
 
 
 def _slug(value: str) -> str:
