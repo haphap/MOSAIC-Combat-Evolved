@@ -39,9 +39,7 @@ def rke_agent_research_context(params: dict[str, Any]) -> dict[str, Any]:
     """Return redacted ranked RKE research context for one downstream agent."""
     return build_rke_agent_research_context(
         root=_optional_str(params, "root", "."),
-        registry_dir=_optional_str(
-            params, "registry_dir", "registry/report_intelligence"
-        ),
+        registry_dir=_optional_str(params, "registry_dir"),
         agent_id=_require_str(params, "agent_id"),
         as_of_date=_optional_str(params, "as_of_date"),
         layer=_optional_str(params, "layer"),
@@ -59,9 +57,7 @@ def rke_macro_agent_priors(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INVALID_PARAMS, "'no_source_prose' must be a boolean")
     return export_macro_agent_research_priors(
         root=_optional_str(params, "root", "."),
-        registry_dir=_optional_str(
-            params, "registry_dir", "registry/report_intelligence"
-        ),
+        registry_dir=_optional_str(params, "registry_dir"),
         as_of_date=_optional_str(params, "as_of_date"),
         agent_id=_optional_str(params, "agent_id"),
         no_source_prose=no_source_prose,

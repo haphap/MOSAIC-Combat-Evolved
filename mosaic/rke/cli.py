@@ -99,6 +99,11 @@ from .promotion_dry_run import (
     build_promotion_dry_run_report,
     write_promotion_dry_run_report,
 )
+from .private_registries import (
+    export_private_registries,
+    registries_preflight,
+    resolve_report_intelligence_registry_dir,
+)
 from .rule_pack_validation import (
     build_rule_pack_validation_report,
     write_rule_pack_validation_report,
@@ -1670,10 +1675,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_intelligence.add_argument(
         "--registry-dir",
-        default="registry/report_intelligence",
         help=(
             "Report Intelligence output registry directory. Defaults to "
-            "registry/report_intelligence."
+            "MOSAIC_REGISTRY_DIR, MOSAIC_REGISTRIES_REPO/registry/report_intelligence, "
+            "or registry/report_intelligence."
         ),
     )
     report_intelligence.add_argument(
@@ -1892,10 +1897,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_macro_priors.add_argument(
         "--registry-dir",
-        default="registry/report_intelligence",
         help=(
-            "Report Intelligence registry directory. Defaults to "
-            "registry/report_intelligence."
+            "Report Intelligence registry directory. Defaults to the shared private "
+            "registry resolver."
         ),
     )
     export_macro_priors.add_argument(
@@ -1923,10 +1927,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_agent_context.add_argument(
         "--registry-dir",
-        default="registry/report_intelligence",
         help=(
-            "Report Intelligence registry directory. Defaults to "
-            "registry/report_intelligence."
+            "Report Intelligence registry directory. Defaults to the shared private "
+            "registry resolver."
         ),
     )
     export_agent_context.add_argument(
@@ -2010,6 +2013,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run id to stamp on the rebuilt evolution gate.",
     )
     evolution_gate.add_argument(
+        "--registry-dir",
+        help="Report Intelligence registry directory. Defaults to the shared resolver.",
+    )
+    evolution_gate.add_argument(
         "--refresh-prompt-mutations",
         action="store_true",
         help="Also rebuild prompt mutation candidates after writing the gate.",
@@ -2033,6 +2040,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-id",
         default="RIR-PUBLIC-EVOLUTION-GATE",
         help="Run id to stamp on the rebuilt evolution gate.",
+    )
+    evolution_readiness.add_argument(
+        "--registry-dir",
+        help="Report Intelligence registry directory. Defaults to the shared resolver.",
     )
     evolution_readiness.add_argument(
         "--refresh-prompt-mutations",
@@ -2064,6 +2075,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     merge_report_batches.add_argument(
+        "--registry-dir",
+        help="Report Intelligence registry directory. Defaults to the shared resolver.",
+    )
+    merge_report_batches.add_argument(
         "--refresh-derived",
         action="store_true",
         help="After merging rows, recompute public derived report-intelligence artifacts.",
@@ -2083,6 +2098,33 @@ def build_parser() -> argparse.ArgumentParser:
             "When preserving existing registry rows, remove rows for source_ids "
             "present in the supplied batches before appending the batch rows."
         ),
+    )
+    registries_preflight_parser = subparsers.add_parser(
+        "registries-preflight",
+        help="Check the resolved private MOSAIC-Registries checkout.",
+    )
+    registries_preflight_parser.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    registries_preflight_parser.add_argument(
+        "--registry-dir",
+        help="Report Intelligence registry directory. Defaults to the shared resolver.",
+    )
+    export_private_registries_parser = subparsers.add_parser(
+        "export-private-registries",
+        help="Export gitignored private registry JSON/JSONL files to MOSAIC-Registries.",
+    )
+    export_private_registries_parser.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    export_private_registries_parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Output MOSAIC-Registries checkout directory.",
+    )
+    export_private_registries_parser.add_argument(
+        "--registry-dir",
+        help="Source Report Intelligence registry directory. Defaults to the shared resolver.",
     )
 
     apply_footprint_review = subparsers.add_parser(
@@ -3029,7 +3071,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
             return 2
-        registry_dir = root / "registry/report_intelligence"
+        registry_dir = resolve_report_intelligence_registry_dir(
+            root,
+            args.registry_dir,
+        )
         if args.no_write:
             result = write_report_intelligence_evolution_readiness_gate(
                 registry_dir,
@@ -3061,16 +3106,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = merge_report_intelligence_batch_outputs(
             root=root,
             input_dirs=args.input_dir,
+            registry_dir=args.registry_dir,
             include_existing_registry=not args.replace,
             replace_source_ids=args.replace_source_ids,
         )
         if args.refresh_derived and result["blocker_count"] == 0:
             refresh = run_report_intelligence_refresh(
-                ReportIntelligenceConfig(root=root, refresh_derived_only=True)
+                ReportIntelligenceConfig(
+                    root=root,
+                    registry_dir=args.registry_dir,
+                    refresh_derived_only=True,
+                )
             )
             result = {**result, "derived_refresh": asdict(refresh)}
         _print_json(result)
         return 0 if result["blocker_count"] == 0 else 2
+    if args.command == "registries-preflight":
+        result = registries_preflight(root=root, registry_dir=args.registry_dir)
+        _print_json(result)
+        return 0 if result["blocker_count"] == 0 else 2
+    if args.command == "export-private-registries":
+        result = export_private_registries(
+            root=root,
+            output_dir=args.output_dir,
+            registry_dir=args.registry_dir,
+        )
+        _print_json(result)
+        return 0 if result["accepted"] else 2
     if args.command == "apply-footprint-review":
         report = apply_analytical_footprint_review_import(
             root,
