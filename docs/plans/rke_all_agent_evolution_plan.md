@@ -68,6 +68,38 @@ schema results, and deterministic score refs. If that dedicated fixed-episode
 harness has not been implemented or configured for a run, E2 is blocked with
 `benchmark_runner_missing`.
 
+E2 runner implementation estimate:
+
+- Effort: XL for a closeable runner because it must cover manifest iteration,
+  model config switching, prompt-source preflight, per-agent/date/model retries,
+  timeout isolation, schema validation capture, no-body output refs,
+  deterministic score table generation, investment outcome table generation, and
+  delivery evidence recording. A smaller L-sized script that only loops through
+  `daily-cycle` dates is useful for smoke testing but cannot close E2.
+- Required dependencies: `buildDailyCycleGraph`, the prompt-source override path
+  used by `daily-cycle`, canonical `AGENTS_BY_LAYER`, the E2 episode/as-of-date
+  manifest, model config resolution, agent output schema validators,
+  `.mosaic/rke/all_agent_evolution/` evidence sinks, and a PIT outcome/replay
+  source for investment outcome tables.
+- Required failure reporting: each blocked or failed row must identify
+  agent/language/as-of-date/model config, prompt provenance status, timeout or
+  exception class, schema validation status, and whether an output ref was
+  produced. Whole-run failure must not hide per-agent failures.
+
+Canonical benchmark roster:
+
+The authoritative runtime roster is `AGENTS_BY_LAYER` in
+`mosaic-ts/src/agents/prompts/cohorts.ts`. E0/E2 gates should treat drift between
+this list, prompt files, Python bridge routing, and private prompt provenance as
+roster-preflight blockers.
+
+| Layer | Agents | Count |
+| --- | --- | --- |
+| macro | `central_bank`, `geopolitical`, `china`, `dollar`, `yield_curve`, `commodities`, `volatility`, `emerging_markets`, `news_sentiment`, `institutional_flow` | 10 |
+| sector | `semiconductor`, `energy`, `biotech`, `consumer`, `industrials`, `financials`, `relationship_mapper` | 7 |
+| superinvestor | `druckenmiller`, `munger`, `burry`, `ackman` | 4 |
+| decision | `cro`, `alpha_discovery`, `autonomous_execution`, `cio` | 4 |
+
 ## E0: Prompt Repo And Roster Preflight
 
 Before any benchmark or replay:
@@ -206,11 +238,12 @@ Execution engine:
 - E2 is executed by a TS fixed-episode benchmark harness, not by the Python
   no-write bridge validators. The harness should reuse the same runtime graph as
   `mosaic-ts/src/cli/commands/daily-cycle.ts`, apply E0 prompt-source overrides,
-  and emit one paired output record per agent/as-of-date/model config.
+  and emit one paired output record per agent/language/as-of-date/model config.
 - The harness must iterate the canonical E2 manifest exactly: 8 episodes,
-  17 as-of dates, all 25 agents, and the required model config slots. It must
-  preserve per-row prompt repo revision/hash, RKE context hash, model config id,
-  timeout/error status, schema validation status, and no-body output refs.
+  17 as-of dates, all 25 agents, both `zh` and `en` prompt variants, and the
+  required model config slots. It must preserve per-row prompt repo
+  revision/hash, RKE context hash, model config id, timeout/error status, schema
+  validation status, and no-body output refs.
 - Existing `backtest` / `backtest-fill` infrastructure may be used downstream
   for portfolio replay and investment outcome calculation, but it cannot replace
   the fixed-episode runner because it does not produce the per-agent paired LLM
@@ -223,6 +256,8 @@ Initial benchmark size:
 - Each episode has 1-3 as-of dates.
 - Each selected as-of date runs all macro, sector, superinvestor, and decision
   agents.
+- Formal rows cover both `zh` and `en` prompt variants; single-language runs are
+  smoke or diagnosis only and cannot close E2.
 - Do not substitute representative agents for the full stack.
 
 Initial regime coverage:
@@ -245,6 +280,25 @@ Inputs are fixed:
 - output schema
 - context hash
 - model parameters
+
+RKE prior degraded mode:
+
+- E2 may still run when the selected Part 1 corpus has PIT/outcome gate blockers,
+  refusal-only compiler output, or overwhelmingly `pending_or_unrated` RKE
+  prior buckets. In that mode the benchmark is valid only as an agent
+  robustness test: it measures schema reliability, current-data discipline,
+  stale/fallback handling, and behavior when RKE context is not informative.
+- The runner must label the benchmark run and deterministic score table with
+  `rke_priors_not_yet_informative` when the consumed RKE context has no
+  actionable prior candidates, no effective PIT outcomes, or only refusal
+  records for the relevant agent/domain slice. RKE prior usage quality scores in
+  that run are diagnostic only and cannot be used as positive evidence that an
+  agent learned from informative priors.
+- While `rke_priors_not_yet_informative=true`, E4 prompt mutation candidates may
+  be based on current-data skill, schema/contract reliability, safety, timeout
+  behavior, or stale-prior rejection. They must not be justified by improved RKE
+  prior usage quality until Part 1 gate blockers are cleared for the relevant
+  corpus/domain and the E2 run consumes informative, non-refusal prior evidence.
 
 Compare at least:
 
@@ -389,6 +443,23 @@ Each mutation must record:
 - fallback/rollback rule
 - benchmark evidence
 
+Mutation track policy:
+
+- E4-E7 use a single-track mutation model by default: one active prompt file per
+  agent path on a candidate branch, one pinned candidate commit per benchmark
+  run, and rollback through private git history. This is intentional for the
+  first shadow-only lifecycle because it keeps prompt provenance and rollback
+  evidence simple.
+- Competing mutations for the same agent must not be mixed in one branch or one
+  benchmark run. If two candidate prompts need comparison, each candidate needs
+  its own private branch, prompt hash, `benchmark_run_id`, evidence refs, and
+  manual review record. The current E4 contract does not provide automatic A/B
+  allocation, winner selection, or multi-arm mutation management.
+- A future multi-track design may add one branch per mutation, cohort-specific
+  prompt aliases, and explicit A/B assignment in the E2 runner. Until that
+  exists, delivery gates should treat ambiguous same-agent competing mutations
+  as `mutation_track_ambiguous`.
+
 Status 2026-07-03:
 
 - Public bridge now exposes `rke_benchmark.prompt_mutation_lifecycle_manifest`,
@@ -425,6 +496,25 @@ Autoresearch and Darwinian weights must distinguish:
 - prompt mutation provenance
 
 Darwinian weights must not treat RKE prior as current data.
+
+Outcome source contract:
+
+- The E2 fixed-episode runner owns the benchmark score bundle. It produces or
+  references schema/contract metrics, timeout/error metrics, current-data
+  confirmation metrics, RKE prior usage diagnostics, stale-prior rejection
+  metrics, and manual-review refs from the paired output matrix.
+- Investment outcome tables and downstream risk-adjusted outcome metrics must
+  be generated from PIT replay inputs bound to the same `benchmark_run_id`.
+  Acceptable sources are the existing TS `backtest` / `backtest-fill` plus qlib
+  replay path for portfolio actions, or a scorecard-store replay/export that can
+  bind each result to the E2 output refs, as-of dates, prompt hashes, and model
+  config ids.
+- Per-agent deterministic scores and portfolio-level replay metrics are distinct
+  proof objects. If the E2 runner has paired LLM outputs but no replayable
+  portfolio/action outcome table, E5 remains blocked with
+  `downstream_outcome_replay_missing`; Darwinian/autoresearch updates may not
+  consume only schema or current-data reliability as a substitute for
+  risk-adjusted downstream outcome.
 
 Status 2026-07-03:
 
@@ -509,7 +599,8 @@ This plan is complete only when:
 - Autoresearch and Darwinian weights consume RKE usage quality and downstream
   outcome evidence.
   Proof objects: replay run id, Darwinian/autoresearch input manifest, RKE prior
-  usage quality metrics, downstream outcome metrics, and rollback readiness
+  usage quality metrics, E2 score bundle ref, PIT replay or scorecard outcome
+  source ref, downstream risk-adjusted outcome metrics, and rollback readiness
   report.
 - Prompt mutations are applied only through private prompt repo branches and
   gated promotion.
