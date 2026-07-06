@@ -306,6 +306,41 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
 - This service shares port `8000` with the 35B NVFP4 sndr service. Run only one
   of them at a time.
 
+2026-07-06 27B fixed-benchmark k8v4/MTP probe:
+
+- User constraint: keep MTP enabled, run only one vLLM at a time, and use local
+  model snapshots only.
+- Direct `sndr launch nvidia-qwen3.6-27b-nvfp4-5090` renders the normal 27B
+  envelope with `--kv-cache-dtype auto`. For this probe the container was
+  manually recreated from the same local snapshot/image so the only benchmark
+  variable was the long-context KV path: `--kv-cache-dtype turboquant_k8v4`.
+- Working 110K envelope on the 5090 host:
+  `--max-model-len 110000`, `--max-num-seqs 1`,
+  `--max-num-batched-tokens 2048`, `--gpu-memory-utilization 0.77`,
+  `--kv-cache-dtype turboquant_k8v4`,
+  `--speculative-config.method mtp`,
+  `--speculative-config.num_speculative_tokens 3`,
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.85`,
+  `GENESIS_ENABLE_PN119=1`, `GENESIS_ENABLE_PN8_MTP_DRAFT_ONLINE_QUANT=1`,
+  and `GENESIS_ENABLE_P40=1`.
+- Failed envelopes:
+  `120000` + k8v4 failed on the fixed-benchmark `china` long prompt with
+  Genesis P38 TQ continuation workspace OOM; `110000` + k8v4 at
+  `gpu-memory-utilization` `0.85` failed the same way; `0.80` avoided that
+  P38 OOM but still killed EngineCore on a compiled `marlin_gemm` /
+  `aten::empty` allocation during the same long prompt; `0.75` did not start
+  because only about `3.1 GiB` KV cache was available versus `3.37 GiB`
+  required for `110000`.
+- Passing probe:
+  `rke-fixed-benchmark --benchmark-run-id goal-probe-110k-real-20260618-512
+  --model-config local_qwen_27b --as-of-date 2025-09-01 --max-tokens 1024`
+  completed all 25 agents with the `0.77` k8v4/MTP envelope. The paired output
+  count moved from `50` to `75`, adding `25` `local_qwen_27b` rows for
+  `2025-09-01`.
+- Evidence caveat: this was a stability/ctx probe, not a formal delivery gate
+  pass. The full fixed-benchmark gate still requires the manifest's full
+  episode/date/model matrix, independent review, and downstream evidence.
+
 Single-owner startup flow:
 
 - If the same-parameter container is already healthy, reuse it and skip startup:
