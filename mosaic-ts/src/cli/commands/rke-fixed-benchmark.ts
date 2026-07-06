@@ -61,6 +61,47 @@ interface BenchmarkRunStats {
   errorCount: number;
 }
 
+interface AgentBenchmarkMetric {
+  agent: string;
+  layer: string;
+  status: "done" | "timeout" | "error" | "started";
+  elapsedMs: number;
+  analysisLlmInvocations: number;
+  toolCalls: number;
+  toolCallCountsByName: Record<string, number>;
+  toolFailureCount: number;
+  outputSource: "structured" | "fallback" | "unknown";
+  promptTokens: number;
+  completionTokens: number;
+  llmElapsedMs: number;
+}
+
+interface BenchmarkMetricRecord {
+  benchmark_run_id: string;
+  episode_id: string;
+  as_of_date: string;
+  model_config_id: string;
+  llm_provider: string;
+  llm_model: string;
+  llm_base_url: string;
+  expected_agent_count: number;
+  output_agent_count: number;
+  content_generation_success_rate: number;
+  agent_done_count: number;
+  structured_output_count: number;
+  fallback_output_count: number;
+  agent_elapsed_ms_total: number;
+  tool_calls_total: number;
+  tool_failure_count: number;
+  tool_call_counts_by_name: Record<string, number>;
+  analysis_llm_invocations_total: number;
+  observed_prompt_tokens_total: number;
+  observed_completion_tokens_total: number;
+  observed_llm_elapsed_ms_total: number;
+  observed_completion_tokens_per_second: number | null;
+  agents: AgentBenchmarkMetric[];
+}
+
 export function registerRkeFixedBenchmark(program: Command): void {
   program
     .command("rke-fixed-benchmark")
@@ -167,6 +208,7 @@ export async function runRkeFixedBenchmark(
     errorCount: 0,
   };
   let runCount = 0;
+  let activeAgentMetrics: Map<string, AgentBenchmarkMetric> | null = null;
 
   mkdirSync(fixedBenchmarkPrivateOutputDir(), { recursive: true });
   const completedRuns = completedEpisodeDateModelRuns(
@@ -182,7 +224,10 @@ export async function runRkeFixedBenchmark(
       config,
       vetoThreshold: opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5,
       ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
-      onLog,
+      onLog: (msg) => {
+        if (activeAgentMetrics) updateAgentMetricsFromLog(activeAgentMetrics, msg);
+        onLog(msg);
+      },
     });
     stats.modelConfigOutputCounts[modelConfig.model_config_id] = 0;
 
@@ -195,6 +240,7 @@ export async function runRkeFixedBenchmark(
       }
       runCount += 1;
       try {
+        activeAgentMetrics = new Map();
         const initialState = makeInitialState(cohort, item.as_of_date);
         initialState.trace_id = `${benchmarkRunId}:${modelConfig.model_config_id}:${item.as_of_date}`;
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
@@ -206,6 +252,19 @@ export async function runRkeFixedBenchmark(
           final,
         );
         writePairedOutputRecords(benchmarkRunId, rows);
+        writeBenchmarkMetricRecord(
+          benchmarkRunId,
+          buildBenchmarkMetricRecord(
+            benchmarkRunId,
+            item.episode_id,
+            item.as_of_date,
+            modelConfig.model_config_id,
+            llmHandle,
+            manifest.agent_count,
+            rows,
+            activeAgentMetrics,
+          ),
+        );
         stats.pairedOutputCount += rows.length;
         stats.modelConfigOutputCounts[modelConfig.model_config_id] =
           (stats.modelConfigOutputCounts[modelConfig.model_config_id] ?? 0) + rows.length;
@@ -223,6 +282,8 @@ export async function runRkeFixedBenchmark(
         onLog(
           `run failed ${modelConfig.model_config_id} ${item.as_of_date}: ${(err as Error).message}`,
         );
+      } finally {
+        activeAgentMetrics = null;
       }
     }
   }
@@ -378,6 +439,169 @@ function readPairedOutputRecords(benchmarkRunId: string): PairedOutputRecord[] {
     .filter((row) => row.benchmark_run_id === benchmarkRunId);
 }
 
+function writeBenchmarkMetricRecord(benchmarkRunId: string, record: BenchmarkMetricRecord): void {
+  const path = join(fixedBenchmarkPrivateOutputDir(), `${benchmarkRunId}.metrics.jsonl`);
+  appendFileSync(path, `${JSON.stringify(record)}\n`, "utf-8");
+}
+
+export function updateAgentMetricsFromLog(
+  metrics: Map<string, AgentBenchmarkMetric>,
+  message: string,
+): void {
+  const event = message.match(
+    /^\[agent:(start|phase|done|timeout|error)\]\s+(L\d)\s+(\S+)\s*(.*)$/,
+  );
+  if (!event) return;
+  const [, kind, layer, agent, rest = ""] = event;
+  if (!kind || !layer || !agent) return;
+  const key = `${layer}:${agent}`;
+  const metric = metrics.get(key) ?? emptyAgentMetric(agent, layer);
+  metrics.set(key, metric);
+
+  if (kind === "phase") {
+    recordToolNames(metric, rest);
+    if (/Tool '[^']+' raised:/.test(rest)) metric.toolFailureCount += 1;
+    return;
+  }
+
+  if (kind === "start") {
+    metric.status = "started";
+    return;
+  }
+
+  metric.status = kind === "done" ? "done" : kind === "timeout" ? "timeout" : "error";
+  const fields = parseAgentFields(rest);
+  metric.elapsedMs = parseDurationMs(fields.elapsed ?? "") ?? metric.elapsedMs;
+  metric.analysisLlmInvocations =
+    parseInteger(fields.analysis_llm) ?? metric.analysisLlmInvocations;
+  metric.toolCalls = parseInteger(fields.tools) ?? metric.toolCalls;
+  metric.outputSource =
+    fields.source === "structured" || fields.source === "fallback"
+      ? fields.source
+      : metric.outputSource;
+  metric.promptTokens = parseInteger(fields.prompt_tokens) ?? metric.promptTokens;
+  metric.completionTokens = parseInteger(fields.completion_tokens) ?? metric.completionTokens;
+  metric.llmElapsedMs = parseInteger(fields.llm_elapsed_ms) ?? metric.llmElapsedMs;
+}
+
+export function buildBenchmarkMetricRecord(
+  benchmarkRunId: string,
+  episodeId: string,
+  asOfDate: string,
+  modelConfigId: string,
+  llmHandle: LlmHandle,
+  expectedAgentCount: number,
+  rows: readonly PairedOutputRecord[],
+  metrics: ReadonlyMap<string, AgentBenchmarkMetric>,
+): BenchmarkMetricRecord {
+  const agents = Array.from(metrics.values()).sort((a, b) =>
+    `${a.layer}:${a.agent}`.localeCompare(`${b.layer}:${b.agent}`),
+  );
+  const toolCallCountsByName: Record<string, number> = {};
+  for (const agent of agents) {
+    for (const [name, count] of Object.entries(agent.toolCallCountsByName)) {
+      toolCallCountsByName[name] = (toolCallCountsByName[name] ?? 0) + count;
+    }
+  }
+  const observedCompletionTokens = sum(agents, (agent) => agent.completionTokens);
+  const observedLlmElapsedMs = sum(agents, (agent) => agent.llmElapsedMs);
+  const doneCount = agents.filter((agent) => agent.status === "done").length;
+  return {
+    benchmark_run_id: benchmarkRunId,
+    episode_id: episodeId,
+    as_of_date: asOfDate,
+    model_config_id: modelConfigId,
+    llm_provider: llmHandle.provider,
+    llm_model: llmHandle.model,
+    llm_base_url: llmHandle.baseUrl ?? "",
+    expected_agent_count: expectedAgentCount,
+    output_agent_count: rows.length,
+    content_generation_success_rate:
+      expectedAgentCount > 0 ? round(doneCount / expectedAgentCount, 4) : 0,
+    agent_done_count: doneCount,
+    structured_output_count: agents.filter((agent) => agent.outputSource === "structured").length,
+    fallback_output_count: agents.filter((agent) => agent.outputSource === "fallback").length,
+    agent_elapsed_ms_total: sum(agents, (agent) => agent.elapsedMs),
+    tool_calls_total: sum(agents, (agent) => agent.toolCalls),
+    tool_failure_count: sum(agents, (agent) => agent.toolFailureCount),
+    tool_call_counts_by_name: toolCallCountsByName,
+    analysis_llm_invocations_total: sum(agents, (agent) => agent.analysisLlmInvocations),
+    observed_prompt_tokens_total: sum(agents, (agent) => agent.promptTokens),
+    observed_completion_tokens_total: observedCompletionTokens,
+    observed_llm_elapsed_ms_total: observedLlmElapsedMs,
+    observed_completion_tokens_per_second:
+      observedCompletionTokens > 0 && observedLlmElapsedMs > 0
+        ? round(observedCompletionTokens / (observedLlmElapsedMs / 1000), 4)
+        : null,
+    agents,
+  };
+}
+
+function emptyAgentMetric(agent: string, layer: string): AgentBenchmarkMetric {
+  return {
+    agent,
+    layer,
+    status: "started",
+    elapsedMs: 0,
+    analysisLlmInvocations: 0,
+    toolCalls: 0,
+    toolCallCountsByName: {},
+    toolFailureCount: 0,
+    outputSource: "unknown",
+    promptTokens: 0,
+    completionTokens: 0,
+    llmElapsedMs: 0,
+  };
+}
+
+function recordToolNames(metric: AgentBenchmarkMetric, text: string): void {
+  const match = text.match(/\btools=\d+\s+names=([^\s]+)/);
+  const names = match?.[1];
+  if (!names) return;
+  for (const name of names
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)) {
+    metric.toolCallCountsByName[name] = (metric.toolCallCountsByName[name] ?? 0) + 1;
+  }
+}
+
+function parseAgentFields(text: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const match of text.matchAll(/\b([a-z_]+)=([^\s]+)/g)) {
+    const key = match[1];
+    const value = match[2];
+    if (key && value !== undefined) fields[key] = value;
+  }
+  return fields;
+}
+
+function parseDurationMs(value: string): number | undefined {
+  if (!value) return undefined;
+  const ms = value.match(/^(\d+(?:\.\d+)?)ms$/);
+  if (ms) return Math.round(Number(ms[1]));
+  const seconds = value.match(/^(\d+(?:\.\d+)?)s$/);
+  if (seconds) return Math.round(Number(seconds[1]) * 1000);
+  const minutes = value.match(/^(\d+)m(\d{2})s$/);
+  if (minutes) return (Number(minutes[1]) * 60 + Number(minutes[2])) * 1000;
+  return undefined;
+}
+
+function parseInteger(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function sum<T>(items: readonly T[], pick: (item: T) => number): number {
+  return items.reduce((total, item) => total + pick(item), 0);
+}
+
+function round(value: number, digits: number): number {
+  const scale = 10 ** digits;
+  return Math.round(value * scale) / scale;
+}
+
 export function aggregatePairedOutputStats(
   benchmarkRunId: string,
   rows: readonly PairedOutputRecord[],
@@ -441,6 +665,7 @@ export function buildBenchmarkEvidenceRefs(benchmarkRunId: string): Record<strin
     prompt_contract_check_manifest_ref: `rke-fixed:${benchmarkRunId}:prompt-contracts`,
     model_config_manifest_ref: `rke-fixed:${benchmarkRunId}:model-config-manifest`,
     paired_output_manifest_ref: `rke-fixed:${benchmarkRunId}:paired-output-manifest`,
+    benchmark_metrics_ref: `rke-fixed:${benchmarkRunId}:metrics`,
     output_schema_validation_report_ref: `rke-fixed:${benchmarkRunId}:schema-validation`,
     deterministic_score_table_ref: `rke-fixed:${benchmarkRunId}:deterministic-score-table`,
     investment_outcome_table_ref: `rke-fixed:${benchmarkRunId}:investment-outcome-table`,

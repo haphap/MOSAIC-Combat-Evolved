@@ -385,6 +385,60 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
   MTP K=3. The shared RTX 5090 D hardware defaults were left unchanged so
   sibling 35B/NVFP4 presets do not inherit this 27B-specific sizing.
 
+2026-07-06 fixed-benchmark metrics retest:
+
+- Benchmark runner metrics are written locally under
+  `.mosaic/rke/all_agent_evolution/fixed_episode_benchmark/<run>.metrics.jsonl`.
+  These files are private generated evidence and must not be committed. They
+  record no prompt or response bodies.
+- Metrics fields include actual LLM provider/model/base URL, expected and
+  emitted agent-output counts, content-generation success rate, per-agent
+  status, structured/fallback counts, tool call counts by name, tool failure
+  count, full agent elapsed time, observed prompt/completion tokens, observed
+  LLM wait time, and observed completion tokens/second. Success rate is
+  `agent_done_count / expected_agent_count`; `output_agent_count` remains the
+  separate output coverage counter. Token speed covers LLM calls that expose
+  usage metadata; full content-generation wall time is tracked separately with
+  `agent_elapsed_ms_total`.
+- `bench-27b-heretic-k8v4-130k-metrics-20260706`: local Heretic AutoRound INT4
+  27B, k8v4, MTP K=3, `max_model_len=130000`, `--max-tokens 1024`. Result:
+  output coverage `25/25`, content success `25/25`, structured `25`, fallback
+  `0`, timeouts `0`, tool calls `191`, tool failures `9`, prompt tokens
+  `1472920`, completion tokens `35945`, observed LLM wait `744574 ms`, observed
+  completion speed `48.28 tok/s`, full agent elapsed `1047900 ms`. Top tools were
+  `get_rke_research_context=49`, `get_indicators=24`, `get_fred_series=20`,
+  `get_stock_data=18`, and `get_fundamentals=15`.
+- `bench-27b-nvfp4-k8v4-110k-metrics-20260706`: NVIDIA 27B NVFP4, k8v4, MTP
+  K=3, `max_model_len=110000`, `--max-tokens 1024`. Minimal turboquant env
+  failed startup with about `1.47 GiB` available KV cache versus `3.37 GiB`
+  required; the fuller Genesis TQ env started and `/v1/models` confirmed
+  `max_model_len=110000`. Result: output coverage `25/25`, content success
+  `21/25`, structured `21`, fallback `0`, timeouts `4`
+  (`L2:biotech`, `L2:industrials`, `L2:semiconductor`, `L3:burry`), tool calls
+  `133`, tool failures `2`, prompt tokens `1092261`, completion tokens `25420`,
+  observed LLM wait `701239 ms`, observed completion speed `36.25 tok/s`, full
+  agent elapsed `2102500 ms`. Top tools were `get_rke_research_context=41`,
+  `get_indicators=39`,
+  `get_stock_data=26`, `get_fundamentals=19`, and `get_fred_series=9`.
+- `bench-35b-nvfp4-120k-metrics-512-20260706`: NVIDIA 35B A3B NVFP4, auto KV,
+  MTP K=3, `max_model_len=120000`, `--max-tokens 512`. The first `--max-tokens
+  1024` attempt failed before generation on the long `geopolitical` prompt:
+  the request needed at least `118977 + 1024 = 120001` tokens, above the
+  declared `120000` context. The 512-token rerun completed. Result: output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  timeouts `0`, tool calls `228`, tool failures `5`, prompt tokens `2232353`,
+  completion tokens `30957`, observed LLM wait `337074 ms`, observed completion
+  speed `91.84 tok/s`, full agent elapsed `667500 ms`. Top tools were
+  `get_rke_research_context=83`,
+  `get_indicators=38`, `get_fred_series=22`, `get_fundamentals=21`, and
+  `get_stock_data=17`.
+- Current read: Heretic AutoRound INT4 27B + k8v4 is the only 27B variant that
+  completed all 25 agents at a context above 120K in this benchmark. NVIDIA 27B
+  NVFP4 + k8v4 can start and run at 110K with the fuller TQ env, but the
+  observed agent-loop success rate and generation speed were worse. NVIDIA 35B
+  A3B NVFP4 + auto KV remains the strongest of the three on this workload when
+  the per-call output cap is kept below the 120K boundary.
+
 Single-owner startup flow:
 
 - If the same-parameter container is already healthy, reuse it and skip startup:

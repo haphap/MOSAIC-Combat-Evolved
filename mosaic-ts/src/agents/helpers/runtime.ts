@@ -98,12 +98,50 @@ export function buildLlmCall(agentId: string, handle: LlmHandle): LlmCallRecord 
     agent: agentId,
     model: handle.model,
     provider: handle.provider,
-    // Token counts are 0 here. Phase 3 scorecard will plumb provider
-    // callbacks for accurate counts.
     prompt_tokens: 0,
     completion_tokens: 0,
     cost_usd: 0,
   };
+}
+
+export interface LlmTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export function extractLlmTokenUsage(message: unknown): LlmTokenUsage {
+  const record = asRecord(message);
+  const responseMetadata = asRecord(record?.response_metadata);
+  const usage = asRecord(record?.usage_metadata) ?? asRecord(responseMetadata?.usage);
+  const tokenUsage = asRecord(responseMetadata?.tokenUsage);
+  return {
+    promptTokens:
+      numberField(usage ?? {}, "input_tokens") ??
+      numberField(tokenUsage ?? {}, "promptTokens") ??
+      numberField(tokenUsage ?? {}, "prompt_tokens") ??
+      0,
+    completionTokens:
+      numberField(usage ?? {}, "output_tokens") ??
+      numberField(tokenUsage ?? {}, "completionTokens") ??
+      numberField(tokenUsage ?? {}, "completion_tokens") ??
+      0,
+  };
+}
+
+export function formatTokenMetricFields(
+  promptTokens: number,
+  completionTokens: number,
+  llmElapsedMs: number,
+): string[] {
+  const fields = [
+    `prompt_tokens=${Math.max(0, Math.round(promptTokens))}`,
+    `completion_tokens=${Math.max(0, Math.round(completionTokens))}`,
+    `llm_elapsed_ms=${Math.max(0, Math.round(llmElapsedMs))}`,
+  ];
+  if (completionTokens > 0 && llmElapsedMs > 0) {
+    fields.push(`completion_tps=${(completionTokens / (llmElapsedMs / 1000)).toFixed(2)}`);
+  }
+  return fields;
 }
 
 export function safeErrorMessage(err: unknown, maxLength = 220): string {

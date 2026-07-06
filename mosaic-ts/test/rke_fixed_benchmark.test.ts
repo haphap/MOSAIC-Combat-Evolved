@@ -4,13 +4,16 @@ import type { RkeFixedEpisodeManifestResult } from "../src/bridge/types.js";
 import {
   aggregatePairedOutputStats,
   buildBenchmarkEvidenceRefs,
+  buildBenchmarkMetricRecord,
   buildBenchmarkQualitySummary,
   collectPairedOutputRecords,
   completedEpisodeDateModelRuns,
   episodeDateCases,
   fixedBenchmarkPrivateOutputDir,
   selectModelConfigs,
+  updateAgentMetricsFromLog,
 } from "../src/cli/commands/rke-fixed-benchmark.js";
+import type { LlmHandle } from "../src/llm/factory.js";
 
 const manifest = {
   schema_version: "rke_fixed_episode_benchmark_manifest_v1",
@@ -161,6 +164,90 @@ describe("rke-fixed-benchmark helpers", () => {
       local_qwen_27b: 1,
     });
     expect(stats.coveredAsOfDates).toEqual(new Set(["2024-01-02"]));
+  });
+
+  it("parses agent runtime metrics from benchmark logs", () => {
+    const metrics = new Map();
+    updateAgentMetricsFromLog(metrics, "[agent:start] L2 consumer timeout=5m00s");
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:phase] L2 consumer tools=2 names=get_stock_data,get_indicators",
+    );
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:phase] L2 consumer Tool 'get_stock_data' raised: tools.call failed",
+    );
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:done] L2 consumer elapsed=2m22s analysis_llm=7 tools=12 prompt_tokens=100 completion_tokens=50 llm_elapsed_ms=1000 completion_tps=50.00 source=structured score=0.60",
+    );
+
+    expect(metrics.get("L2:consumer")).toMatchObject({
+      status: "done",
+      elapsedMs: 142000,
+      analysisLlmInvocations: 7,
+      toolCalls: 12,
+      toolFailureCount: 1,
+      outputSource: "structured",
+      promptTokens: 100,
+      completionTokens: 50,
+      llmElapsedMs: 1000,
+      toolCallCountsByName: {
+        get_stock_data: 1,
+        get_indicators: 1,
+      },
+    });
+  });
+
+  it("counts content generation success from completed agents, not output rows", () => {
+    const metrics = new Map();
+    updateAgentMetricsFromLog(metrics, "[agent:start] L1 dollar timeout=5m00s");
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:done] L1 dollar elapsed=1.0s analysis_llm=1 tools=0 source=structured",
+    );
+    updateAgentMetricsFromLog(metrics, "[agent:start] L1 china timeout=5m00s");
+    updateAgentMetricsFromLog(metrics, "[agent:timeout] L1 china elapsed=5m00s");
+
+    const record = buildBenchmarkMetricRecord(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "local_qwen_27b",
+      {
+        provider: "vllm",
+        model: "qwen3.6-27b-nvfp4",
+        baseUrl: "http://127.0.0.1:8000/v1",
+      } as LlmHandle,
+      2,
+      [
+        {
+          benchmark_run_id: "bench-1",
+          episode_id: "episode-1",
+          as_of_date: "2024-01-02",
+          model_config_id: "local_qwen_27b",
+          agent: "dollar",
+          layer: "macro",
+          output_sha256: "a".repeat(64),
+        },
+        {
+          benchmark_run_id: "bench-1",
+          episode_id: "episode-1",
+          as_of_date: "2024-01-02",
+          model_config_id: "local_qwen_27b",
+          agent: "china",
+          layer: "macro",
+          output_sha256: "b".repeat(64),
+        },
+      ],
+      metrics,
+    );
+
+    expect(record.output_agent_count).toBe(2);
+    expect(record.agent_done_count).toBe(1);
+    expect(record.content_generation_success_rate).toBe(0.5);
+    expect(record.agent_elapsed_ms_total).toBe(301000);
+    expect(record.llm_model).toBe("qwen3.6-27b-nvfp4");
   });
 
   it("detects completed episode/date/model runs for resume", () => {

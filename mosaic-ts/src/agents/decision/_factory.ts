@@ -28,8 +28,10 @@ import { extractTextContent } from "../helpers/content.js";
 import {
   AgentTimeoutError,
   buildLlmCall,
+  extractLlmTokenUsage,
   formatAgentEvent,
   formatDurationMs,
+  formatTokenMetricFields,
   resolveAgentTimeoutMs,
   safeErrorMessage,
   summarizeAgentOutput,
@@ -128,6 +130,9 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           let analysisText = "";
           let analysisLlmInvocations = 1;
           let toolCalls = 0;
+          let promptTokens = 0;
+          let completionTokens = 0;
+          let llmElapsedMs = 0;
           if (requiredTools.length > 0 && hasToolApi(deps.api)) {
             const tools = await pickBridgeTools(deps.api, requiredTools, {
               ...(state.mode === "backtest" && state.as_of_date
@@ -145,12 +150,20 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             analysisText = loopResult.analysisText;
             analysisLlmInvocations = loopResult.llmInvocations;
             toolCalls = loopResult.toolCalls;
+            promptTokens = loopResult.promptTokens;
+            completionTokens = loopResult.completionTokens;
+            llmElapsedMs = loopResult.llmElapsedMs;
           } else {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
+            const llmStartedAt = Date.now();
             const analysisResponse = await deps.llmHandle.llm.invoke(
               [new SystemMessage(systemPrompt), new HumanMessage(augmentedContext)],
               signal ? { signal } : undefined,
             );
+            llmElapsedMs = Date.now() - llmStartedAt;
+            const usage = extractLlmTokenUsage(analysisResponse);
+            promptTokens = usage.promptTokens;
+            completionTokens = usage.completionTokens;
             analysisText =
               typeof analysisResponse.content === "string"
                 ? analysisResponse.content
@@ -184,6 +197,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
               `analysis_llm=${analysisLlmInvocations}`,
               `tools=${toolCalls}`,
+              ...formatTokenMetricFields(promptTokens, completionTokens, llmElapsedMs),
               `source=${extractor.structured ? "structured" : "fallback"}`,
               summarizeAgentOutput(output),
             ]),

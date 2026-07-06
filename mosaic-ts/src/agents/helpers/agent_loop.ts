@@ -28,6 +28,7 @@ import {
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { extractTextContent } from "./content.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
+import { extractLlmTokenUsage } from "./runtime.js";
 
 export interface AgentToolLoopOptions {
   llm: BaseChatModel;
@@ -55,6 +56,12 @@ export interface AgentToolLoopResult {
   llmInvocations: number;
   /** Total tool_calls dispatched across all iterations. */
   toolCalls: number;
+  /** Observed provider prompt tokens for analysis-loop calls. */
+  promptTokens: number;
+  /** Observed provider completion tokens for analysis-loop calls. */
+  completionTokens: number;
+  /** Wall time spent awaiting analysis-loop LLM calls. */
+  llmElapsedMs: number;
   /** The full message thread including ToolMessages, useful for debugging. */
   messages: BaseMessage[];
 }
@@ -67,6 +74,9 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   const messages: BaseMessage[] = [...opts.initialMessages];
   let llmInvocations = 0;
   let toolCalls = 0;
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let llmElapsedMs = 0;
 
   // Some BaseChatModel subclasses lack bindTools; the caller is responsible
   // for picking a provider that supports tool-calling. Fail loud rather than
@@ -81,10 +91,15 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
 
   for (let step = 0; step < maxLoops; step++) {
     opts.onLog?.(`analysis_llm=${step + 1}/${maxLoops}`);
+    const llmStartedAt = Date.now();
     const ai = (await llmWithTools.invoke(
       [new SystemMessage(opts.systemMessage), ...messages],
       opts.signal ? { signal: opts.signal } : undefined,
     )) as AIMessage;
+    llmElapsedMs += Date.now() - llmStartedAt;
+    const usage = extractLlmTokenUsage(ai);
+    promptTokens += usage.promptTokens;
+    completionTokens += usage.completionTokens;
     llmInvocations++;
     messages.push(ai);
 
@@ -98,7 +113,15 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       if (analysis && isProcessOnlyReportText(analysis)) {
         analysis = "";
       }
-      return { analysisText: analysis, llmInvocations, toolCalls, messages };
+      return {
+        analysisText: analysis,
+        llmInvocations,
+        toolCalls,
+        promptTokens,
+        completionTokens,
+        llmElapsedMs,
+        messages,
+      };
     }
 
     opts.onLog?.(
@@ -143,6 +166,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
 
   // maxLoops hit — force one final non-tool invocation so we get something
   // usable. This matches Phase 1's tool-loop forced-final behaviour.
+  const finalStartedAt = Date.now();
   const final = (await opts.llm.invoke(
     [
       new SystemMessage(opts.systemMessage),
@@ -154,9 +178,21 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     ],
     opts.signal ? { signal: opts.signal } : undefined,
   )) as AIMessage;
+  llmElapsedMs += Date.now() - finalStartedAt;
+  const finalUsage = extractLlmTokenUsage(final);
+  promptTokens += finalUsage.promptTokens;
+  completionTokens += finalUsage.completionTokens;
   llmInvocations++;
   messages.push(final);
   const raw = extractTextContent(final.content as unknown);
   const analysis = stripProcessOnlyReportPrefix(raw);
-  return { analysisText: analysis, llmInvocations, toolCalls, messages };
+  return {
+    analysisText: analysis,
+    llmInvocations,
+    toolCalls,
+    promptTokens,
+    completionTokens,
+    llmElapsedMs,
+    messages,
+  };
 }
