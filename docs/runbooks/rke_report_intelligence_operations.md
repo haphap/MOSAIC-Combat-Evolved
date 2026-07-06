@@ -341,6 +341,22 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
   pass. The full fixed-benchmark gate still requires the manifest's full
   episode/date/model matrix, independent review, and downstream evidence.
 
+2026-07-06 27B AutoRound INT4 sndr preset smoke:
+
+- Preset used exactly as configured: `local-qwen3.6-27b-heretic-int4-5090`.
+  It renders `--kv-cache-dtype fp8_e5m2`, MTP K=3, `--max-model-len 120000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 4096`, and served model
+  `qwen3.6-27b-heretic-int4`.
+- Startup result: `sndr launch local-qwen3.6-27b-heretic-int4-5090
+  --skip-autodetect` reached `/v1/models` on `http://127.0.0.1:8000/v1` with
+  the local Heretic v2 AutoRound snapshot.
+- Smoke result: `/v1/completions` returned a normal completion containing
+  `OK`; `/v1/chat/completions` returned tokens in the `reasoning` field first,
+  so short chat smokes can show `content: null` unless thinking is disabled or
+  the token budget is large enough.
+- Runtime note: loaded service used about `31.3 GiB` of the 5090 D's `32 GiB`
+  VRAM. Keep only one vLLM service running on this host.
+
 Single-owner startup flow:
 
 - If the same-parameter container is already healthy, reuse it and skip startup:
