@@ -20,6 +20,8 @@ import type { JsonRpcRequest, JsonRpcResponse } from "./protocol.js";
 import { isErrorEnvelope } from "./protocol.js";
 import { type ResolvedPython, resolvePython } from "./python.js";
 
+const DEFAULT_BRIDGE_TIMEOUT_MS = 60_000;
+
 export interface BridgeClientOptions {
   /** Override the resolved Python interpreter and repo root. */
   python?: ResolvedPython;
@@ -29,6 +31,17 @@ export interface BridgeClientOptions {
   defaultTimeoutMs?: number;
   /** Forward stderr from the bridge to this process's stderr (default false). */
   inheritStderr?: boolean;
+}
+
+export function parseBridgeTimeoutMs(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "off" || normalized === "none" || normalized === "false") return 0;
+  const timeoutMs = Number(normalized);
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new Error(`invalid bridge timeout ms: ${value}`);
+  }
+  return timeoutMs;
 }
 
 interface PendingCall {
@@ -56,7 +69,10 @@ export class BridgeClient {
 
   constructor(options: BridgeClientOptions = {}) {
     this.python = options.python ?? resolvePython();
-    this.defaultTimeoutMs = options.defaultTimeoutMs ?? 60_000;
+    this.defaultTimeoutMs =
+      options.defaultTimeoutMs ??
+      parseBridgeTimeoutMs(process.env.MOSAIC_BRIDGE_TIMEOUT_MS) ??
+      DEFAULT_BRIDGE_TIMEOUT_MS;
     this.inheritStderr = options.inheritStderr ?? false;
     this.env = { ...process.env, ...(options.env ?? {}) } as NodeJS.ProcessEnv;
   }

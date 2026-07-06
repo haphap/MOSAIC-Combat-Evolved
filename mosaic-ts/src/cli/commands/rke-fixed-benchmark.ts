@@ -65,6 +65,7 @@ interface AgentBenchmarkMetric {
   agent: string;
   layer: string;
   status: "done" | "timeout" | "error" | "started";
+  runCount: number;
   elapsedMs: number;
   analysisLlmInvocations: number;
   toolCalls: number;
@@ -466,22 +467,22 @@ export function updateAgentMetricsFromLog(
 
   if (kind === "start") {
     metric.status = "started";
+    metric.runCount += 1;
     return;
   }
 
   metric.status = kind === "done" ? "done" : kind === "timeout" ? "timeout" : "error";
   const fields = parseAgentFields(rest);
-  metric.elapsedMs = parseDurationMs(fields.elapsed ?? "") ?? metric.elapsedMs;
-  metric.analysisLlmInvocations =
-    parseInteger(fields.analysis_llm) ?? metric.analysisLlmInvocations;
-  metric.toolCalls = parseInteger(fields.tools) ?? metric.toolCalls;
+  metric.elapsedMs += parseDurationMs(fields.elapsed ?? "") ?? 0;
+  metric.analysisLlmInvocations += parseInteger(fields.analysis_llm) ?? 0;
+  metric.toolCalls += parseInteger(fields.tools) ?? 0;
   metric.outputSource =
     fields.source === "structured" || fields.source === "fallback"
       ? fields.source
       : metric.outputSource;
-  metric.promptTokens = parseInteger(fields.prompt_tokens) ?? metric.promptTokens;
-  metric.completionTokens = parseInteger(fields.completion_tokens) ?? metric.completionTokens;
-  metric.llmElapsedMs = parseInteger(fields.llm_elapsed_ms) ?? metric.llmElapsedMs;
+  metric.promptTokens += parseInteger(fields.prompt_tokens) ?? 0;
+  metric.completionTokens += parseInteger(fields.completion_tokens) ?? 0;
+  metric.llmElapsedMs += parseInteger(fields.llm_elapsed_ms) ?? 0;
 }
 
 export function buildBenchmarkMetricRecord(
@@ -542,6 +543,7 @@ function emptyAgentMetric(agent: string, layer: string): AgentBenchmarkMetric {
     agent,
     layer,
     status: "started",
+    runCount: 0,
     elapsedMs: 0,
     analysisLlmInvocations: 0,
     toolCalls: 0,

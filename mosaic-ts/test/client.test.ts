@@ -8,6 +8,7 @@ import {
   BridgeTransportError,
   INVALID_PARAMS,
   METHOD_NOT_FOUND,
+  parseBridgeTimeoutMs,
   RpcError,
 } from "../src/bridge/index.js";
 
@@ -19,6 +20,21 @@ import {
  * Phase 0 surface: ≥8 macro tools registered; paper.* is live (Phase 8);
  * backtest.* handlers registered but degrade to BACKTEST_ERROR until wired.
  */
+
+describe("parseBridgeTimeoutMs", () => {
+  it("parses positive values and off aliases", () => {
+    expect(parseBridgeTimeoutMs(undefined)).toBeUndefined();
+    expect(parseBridgeTimeoutMs("300000")).toBe(300000);
+    expect(parseBridgeTimeoutMs("off")).toBe(0);
+    expect(parseBridgeTimeoutMs("none")).toBe(0);
+    expect(parseBridgeTimeoutMs("false")).toBe(0);
+  });
+
+  it("rejects invalid values", () => {
+    expect(() => parseBridgeTimeoutMs("-1")).toThrow("invalid bridge timeout ms");
+    expect(() => parseBridgeTimeoutMs("slow")).toThrow("invalid bridge timeout ms");
+  });
+});
 
 describe("BridgeClient against real sidecar", () => {
   it("correlates concurrent requests by id", async () => {

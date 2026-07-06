@@ -19,7 +19,7 @@
 
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import {
-  type AIMessage,
+  AIMessage,
   type BaseMessage,
   HumanMessage,
   SystemMessage,
@@ -67,11 +67,85 @@ export interface AgentToolLoopResult {
 }
 
 const DEFAULT_MAX_LOOPS = 6;
+const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0;
+
+export interface CompactedToolOutput {
+  text: string;
+  truncated: boolean;
+  originalChars: number;
+}
+
+export function parseToolOutputMaxChars(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const raw = value.trim().toLowerCase();
+  if (!raw) return undefined;
+  if (raw === "off" || raw === "none" || raw === "false") return 0;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`invalid tool output max chars: ${value}`);
+  }
+  return parsed;
+}
+
+export function resolveToolOutputMaxChars(
+  explicit?: number,
+  envValue = process.env.MOSAIC_AGENT_TOOL_OUTPUT_MAX_CHARS,
+): number {
+  const chars =
+    explicit ?? parseToolOutputMaxChars(envValue) ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS;
+  if (!Number.isFinite(chars)) {
+    throw new Error(`invalid tool output max chars: ${chars}`);
+  }
+  return Math.max(0, Math.floor(chars));
+}
+
+export function compactToolOutput(output: string, maxChars: number): CompactedToolOutput {
+  const originalChars = output.length;
+  if (maxChars <= 0 || originalChars <= maxChars) {
+    return { text: output, truncated: false, originalChars };
+  }
+  const marker = `\n\n[tool_output_truncated original_chars=${originalChars}]`;
+  if (maxChars <= marker.length) {
+    return { text: output.slice(0, maxChars), truncated: true, originalChars };
+  }
+  return {
+    text: `${output.slice(0, maxChars - marker.length)}${marker}`,
+    truncated: true,
+    originalChars,
+  };
+}
+
+function hasToolCalls(message: BaseMessage): message is AIMessage {
+  return message.getType() === "ai" && (((message as AIMessage).tool_calls ?? []).length > 0);
+}
+
+export function pruneConsumedToolHistory(messages: ReadonlyArray<BaseMessage>): BaseMessage[] {
+  const pruned: BaseMessage[] = [];
+  let droppingToolReplies = false;
+  for (const message of messages) {
+    if (hasToolCalls(message)) {
+      const content = extractTextContent(message.content as unknown).trim();
+      if (content) {
+        pruned.push(new AIMessage(content));
+      }
+      droppingToolReplies = true;
+      continue;
+    }
+    if (droppingToolReplies && message.getType() === "tool") {
+      continue;
+    }
+    droppingToolReplies = false;
+    pruned.push(message);
+  }
+  return pruned;
+}
 
 export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<AgentToolLoopResult> {
   const maxLoops = opts.maxLoops ?? DEFAULT_MAX_LOOPS;
+  const toolOutputMaxChars = resolveToolOutputMaxChars();
   const toolByName = new Map(opts.tools.map((t) => [t.name, t] as const));
   const messages: BaseMessage[] = [...opts.initialMessages];
+  let replayMessages: BaseMessage[] = [...opts.initialMessages];
   let llmInvocations = 0;
   let toolCalls = 0;
   let promptTokens = 0;
@@ -93,7 +167,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     opts.onLog?.(`analysis_llm=${step + 1}/${maxLoops}`);
     const llmStartedAt = Date.now();
     const ai = (await llmWithTools.invoke(
-      [new SystemMessage(opts.systemMessage), ...messages],
+      [new SystemMessage(opts.systemMessage), ...replayMessages],
       opts.signal ? { signal: opts.signal } : undefined,
     )) as AIMessage;
     llmElapsedMs += Date.now() - llmStartedAt;
@@ -124,6 +198,8 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       };
     }
 
+    replayMessages = pruneConsumedToolHistory(replayMessages);
+    replayMessages.push(ai);
     opts.onLog?.(
       `tools=${calls.length} names=${calls
         .map((call) => call.name ?? "unknown")
@@ -136,12 +212,12 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       const tool = toolByName.get(name);
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
-        messages.push(
-          new ToolMessage({
-            content: `Tool '${name}' is not registered for this agent.`,
-            tool_call_id: call.id ?? "",
-          }),
-        );
+        const toolMessage = new ToolMessage({
+          content: `Tool '${name}' is not registered for this agent.`,
+          tool_call_id: call.id ?? "",
+        });
+        messages.push(toolMessage);
+        replayMessages.push(toolMessage);
         continue;
       }
       let output: string;
@@ -155,12 +231,18 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         output = `Tool '${name}' raised: ${(err as Error).message}`;
         opts.onLog?.(output);
       }
-      messages.push(
-        new ToolMessage({
-          content: output,
-          tool_call_id: call.id ?? "",
-        }),
-      );
+      const compacted = compactToolOutput(output, toolOutputMaxChars);
+      if (compacted.truncated) {
+        opts.onLog?.(
+          `tool_output_truncated name=${name} original_chars=${compacted.originalChars} kept_chars=${compacted.text.length}`,
+        );
+      }
+      const toolMessage = new ToolMessage({
+        content: compacted.text,
+        tool_call_id: call.id ?? "",
+      });
+      messages.push(toolMessage);
+      replayMessages.push(toolMessage);
     }
   }
 
@@ -170,7 +252,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   const final = (await opts.llm.invoke(
     [
       new SystemMessage(opts.systemMessage),
-      ...messages,
+      ...replayMessages,
       new HumanMessage(
         "Tool budget exhausted. Now write the final structured-friendly analysis " +
           "based on the data you already have, and do not call further tools.",

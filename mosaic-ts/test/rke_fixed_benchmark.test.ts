@@ -199,6 +199,38 @@ describe("rke-fixed-benchmark helpers", () => {
     });
   });
 
+  it("aggregates repeated agent executions in runtime metrics", () => {
+    const metrics = new Map();
+    updateAgentMetricsFromLog(metrics, "[agent:start] L4 cio timeout=5m00s");
+    updateAgentMetricsFromLog(metrics, "[agent:phase] L4 cio tools=1 names=get_rke_research_context");
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:done] L4 cio elapsed=1.0s analysis_llm=2 tools=1 prompt_tokens=10 completion_tokens=3 llm_elapsed_ms=100 source=structured",
+    );
+    updateAgentMetricsFromLog(metrics, "[agent:start] L4 cio timeout=5m00s");
+    updateAgentMetricsFromLog(metrics, "[agent:phase] L4 cio tools=2 names=get_x,get_y");
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:done] L4 cio elapsed=2.0s analysis_llm=3 tools=2 prompt_tokens=20 completion_tokens=7 llm_elapsed_ms=200 source=structured",
+    );
+
+    expect(metrics.get("L4:cio")).toMatchObject({
+      status: "done",
+      runCount: 2,
+      elapsedMs: 3000,
+      analysisLlmInvocations: 5,
+      toolCalls: 3,
+      promptTokens: 30,
+      completionTokens: 10,
+      llmElapsedMs: 300,
+      toolCallCountsByName: {
+        get_rke_research_context: 1,
+        get_x: 1,
+        get_y: 1,
+      },
+    });
+  });
+
   it("counts content generation success from completed agents, not output rows", () => {
     const metrics = new Map();
     updateAgentMetricsFromLog(metrics, "[agent:start] L1 dollar timeout=5m00s");

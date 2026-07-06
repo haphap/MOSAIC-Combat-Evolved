@@ -1,5 +1,5 @@
 export type { BridgeClientOptions } from "./client.js";
-export { BridgeClient } from "./client.js";
+export { BridgeClient, parseBridgeTimeoutMs } from "./client.js";
 export {
   AUTORESEARCH_ERROR,
   BACKTEST_ERROR,

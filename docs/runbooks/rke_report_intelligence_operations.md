@@ -439,6 +439,69 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
   A3B NVFP4 + auto KV remains the strongest of the three on this workload when
   the per-call output cap is kept below the 120K boundary.
 
+2026-07-06 replay-pruned 130K fixed-benchmark retest:
+
+- Code change under test: the agent loop no longer replays every prior
+  `ToolMessage` on every subsequent LLM call. After a tool-call turn has been
+  consumed by the next model call, the replay window drops the old assistant
+  tool-call message and its tool replies. The full local transcript is still
+  retained for debugging. This addresses the earlier prompt-token growth where
+  each call replayed all prior tool outputs.
+- Tool-output length cap: disabled by default. The default
+  `MOSAIC_AGENT_TOOL_OUTPUT_MAX_CHARS` behavior is now unlimited; setting the
+  env var to a positive integer explicitly enables truncation, and
+  `off`/`none`/`false` also means unlimited. The previous 4K default cap is not
+  used for benchmark comparison because it changes the content seen by the
+  model.
+- Timeout controls used for these runs:
+  `MOSAIC_BRIDGE_TIMEOUT_MS=300000`,
+  `MOSAIC_AGENT_TIMEOUT_SECONDS=600`, and benchmark `--max-tokens 2048`.
+  The bridge default remains 60 seconds when the env var is unset.
+- `bench-27b-nvfp4-k8v4-130k-mt1536-bt300-t600-replayprune-20260706`:
+  NVIDIA 27B NVFP4, k8v4, MTP K=3, `max_model_len=130000`,
+  `--max-num-batched-tokens 1536`. The same model at batched tokens `2048`
+  hit a Genesis P38 TQ continuation workspace OOM on the first benchmark
+  request. At `1536`, result was output coverage `25/25`, content success
+  `25/25`, structured `25`, fallback `0`, timeouts `0`, tool calls `270`,
+  tool failures `1`, prompt tokens `858593`, completion tokens `39461`,
+  observed LLM wait `543444 ms`, observed completion speed `72.61 tok/s`, and
+  full agent elapsed `789800 ms`. Top tools were
+  `get_rke_research_context=47`, `get_fundamentals=37`,
+  `get_stock_data=22`, `get_industry_policy=13`, and
+  `get_industry_moneyflow=11`.
+- `bench-35b-nvfp4-k8v4-130k-mt1536-bt300-t600-replayprune-agg-20260706`:
+  NVIDIA 35B A3B NVFP4, k8v4, MTP K=3, `max_model_len=130000`,
+  `--max-num-batched-tokens 1536`. Result was output coverage `25/25`,
+  content success `25/25`, structured `24`, fallback `1`, timeouts `0`, tool
+  calls `231`, tool failures `3`, prompt tokens `856571`, completion tokens
+  `40003`, observed LLM wait `184435 ms`, observed completion speed
+  `216.89 tok/s`, and full agent elapsed `527300 ms`. Top tools were
+  `get_rke_research_context=77`, `get_fundamentals=39`,
+  `get_fred_series=20`, `get_industry_moneyflow=16`, and
+  `get_stock_data=13`.
+- `bench-27b-heretic-k8v4-130k-mt2048-bt300-t600-replayprune-agg-20260706`:
+  local Heretic AutoRound INT4 27B, k8v4, MTP K=3,
+  `max_model_len=130000`, `--max-num-batched-tokens 2048`. Result was output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  timeouts `0`, tool calls `214`, tool failures `7`, prompt tokens `813810`,
+  completion tokens `38881`, observed LLM wait `510002 ms`, observed
+  completion speed `76.24 tok/s`, and full agent elapsed `698100 ms`. Top
+  tools were `get_rke_research_context=63`, `get_fred_series=24`,
+  `get_industry_moneyflow=17`, `get_broker_research=12`, and
+  `get_stock_data=12`. Repeated graph executions were observed and are now
+  accumulated in metrics: `L4:alpha_discovery`, `L4:autonomous_execution`, and
+  `L4:cio` each ran twice.
+- Current read after replay pruning: all three local models can complete this
+  one-date, 25-agent fixed benchmark at 130K with k8v4 when batch sizing is
+  adjusted. The 35B A3B NVFP4 model is still the fastest by a wide margin. The
+  27B NVIDIA NVFP4 model no longer fails from replay-driven prompt growth, but
+  needs a smaller batched-token envelope than the 27B Heretic INT4 model. The
+  35B result is plausible despite larger weights because its MoE/GQA runtime
+  KV profile is more favorable than the dense 27B NVFP4 path on this workload.
+  Remaining failures are mostly external tool/data-source issues, especially
+  AkShare/stdout pollution and realized-volatility fetch errors, not vLLM
+  context failures.
+
 Single-owner startup flow:
 
 - If the same-parameter container is already healthy, reuse it and skip startup:
