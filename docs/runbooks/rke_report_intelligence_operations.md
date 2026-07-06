@@ -357,6 +357,34 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
 - Runtime note: loaded service used about `31.3 GiB` of the 5090 D's `32 GiB`
   VRAM. Keep only one vLLM service running on this host.
 
+2026-07-06 27B AutoRound INT4 k8v4 130K agent-loop probe:
+
+- Follow-up probe used the same local Heretic v2 AutoRound snapshot and kept
+  MTP enabled at K=3. The tested runtime changed the KV/cache envelope to
+  `--kv-cache-dtype turboquant_k8v4`, `--max-model-len 130000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 2048`, and
+  `--gpu-memory-utilization 0.85`.
+- Startup and smoke: `/v1/models` reported served model
+  `qwen3.6-27b-heretic-int4` with `max_model_len=130000`, and
+  `/v1/completions` returned `OK`.
+- Agent-loop run:
+  `rke-fixed-benchmark --benchmark-run-id goal-probe-27b-heretic-k8v4-130k-agent-loop-20260706
+  --model-config local_qwen_27b --as-of-date 2025-09-01 --max-runs 1
+  --max-tokens 512` completed all agent stages and then stopped at the fixed
+  benchmark preflight gates: incomplete covered dates/episodes/model outputs,
+  manual review not approved, and paired output count below the manifest
+  requirement. This is not a vLLM, CUDA, or k8v4 failure.
+- Observed runtime: the k8v4 service used about `27.6 GiB` for
+  `VLLM::EngineCore` and about `29.1 GiB` total GPU memory during the agent
+  loop, lower than the fp8 120K preset smoke. Logs showed successful
+  `/v1/chat/completions` traffic; the notable warnings were PN59 short-sequence
+  bypasses, grammar matcher warnings, external data-source disconnects, and
+  expected structured-output fallback when `--max-tokens 512` truncated output.
+- Preset update: `local-qwen3.6-27b-heretic-int4-5090` now points at a local
+  profile that renders the validated k8v4 130K envelope above while preserving
+  MTP K=3. The shared RTX 5090 D hardware defaults were left unchanged so
+  sibling 35B/NVFP4 presets do not inherit this 27B-specific sizing.
+
 Single-owner startup flow:
 
 - If the same-parameter container is already healthy, reuse it and skip startup:
