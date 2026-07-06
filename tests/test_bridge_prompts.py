@@ -36,6 +36,55 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout
 
 
+def _valid_contract_prompt(agent: str, layer: str, fields: tuple[str, ...]) -> str:
+    return f"""
+# {agent}
+## Role boundary
+agent id {agent}; layer {layer}; downstream consumer daily-cycle; no portfolio decision outside role.
+## Required inputs/tools
+Required tools: get_rke_research_context and current data tools. If missing tool or tool unavailable, fallback to conservative output and confidence cap applies.
+## RKE prior policy
+get_rke_research_context is a redacted research prior, not current data, cannot replace current data, and cannot directly create trades. no trade without current data confirmation.
+## Workflow
+Collect evidence, handle contradiction, confirm current data, reason in role, emit structured JSON.
+## Output schema
+Exact fields: {", ".join(fields)}.
+## Audit and footprint contract
+Fields carry claim type, target, confidence, current-data confirmation, stale prior, contradictory prior, RKE context hash, ranking_policy_id, retrieval_rank, priority_bucket, truncation audit, truncated_item_count, current_data_confirmed, rke_context_hash.
+## Privacy boundary
+Never output report prose, source spans, source_span_ids, prompt body, local paths, URLs, reviewer text, or licensed metadata.
+## Confidence policy
+High confidence needs current data and two evidence families; fallback data caps confidence.
+## Refusal and no-action behavior
+If required data is unavailable, emit conservative no-action output inside schema.
+## Autoresearch evolution contract
+Mutable: thresholds and wording. Immutable: role boundary, output schema, required tools, current-data gate, rke-prior policy, privacy boundary, audit/footprint contract, shadow/promotion safety policy.
+""".strip()
+
+
+def _write_contract_prompt(
+    private_repo: Path,
+    *,
+    agent: str = "volatility",
+    layer: str = "macro",
+    lang: str = "zh",
+    text: str | None = None,
+) -> None:
+    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS[agent])
+    path = private_repo / "prompts" / "mosaic" / "cohort_default" / layer
+    path.mkdir(parents=True, exist_ok=True)
+    (path / f"{agent}.{lang}.md").write_text(
+        text or _valid_contract_prompt(agent, layer, fields),
+        encoding="utf-8",
+    )
+
+
+def _init_private_prompt_repo_for_test(private_repo: Path, project_root: Path) -> None:
+    init_private_prompt_repo(private_repo, project_root=project_root)
+    _git(private_repo, "config", "user.name", "Test")
+    _git(private_repo, "config", "user.email", "test@example.com")
+
+
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch) -> Path:
     repo = tmp_path / "repo"
@@ -241,6 +290,7 @@ def test_prompts_methods_registered():
         "prompts.init_private_repo",
         "prompts.audit_versions",
         "prompts.preflight",
+        "prompts.contract_check",
         "prompts.verify_release",
     }.issubset(set(all_methods()))
 
@@ -482,3 +532,197 @@ def test_verify_release_checks_pin_metadata(repo: Path, tmp_path: Path, monkeypa
     assert result["checks"]["compatible"] is True
     assert result["pin"]["prompt_commit_hash"] == write["prompt_commit_hash"]
     assert "content" not in result
+
+
+def test_contract_check_accepts_valid_private_prompts_by_layer(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    agents = {
+        "volatility": "macro",
+        "semiconductor": "sector",
+        "munger": "superinvestor",
+        "cro": "decision",
+    }
+    for agent, layer in agents.items():
+        for lang in ("zh", "en"):
+            _write_contract_prompt(private_repo, agent=agent, layer=layer, lang=lang)
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "contract prompts")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "prompts.contract_check",
+        {"agents": list(agents), "langs": ["zh", "en"], "benchmark_run_id": "bench-contract"},
+    )
+
+    assert result["ready"] is True
+    assert result["row_count"] == 8
+    assert result["counts_by_layer"] == {
+        "macro": 2,
+        "sector": 2,
+        "superinvestor": 2,
+        "decision": 2,
+    }
+    assert all(row["prompt_contract_check_ref"].startswith("prompt-contract:") for row in result["rows"])
+    assert "Role boundary" not in str(result)
+    assert "content" not in result["rows"][0]
+
+
+def test_formal_release_checks_emit_no_body_rows(repo: Path, tmp_path: Path, monkeypatch):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    agents = {
+        "volatility": "macro",
+        "semiconductor": "sector",
+        "munger": "superinvestor",
+        "cro": "decision",
+    }
+    for agent, layer in agents.items():
+        for lang in ("zh", "en"):
+            _write_contract_prompt(private_repo, agent=agent, layer=layer, lang=lang)
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "contract prompts")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "prompts.formal_release_checks",
+        {
+            "agents": list(agents),
+            "langs": ["zh", "en"],
+            "benchmark_run_id": "bench-release",
+        },
+    )
+
+    assert result["ready"] is True
+    assert result["row_count"] == 8
+    assert result["ready_count"] == 8
+    assert result["blocked_reasons"] == []
+    assert all(row["prompt_version_id"] > 0 for row in result["rows"])
+    assert all(row["verify_release_passed"] is True for row in result["rows"])
+    assert all(row["leak_drift_passed"] is True for row in result["rows"])
+    assert all(row["prompt_contract_check_passed"] is True for row in result["rows"])
+    assert "Role boundary" not in str(result)
+    assert "content" not in result["rows"][0]
+
+
+def test_formal_release_checks_block_invalid_contract(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    _write_contract_prompt(private_repo, text="missing contract sections")
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "bad prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "prompts.formal_release_checks",
+        {"agents": ["volatility"], "langs": ["zh"], "benchmark_run_id": "bench-release"},
+    )
+
+    assert result["ready"] is False
+    assert result["row_count"] == 1
+    assert result["blocked_count"] == 1
+    assert "prompt_contract_check_not_passed" in result["blocked_reasons"]
+    assert result["rows"][0]["verify_release_passed"] is False
+    assert result["rows"][0]["leak_drift_passed"] is False
+
+
+def test_contract_check_blocks_missing_section(repo: Path, tmp_path: Path, monkeypatch):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    text = _valid_contract_prompt(
+        "volatility", "macro", tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    ).replace("## Privacy boundary", "## Privacy rules")
+    _write_contract_prompt(private_repo, text=text)
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "bad contract prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+
+    assert result["ready"] is False
+    assert "required_section_missing:privacy_boundary" in result["blocked_reasons"]
+
+
+def test_contract_check_blocks_missing_schema_field(repo: Path, tmp_path: Path, monkeypatch):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    fields = tuple(f for f in _prompts._AGENT_SCHEMA_FIELDS["volatility"] if f != "vix_regime")
+    _write_contract_prompt(
+        private_repo,
+        text=_valid_contract_prompt("volatility", "macro", fields),
+    )
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "schema drift prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+
+    assert result["ready"] is False
+    assert "schema_field_missing:vix_regime" in result["blocked_reasons"]
+
+
+def test_contract_check_blocks_rke_prior_as_current_data(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    text = _valid_contract_prompt(
+        "volatility", "macro", tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    ) + "\nRKE prior is current data."
+    _write_contract_prompt(private_repo, text=text)
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "unsafe rke prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+
+    assert result["ready"] is False
+    assert "rke_prior_treated_as_current_data" in result["blocked_reasons"]
+
+
+def test_contract_check_blocks_cross_run_prompt_row(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    _write_contract_prompt(private_repo)
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "contract prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"agents": ["volatility"], "langs": ["zh"]})
+    row = {**preflight["rows"][0], "benchmark_run_id": "other-run"}
+
+    result = dispatch(
+        "prompts.contract_check",
+        {"benchmark_run_id": "bench-run", "prompt_rows": [row]},
+    )
+
+    assert result["ready"] is False
+    assert "benchmark_run_id_mismatch" in result["blocked_reasons"]
+
+
+def test_contract_check_blocks_bilingual_category_drift(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    good = _valid_contract_prompt(
+        "volatility", "macro", tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    )
+    _write_contract_prompt(private_repo, lang="zh", text=good)
+    _write_contract_prompt(private_repo, lang="en", text=good.replace("## Workflow", "## Steps"))
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "bilingual drift prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "prompts.contract_check",
+        {"agents": ["volatility"], "langs": ["zh", "en"]},
+    )
+
+    assert result["ready"] is False
+    assert "bilingual_contract_category_drift" in result["blocked_reasons"]

@@ -83,6 +83,8 @@ def _benchmark_evidence_refs(benchmark_run_id: str = "bench-ready") -> dict:
         "benchmark_run_id": benchmark_run_id,
         "episode_manifest_ref": f"{benchmark_run_id}-episode-manifest",
         "as_of_date_manifest_ref": f"{benchmark_run_id}-as-of-dates",
+        "benchmark_runner_ref": f"{benchmark_run_id}-runner",
+        "prompt_contract_check_manifest_ref": f"{benchmark_run_id}-prompt-contracts",
         "model_config_manifest_ref": f"{benchmark_run_id}-model-configs",
         "paired_output_manifest_ref": f"{benchmark_run_id}-paired-output-manifest",
         "output_schema_validation_report_ref": f"{benchmark_run_id}-schema-report",
@@ -96,6 +98,7 @@ def _manual_review(benchmark_run_id: str = "bench-ready") -> dict:
         "benchmark_run_id": benchmark_run_id,
         "decision": "approved",
         "reviewer_timestamp": "2026-07-03T12:00:00Z",
+        "reviewer_independence_confirmed": True,
     }
 
 
@@ -106,6 +109,28 @@ def _profile_evidence(benchmark_run_id: str = "bench-profile-ready") -> dict:
         "evolution_input_ref": f"{benchmark_run_id}-evolution-input",
         "no_source_prose_audit_ref": f"{benchmark_run_id}-no-source-prose",
     }
+
+
+def _replay_evidence(
+    benchmark_run_id: str,
+    replay_run_id: str = "replay-1",
+    **overrides: object,
+) -> dict:
+    row = {
+        "benchmark_run_id": benchmark_run_id,
+        "replay_run_id": replay_run_id,
+        "replay_run_ref": f"{benchmark_run_id}-{replay_run_id}-run",
+        "replay_output_manifest_ref": f"{benchmark_run_id}-{replay_run_id}-outputs",
+        "runtime_context_consumption_ref": f"{benchmark_run_id}-{replay_run_id}-contexts",
+        "replay_footprint_ref": f"{benchmark_run_id}-{replay_run_id}-footprints",
+        "downstream_outcome_metrics_ref": f"{benchmark_run_id}-{replay_run_id}-outcomes",
+        "replay_output_count": 25,
+        "replay_footprint_count": 25,
+        "privacy_scan_passed": True,
+        "current_data_confirmed": True,
+    }
+    row.update(overrides)
+    return row
 
 
 def _paper_trading_plan(benchmark_run_id: str, **overrides: object) -> dict:
@@ -145,8 +170,12 @@ def _prompt_release_check() -> dict:
         "audit_version_ref": "audit-release-1",
         "verify_release_ref": "verify-release-1",
         "leak_drift_check_ref": "leak-drift-1",
+        "prompt_contract_check_ref": prompt_handlers._prompt_contract_check_ref(
+            "b" * 64
+        ),
         "verify_release_passed": True,
         "leak_drift_passed": True,
+        "prompt_contract_check_passed": True,
         "release_ready": True,
     }
 
@@ -166,6 +195,9 @@ def _prompt_release_check_from_lifecycle(
             "overwrite_target_paths": record["overwrite_target_paths"],
             "prompt_sha256": prompt_pin["prompt_sha256"],
         }
+    )
+    row["prompt_contract_check_ref"] = prompt_handlers._prompt_contract_check_ref(
+        row["prompt_sha256"]
     )
     row.update(overrides)
     return row
@@ -248,8 +280,13 @@ def _darwinian_consumption_evidence(
         "rke_prior_usage_metrics_ref": "rke-prior-usage-1",
         "downstream_outcome_metrics_ref": "downstream-outcome-1",
         "darwinian_weight_update_ref": "darwinian-weight-1",
+        "agent_skill_decomposition_ref": "agent-skill-1",
         "autoresearch_update_ref": "autoresearch-update-1",
+        "rejected_update_reasons_ref": "rejected-update-1",
         "rollback_readiness_ref": "rollback-readiness-1",
+        "agent_weight_count": 25,
+        "non_stub_weight_count": 4,
+        "layer_weight_sum_ready": True,
         "darwinian_consumed": True,
         "autoresearch_consumed": True,
         "rke_prior_treated_as_current_data": False,
@@ -295,12 +332,50 @@ def _all_prompt_release_checks(
             "audit_version_ref": f"audit-all-{index}",
             "verify_release_ref": f"verify-all-{index}",
             "leak_drift_check_ref": f"leak-all-{index}",
+            "prompt_contract_check_ref": prompt_handlers._prompt_contract_check_ref(
+                row["prompt_sha256"]
+            ),
             "verify_release_passed": True,
             "leak_drift_passed": True,
+            "prompt_contract_check_passed": True,
         }
         if benchmark_run_id is not None:
             release_check["benchmark_run_id"] = benchmark_run_id
         release_checks.append(release_check)
+    return release_checks
+
+
+def _recorded_all_prompt_release_checks(benchmark_run_id: str) -> list[dict]:
+    release_checks = []
+    index = 0
+    for layer, agents in prompt_handlers._AGENTS_BY_LAYER.items():
+        for agent in agents:
+            for lang in ("zh", "en"):
+                index += 1
+                prompt_sha = f"{index:064x}"
+                release_checks.append(
+                    {
+                        "benchmark_run_id": benchmark_run_id,
+                        "agent": agent,
+                        "lang": lang,
+                        "prompt_version_id": index,
+                        "prompt_repo_id": "https://github.com/haphap/MOSAIC-Prompts",
+                        "prompt_repo_revision": "a" * 40,
+                        "prompt_file_path": (
+                            f"prompts/mosaic/cohort_default/{layer}/{agent}.{lang}.md"
+                        ),
+                        "prompt_sha256": prompt_sha,
+                        "audit_version_ref": f"audit-all-{index}",
+                        "verify_release_ref": f"verify-all-{index}",
+                        "leak_drift_check_ref": f"leak-all-{index}",
+                        "prompt_contract_check_ref": (
+                            prompt_handlers._prompt_contract_check_ref(prompt_sha)
+                        ),
+                        "verify_release_passed": True,
+                        "leak_drift_passed": True,
+                        "prompt_contract_check_passed": True,
+                    }
+                )
     return release_checks
 
 
@@ -609,6 +684,39 @@ def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
     assert result["prompt_source_status"]["prompt_repo_dirty_count"] == 0
     assert result["manual_review"]["decision"] == "approved"
     assert result["promotion_allowed"] is False
+
+
+def test_fixed_episode_benchmark_evidence_requires_runner_and_independent_review(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    refs = _benchmark_evidence_refs("bench-review-blocked")
+    refs.pop("benchmark_runner_ref")
+    review = _manual_review("bench-review-blocked")
+    review["reviewer_independence_confirmed"] = False
+
+    result = dispatch(
+        "rke_benchmark.fixed_episode_benchmark_evidence",
+        {
+            "benchmark_run_id": "bench-review-blocked",
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-review-blocked"
+            ),
+            "evidence_refs": refs,
+            "manual_review": review,
+        },
+    )
+
+    assert result["evidence_status"] == "blocked_preflight"
+    assert "benchmark_runner_missing" in result["blocked_reasons"]
+    assert "reviewer_independence_unavailable" in result["blocked_reasons"]
 
 
 def test_fixed_episode_benchmark_evidence_blocks_cross_run_proof_refs(
@@ -1622,8 +1730,10 @@ def test_darwinian_autoresearch_manifest_blocks_missing_evidence(
         "agent_footprint_summary_missing",
         "downstream_outcome_metrics_benchmark_run_id_missing",
         "downstream_outcome_metrics_missing",
+        "downstream_outcome_replay_missing",
         "prompt_mutation_provenance_benchmark_run_id_missing",
         "prompt_mutation_provenance_missing",
+        "rke_priors_not_yet_informative",
     }
     assert (
         manifest["skill_inputs"]["risk_adjusted_downstream_outcome"]["status"]
@@ -2081,6 +2191,68 @@ def test_candidate_consumption_manifest_preserves_refusal_blockers():
     assert "evidence_refs" not in payload
 
 
+def test_candidate_consumption_manifest_allows_public_artifact_paths():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    evidence_refs=[
+                        {
+                            "artifact_path": (
+                                "registry/report_intelligence/"
+                                "prompt_mutation_candidates.jsonl"
+                            ),
+                            "field": "candidate_type",
+                        }
+                    ]
+                ),
+                _mutation_candidate(
+                    mutation_candidate_id="PMUT-2",
+                    evidence_refs=[
+                        {
+                            "artifact_path": (
+                                "registry/report_intelligence/"
+                                "markdown_coverage_summary.json"
+                            ),
+                            "field": "markdown_quality_gap_counts",
+                        }
+                    ],
+                ),
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "ready_for_private_prompt_lifecycle"
+    assert manifest["candidate_count"] == 2
+    assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 0
+    assert manifest["manifest_blockers"] == []
+
+
+def test_candidate_consumption_manifest_blocks_private_artifact_paths():
+    manifest = dispatch(
+        "rke_benchmark.candidate_consumption_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    evidence_refs=[
+                        {
+                            "artifact_path": (
+                                "registry/report_intelligence/markdown/private.md"
+                            ),
+                            "field": "candidate_type",
+                        }
+                    ]
+                )
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert manifest["privacy_scan"]["forbidden_field_violation_count"] == 1
+    assert any("artifact_path" in reason for reason in manifest["manifest_blockers"])
+
+
 def test_candidate_consumption_manifest_classifies_data_acquisition_no_prompt():
     manifest = dispatch(
         "rke_benchmark.candidate_consumption_manifest",
@@ -2493,6 +2665,41 @@ def test_prompt_mutation_lifecycle_manifest_records_private_branch(
         "prompts/mosaic/cohort_default/superinvestor/munger.zh.md"
         in record["overwrite_target_paths"]
     )
+
+
+def test_prompt_mutation_lifecycle_manifest_blocks_ambiguous_tracks(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    manifest = dispatch(
+        "rke_benchmark.prompt_mutation_lifecycle_manifest",
+        {
+            "candidates": [
+                _mutation_candidate(
+                    mutation_candidate_id="PMUT-MUNGER",
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.munger",
+                    blocked_by=[],
+                ),
+                _mutation_candidate(
+                    mutation_candidate_id="PMUT-BURRY",
+                    candidate_type="stock_prior_recipe_rule_candidate",
+                    target_scope="stock",
+                    target_component="superinvestor.burry",
+                    blocked_by=[],
+                ),
+            ]
+        },
+    )
+
+    assert manifest["manifest_status"] == "blocked_preflight"
+    assert "mutation_track_ambiguous" in manifest["blocked_reasons"]
 
 
 def test_prompt_mutation_lifecycle_manifest_keeps_refusal_out_of_prompt_branch(
@@ -3165,6 +3372,7 @@ def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatc
     assert "darwinian_autoresearch_input_not_ready" in manifest["blocked_reasons"]
     assert "prompt_mutation_release_not_ready" in manifest["blocked_reasons"]
     assert "rollback_readiness_not_ready" in manifest["blocked_reasons"]
+    assert "shadow_replay_evidence_missing" in manifest["blocked_reasons"]
     assert manifest["shadow_replay_ready"] is False
     assert manifest["paper_trading_allowed"] is False
     assert manifest["promotion_allowed"] is False
@@ -3322,6 +3530,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-shadow-ready"
             ),
+            "replay_evidence": _replay_evidence("bench-shadow-ready"),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(candidates, "bench-shadow-ready")
@@ -3424,6 +3633,9 @@ def test_shadow_replay_blocks_partial_current_data_confirmation(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-shadow-partial-current-data"
             ),
+            "replay_evidence": _replay_evidence(
+                "bench-shadow-partial-current-data"
+            ),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(
@@ -3524,6 +3736,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-paper-ready"
             ),
+            "replay_evidence": _replay_evidence("bench-paper-ready"),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(candidates, "bench-paper-ready")
@@ -3604,6 +3817,7 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-paper-ready"
             ),
+            "replay_evidence": _replay_evidence("bench-paper-ready"),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(candidates, "bench-paper-ready")
@@ -3711,6 +3925,7 @@ def test_paper_trading_readiness_blocks_unapproved_operator_review(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-paper-unapproved"
             ),
+            "replay_evidence": _replay_evidence("bench-paper-unapproved"),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(
@@ -3911,6 +4126,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-promotion-ready"
             ),
+            "replay_evidence": _replay_evidence("bench-promotion-ready"),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(
@@ -3998,6 +4214,7 @@ def test_promotion_decision_readiness_blocks_cross_run_evidence(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-promotion-ready"
             ),
+            "replay_evidence": _replay_evidence("bench-promotion-ready"),
             "candidates": candidates,
             "prompt_mutation_release_checks": [
                 _prompt_release_check_for_candidates(
@@ -4395,6 +4612,14 @@ def test_delivery_evidence_audit_keeps_complete_keys_separate_from_readiness(
                     "benchmark_run_id": benchmark_run_id,
                 }
             ],
+            "prompt_contract_checks": [
+                {
+                    "agent": "dollar",
+                    "lang": "zh",
+                    "prompt_contract_check_ref": "prompt-contract:rke_prompt_contract_v1:a",
+                    "benchmark_run_id": benchmark_run_id,
+                }
+            ],
             "paired_output_count": 1275,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(benchmark_run_id),
@@ -4410,6 +4635,7 @@ def test_delivery_evidence_audit_keeps_complete_keys_separate_from_readiness(
             "darwinian_autoresearch_consumption_evidence": (
                 _darwinian_consumption_evidence(benchmark_run_id)
             ),
+            "replay_evidence": _replay_evidence(benchmark_run_id),
             "candidates": [_mutation_candidate()],
             "patch_activation_evidence": [
                 {"mutation_candidate_id": "PMUT-1", "benchmark_run_id": benchmark_run_id}
@@ -4433,7 +4659,7 @@ def test_delivery_evidence_audit_keeps_complete_keys_separate_from_readiness(
 
     assert record["record_status"] == "recorded"
     assert audit["evidence_status"] == "complete"
-    assert audit["recorded_key_count"] == 16
+    assert audit["recorded_key_count"] == 18
     assert audit["missing_keys"] == []
     assert audit["delivery_readiness_can_load"] is True
     assert audit["delivery_readiness_status"] == "blocked_preflight"
@@ -4990,6 +5216,44 @@ def test_delivery_readiness_loads_recorded_private_evidence(
     )
 
 
+def test_delivery_readiness_loads_recorded_prompt_release_checks_without_repo(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    benchmark_run_id = "bench-delivery-recorded-prompts"
+    record = dispatch(
+        "rke_benchmark.record_delivery_evidence",
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "all_agent_prompt_release_checks": _recorded_all_prompt_release_checks(
+                benchmark_run_id
+            ),
+        },
+    )
+
+    manifest = dispatch(
+        "rke_benchmark.delivery_readiness",
+        {"benchmark_run_id": benchmark_run_id},
+    )
+    by_id = {
+        condition["condition_id"]: condition for condition in manifest["conditions"]
+    }
+
+    assert record["record_status"] == "recorded"
+    assert by_id["all_agent_prompt_provenance"]["ready"] is True
+    assert (
+        by_id["all_agent_prompt_provenance"]["evidence_summary"][
+            "prompt_source_status"
+        ]["resolved_source"]
+        == "recorded_release_checks"
+    )
+    assert "shadow_replay:all_agent_prompt_provenance_not_ready" not in manifest[
+        "blocked_reasons"
+    ]
+
+
 def test_delivery_readiness_loads_recorded_refusal_only_candidate(
     tmp_path: Path, monkeypatch
 ):
@@ -5117,6 +5381,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             "darwinian_autoresearch_consumption_evidence": (
                 _darwinian_consumption_evidence("bench-delivery-ready")
             ),
+            "replay_evidence": _replay_evidence("bench-delivery-ready"),
             "candidates": candidates,
             "patch_activation_evidence": [
                 _patch_activation_evidence("bench-delivery-ready")

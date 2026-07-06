@@ -2072,6 +2072,10 @@ def test_normalize_agent_id_accepts_ts_and_rke_forms():
     assert normalize_agent_id("dollar", "macro") == "macro.dollar"
     assert normalize_agent_id("sector.semiconductor") == "sector.semiconductor"
     assert normalize_agent_id("ackman", "superinvestor") == "superinvestor.ackman"
+    assert (
+        normalize_agent_id("autonomous_execution", "decision")
+        == "decision.autonomous_execution"
+    )
     assert format_rke_agent_research_context(
         {
             "agent_id": "macro.dollar",

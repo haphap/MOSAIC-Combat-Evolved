@@ -95,6 +95,17 @@ export interface BridgeToolFactoryOptions {
   context?: ToolCallContext;
 }
 
+const BACKTEST_BLOCKED_TOOL_NAMES = new Set([
+  "get_global_news",
+  "get_insider_transactions",
+  "get_news",
+  "get_xueqiu_heat",
+]);
+
+function isBacktestBlockedTool(name: string, options: BridgeToolFactoryOptions): boolean {
+  return options.context?.mode === "backtest" && BACKTEST_BLOCKED_TOOL_NAMES.has(name);
+}
+
 /**
  * Build a LangChain tool that routes through the bridge.
  *
@@ -145,6 +156,9 @@ export async function pickBridgeTools(
     const meta = byName.get(name);
     if (!meta) {
       missing.push(name);
+      continue;
+    }
+    if (isBacktestBlockedTool(name, options)) {
       continue;
     }
     picked.push(bridgeToolFromMetadata(api, meta, options));

@@ -29,6 +29,8 @@ import {
   renderLayer4PeerContext,
 } from "./_user_context.js";
 
+const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
+
 /** Build the static portion of the user-context (peers + L3 picks). The
  *  Darwinian weights block is injected by the factory wrapper below. */
 function buildBaseUserContext(state: DailyCycleStateType, weightsBlock: string): string {
@@ -85,6 +87,7 @@ export const autonomousExecutionSpec: LayerFourAgentSpec<AutoExecOutput> = {
   schema: AutonomousExecutionSchema,
   fieldNames: AUTONOMOUS_EXECUTION_FIELD_NAMES,
   stateUpdateField: "autonomous_execution",
+  requiredTools: REQUIRED_TOOLS,
   // Static spec uses sync stub fallback; the factory below wraps this for
   // async deps-aware injection. Tests that import the spec directly still
   // get a working buildUserContext without bridge mocks.

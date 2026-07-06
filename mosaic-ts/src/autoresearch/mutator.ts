@@ -31,12 +31,71 @@ const MACRO_AGENT_SET: ReadonlySet<string> = new Set(ALL_MACRO_AGENTS);
 /** Max allowed length swing for a rewrite (Plan §11.5 4B decision #5). */
 export const MAX_LENGTH_DELTA = 0.4;
 
-/** Section headers that must survive a rewrite (zh + en variants). A prompt
- *  without its output-schema / workflow sections breaks structured parsing. */
-const REQUIRED_SECTIONS: ReadonlyArray<ReadonlyArray<string>> = [
-  ["## 输出 schema", "## Output schema"],
-  ["## 工作流程", "## Workflow"],
+export const PROMPT_CONTRACT_REQUIRED_SECTION_CATEGORIES = [
+  "role_boundary",
+  "required_inputs_tools",
+  "rke_prior_policy",
+  "workflow",
+  "output_schema",
+  "audit_footprint_contract",
+  "privacy_boundary",
+  "confidence_policy",
+  "refusal_no_action",
+  "autoresearch_evolution_contract",
+] as const;
+
+const REQUIRED_SECTIONS: ReadonlyArray<{
+  category: (typeof PROMPT_CONTRACT_REQUIRED_SECTION_CATEGORIES)[number];
+  variants: ReadonlyArray<string>;
+}> = [
+  { category: "role_boundary", variants: ["## Role boundary", "## 角色边界"] },
+  {
+    category: "required_inputs_tools",
+    variants: ["## Required inputs/tools", "## Required inputs", "## 必需输入与工具"],
+  },
+  { category: "rke_prior_policy", variants: ["## RKE prior policy", "## RKE 先验政策"] },
+  { category: "workflow", variants: ["## Workflow", "## 工作流程"] },
+  { category: "output_schema", variants: ["## Output schema", "## 输出 schema"] },
+  {
+    category: "audit_footprint_contract",
+    variants: [
+      "## Audit and footprint contract",
+      "## Audit/footprint contract",
+      "## 审计与足迹契约",
+    ],
+  },
+  { category: "privacy_boundary", variants: ["## Privacy boundary", "## 隐私边界"] },
+  { category: "confidence_policy", variants: ["## Confidence policy", "## 置信度政策"] },
+  {
+    category: "refusal_no_action",
+    variants: ["## Refusal and no-action behavior", "## Refusal/no-action", "## 拒绝与无操作行为"],
+  },
+  {
+    category: "autoresearch_evolution_contract",
+    variants: ["## Autoresearch evolution contract", "## 自研究演化契约"],
+  },
 ];
+
+const PRIVACY_TOKENS = [
+  "report prose",
+  "source spans",
+  "prompt body",
+  "local paths",
+  "urls",
+  "reviewer text",
+  "licensed metadata",
+] as const;
+
+const IMMUTABLE_GUARDRAILS = [
+  "role boundary",
+  "output schema",
+  "required tools",
+  "current-data gate",
+  "rke-prior policy",
+  "privacy boundary",
+  "audit/footprint contract",
+  "shadow/promotion safety policy",
+] as const;
 
 export const MutationSchema = z.object({
   zh_prompt: z.string().min(1),
@@ -60,14 +119,12 @@ function normalize(s: string): string {
  * {@link PromptInvariantError} on any violation (Plan §11.5 4B decision #5).
  */
 export function assertPromptInvariants(original: string, rewritten: string): void {
-  // 1. structure: every required section (in whichever language it appeared)
-  //    must still be present.
-  for (const variants of REQUIRED_SECTIONS) {
-    const wasPresent = variants.some((h) => original.includes(h));
-    if (wasPresent && !variants.some((h) => rewritten.includes(h))) {
-      throw new PromptInvariantError(
-        `rewrite dropped a required section (one of: ${variants.join(" / ")})`,
-      );
+  const rewrittenLower = rewritten.toLowerCase();
+
+  // 1. structure: every E0.5 required section must be present.
+  for (const section of REQUIRED_SECTIONS) {
+    if (!section.variants.some((h) => rewritten.includes(h))) {
+      throw new PromptInvariantError(`rewrite dropped required section '${section.category}'`);
     }
   }
 
@@ -92,6 +149,50 @@ export function assertPromptInvariants(original: string, rewritten: string): voi
   if (normalize(original) === normalize(rewritten)) {
     throw new PromptInvariantError("rewrite is a no-op (identical after normalization)");
   }
+
+  if (
+    !(
+      rewrittenLower.includes("research prior") &&
+      (rewrittenLower.includes("not current data") ||
+        rewrittenLower.includes("cannot replace current")) &&
+      (rewrittenLower.includes("cannot directly create trades") ||
+        rewrittenLower.includes("no trade without current data confirmation"))
+    )
+  ) {
+    throw new PromptInvariantError("rewrite weakened RKE prior/current-data separation");
+  }
+  if (
+    rewrittenLower.includes("rke prior is current data") ||
+    rewrittenLower.includes("rke context is current data") ||
+    rewrittenLower.includes("rke prior can directly create trades")
+  ) {
+    throw new PromptInvariantError("rewrite treats RKE prior as current data or trade trigger");
+  }
+  if (
+    !rewrittenLower.includes("get_rke_research_context") ||
+    !["missing tool", "tool unavailable", "fallback"].some((token) =>
+      rewrittenLower.includes(token),
+    ) ||
+    !["confidence cap", "caps confidence"].some((token) => rewrittenLower.includes(token))
+  ) {
+    throw new PromptInvariantError("rewrite dropped required tool/fallback/confidence-cap policy");
+  }
+  for (const token of PRIVACY_TOKENS) {
+    if (!rewrittenLower.includes(token)) {
+      throw new PromptInvariantError(`rewrite dropped privacy token '${token}'`);
+    }
+  }
+  if (!rewrittenLower.includes("no-action")) {
+    throw new PromptInvariantError("rewrite dropped refusal/no-action behavior");
+  }
+  if (!rewrittenLower.includes("mutable") || !rewrittenLower.includes("immutable")) {
+    throw new PromptInvariantError("rewrite blurred mutable/immutable boundaries");
+  }
+  for (const token of IMMUTABLE_GUARDRAILS) {
+    if (!rewrittenLower.includes(token)) {
+      throw new PromptInvariantError(`rewrite dropped immutable guardrail '${token}'`);
+    }
+  }
 }
 
 /** Pull JSON field keys out of the first ```json fenced block. */
@@ -114,9 +215,14 @@ const META_SYSTEM = [
   "they stay semantically identical.",
   "",
   "Hard rules:",
-  "- Keep every section header (e.g. '## 输出 schema' / '## Output schema',",
-  "  '## 工作流程' / '## Workflow') and every JSON schema field name exactly.",
+  "- Keep every E0.5 section: role boundary, required inputs/tools, RKE prior",
+  "  policy, workflow, output schema, audit/footprint contract, privacy",
+  "  boundary, confidence policy, refusal/no-action behavior, and autoresearch",
+  "  evolution contract.",
   "- Do not change the output schema's field names or structure.",
+  "- Preserve required tools, missing-tool fallback, confidence caps,",
+  "  current-data gate, RKE-prior-is-not-current-data rule, privacy/no-source",
+  "  prose rule, and mutable versus immutable autoresearch boundaries.",
   "- Keep length within ±40% of the original; this is a focused edit, not a",
   "  rewrite from scratch.",
   "- zh_prompt must be Chinese, en_prompt must be English, same meaning.",
@@ -175,6 +281,7 @@ export async function mutate(opts: MutateOptions): Promise<Mutation> {
     const mutation = cannedMutation(zh, en);
     assertPromptInvariants(zh, mutation.zh_prompt);
     assertPromptInvariants(en, mutation.en_prompt);
+    assertPromptPairInvariants(mutation.zh_prompt, mutation.en_prompt);
     return mutation;
   }
 
@@ -200,7 +307,27 @@ export async function mutate(opts: MutateOptions): Promise<Mutation> {
 
   assertPromptInvariants(zh, mutation.zh_prompt);
   assertPromptInvariants(en, mutation.en_prompt);
+  assertPromptPairInvariants(mutation.zh_prompt, mutation.en_prompt);
   return mutation;
+}
+
+function sectionPresence(prompt: string): Record<string, boolean> {
+  return Object.fromEntries(
+    REQUIRED_SECTIONS.map((section) => [
+      section.category,
+      section.variants.some((header) => prompt.includes(header)),
+    ]),
+  );
+}
+
+export function assertPromptPairInvariants(zhPrompt: string, enPrompt: string): void {
+  const zh = sectionPresence(zhPrompt);
+  const en = sectionPresence(enPrompt);
+  for (const category of PROMPT_CONTRACT_REQUIRED_SECTION_CATEGORIES) {
+    if (zh[category] !== en[category]) {
+      throw new PromptInvariantError(`rewrite desynchronized section '${category}'`);
+    }
+  }
 }
 
 /** Build a one-line performance blurb; degrade gracefully on cold start. */

@@ -174,6 +174,16 @@ def test_get_yield_curve_cn_emits_csv(mock_query_pro):
     assert "2.43" in out
 
 
+def test_get_yield_curve_cn_handles_unavailable_yc_cb(mock_query_pro):
+    mock_query_pro(None, side_effect=DataVendorUnavailable("yc_cb unavailable"))
+
+    out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
+
+    assert "CN Treasury Yield Curve" in out
+    assert "yc_cb unavailable" in out
+    assert "No yc_cb rows returned" in out
+
+
 # --------------------------------------------------------------------- 5. US-CN spread
 
 
@@ -266,6 +276,21 @@ def test_us_china_spread_falls_back_to_fred_when_us_tycr_unavailable(monkeypatch
 
     assert "FRED DGS10 fallback" in out
     assert "190.0" in out
+
+
+def test_us_china_spread_handles_missing_cn_leg_without_tool_error(mock_query_pro):
+    def fake_query(api_name, **_kwargs):
+        if api_name == "yc_cb":
+            raise DataVendorUnavailable("yc_cb unavailable")
+        raise AssertionError(api_name)
+
+    mock_query_pro(None, side_effect=fake_query)
+
+    out = macro_data.get_us_china_spread("2024-06-30", look_back_days=10)
+
+    assert "US-CN 10Y Yield Spread" in out
+    assert "CN leg unavailable" in out
+    assert "No US-CN spread observations" in out
 
 
 def test_us_china_spread_handles_missing_us_leg_without_tool_error(monkeypatch, mock_query_pro):

@@ -69,21 +69,25 @@ describe("each Layer-4 spec wires correct fields", () => {
       "black_swan_scenarios",
       "confidence",
     ]);
+    expect(croSpec.requiredTools).toContain("get_rke_research_context");
   });
   it("alpha_discovery", () => {
     expect(alphaDiscoverySpec.agentId).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.stateUpdateField).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.fieldNames).toEqual(["novel_picks", "confidence"]);
+    expect(alphaDiscoverySpec.requiredTools).toContain("get_rke_research_context");
   });
   it("autonomous_execution", () => {
     expect(autonomousExecutionSpec.agentId).toBe("autonomous_execution");
     expect(autonomousExecutionSpec.stateUpdateField).toBe("autonomous_execution");
     expect(autonomousExecutionSpec.fieldNames).toEqual(["trades", "confidence"]);
+    expect(autonomousExecutionSpec.requiredTools).toContain("get_rke_research_context");
   });
   it("cio", () => {
     expect(cioSpec.agentId).toBe("cio");
     expect(cioSpec.stateUpdateField).toBe("cio");
     expect(cioSpec.fieldNames).toEqual(["portfolio_actions", "confidence"]);
+    expect(cioSpec.requiredTools).toContain("get_rke_research_context");
   });
 });
 
@@ -662,6 +666,7 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
     bindToolsCalled = 0;
     invokeCalls = 0;
     structuredCalls = 0;
+    lastMessages: BaseMessage[] = [];
     constructor(public canned: CroOutput) {}
     bindTools(_t: unknown): ScriptedLlm {
       this.bindToolsCalled++;
@@ -675,8 +680,9 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
         },
       };
     }
-    async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
+    async invoke(messages: BaseMessage[]): Promise<AIMessage> {
       this.invokeCalls++;
+      this.lastMessages = messages;
       return new AIMessage("cro analysis");
     }
   }
@@ -740,6 +746,78 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
     expect(u.portfolio_actions).toBeUndefined();
     expect(llm.bindToolsCalled).toBe(0);
     expect(llm.invokeCalls).toBe(1);
+  });
+
+  it("injects and binds RKE research context when bridge api is supplied", async () => {
+    const canned: CroOutput = {
+      agent: "cro",
+      rejected_picks: [],
+      correlated_risks: ["test"],
+      black_swan_scenarios: ["test"],
+      confidence: 0.4,
+    };
+    const llm = new ScriptedLlm(canned);
+    const handle: LlmHandle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fake-model",
+      baseUrl: undefined,
+    };
+    const config: MosaicConfig = {
+      llm_provider: "fake",
+      deep_think_llm: "fake",
+      quick_think_llm: "fake",
+      backend_url: null,
+      anthropic_base_url: null,
+      anthropic_effort: null,
+      output_language: "Chinese",
+      research_depth_name: "标准",
+      active_cohort: "cohort_default",
+      cohorts: { cohort_default: { start: "2000-01-01", end: "2099-12-31" } },
+      autoresearch: {
+        agent_mutation_cooldown_hours: 24,
+        keep_revert_lockout_days: 3,
+        keep_threshold_delta_sharpe: 0.1,
+        monthly_modification_cap_per_cohort: 100,
+        evaluation_horizon_trading_days: 5,
+      },
+      data_vendors: {},
+      tool_vendors: {},
+    };
+    const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const api = {
+      toolsList: async () => [
+        {
+          name: "get_rke_research_context",
+          description: "rke",
+          args_schema: { type: "object", properties: {}, required: [] },
+        },
+      ],
+      toolsCall: async (name: string, args: Record<string, unknown>) => {
+        toolCalls.push({ name, args });
+        return { text: "Runtime preflight: ok" };
+      },
+    } as unknown as BridgeApi;
+
+    const node = buildCroNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
+    await node(baseState());
+
+    expect(toolCalls).toEqual([
+      {
+        name: "get_rke_research_context",
+        args: {
+          agent_id: "cro",
+          layer: "decision",
+          as_of_date: "2024-06-24",
+          max_items: 3,
+        },
+      },
+    ]);
+    expect(llm.bindToolsCalled).toBe(1);
+    expect(llm.invokeCalls).toBe(1);
+    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).toContain(
+      "RKE research prior context",
+    );
   });
 });
 

@@ -63,6 +63,15 @@ PERFORMANCE_CONTEXT_BUCKETS = frozenset(
         "insufficient_data",
     }
 )
+_METRIC_FAMILY_KEY_CACHE: dict[int, tuple[Sequence[Mapping[str, Any]], set[str]]] = {}
+_RECIPE_ID_INDEX_CACHE: dict[
+    tuple[int, tuple[str, ...]],
+    tuple[Sequence[Mapping[str, Any]], dict[str, list[str]]],
+] = {}
+_TOOL_GAP_ID_INDEX_CACHE: dict[
+    tuple[int, tuple[str, ...]],
+    tuple[Sequence[Mapping[str, Any]], dict[str, dict[str, list[str]]]],
+] = {}
 
 MACRO_AGENTS = frozenset(
     {
@@ -90,7 +99,9 @@ SECTOR_AGENTS = frozenset(
     }
 )
 SUPERINVESTOR_AGENTS = frozenset({"ackman", "burry", "druckenmiller", "munger"})
-DECISION_AGENTS = frozenset({"alpha_discovery", "cio", "cro", "execution"})
+DECISION_AGENTS = frozenset(
+    {"alpha_discovery", "autonomous_execution", "cio", "cro", "execution"}
+)
 
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
@@ -377,6 +388,9 @@ def build_rke_agent_research_context_from_rows(
     weighted_by_claim = _weighted_claims_by_forecast_id(
         weighted_research_contexts, normalized_agent
     )
+    metric_family_keys = _cached_known_metric_family_keys(forecasts)
+    recipe_id_index = _cached_recipe_id_index(recipes, metric_family_keys)
+    tool_gap_id_index = _cached_tool_gap_id_index(tool_gaps, metric_family_keys)
 
     items: list[dict[str, Any]] = []
     for original_index, claim in enumerate(forecasts):
@@ -402,8 +416,8 @@ def build_rke_agent_research_context_from_rows(
             source_profiles=source_profiles,
             viewpoint_profiles=viewpoint_profiles,
             outcomes=outcomes_by_claim.get(claim_id, []),
-            recipes=recipes,
-            tool_gaps=tool_gaps,
+            recipe_id_index=recipe_id_index,
+            tool_gap_id_index=tool_gap_id_index,
             stock_context_snapshots=stock_context_snapshots,
             industry_context_snapshots=industry_context_snapshots,
         )
@@ -551,8 +565,8 @@ def _public_claim_item(
     source_profiles: Sequence[Mapping[str, Any]],
     viewpoint_profiles: Sequence[Mapping[str, Any]],
     outcomes: Sequence[Mapping[str, Any]],
-    recipes: Sequence[Mapping[str, Any]],
-    tool_gaps: Sequence[Mapping[str, Any]],
+    recipe_id_index: Mapping[str, Sequence[str]],
+    tool_gap_id_index: Mapping[str, Mapping[str, Sequence[str]]],
     stock_context_snapshots: Sequence[Mapping[str, Any]],
     industry_context_snapshots: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -562,8 +576,8 @@ def _public_claim_item(
     regime_types = _claim_regime_types(claim, agent_id)
     source_profile = _best_source_profile(report_meta, source_profiles)
     viewpoint_profile = _best_viewpoint_profile(metric_families, viewpoint_profiles)
-    matched_gaps = _matching_tool_gap_ids(metric_families, agent_id, tool_gaps)
-    matched_recipes = _matching_recipe_ids(metric_families, recipes)
+    matched_gaps = _matching_tool_gap_ids(metric_families, agent_id, tool_gap_id_index)
+    matched_recipes = _matching_recipe_ids(metric_families, recipe_id_index)
     outcome_summary = _outcome_summary(outcomes)
     combined_weight = _round_float(
         weighted_claim.get("combined_research_prior_weight") or 1.0
@@ -1114,40 +1128,126 @@ def _no_prior_reason(agent_id: str, ranked_items: Sequence[Mapping[str, Any]]) -
     return "no_applicable_prior_for_agent_request"
 
 
-def _matching_tool_gap_ids(
-    metric_families: Sequence[str],
-    agent_id: str,
-    tool_gaps: Sequence[Mapping[str, Any]],
-) -> list[str]:
-    wanted = set(metric_families)
-    ids: list[str] = []
+def _cached_known_metric_family_keys(
+    forecasts: Sequence[Mapping[str, Any]],
+) -> set[str]:
+    cache_key = id(forecasts)
+    cached = _METRIC_FAMILY_KEY_CACHE.get(cache_key)
+    if cached and cached[0] is forecasts:
+        return cached[1]
+    value = _known_metric_family_keys(forecasts)
+    _METRIC_FAMILY_KEY_CACHE[cache_key] = (forecasts, value)
+    return value
+
+
+def _cached_recipe_id_index(
+    recipes: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
+) -> dict[str, list[str]]:
+    metric_tuple = tuple(sorted(metric_family_keys))
+    cache_key = (id(recipes), metric_tuple)
+    cached = _RECIPE_ID_INDEX_CACHE.get(cache_key)
+    if cached and cached[0] is recipes:
+        return cached[1]
+    value = _index_recipe_ids(recipes, metric_family_keys)
+    _RECIPE_ID_INDEX_CACHE[cache_key] = (recipes, value)
+    return value
+
+
+def _cached_tool_gap_id_index(
+    tool_gaps: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
+) -> dict[str, dict[str, list[str]]]:
+    metric_tuple = tuple(sorted(metric_family_keys))
+    cache_key = (id(tool_gaps), metric_tuple)
+    cached = _TOOL_GAP_ID_INDEX_CACHE.get(cache_key)
+    if cached and cached[0] is tool_gaps:
+        return cached[1]
+    value = _index_tool_gap_ids(tool_gaps, metric_family_keys)
+    _TOOL_GAP_ID_INDEX_CACHE[cache_key] = (tool_gaps, value)
+    return value
+
+
+def _known_metric_family_keys(forecasts: Sequence[Mapping[str, Any]]) -> set[str]:
+    return {
+        key
+        for claim in forecasts
+        for key in (_safe_token(metric).lower() for metric in _claim_metric_families(claim))
+        if key
+    }
+
+
+def _index_tool_gap_ids(
+    tool_gaps: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
+) -> dict[str, dict[str, list[str]]]:
+    by_agent: dict[str, list[str]] = defaultdict(list)
+    by_metric: dict[str, list[str]] = defaultdict(list)
     for gap in tool_gaps:
-        target_agents = set(_ensure_str_list(gap.get("target_agents")))
-        metric_name = str(gap.get("metric_name") or "")
-        if (agent_id in target_agents) or any(metric in metric_name for metric in wanted):
-            gap_id = str(gap.get("tool_gap_id") or "")
-            if gap_id:
-                ids.append(gap_id)
-        if len(ids) >= 5:
-            break
-    return ids
+        gap_id = str(gap.get("tool_gap_id") or "")
+        if not gap_id:
+            continue
+        for agent in _ensure_str_list(gap.get("target_agents")):
+            by_agent[agent].append(gap_id)
+        metric_name = _safe_token(gap.get("metric_name")).lower()
+        for key in metric_family_keys:
+            if key in metric_name:
+                by_metric[key].append(gap_id)
+    return {"by_agent": dict(by_agent), "by_metric": dict(by_metric)}
 
 
-def _matching_recipe_ids(
-    metric_families: Sequence[str], recipes: Sequence[Mapping[str, Any]]
-) -> list[str]:
-    wanted = set(metric_families)
-    ids: list[str] = []
+def _index_recipe_ids(
+    recipes: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
+) -> dict[str, list[str]]:
+    by_metric: dict[str, list[str]] = defaultdict(list)
     for recipe in recipes:
+        recipe_id = str(recipe.get("analysis_recipe_id") or recipe.get("recipe_id") or "")
+        if not recipe_id:
+            continue
         haystack = _combined_text(
             recipe.get("decision_scope"),
             recipe.get("required_data"),
             recipe.get("name"),
-        )
-        if any(metric in haystack for metric in wanted):
-            recipe_id = str(recipe.get("analysis_recipe_id") or recipe.get("recipe_id") or "")
-            if recipe_id:
+        ).lower()
+        for key in metric_family_keys:
+            if key in haystack:
+                by_metric[key].append(recipe_id)
+    return dict(by_metric)
+
+
+def _matching_tool_gap_ids(
+    metric_families: Sequence[str],
+    agent_id: str,
+    tool_gap_id_index: Mapping[str, Mapping[str, Sequence[str]]],
+) -> list[str]:
+    by_agent = tool_gap_id_index.get("by_agent", {})
+    by_metric = tool_gap_id_index.get("by_metric", {})
+    ids: list[str] = []
+    for gap_id in by_agent.get(agent_id, ()):
+        if gap_id not in ids:
+            ids.append(gap_id)
+        if len(ids) >= 5:
+            break
+    for metric in metric_families:
+        if len(ids) >= 5:
+            break
+        key = _safe_token(metric).lower()
+        for gap_id in by_metric.get(key, ()):
+            if gap_id not in ids:
+                ids.append(gap_id)
+            if len(ids) >= 5:
+                break
+    return ids
+
+
+def _matching_recipe_ids(
+    metric_families: Sequence[str], recipe_id_index: Mapping[str, Sequence[str]]
+) -> list[str]:
+    ids: list[str] = []
+    for metric in metric_families:
+        key = _safe_token(metric).lower()
+        for recipe_id in recipe_id_index.get(key, ()):
+            if recipe_id not in ids:
                 ids.append(recipe_id)
+            if len(ids) >= 5:
+                break
         if len(ids) >= 5:
             break
     return ids

@@ -461,6 +461,72 @@ export interface PromptPreflightResult {
   rows: PromptPreflightRow[];
 }
 
+export interface PromptContractCheckRow {
+  agent: string;
+  layer: string;
+  lang: PromptLang;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_file_path: string;
+  prompt_sha256: string;
+  prompt_contract_check_ref: string;
+  benchmark_run_id: string;
+  ready: boolean;
+  blockers: string[];
+  contract_categories: Record<string, boolean>;
+}
+
+export interface PromptContractCheckResult {
+  schema_version: "prompt_contract_check_v1";
+  contract_version: string;
+  benchmark_run_id: string;
+  cohort: string;
+  ready: boolean;
+  row_count: number;
+  ready_count: number;
+  blocked_count: number;
+  blocked_reasons: string[];
+  counts_by_layer: Record<string, number>;
+  counts_by_language: Record<string, number>;
+  counts_by_ready_status: Record<string, number>;
+  counts_by_blocker_code: Record<string, number>;
+  rows: PromptContractCheckRow[];
+}
+
+export interface PromptFormalReleaseCheckRow {
+  agent: string;
+  layer: string;
+  lang: PromptLang;
+  benchmark_run_id: string;
+  prompt_version_id: number;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_file_path: string;
+  prompt_sha256: string;
+  audit_version_ref: string;
+  verify_release_ref: string;
+  leak_drift_check_ref: string;
+  prompt_contract_check_ref: string;
+  verify_release_passed: boolean;
+  leak_drift_passed: boolean;
+  prompt_contract_check_passed: boolean;
+  ready: boolean;
+  blockers: string[];
+}
+
+export interface PromptFormalReleaseChecksResult {
+  schema_version: "prompt_formal_release_checks_v1";
+  benchmark_run_id: string;
+  cohort: string;
+  ready: boolean;
+  row_count: number;
+  ready_count: number;
+  blocked_count: number;
+  blocked_reasons: string[];
+  prompt_source_status: PromptPreflightResult["source_status"];
+  rows: PromptFormalReleaseCheckRow[];
+}
+
 export interface PromptReleaseCheckResult {
   ready: boolean;
   checks: Record<string, boolean>;
@@ -543,6 +609,8 @@ export interface RkeAllAgentPromptProvenanceRow {
   audit_version_ref: string;
   verify_release_ref: string;
   leak_drift_check_ref: string;
+  prompt_contract_check_ref: string;
+  prompt_contract_check_passed: boolean;
   fallback_used: boolean;
   ready: boolean;
   blockers: string[];
@@ -618,6 +686,8 @@ export interface RkeFixedEpisodeBenchmarkEvidenceResult {
     benchmark_run_id: string;
     episode_manifest_ref: string;
     as_of_date_manifest_ref: string;
+    benchmark_runner_ref: string;
+    prompt_contract_check_manifest_ref: string;
     model_config_manifest_ref: string;
     paired_output_manifest_ref: string;
     output_schema_validation_report_ref: string;
@@ -628,6 +698,7 @@ export interface RkeFixedEpisodeBenchmarkEvidenceResult {
     benchmark_run_id: string;
     decision: string;
     reviewer_timestamp: string;
+    reviewer_independence_confirmed: boolean;
   };
   promotion_allowed: boolean;
 }
@@ -785,8 +856,13 @@ export interface RkeDarwinianAutoresearchConsumptionReadinessResult {
     rke_prior_usage_metrics_ref: string;
     downstream_outcome_metrics_ref: string;
     darwinian_weight_update_ref: string;
+    agent_skill_decomposition_ref: string;
     autoresearch_update_ref: string;
+    rejected_update_reasons_ref: string;
     rollback_readiness_ref: string;
+    agent_weight_count: number | null;
+    non_stub_weight_count: number | null;
+    layer_weight_sum_ready: boolean;
     darwinian_consumed: boolean;
     autoresearch_consumed: boolean;
   };
@@ -897,6 +973,8 @@ export interface RkePromptMutationReleaseRecord {
   prompt_sha256: string;
   verify_release_ref: string;
   leak_drift_check_ref: string;
+  prompt_contract_check_ref: string;
+  prompt_contract_check_passed: boolean;
   release_ready: boolean;
   blockers: string[];
 }
@@ -904,7 +982,7 @@ export interface RkePromptMutationReleaseRecord {
 export interface RkePromptMutationReleaseReadinessResult {
   schema_version: "rke_prompt_mutation_release_readiness_v1";
   benchmark_run_id: string;
-  readiness_status: "ready" | "blocked_preflight";
+  readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   blocked_reasons: string[];
   lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
   branch_candidate_count: number;
@@ -934,7 +1012,7 @@ export interface RkePromptMutationRollbackRecord {
 export interface RkePromptMutationRollbackReadinessResult {
   schema_version: "rke_prompt_mutation_rollback_readiness_v1";
   benchmark_run_id: string;
-  readiness_status: "ready" | "blocked_preflight";
+  readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   blocked_reasons: string[];
   lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
   branch_candidate_count: number;
@@ -964,7 +1042,7 @@ export interface RkePatchActivationRecord {
 export interface RkePatchActivationReadinessResult {
   schema_version: "rke_patch_activation_readiness_v1";
   benchmark_run_id: string;
-  readiness_status: "ready" | "blocked_preflight";
+  readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   blocked_reasons: string[];
   candidate_manifest_status: "ready_for_private_prompt_lifecycle" | "blocked_preflight";
   patch_candidate_count: number;
@@ -985,8 +1063,21 @@ export interface RkeShadowReplayReadinessResult {
   prompt_provenance_readiness_status: "ready" | "blocked_preflight";
   benchmark_evidence_status: "ready" | "blocked_preflight";
   darwinian_manifest_status: "ready" | "blocked_preflight";
-  prompt_release_readiness_status: "ready" | "blocked_preflight";
-  rollback_readiness_status: "ready" | "blocked_preflight";
+  prompt_release_readiness_status: "ready" | "blocked_preflight" | "not_applicable";
+  rollback_readiness_status: "ready" | "blocked_preflight" | "not_applicable";
+  replay_evidence: {
+    benchmark_run_id: string;
+    replay_run_id: string;
+    replay_run_ref: string;
+    replay_output_manifest_ref: string;
+    runtime_context_consumption_ref: string;
+    replay_footprint_ref: string;
+    downstream_outcome_metrics_ref: string;
+    replay_output_count: number | null;
+    replay_footprint_count: number | null;
+    privacy_scan_passed: boolean;
+    current_data_confirmed: boolean;
+  };
   rke_context_hash_count: number;
   ranking_policy_id_counts: Record<string, number>;
   retrieval_rank_count: number;
@@ -1673,6 +1764,28 @@ export class BridgeApi {
     return this.client.call<PromptPreflightResult>("prompts.preflight", params ?? {});
   }
 
+  promptsContractCheck(params?: {
+    cohort?: string;
+    agents?: string[];
+    langs?: PromptLang[];
+    prompt_rows?: PromptPreflightRow[];
+    benchmark_run_id?: string;
+  }): Promise<PromptContractCheckResult> {
+    return this.client.call<PromptContractCheckResult>("prompts.contract_check", params ?? {});
+  }
+
+  promptsFormalReleaseChecks(params?: {
+    cohort?: string;
+    agents?: string[];
+    langs?: PromptLang[];
+    benchmark_run_id?: string;
+  }): Promise<PromptFormalReleaseChecksResult> {
+    return this.client.call<PromptFormalReleaseChecksResult>(
+      "prompts.formal_release_checks",
+      params ?? {},
+    );
+  }
+
   promptsVerifyRelease(params: {
     version_id: number;
     require_kept?: boolean;
@@ -1771,7 +1884,7 @@ export class BridgeApi {
 
   rkeBenchmarkDarwinianAutoresearchInputManifest(params?: {
     benchmark_run_id?: string;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: {
       benchmark_run_id?: string;
       prompt_repo_id?: string;
@@ -1788,7 +1901,7 @@ export class BridgeApi {
 
   rkeBenchmarkDarwinianAutoresearchConsumptionReadiness(params?: {
     benchmark_run_id?: string;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
     consumption_evidence?: Record<string, unknown>;
   }): Promise<RkeDarwinianAutoresearchConsumptionReadinessResult> {
@@ -1853,13 +1966,15 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
@@ -1874,13 +1989,15 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
@@ -1896,13 +2013,15 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
@@ -1920,15 +2039,17 @@ export class BridgeApi {
     cohort?: string;
     prompt_source_status?: Record<string, unknown>;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     profile_evidence?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
     darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     patch_activation_evidence?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
@@ -1955,15 +2076,17 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     profile_evidence?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
     darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     patch_activation_evidence?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;

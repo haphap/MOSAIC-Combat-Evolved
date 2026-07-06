@@ -2,10 +2,8 @@
  * Generic factory for Layer-4 decision agent nodes (Plan §11.2 sub-step 2D.3).
  *
  * Differs structurally from L1/L2/L3 factories:
- *   * **No BridgeApi tool calls** — Layer 4 is synthesis-only. Every L4
- *     agent reads upstream state and reasons about it; no fresh data fetch.
- *   * **No tool loop** — straight LLM invoke + structured extraction.
- *     Cheaper per node (1-2 LLM calls vs L1-3's 3-4).
+ *   * Layer 4 primarily synthesises upstream state, but may expose a small
+ *     required tool set such as RKE research context when deps.api is present.
  *   * **Each agent's user-context build is custom** — cro reads L1+L2+L3,
  *     alpha reads L1+L2+L3, autonomous_execution reads cro+alpha+L3, cio
  *     reads everything. The spec carries a ``buildUserContext`` function
@@ -20,10 +18,12 @@
  */
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
-import type { BridgeApi, MosaicConfig } from "../../bridge/index.js";
+import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { formatMirofishContext } from "../../mirofish/context.js";
+import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
   AgentTimeoutError,
@@ -61,6 +61,8 @@ export interface LayerFourAgentSpec<TOutput extends Layer4AgentOutput> {
    *  May be async — autonomous_execution fetches Darwinian weights from the
    *  bridge (Plan §11.3 sub-step 3F). */
   buildUserContext: (state: DailyCycleStateType) => string | Promise<string>;
+  /** Bridge tools this decision agent may call during synthesis. */
+  requiredTools?: ReadonlyArray<string>;
   render: (output: TOutput) => string;
   fallback: (analysisText: string) => TOutput;
   structuredOnlySentences?: ReadonlyArray<string>;
@@ -69,7 +71,7 @@ export interface LayerFourAgentSpec<TOutput extends Layer4AgentOutput> {
 
 export interface LayerFourAgentDeps {
   llmHandle: LlmHandle;
-  /** ``api`` kept for symmetry with other layers; L4 doesn't actually call tools. */
+  /** Optional for tests; production daily-cycle passes it so L4 can use tools. */
   api?: BridgeApi;
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
@@ -112,24 +114,48 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
 
-          // Phase 1: synthesis (no tools, single invoke).
+          // Phase 1: synthesis, with optional tools when the spec requires them.
           const userContext = await spec.buildUserContext(state);
+          const rkeAugmentedContext = await maybeAppendRkeContext(spec, userContext, deps, state);
           const augmentedContext = await maybeAppendMirofishContext(
             spec,
-            userContext,
+            rkeAugmentedContext,
             deps,
             state,
             language,
           );
-          onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
-          const analysisResponse = await deps.llmHandle.llm.invoke(
-            [new SystemMessage(systemPrompt), new HumanMessage(augmentedContext)],
-            signal ? { signal } : undefined,
-          );
-          const analysisText =
-            typeof analysisResponse.content === "string"
-              ? analysisResponse.content
-              : extractTextContent(analysisResponse.content);
+          const requiredTools = spec.requiredTools ?? [];
+          let analysisText = "";
+          let analysisLlmInvocations = 1;
+          let toolCalls = 0;
+          if (requiredTools.length > 0 && hasToolApi(deps.api)) {
+            const tools = await pickBridgeTools(deps.api, requiredTools, {
+              ...(state.mode === "backtest" && state.as_of_date
+                ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
+                : {}),
+            });
+            const loopResult = await runAgentToolLoop({
+              llm: deps.llmHandle.llm,
+              tools: tools as StructuredToolInterface[],
+              systemMessage: systemPrompt,
+              initialMessages: [new HumanMessage(augmentedContext)],
+              onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
+              signal,
+            });
+            analysisText = loopResult.analysisText;
+            analysisLlmInvocations = loopResult.llmInvocations;
+            toolCalls = loopResult.toolCalls;
+          } else {
+            onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
+            const analysisResponse = await deps.llmHandle.llm.invoke(
+              [new SystemMessage(systemPrompt), new HumanMessage(augmentedContext)],
+              signal ? { signal } : undefined,
+            );
+            analysisText =
+              typeof analysisResponse.content === "string"
+                ? analysisResponse.content
+                : extractTextContent(analysisResponse.content);
+          }
 
           // Phase 2: structured extraction.
           onLog(
@@ -156,8 +182,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           onLog(
             formatAgentEvent("done", "L4", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
-              "analysis_llm=1",
-              "tools=0",
+              `analysis_llm=${analysisLlmInvocations}`,
+              `tools=${toolCalls}`,
               `source=${extractor.structured ? "structured" : "fallback"}`,
               summarizeAgentOutput(output),
             ]),
@@ -193,6 +219,40 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+async function maybeAppendRkeContext<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+  userContext: string,
+  deps: LayerFourAgentDeps,
+  state: DailyCycleStateType,
+): Promise<string> {
+  if (!hasToolApi(deps.api) || !spec.requiredTools?.includes("get_rke_research_context")) {
+    return userContext;
+  }
+  const asOfDate = state.as_of_date || new Date().toISOString().slice(0, 10);
+  try {
+    const { text } = await deps.api.toolsCall(
+      "get_rke_research_context",
+      { agent_id: spec.agentId, layer: "decision", as_of_date: asOfDate, max_items: 3 },
+      state.mode === "backtest" ? { mode: "backtest", as_of_date: asOfDate } : undefined,
+    );
+    deps.onLog?.(`rke context injected for ${spec.agentId}`);
+    return (
+      `${userContext}\n\n` +
+      "RKE research prior context (redacted; shadow-only; " +
+      "no trade without current data confirmation):\n" +
+      text
+    );
+  } catch (err) {
+    const message = safeErrorMessage(err);
+    deps.onLog?.(`rke context injection skipped for ${spec.agentId}: ${message}`);
+    return `${userContext}\n\nRKE research prior context unavailable: ${message}`;
+  }
+}
+
+function hasToolApi(api: BridgeApi | undefined): api is BridgeApi {
+  return typeof api?.toolsList === "function" && typeof api.toolsCall === "function";
+}
 
 /** 7M Step 2: opt-in injection of the latest MiroFish scenario context into the
  *  CIO prompt. Off unless ``config.mirofish.inject_context`` is true; only the

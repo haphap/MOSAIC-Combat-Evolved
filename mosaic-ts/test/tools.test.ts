@@ -117,6 +117,38 @@ describe("bridgeToolFromMetadata (unit)", () => {
   });
 });
 
+describe("pickBridgeTools (unit)", () => {
+  const args_schema: JsonSchemaObject = {
+    type: "object",
+    properties: { q: { type: "string" } },
+    required: ["q"],
+  };
+  const metadatas: ToolMetadata[] = [
+    "get_rke_research_context",
+    "get_news",
+    "get_xueqiu_heat",
+    "get_industry_policy",
+  ].map((name) => ({ name, description: name, args_schema }));
+
+  it("omits live-only tools when binding a backtest agent", async () => {
+    const api = { toolsList: async () => metadatas } as unknown as BridgeApi;
+    const tools = await pickBridgeTools(
+      api,
+      ["get_rke_research_context", "get_news", "get_xueqiu_heat", "get_industry_policy"],
+      { context: { mode: "backtest", as_of_date: "2024-06-01" } },
+    );
+
+    expect(tools.map((t) => t.name)).toEqual(["get_rke_research_context", "get_industry_policy"]);
+  });
+
+  it("keeps the same tools in live mode", async () => {
+    const api = { toolsList: async () => metadatas } as unknown as BridgeApi;
+    const tools = await pickBridgeTools(api, ["get_news", "get_xueqiu_heat"]);
+
+    expect(tools.map((t) => t.name)).toEqual(["get_news", "get_xueqiu_heat"]);
+  });
+});
+
 describe("listBridgeTools / pickBridgeTools against real sidecar", () => {
   it("converts every Pydantic schema returned by tools.list into a usable tool", async () => {
     const client = new BridgeClient();

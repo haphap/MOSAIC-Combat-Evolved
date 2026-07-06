@@ -59,6 +59,136 @@ _DEFAULT_COHORT = "cohort_default"
 _LANGS = ("zh", "en")
 _WRITE_TARGETS = ("private_git", "project_git", "working_tree")
 _CANONICAL_PROMPT_REPO_ID = "https://github.com/haphap/MOSAIC-Prompts"
+_PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
+_PROMPT_CONTRACT_CATEGORIES = {
+    "role_boundary": ("role boundary",),
+    "required_inputs_tools": ("required inputs", "required tools"),
+    "rke_prior_policy": ("rke prior policy",),
+    "workflow": ("workflow",),
+    "output_schema": ("output schema",),
+    "audit_footprint_contract": ("audit and footprint contract", "audit/footprint contract"),
+    "privacy_boundary": ("privacy boundary",),
+    "confidence_policy": ("confidence policy",),
+    "refusal_no_action": ("refusal and no-action", "refusal/no-action"),
+    "autoresearch_evolution_contract": ("autoresearch evolution contract",),
+}
+_AUDIT_FOOTPRINT_TOKENS = {
+    "claim_type": ("claim type", "claim_type"),
+    "target": ("target",),
+    "confidence": ("confidence",),
+    "current_data_confirmation": ("current-data confirmation", "current_data_confirmed"),
+    "stale_prior": ("stale prior", "stale"),
+    "contradictory_prior": ("contradictory prior", "contradictory"),
+    "rke_context_hash": ("rke context hash", "rke_context_hash"),
+    "ranking_policy_id": ("ranking_policy_id",),
+    "retrieval_rank": ("retrieval_rank",),
+    "priority_bucket": ("priority_bucket",),
+    "truncation_audit": ("truncation audit", "truncated_item_count"),
+}
+_PRIVACY_TOKENS = {
+    "report_prose": ("report prose",),
+    "source_spans": ("source spans", "source_span_ids"),
+    "prompt_body": ("prompt body",),
+    "local_paths": ("local paths",),
+    "urls": ("urls",),
+    "reviewer_text": ("reviewer text",),
+    "licensed_metadata": ("licensed metadata",),
+}
+_IMMUTABLE_GUARDRAIL_TOKENS = (
+    "role boundary",
+    "output schema",
+    "required tools",
+    "current-data gate",
+    "rke-prior policy",
+    "privacy boundary",
+    "audit/footprint contract",
+    "shadow/promotion safety policy",
+)
+_STANDARD_SECTOR_FIELDS = ("longs", "shorts", "sector_score", "key_drivers", "confidence")
+_SUPERINVESTOR_FIELDS = ("picks", "philosophy_note", "key_drivers", "confidence")
+_AGENT_SCHEMA_FIELDS: dict[str, tuple[str, ...]] = {
+    "central_bank": (
+        "stance",
+        "key_rate_change_bps",
+        "qe_qt_balance_change",
+        "next_window",
+        "key_drivers",
+        "confidence",
+    ),
+    "china": ("policy_direction", "sector_focus", "risk_drivers", "key_drivers", "confidence"),
+    "geopolitical": (
+        "escalation_level",
+        "hot_zones",
+        "trade_impact",
+        "key_drivers",
+        "confidence",
+    ),
+    "dollar": (
+        "dxy_trend",
+        "cny_pressure",
+        "dxy_cny_correlation",
+        "key_drivers",
+        "confidence",
+    ),
+    "yield_curve": (
+        "curve_shape",
+        "recession_signal",
+        "cn_us_spread_bps",
+        "key_drivers",
+        "confidence",
+    ),
+    "commodities": (
+        "oil_regime",
+        "metals_regime",
+        "ag_regime",
+        "china_demand_signal",
+        "key_drivers",
+        "confidence",
+    ),
+    "volatility": ("vix_regime", "ivx_regime", "regime_filter", "key_drivers", "confidence"),
+    "emerging_markets": (
+        "em_relative",
+        "hk_a_share_ratio",
+        "capital_flow",
+        "key_drivers",
+        "confidence",
+    ),
+    "news_sentiment": (
+        "retail_sentiment_score",
+        "hot_topics",
+        "contrarian_flag",
+        "key_drivers",
+        "confidence",
+    ),
+    "institutional_flow": (
+        "main_net_flow_cny",
+        "top_buyers",
+        "sectors_in_out",
+        "key_drivers",
+        "confidence",
+    ),
+    "semiconductor": _STANDARD_SECTOR_FIELDS,
+    "energy": _STANDARD_SECTOR_FIELDS,
+    "biotech": _STANDARD_SECTOR_FIELDS,
+    "consumer": _STANDARD_SECTOR_FIELDS,
+    "industrials": _STANDARD_SECTOR_FIELDS,
+    "financials": _STANDARD_SECTOR_FIELDS,
+    "relationship_mapper": (
+        "supply_chains",
+        "ownership_clusters",
+        "contagion_risks",
+        "key_drivers",
+        "confidence",
+    ),
+    "druckenmiller": _SUPERINVESTOR_FIELDS,
+    "munger": _SUPERINVESTOR_FIELDS,
+    "burry": _SUPERINVESTOR_FIELDS,
+    "ackman": _SUPERINVESTOR_FIELDS,
+    "cro": ("rejected_picks", "correlated_risks", "black_swan_scenarios", "confidence"),
+    "alpha_discovery": ("novel_picks", "confidence"),
+    "autonomous_execution": ("trades", "confidence"),
+    "cio": ("portfolio_actions", "confidence"),
+}
 
 
 def _repo_root() -> Path:
@@ -143,6 +273,24 @@ def _prompt_sha256(files: dict[str, str]) -> str:
         digest.update(files[rel].encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _prompt_contract_check_ref(prompt_sha256: str) -> str:
+    return f"prompt-contract:{_PROMPT_CONTRACT_VERSION}:{prompt_sha256}"
+
+
+def _formal_prompt_version_id(prompt_sha256: str) -> int:
+    if not prompt_sha256:
+        return 0
+    return int(prompt_sha256[:12], 16) % 2_000_000_000 + 1
+
+
+def _count(counts: dict[str, int], key: str) -> None:
+    counts[key] = counts.get(key, 0) + 1
+
+
+def _safe_str(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _git_run(cwd: Path, *args: str) -> str:
@@ -567,6 +715,345 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
         },
         "row_count": len(rows),
         "blocked_count": len(blocked),
+        "rows": rows,
+    }
+
+
+def _contract_input_rows(
+    params: dict[str, Any],
+    cohort: str,
+    agents: tuple[str, ...],
+    langs: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    supplied = params.get("prompt_rows")
+    if supplied is not None:
+        if not isinstance(supplied, list) or not supplied:
+            raise RpcError(INVALID_PARAMS, "'prompt_rows' must be a non-empty list")
+        rows: list[dict[str, Any]] = []
+        for index, row in enumerate(supplied, 1):
+            if not isinstance(row, dict):
+                raise RpcError(INVALID_PARAMS, f"prompt_rows[{index}] must be an object")
+            rows.append(dict(row))
+        return rows
+
+    if any(
+        key in params
+        for key in (
+            "prompt_repo_id",
+            "prompt_repo_revision",
+            "prompt_file_path",
+            "prompt_sha256",
+        )
+    ):
+        agent = _require_str(params, "agent")
+        lang = _require_lang(params)
+        return [
+            {
+                "agent": agent,
+                "layer": _LAYER_BY_AGENT.get(agent, ""),
+                "cohort": cohort,
+                "lang": lang,
+                "prompt_repo_id": _safe_str(params.get("prompt_repo_id")),
+                "prompt_repo_revision": _safe_str(params.get("prompt_repo_revision")),
+                "prompt_file_path": _safe_str(params.get("prompt_file_path")),
+                "prompt_sha256": _safe_str(params.get("prompt_sha256")),
+                "benchmark_run_id": _safe_str(params.get("benchmark_run_id")),
+            }
+        ]
+
+    return list(prompts_preflight({"cohort": cohort, "agents": list(agents), "langs": list(langs)})["rows"])
+
+
+def _contract_categories(text: str) -> dict[str, bool]:
+    lower = text.casefold()
+    return {
+        category: any(f"## {alias}" in lower or f"{alias}:" in lower for alias in aliases)
+        for category, aliases in _PROMPT_CONTRACT_CATEGORIES.items()
+    }
+
+
+def _missing_token_groups(text: str, groups: dict[str, tuple[str, ...]]) -> list[str]:
+    lower = text.casefold()
+    return [
+        name
+        for name, tokens in groups.items()
+        if not any(token.casefold() in lower for token in tokens)
+    ]
+
+
+def _check_prompt_contract_text(agent: str, text: str) -> tuple[list[str], dict[str, bool]]:
+    lower = text.casefold()
+    categories = _contract_categories(text)
+    blockers = [
+        f"required_section_missing:{category}"
+        for category, present in categories.items()
+        if not present
+    ]
+
+    for field in _AGENT_SCHEMA_FIELDS.get(agent, ()):
+        if field.casefold() not in lower:
+            blockers.append(f"schema_field_missing:{field}")
+
+    if "get_rke_research_context" not in lower and "injected rke context" not in lower:
+        blockers.append("required_tool_missing:get_rke_research_context")
+    if not any(token in lower for token in ("missing tool", "tool unavailable", "fallback")):
+        blockers.append("missing_tool_fallback_missing")
+    if not any(token in lower for token in ("confidence cap", "caps confidence")):
+        blockers.append("missing_tool_confidence_cap_missing")
+    if "current data" not in lower and "current-data" not in lower:
+        blockers.append("current_data_policy_missing")
+    if not (
+        "research prior" in lower
+        and ("not current data" in lower or "cannot replace current" in lower)
+        and (
+            "cannot directly create trades" in lower
+            or "no trade without current data confirmation" in lower
+        )
+    ):
+        blockers.append("rke_current_data_separation_missing")
+    if any(
+        token in lower
+        for token in (
+            "rke prior is current data",
+            "rke context is current data",
+            "rke prior can directly create trades",
+        )
+    ):
+        blockers.append("rke_prior_treated_as_current_data")
+
+    for name in _missing_token_groups(text, _AUDIT_FOOTPRINT_TOKENS):
+        blockers.append(f"audit_footprint_token_missing:{name}")
+    for name in _missing_token_groups(text, _PRIVACY_TOKENS):
+        blockers.append(f"privacy_token_missing:{name}")
+    if "mutable" not in lower or "immutable" not in lower:
+        blockers.append("autoresearch_mutable_immutable_boundary_missing")
+    for token in _IMMUTABLE_GUARDRAIL_TOKENS:
+        if token not in lower:
+            blockers.append(f"immutable_guardrail_missing:{token}")
+
+    return blockers, categories
+
+
+def _read_contract_prompt(
+    source: dict[str, Any],
+    rel_text: str,
+) -> tuple[str | None, str | None]:
+    rel_path = Path(rel_text)
+    if not rel_text or rel_path.is_absolute() or ".." in rel_path.parts:
+        return None, "prompt_file_path_invalid"
+    repo_root = Path(source["repo_root"])
+    path = (repo_root / rel_path).resolve()
+    try:
+        path.relative_to(repo_root)
+    except ValueError:
+        return None, "prompt_file_path_invalid"
+    if not path.exists():
+        return None, "private_prompt_unavailable"
+    return path.read_text(encoding="utf-8"), None
+
+
+@method("prompts.contract_check")
+def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
+    """Validate private prompt contracts without returning prompt bodies."""
+    cohort = _optional_str(params, "cohort") or _DEFAULT_COHORT
+    agents = _optional_str_list(
+        params,
+        "agents",
+        allowed=_ALL_AGENTS,
+        default=_ALL_AGENTS,
+    )
+    langs = _optional_str_list(params, "langs", allowed=_LANGS, default=_LANGS)
+    benchmark_run_id = _safe_str(params.get("benchmark_run_id"))
+    rows = _contract_input_rows(params, cohort, agents, langs)
+    source = _formal_prompt_source()
+
+    checked_rows: list[dict[str, Any]] = []
+    categories_by_agent_lang: dict[tuple[str, str], dict[str, bool]] = {}
+    for input_row in rows:
+        agent = _safe_str(input_row.get("agent"))
+        lang = _safe_str(input_row.get("lang"))
+        layer = _LAYER_BY_AGENT.get(agent, _safe_str(input_row.get("layer")))
+        blockers: list[str] = []
+        prompt_sha = _safe_str(input_row.get("prompt_sha256"))
+        prompt_repo_id = _safe_str(input_row.get("prompt_repo_id"))
+        prompt_repo_revision = _safe_str(input_row.get("prompt_repo_revision"))
+        prompt_file_path = _safe_str(input_row.get("prompt_file_path"))
+        row_run_id = _safe_str(input_row.get("benchmark_run_id"))
+        categories = {category: False for category in _PROMPT_CONTRACT_CATEGORIES}
+
+        if agent not in _ALL_AGENTS:
+            blockers.append("unknown_agent")
+        if lang not in _LANGS:
+            blockers.append("unsupported_lang")
+        if benchmark_run_id and row_run_id and row_run_id != benchmark_run_id:
+            blockers.append("benchmark_run_id_mismatch")
+        if not source.get("ready"):
+            blockers.append(_safe_str(source.get("blocked_reason")) or "prompt_source_unavailable")
+        else:
+            if not prompt_repo_id:
+                blockers.append("prompt_repo_id_missing")
+            elif prompt_repo_id != _safe_str(source.get("prompt_repo_id")):
+                blockers.append("prompt_repo_id_mismatch")
+            if not prompt_repo_revision:
+                blockers.append("prompt_repo_revision_missing")
+            elif prompt_repo_revision != _safe_str(source.get("prompt_repo_revision")):
+                blockers.append("prompt_repo_revision_mismatch")
+            text, read_error = _read_contract_prompt(source, prompt_file_path)
+            if read_error:
+                blockers.append(read_error)
+            elif text is not None:
+                computed_sha = _prompt_sha256({prompt_file_path: text})
+                if not prompt_sha:
+                    blockers.append("prompt_sha256_missing")
+                    prompt_sha = computed_sha
+                elif prompt_sha != computed_sha:
+                    blockers.append("prompt_sha256_mismatch")
+                text_blockers, categories = _check_prompt_contract_text(agent, text)
+                blockers.extend(text_blockers)
+
+        categories_by_agent_lang[(agent, lang)] = categories
+        checked_rows.append(
+            {
+                "agent": agent,
+                "layer": layer,
+                "lang": lang,
+                "prompt_repo_id": prompt_repo_id,
+                "prompt_repo_revision": prompt_repo_revision,
+                "prompt_file_path": prompt_file_path,
+                "prompt_sha256": prompt_sha,
+                "prompt_contract_check_ref": _prompt_contract_check_ref(prompt_sha)
+                if prompt_sha
+                else "",
+                "benchmark_run_id": benchmark_run_id or row_run_id,
+                "ready": not blockers,
+                "blockers": sorted(set(blockers)),
+                "contract_categories": categories,
+            }
+        )
+
+    for agent in {row["agent"] for row in checked_rows}:
+        zh = categories_by_agent_lang.get((agent, "zh"))
+        en = categories_by_agent_lang.get((agent, "en"))
+        if zh is None or en is None or zh == en:
+            continue
+        for row in checked_rows:
+            if row["agent"] == agent and row["lang"] in {"zh", "en"}:
+                row["ready"] = False
+                row["blockers"] = sorted(set(row["blockers"]) | {"bilingual_contract_category_drift"})
+
+    blocker_counts: dict[str, int] = {}
+    layer_counts: dict[str, int] = {}
+    lang_counts: dict[str, int] = {}
+    ready_counts = {"ready": 0, "blocked": 0}
+    for row in checked_rows:
+        layer_counts[row["layer"]] = layer_counts.get(row["layer"], 0) + 1
+        lang_counts[row["lang"]] = lang_counts.get(row["lang"], 0) + 1
+        ready_counts["ready" if row["ready"] else "blocked"] += 1
+        for blocker in row["blockers"]:
+            blocker_counts[blocker] = blocker_counts.get(blocker, 0) + 1
+
+    return {
+        "schema_version": "prompt_contract_check_v1",
+        "contract_version": _PROMPT_CONTRACT_VERSION,
+        "benchmark_run_id": benchmark_run_id,
+        "cohort": cohort,
+        "ready": bool(checked_rows) and all(row["ready"] for row in checked_rows),
+        "row_count": len(checked_rows),
+        "ready_count": ready_counts["ready"],
+        "blocked_count": ready_counts["blocked"],
+        "blocked_reasons": sorted(blocker_counts),
+        "counts_by_layer": layer_counts,
+        "counts_by_language": lang_counts,
+        "counts_by_ready_status": ready_counts,
+        "counts_by_blocker_code": blocker_counts,
+        "rows": checked_rows,
+    }
+
+
+@method("prompts.formal_release_checks")
+def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
+    """Emit no-body formal prompt release checks from private prompt pins."""
+    cohort = _optional_str(params, "cohort") or _DEFAULT_COHORT
+    agents = _optional_str_list(
+        params,
+        "agents",
+        allowed=_ALL_AGENTS,
+        default=_ALL_AGENTS,
+    )
+    langs = _optional_str_list(params, "langs", allowed=_LANGS, default=_LANGS)
+    benchmark_run_id = _safe_str(params.get("benchmark_run_id"))
+    contract = prompts_contract_check(
+        {
+            "cohort": cohort,
+            "agents": list(agents),
+            "langs": list(langs),
+            "benchmark_run_id": benchmark_run_id,
+        }
+    )
+    preflight = prompts_preflight(
+        {"cohort": cohort, "agents": list(agents), "langs": list(langs)}
+    )
+    source_ready = bool(preflight["source_status"].get("ready"))
+
+    rows: list[dict[str, Any]] = []
+    blocker_counts: dict[str, int] = {}
+    for row in contract["rows"]:
+        prompt_sha = _safe_str(row.get("prompt_sha256"))
+        row_blockers = list(row.get("blockers") or [])
+        if not source_ready:
+            row_blockers.append(
+                _safe_str(preflight["source_status"].get("blocked_reason"))
+                or "prompt_source_unavailable"
+            )
+        if not row.get("ready"):
+            row_blockers.append("prompt_contract_check_not_passed")
+        for blocker in sorted(set(row_blockers)):
+            _count(blocker_counts, blocker)
+        release_passed = bool(prompt_sha) and not row_blockers
+        rows.append(
+            {
+                "agent": _safe_str(row.get("agent")),
+                "layer": _safe_str(row.get("layer")),
+                "lang": _safe_str(row.get("lang")),
+                "benchmark_run_id": benchmark_run_id,
+                "prompt_version_id": _formal_prompt_version_id(prompt_sha),
+                "prompt_repo_id": _safe_str(row.get("prompt_repo_id")),
+                "prompt_repo_revision": _safe_str(row.get("prompt_repo_revision")),
+                "prompt_file_path": _safe_str(row.get("prompt_file_path")),
+                "prompt_sha256": prompt_sha,
+                "audit_version_ref": f"prompt-audit:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                if prompt_sha
+                else "",
+                "verify_release_ref": f"prompt-release:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                if prompt_sha
+                else "",
+                "leak_drift_check_ref": (
+                    f"prompt-leak-drift:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                    if prompt_sha
+                    else ""
+                ),
+                "prompt_contract_check_ref": _safe_str(
+                    row.get("prompt_contract_check_ref")
+                ),
+                "verify_release_passed": release_passed,
+                "leak_drift_passed": release_passed,
+                "prompt_contract_check_passed": row.get("ready") is True,
+                "ready": release_passed,
+                "blockers": sorted(set(row_blockers)),
+            }
+        )
+
+    ready_count = sum(1 for row in rows if row["ready"])
+    return {
+        "schema_version": "prompt_formal_release_checks_v1",
+        "benchmark_run_id": benchmark_run_id,
+        "cohort": cohort,
+        "ready": bool(rows) and ready_count == len(rows),
+        "row_count": len(rows),
+        "ready_count": ready_count,
+        "blocked_count": len(rows) - ready_count,
+        "blocked_reasons": sorted(blocker_counts),
+        "prompt_source_status": preflight["source_status"],
         "rows": rows,
     }
 

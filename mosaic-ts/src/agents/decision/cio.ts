@@ -22,6 +22,8 @@ import {
   renderLayer4PeerContext,
 } from "./_user_context.js";
 
+const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
+
 function buildUserContext(state: DailyCycleStateType): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   return (
@@ -49,6 +51,7 @@ export const cioSpec: LayerFourAgentSpec<CioOutput> = {
   schema: CioSchema,
   fieldNames: CIO_FIELD_NAMES,
   stateUpdateField: "cio",
+  requiredTools: REQUIRED_TOOLS,
   buildUserContext,
   render: renderCio,
   fallback: fallbackCio,

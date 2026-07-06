@@ -220,16 +220,26 @@ def get_yield_curve_cn(curr_date: str, look_back_days: int = 30) -> str:
     ``yield_curve`` (slope / inversion detection).
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-    df = _query_tushare(
-        "yc_cb",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-        curve_type="0",   # 0 = Treasury (国债); 1 = Corporate (信用债)
-    )
+    try:
+        df = _query_tushare(
+            "yc_cb",
+            start_date=_to_tushare_date(start_date),
+            end_date=_to_tushare_date(end_date),
+            curve_type="0",   # 0 = Treasury (国债); 1 = Corporate (信用债)
+        )
+    except DataVendorUnavailable as exc:
+        df = None
+        unavailable = str(exc)
+    else:
+        unavailable = ""
     return _df_to_markdown_csv(
         df,
         title=f"中国国债收益率曲线 / CN Treasury Yield Curve ({start_date} → {end_date})",
-        subtitle="Source: Tushare yc_cb. Yields in percent. Tenors: 1y/2y/3y/5y/7y/10y/30y benchmarks.",
+        subtitle=(
+            "Source: Tushare yc_cb. Yields in percent. Tenors: "
+            "1y/2y/3y/5y/7y/10y/30y benchmarks."
+            + (f" yc_cb unavailable: {unavailable}" if unavailable else "")
+        ),
         empty_note=f"No yc_cb rows returned between {start_date} and {end_date}.",
     )
 
@@ -352,12 +362,24 @@ def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
             "pandas is required for the US-CN spread calculation."
         ) from exc
 
-    cn_df = _query_tushare(
-        "yc_cb",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-        curve_type="0",
-    )
+    try:
+        cn_df = _query_tushare(
+            "yc_cb",
+            start_date=_to_tushare_date(start_date),
+            end_date=_to_tushare_date(end_date),
+            curve_type="0",
+        )
+    except DataVendorUnavailable as exc:
+        empty = pd.DataFrame(columns=["date", "us_10y_pct", "cn_10y_pct", "spread_bps"])
+        return _df_to_markdown_csv(
+            empty,
+            title=f"US-CN 10Y Yield Spread ({start_date} → {end_date})",
+            subtitle=(
+                "spread_bps = (us_10y_pct - cn_10y_pct) * 100. "
+                f"CN leg unavailable: Tushare yc_cb ({exc})."
+            ),
+            empty_note=f"No US-CN spread observations between {start_date} and {end_date}.",
+        )
 
     # Reduce CN frame to (date, cn_10y_pct). Tushare yc_cb columns expected:
     # ts_code, trade_date, curve_type, curve_term, curve_yield (or `value`).

@@ -5,14 +5,52 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import {
   assertPromptInvariants,
+  assertPromptPairInvariants,
   MAX_LENGTH_DELTA,
   mutate,
+  PROMPT_CONTRACT_REQUIRED_SECTION_CATEGORIES,
   PromptInvariantError,
 } from "../src/autoresearch/mutator.js";
 import type { BridgeApi } from "../src/bridge/types.js";
 
-const ZH = `# volatility\n\n## 工作流程\n做点事\n\n## 输出 schema\n\n\`\`\`json\n{ "agent": "volatility", "regime_filter": "x", "confidence": 0 }\n\`\`\`\n`;
-const EN = `# volatility\n\n## Workflow\ndo stuff\n\n## Output schema\n\n\`\`\`json\n{ "agent": "volatility", "regime_filter": "x", "confidence": 0 }\n\`\`\`\n`;
+const BASE_PROMPT = `# volatility
+
+## Role boundary
+agent id volatility; layer macro; downstream consumer daily-cycle; no portfolio decision outside role.
+
+## Required inputs/tools
+Required tools: get_rke_research_context and current data tools. If missing tool or tool unavailable, fallback to conservative output and confidence cap applies.
+
+## RKE prior policy
+get_rke_research_context is a redacted research prior, not current data, cannot replace current data, and cannot directly create trades. no trade without current data confirmation.
+
+## Workflow
+Collect evidence, handle contradiction, confirm current data, reason in role, emit structured JSON.
+
+## Output schema
+Exact fields: regime_filter, confidence.
+
+\`\`\`json
+{ "agent": "volatility", "regime_filter": "x", "confidence": 0 }
+\`\`\`
+
+## Audit and footprint contract
+Fields carry claim type, target, confidence, current-data confirmation, stale prior, contradictory prior, RKE context hash, ranking_policy_id, retrieval_rank, priority_bucket, truncation audit.
+
+## Privacy boundary
+Never output report prose, source spans, prompt body, local paths, URLs, reviewer text, or licensed metadata.
+
+## Confidence policy
+High confidence needs current data and two evidence families; fallback data caps confidence.
+
+## Refusal and no-action behavior
+If required data is unavailable, emit conservative no-action output inside schema.
+
+## Autoresearch evolution contract
+Mutable: thresholds and wording. Immutable: role boundary, output schema, required tools, current-data gate, rke-prior policy, privacy boundary, audit/footprint contract, shadow/promotion safety policy.
+`;
+const ZH = `${BASE_PROMPT}\n中文说明：做点事。\n`;
+const EN = `${BASE_PROMPT}\nEnglish note: do stuff.\n`;
 
 // ── assertPromptInvariants ────────────────────────────────────────────────
 
@@ -23,7 +61,7 @@ describe("assertPromptInvariants", () => {
   });
 
   it("rejects a dropped section", () => {
-    const rewritten = ZH.replace("## 输出 schema", "## 别的");
+    const rewritten = ZH.replace("## Output schema", "## Other schema");
     expect(() => assertPromptInvariants(ZH, rewritten)).toThrow(PromptInvariantError);
   });
 
@@ -39,6 +77,49 @@ describe("assertPromptInvariants", () => {
 
   it("rejects a no-op", () => {
     expect(() => assertPromptInvariants(ZH, ZH)).toThrow(/no-op/);
+  });
+
+  it("rejects weakened RKE prior policy even when schema and workflow remain", () => {
+    const rewritten = `${ZH}\nRKE prior is current data.`;
+    expect(() => assertPromptInvariants(ZH, rewritten)).toThrow(/RKE prior/);
+  });
+
+  it("rejects removed privacy and no-action guardrails", () => {
+    expect(() => assertPromptInvariants(ZH, ZH.replace("report prose", "research text"))).toThrow(
+      /privacy/,
+    );
+    expect(() => assertPromptInvariants(ZH, ZH.replace("no-action", "active-action"))).toThrow(
+      /refusal_no_action|no-action/,
+    );
+  });
+
+  it("accepts mutable threshold wording while preserving immutable guardrails", () => {
+    const rewritten = ZH.replace(
+      "fallback data caps confidence.",
+      "fallback data caps confidence at 0.5.",
+    );
+    expect(() => assertPromptInvariants(ZH, rewritten)).not.toThrow();
+  });
+
+  it("rejects bilingual section drift", () => {
+    expect(() => assertPromptPairInvariants(ZH, EN.replace("## Workflow", "## Steps"))).toThrow(
+      /desynchronized/,
+    );
+  });
+
+  it("keeps TS required section names synchronized with E0.6 categories", () => {
+    expect(PROMPT_CONTRACT_REQUIRED_SECTION_CATEGORIES).toEqual([
+      "role_boundary",
+      "required_inputs_tools",
+      "rke_prior_policy",
+      "workflow",
+      "output_schema",
+      "audit_footprint_contract",
+      "privacy_boundary",
+      "confidence_policy",
+      "refusal_no_action",
+      "autoresearch_evolution_contract",
+    ]);
   });
 });
 

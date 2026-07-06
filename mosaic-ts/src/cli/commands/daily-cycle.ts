@@ -26,6 +26,7 @@ import {
   resolveAgentTimeoutMs,
 } from "../../agents/helpers/runtime.js";
 import { formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
+import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
 import type { PortfolioAction } from "../../agents/types.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
@@ -152,6 +153,20 @@ export function registerDailyCycle(program: Command): void {
         const t0 = Date.now();
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        try {
+          const capture = await captureDailyCycleRkeFootprints(api, final);
+          if (capture) {
+            const detail =
+              capture.capture_status === "captured"
+                ? `rke_footprints=${capture.captured_count}`
+                : `rke_footprints_blocked=${(capture.failures ?? []).slice(0, 2).join(" | ")}`;
+            console.log(pc.dim(redactSensitiveText(detail)));
+          }
+        } catch (err) {
+          console.log(
+            pc.dim(redactSensitiveText(`rke_footprints_skipped=${(err as Error).message}`)),
+          );
+        }
 
         if (opts.out) {
           // ``state.messages`` are LangChain BaseMessage class instances whose

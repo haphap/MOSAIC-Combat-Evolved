@@ -15,6 +15,8 @@ import {
 import { ALPHA_DISCOVERY_FIELD_NAMES, AlphaDiscoverySchema } from "./_schemas.js";
 import { renderLayer1Context, renderLayer2Context, renderLayer3Context } from "./_user_context.js";
 
+const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
+
 function buildUserContext(state: DailyCycleStateType): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   return (
@@ -35,6 +37,7 @@ export const alphaDiscoverySpec: LayerFourAgentSpec<AlphaDiscoveryOutput> = {
   schema: AlphaDiscoverySchema,
   fieldNames: ALPHA_DISCOVERY_FIELD_NAMES,
   stateUpdateField: "alpha_discovery",
+  requiredTools: REQUIRED_TOOLS,
   buildUserContext,
   render: renderAlphaDiscovery,
   fallback: fallbackAlphaDiscovery,
