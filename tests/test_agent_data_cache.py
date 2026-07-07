@@ -182,6 +182,22 @@ def test_backtest_clamped_arguments_define_cache_key(monkeypatch):
     assert calls == [("DGS10", "2024-06-01", "2024-06-15")]
 
 
+def test_backtest_clamp_accepts_compact_dates(monkeypatch):
+    calls = []
+
+    def fake_moneyflow(ticker, start_date, end_date):
+        calls.append((ticker, start_date, end_date))
+        return f"{ticker}:{start_date}:{end_date}"
+
+    monkeypatch.setitem(interface.VENDOR_METHODS, "get_stock_moneyflow", {"tushare": fake_moneyflow})
+
+    with backtest_context("20090316"):
+        out = interface.route_to_vendor("get_stock_moneyflow", "600000.SH", "20090301", "20090320")
+
+    assert out == "600000.SH:20090301:2009-03-16"
+    assert calls == [("600000.SH", "20090301", "2009-03-16")]
+
+
 def test_backtest_as_of_context_is_part_of_cache_key(monkeypatch):
     calls = []
 

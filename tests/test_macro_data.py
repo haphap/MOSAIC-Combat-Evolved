@@ -73,6 +73,11 @@ class TestSharedHelpers:
         assert start == "2024-06-23"
         assert end == "2024-06-30"
 
+    def test_date_range_accepts_compact_date(self):
+        start, end = macro_data._date_range_from_lookback("20090316", 7)
+        assert start == "2009-03-09"
+        assert end == "2009-03-16"
+
     def test_date_range_zero_lookback(self):
         start, end = macro_data._date_range_from_lookback("2024-06-30", 0)
         assert start == end == "2024-06-30"

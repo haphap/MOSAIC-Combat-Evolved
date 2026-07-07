@@ -76,7 +76,7 @@ def _shift_date(value: str, days: int) -> str:
 
 
 def _date_range_from_lookback(curr_date: str, look_back_days: int) -> tuple[str, str]:
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if look_back_days < 0:
         raise DataVendorUnavailable("look_back_days must be >= 0.")
     return _shift_date(curr_date, -look_back_days), curr_date
@@ -592,7 +592,7 @@ def get_policy_uncertainty(curr_date: str, symbol: str = "China", top_n: int = 2
 
     Used by ``china`` as a country-level policy-uncertainty regime input.
     """
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if not str(symbol).strip():
         raise DataVendorUnavailable("symbol must be a non-empty country/region name.")
     if top_n < 1:
@@ -831,7 +831,7 @@ def get_realized_volatility(
     when a vendor's public realized-volatility feed stops updating before the
     analysis date.
     """
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if top_n < 1:
         raise DataVendorUnavailable("top_n must be >= 1.")
     try:
@@ -994,7 +994,7 @@ def get_property_data(curr_date: str, top_n: int = 24) -> str:
     Used by ``china`` (property + its supply chain is a large share of GDP and a
     key policy lever — a primary A-share macro driver).
     """
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if top_n < 1:
         raise DataVendorUnavailable("top_n must be >= 1.")
     try:
@@ -1048,8 +1048,8 @@ def get_stock_moneyflow(ticker: str, start_date: str, end_date: str) -> str:
     (主力) signal. Used by ``institutional_flow`` to see whether big money is
     accumulating or distributing a name.
     """
-    _validate_iso_date(start_date, "start_date")
-    _validate_iso_date(end_date, "end_date")
+    start_date = _validate_iso_date(start_date, "start_date")
+    end_date = _validate_iso_date(end_date, "end_date")
     if start_date > end_date:
         raise DataVendorUnavailable(
             f"start_date {start_date!r} is after end_date {end_date!r}."
