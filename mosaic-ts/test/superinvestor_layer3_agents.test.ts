@@ -332,6 +332,50 @@ describe("buildLayerThreeUserContext", () => {
       },
     ]);
   });
+
+  it("plans Burry tools around downside-first duties", () => {
+    const state: DailyCycleStateType = {
+      messages: [],
+      active_cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      mode: "live",
+      trace_id: "t",
+      continuity_context: {},
+      lesson_context: {},
+      method_context: {},
+      layer1_outputs: {},
+      layer1_consensus: null,
+      layer2_outputs: {
+        semiconductor: {
+          agent: "semiconductor",
+          longs: [{ ticker: "688981.SH", thesis: "cycle bottom", conviction: 0.5 }],
+          shorts: [{ ticker: "300750.SZ", thesis: "crowded", conviction: 0.6 }],
+          sector_score: 0.4,
+          key_drivers: ["d"],
+          confidence: 0.7,
+        },
+      },
+      layer2_consensus: null,
+      layer3_outputs: {},
+      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      portfolio_actions: [],
+      replay_triggered: false,
+      llm_calls: [],
+    };
+
+    expect(buildLayerThreeInitialToolCalls(state, "burry")).toEqual([
+      { name: "get_fundamentals", args: { ticker: "300750.SZ", curr_date: "2024-06-24" } },
+      {
+        name: "get_balance_sheet",
+        args: { ticker: "300750.SZ", freq: "annual", curr_date: "2024-06-24" },
+      },
+      { name: "get_fundamentals", args: { ticker: "688981.SH", curr_date: "2024-06-24" } },
+      {
+        name: "get_balance_sheet",
+        args: { ticker: "688981.SH", freq: "annual", curr_date: "2024-06-24" },
+      },
+    ]);
+  });
 });
 
 // ============================================================ end-to-end via factory

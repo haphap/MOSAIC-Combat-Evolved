@@ -244,13 +244,24 @@ export function buildLayerThreeInitialToolCalls(
   state: DailyCycleStateType,
   agentId: string,
 ): AgentInitialToolCall[] {
-  if (agentId !== "ackman") return [];
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
-  const tickers = pickAckmanCandidateTickers(state).slice(0, 2);
-  return tickers.flatMap((ticker) => [
-    { name: "get_fundamentals", args: { ticker, curr_date: date } },
-    { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
-  ]);
+  if (agentId === "ackman") {
+    return pickAckmanCandidateTickers(state)
+      .slice(0, 2)
+      .flatMap((ticker) => [
+        { name: "get_fundamentals", args: { ticker, curr_date: date } },
+        { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
+      ]);
+  }
+  if (agentId === "burry") {
+    return pickBurryCandidateTickers(state)
+      .slice(0, 2)
+      .flatMap((ticker) => [
+        { name: "get_fundamentals", args: { ticker, curr_date: date } },
+        { name: "get_balance_sheet", args: { ticker, freq: "annual", curr_date: date } },
+      ]);
+  }
+  return [];
 }
 
 function buildLayerThreeToolPlan(agentId: string): string {
@@ -297,6 +308,17 @@ function pickAckmanCandidateTickers(state: DailyCycleStateType): string[] {
     for (const output of Object.values(outputs)) {
       if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
     }
+  }
+  return [...new Set(tickers.filter(Boolean))];
+}
+
+function pickBurryCandidateTickers(state: DailyCycleStateType): string[] {
+  const tickers: string[] = [];
+  for (const output of Object.values(state.layer2_outputs ?? {})) {
+    if (output && "shorts" in output) tickers.push(...output.shorts.map((pick) => pick.ticker));
+  }
+  for (const output of Object.values(state.layer2_outputs ?? {})) {
+    if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
   }
   return [...new Set(tickers.filter(Boolean))];
 }
