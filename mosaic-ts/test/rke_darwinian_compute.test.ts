@@ -103,4 +103,32 @@ describe("rke-darwinian-compute helpers", () => {
     expect(JSON.stringify(evidence)).not.toContain(".mosaic");
     expect(JSON.stringify(evidence)).not.toContain("claim_text");
   });
+
+  it("uses benchmark runtime metrics to avoid uniform stub weights", () => {
+    const weights = computeAgentSkillWeights(
+      [
+        { agent: "central_bank", layer: "macro" },
+        { agent: "volatility", layer: "macro" },
+      ],
+      {
+        risk_adjusted_return: 0.01,
+        alpha: 0,
+        max_drawdown: -0.02,
+        turnover: 0.1,
+        cost_bps: 5,
+      },
+      [
+        { agent: "central_bank", status: "done", toolCalls: 10, toolFailureCount: 0 },
+        { agent: "volatility", status: "done", toolCalls: 10, toolFailureCount: 5 },
+      ],
+    );
+
+    expect(weights.find((row) => row.agent === "central_bank")?.weight).toBeGreaterThan(
+      weights.find((row) => row.agent === "volatility")?.weight ?? 0,
+    );
+    expect(weights.find((row) => row.agent === "central_bank")?.runtime_metric_skill).toBeCloseTo(
+      1,
+    );
+    expect(weights.find((row) => row.agent === "volatility")?.runtime_metric_skill).toBeLessThan(1);
+  });
 });

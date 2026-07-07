@@ -44,6 +44,14 @@ interface FootprintRow {
   failure_mode_tags?: string[];
 }
 
+interface BenchmarkAgentMetric {
+  agent?: string;
+  status?: string;
+  toolCalls?: number;
+  toolFailureCount?: number;
+  outputSource?: string;
+}
+
 export interface AgentSkillWeight {
   agent: string;
   layer: string;
@@ -57,6 +65,7 @@ export interface AgentSkillWeight {
   downstream_outcome_skill: number;
   turnover_cost_skill: number;
   mutation_reliability_skill: number;
+  runtime_metric_skill: number;
 }
 
 export function registerRkeDarwinianCompute(program: Command): void {
@@ -111,7 +120,8 @@ export async function runRkeDarwinianCompute(api: BridgeApi, opts: RkeDarwinianC
   const promptMutationProvenance = buildPromptMutationProvenance(benchmarkRunId, opts);
   const summary = await api.rkeBenchmarkAgentFootprintSummary({ benchmark_run_id: benchmarkRunId });
   const rows = readPrivateFootprintRows(summary, benchmarkRunId);
-  const weights = computeAgentSkillWeights(rows, downstream);
+  const metrics = readPrivateBenchmarkAgentMetrics(benchmarkRunId);
+  const weights = computeAgentSkillWeights(rows, downstream, metrics);
   const nonStubWeightCount = weights.filter(
     (row) => !row.cold_start && !isLayerUniform(row),
   ).length;
@@ -142,8 +152,10 @@ export async function runRkeDarwinianCompute(api: BridgeApi, opts: RkeDarwinianC
 export function computeAgentSkillWeights(
   rows: readonly FootprintRow[],
   downstream: Record<string, unknown>,
+  metrics: readonly BenchmarkAgentMetric[] = [],
 ): AgentSkillWeight[] {
   const rawByAgent = new Map<string, Omit<AgentSkillWeight, "weight"> & { raw: number }>();
+  const runtimeMetricSkillByAgent = buildRuntimeMetricSkillByAgent(metrics);
   for (const agent of ALL_AGENTS) {
     const agentRows = rows.filter((row) => row.agent === agent);
     const contextRows = agentRows.filter((row) => row.rke_context_hash);
@@ -178,6 +190,7 @@ export function computeAgentSkillWeights(
       agentRows.some(hasSafetyCapViolation);
     const schemaContractSkill = coldStart ? 0.5 : schemaContractViolation ? 0 : 1;
     const mutationReliabilitySkill = 1;
+    const runtimeMetricSkill = runtimeMetricSkillByAgent.get(agent) ?? 1;
     const raw =
       coldStart || safetyCapped
         ? 0.2
@@ -187,7 +200,8 @@ export function computeAgentSkillWeights(
           0.15 * schemaContractSkill +
           0.15 * downstreamOutcomeSkill +
           0.05 * turnoverCostSkill +
-          0.05 * mutationReliabilitySkill;
+          0.05 * mutationReliabilitySkill +
+          0.1 * runtimeMetricSkill;
     rawByAgent.set(agent, {
       agent,
       layer: LAYER_BY_AGENT[agent] ?? "unknown",
@@ -200,6 +214,7 @@ export function computeAgentSkillWeights(
       downstream_outcome_skill: downstreamOutcomeSkill,
       turnover_cost_skill: turnoverCostSkill,
       mutation_reliability_skill: mutationReliabilitySkill,
+      runtime_metric_skill: runtimeMetricSkill,
       raw,
     });
   }
@@ -216,6 +231,43 @@ export function computeAgentSkillWeights(
     }
   }
   return out;
+}
+
+function readPrivateBenchmarkAgentMetrics(benchmarkRunId: string): BenchmarkAgentMetric[] {
+  const path = join(
+    findRepoRoot(),
+    ".mosaic/rke/all_agent_evolution/fixed_episode_benchmark",
+    `${benchmarkRunId}.metrics.jsonl`,
+  );
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf-8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .flatMap((line) => {
+      const row = JSON.parse(line) as { agents?: BenchmarkAgentMetric[] };
+      return row.agents ?? [];
+    });
+}
+
+function buildRuntimeMetricSkillByAgent(
+  metrics: readonly BenchmarkAgentMetric[],
+): ReadonlyMap<string, number> {
+  const byAgent = new Map<string, number[]>();
+  for (const metric of metrics) {
+    if (!metric.agent) continue;
+    const toolCalls = Math.max(metric.toolCalls ?? 0, 1);
+    const toolScore = 1 - Math.min(1, (metric.toolFailureCount ?? 0) / toolCalls);
+    const statusScore = metric.status === "done" ? 1 : 0;
+    const sourceScore = metric.outputSource === "fallback" ? 0.5 : 1;
+    const score = clamp01(0.6 * statusScore + 0.3 * toolScore + 0.1 * sourceScore);
+    byAgent.set(metric.agent, [...(byAgent.get(metric.agent) ?? []), score]);
+  }
+  return new Map(
+    [...byAgent.entries()].map(([agent, scores]) => [
+      agent,
+      scores.reduce((acc, score) => acc + score, 0) / scores.length,
+    ]),
+  );
 }
 
 function hasSafetyCapViolation(row: FootprintRow): boolean {
