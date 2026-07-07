@@ -407,6 +407,9 @@ describe("buildLayerThreeUserContext", () => {
         args: { ticker: "600519.SH", freq: "annual", curr_date: "2024-06-24" },
       },
     ]);
+    const ctx = buildLayerThreeUserContext(state, "munger");
+    expect(ctx).toContain("moat durability, cash conversion");
+    expect(ctx).toContain("same candidate or one backup");
   });
 });
 

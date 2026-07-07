@@ -283,6 +283,16 @@ function buildLayerThreeToolPlan(agentId: string): string {
       `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
     );
   }
+  if (agentId === "munger") {
+    return (
+      `## Tool plan\n` +
+      `* Initial evidence: verify the highest-quality compounder candidate with fundamentals and cashflow.\n` +
+      `* Round 1: judge moat durability, cash conversion, and management-quality evidence for that candidate.\n` +
+      `* Round 2: use stock research, income statement, balance sheet, or stock data only for the same candidate or one backup.\n` +
+      `* Round 3: fill one critical gap only; do not broaden beyond the compounder candidate set.\n` +
+      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+    );
+  }
   return (
     `## Tool plan\n` +
     `* Round 1: pick at least 2 candidate tickers that fit your philosophy and verify them with stock research or fundamentals.\n` +
