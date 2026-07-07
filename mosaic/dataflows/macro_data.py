@@ -55,6 +55,8 @@ _DATE_FMT = "%Y-%m-%d"
 def _validate_iso_date(value: str | None, label: str) -> str:
     if not value:
         raise DataVendorUnavailable(f"{label} is required (YYYY-MM-DD).")
+    if re.fullmatch(r"\d{8}", value):
+        value = f"{value[:4]}-{value[4:6]}-{value[6:]}"
     try:
         datetime.strptime(value, _DATE_FMT)
     except ValueError as exc:
