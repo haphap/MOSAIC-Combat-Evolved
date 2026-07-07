@@ -6,6 +6,9 @@ import {
   buildBenchmarkEvidenceRefs,
   buildBenchmarkMetricRecord,
   buildBenchmarkQualitySummary,
+  buildPromptPinsByAgent,
+  buildRkeContextMetadataByAgent,
+  collectBlockedPairedOutputRecords,
   collectPairedOutputRecords,
   completedEpisodeDateModelRuns,
   episodeDateCases,
@@ -99,9 +102,141 @@ describe("rke-fixed-benchmark helpers", () => {
       benchmark_run_id: "bench-1",
       agent: "dollar",
       layer: "macro",
+      status: "ready" as const,
+      blocker_codes: [],
+      prompt_pins: [],
     });
     expect(rows[0]?.output_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(rows)).not.toContain("confidence");
+  });
+
+  it("records prompt pins from contract check rows without prompt bodies", () => {
+    const pins = buildPromptPinsByAgent(
+      [promptContractRow("dollar", "zh", "zhhash"), promptContractRow("dollar", "en", "enhash")],
+      "Bilingual",
+    );
+    const state = {
+      layer1_outputs: { dollar: { agent: "dollar", confidence: 0.7 } },
+      layer2_outputs: {},
+      layer3_outputs: {},
+      layer4_outputs: {},
+    } as unknown as DailyCycleStateType;
+
+    const rows = collectPairedOutputRecords(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "baseline_current_config",
+      state,
+      pins,
+    );
+
+    expect(rows[0]).toMatchObject({
+      status: "ready",
+      blocker_codes: [],
+      prompt_pins: [
+        { lang: "zh", prompt_sha256: "zhhash" },
+        { lang: "en", prompt_sha256: "enhash" },
+      ],
+    });
+    expect(JSON.stringify(rows)).not.toContain("prompt body");
+  });
+
+  it("records RKE context metadata from footprint rows", () => {
+    const state = {
+      layer1_outputs: { dollar: { agent: "dollar", confidence: 0.7 } },
+      layer2_outputs: {},
+      layer3_outputs: {},
+      layer4_outputs: {},
+    } as unknown as DailyCycleStateType;
+    const contextByAgent = buildRkeContextMetadataByAgent([
+      {
+        agent: "dollar",
+        as_of_date: "2024-01-02",
+        claim_type: "macro_regime_claim",
+        target: { target_type: "macro", target_id: "dollar" },
+        rke_context_hash: "a".repeat(64),
+        ranking_policy_id: "rke_agent_research_context_rank_v1",
+        retrieval_rank: 1,
+        priority_bucket: "high",
+        truncated_item_count: 2,
+        current_data_confirmed: true,
+      },
+    ]);
+
+    const rows = collectPairedOutputRecords(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "baseline_current_config",
+      state,
+      undefined,
+      contextByAgent,
+    );
+
+    expect(rows[0]?.rke_context).toEqual({
+      rke_context_hashes: ["a".repeat(64)],
+      ranking_policy_ids: ["rke_agent_research_context_rank_v1"],
+      retrieval_ranks: [1],
+      priority_buckets: ["high"],
+      truncated_item_count_total: 2,
+      current_data_confirmed: true,
+    });
+  });
+
+  it("blocks paired output rows when prompt pins are missing", () => {
+    const state = {
+      layer1_outputs: { dollar: { agent: "dollar", confidence: 0.7 } },
+      layer2_outputs: {},
+      layer3_outputs: {},
+      layer4_outputs: {},
+    } as unknown as DailyCycleStateType;
+
+    const rows = collectPairedOutputRecords(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "baseline_current_config",
+      state,
+      new Map(),
+    );
+
+    expect(rows[0]).toMatchObject({
+      status: "blocked_preflight",
+      blocker_codes: ["prompt_pin_missing"],
+      prompt_pins: [],
+    });
+  });
+
+  it("emits blocked paired output rows for every manifest agent on graph failure", () => {
+    const pins = buildPromptPinsByAgent([promptContractRow("dollar", "zh", "zhhash")], "Chinese");
+    const rows = collectBlockedPairedOutputRecords(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "baseline_current_config",
+      {
+        ...manifest,
+        agents_by_layer: { macro: ["dollar"], decision: ["cro"] },
+        agent_count: 2,
+      },
+      "tool_failed",
+      ["graph_run_failed"],
+      pins,
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      agent: "dollar",
+      status: "tool_failed",
+      blocker_codes: ["graph_run_failed"],
+      prompt_pins: [{ prompt_sha256: "zhhash" }],
+      output_sha256: "",
+    });
+    expect(rows[1]).toMatchObject({
+      agent: "cro",
+      blocker_codes: ["graph_run_failed", "prompt_pin_missing"],
+    });
   });
 
   it("builds gate evidence refs and quality summary", () => {
@@ -134,6 +269,9 @@ describe("rke-fixed-benchmark helpers", () => {
         model_config_id: "local_qwen_27b",
         agent: "dollar",
         layer: "macro",
+        status: "ready" as const,
+        blocker_codes: [],
+        prompt_pins: [],
         output_sha256: "a".repeat(64),
       },
       {
@@ -143,6 +281,9 @@ describe("rke-fixed-benchmark helpers", () => {
         model_config_id: "local_qwen_27b",
         agent: "dollar",
         layer: "macro",
+        status: "ready" as const,
+        blocker_codes: [],
+        prompt_pins: [],
         output_sha256: "a".repeat(64),
       },
       {
@@ -152,6 +293,9 @@ describe("rke-fixed-benchmark helpers", () => {
         model_config_id: "local_qwen3_6_35b",
         agent: "dollar",
         layer: "macro",
+        status: "ready" as const,
+        blocker_codes: [],
+        prompt_pins: [],
         output_sha256: "b".repeat(64),
       },
     ];
@@ -164,6 +308,28 @@ describe("rke-fixed-benchmark helpers", () => {
       local_qwen_27b: 1,
     });
     expect(stats.coveredAsOfDates).toEqual(new Set(["2024-01-02"]));
+  });
+
+  it("recovers benchmark error count from blocked paired output rows", () => {
+    const rows = collectBlockedPairedOutputRecords(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "local_qwen_27b",
+      {
+        ...manifest,
+        agents_by_layer: { macro: ["dollar"], decision: ["cro"] },
+        agent_count: 2,
+      },
+      "tool_failed",
+      ["graph_run_failed"],
+    );
+
+    const stats = aggregatePairedOutputStats("bench-1", rows);
+    const summary = buildBenchmarkQualitySummary(manifest, stats);
+
+    expect(stats.errorCount).toBe(2);
+    expect(summary.schema_failure_gate_passed).toBe(false);
   });
 
   it("parses agent runtime metrics from benchmark logs", () => {
@@ -187,6 +353,8 @@ describe("rke-fixed-benchmark helpers", () => {
       elapsedMs: 142000,
       analysisLlmInvocations: 7,
       toolCalls: 12,
+      toolCacheHits: 0,
+      toolExecutions: 0,
       toolFailureCount: 1,
       outputSource: "structured",
       promptTokens: 100,
@@ -221,7 +389,7 @@ describe("rke-fixed-benchmark helpers", () => {
     );
     updateAgentMetricsFromLog(
       metrics,
-      "[agent:done] L4 cio elapsed=2.0s analysis_llm=3 tools=2 prompt_tokens=20 completion_tokens=7 llm_elapsed_ms=200 source=structured",
+      "[agent:done] L4 cio elapsed=2.0s analysis_llm=3 tools=2 tool_cache_hits=1 tool_executions=1 prompt_tokens=20 completion_tokens=7 llm_elapsed_ms=200 source=structured",
     );
 
     expect(metrics.get("L4:cio")).toMatchObject({
@@ -230,6 +398,8 @@ describe("rke-fixed-benchmark helpers", () => {
       elapsedMs: 3000,
       analysisLlmInvocations: 5,
       toolCalls: 3,
+      toolCacheHits: 1,
+      toolExecutions: 1,
       promptTokens: 30,
       completionTokens: 10,
       llmElapsedMs: 300,
@@ -275,6 +445,9 @@ describe("rke-fixed-benchmark helpers", () => {
           model_config_id: "local_qwen_27b",
           agent: "dollar",
           layer: "macro",
+          status: "ready" as const,
+          blocker_codes: [],
+          prompt_pins: [],
           output_sha256: "a".repeat(64),
         },
         {
@@ -284,6 +457,9 @@ describe("rke-fixed-benchmark helpers", () => {
           model_config_id: "local_qwen_27b",
           agent: "china",
           layer: "macro",
+          status: "ready" as const,
+          blocker_codes: [],
+          prompt_pins: [],
           output_sha256: "b".repeat(64),
         },
       ],
@@ -306,6 +482,9 @@ describe("rke-fixed-benchmark helpers", () => {
         model_config_id: "local_qwen_27b",
         agent: "dollar",
         layer: "macro",
+        status: "ready" as const,
+        blocker_codes: [],
+        prompt_pins: [],
         output_sha256: "a".repeat(64),
       },
       {
@@ -315,6 +494,9 @@ describe("rke-fixed-benchmark helpers", () => {
         model_config_id: "local_qwen_27b",
         agent: "cro",
         layer: "decision",
+        status: "ready" as const,
+        blocker_codes: [],
+        prompt_pins: [],
         output_sha256: "b".repeat(64),
       },
       {
@@ -324,12 +506,57 @@ describe("rke-fixed-benchmark helpers", () => {
         model_config_id: "local_qwen_27b",
         agent: "dollar",
         layer: "macro",
+        status: "ready" as const,
+        blocker_codes: [],
+        prompt_pins: [],
         output_sha256: "c".repeat(64),
+      },
+      {
+        benchmark_run_id: "bench-1",
+        episode_id: "e1",
+        as_of_date: "2024-01-04",
+        model_config_id: "local_qwen_27b",
+        agent: "dollar",
+        layer: "macro",
+        status: "tool_failed" as const,
+        blocker_codes: ["graph_run_failed"],
+        prompt_pins: [],
+        output_sha256: "",
+      },
+      {
+        benchmark_run_id: "bench-1",
+        episode_id: "e1",
+        as_of_date: "2024-01-04",
+        model_config_id: "local_qwen_27b",
+        agent: "cro",
+        layer: "decision",
+        status: "tool_failed" as const,
+        blocker_codes: ["graph_run_failed"],
+        prompt_pins: [],
+        output_sha256: "",
+      },
+      {
+        benchmark_run_id: "bench-1",
+        episode_id: "e1",
+        as_of_date: "2024-01-05",
+        model_config_id: "local_qwen_27b",
+        agent: "dollar",
+        layer: "macro",
+        output_sha256: "d".repeat(64),
+      },
+      {
+        benchmark_run_id: "bench-1",
+        episode_id: "e1",
+        as_of_date: "2024-01-05",
+        model_config_id: "local_qwen_27b",
+        agent: "cro",
+        layer: "decision",
+        output_sha256: "e".repeat(64),
       },
     ];
 
     expect(completedEpisodeDateModelRuns(rows, 2)).toEqual(
-      new Set(["local_qwen_27b|e1|2024-01-02"]),
+      new Set(["local_qwen_27b|e1|2024-01-02", "local_qwen_27b|e1|2024-01-05"]),
     );
   });
 
@@ -340,3 +567,20 @@ describe("rke-fixed-benchmark helpers", () => {
     expect(outputDir).not.toContain("/mosaic-ts/.mosaic/");
   });
 });
+
+function promptContractRow(agent: string, lang: "zh" | "en", hash: string) {
+  return {
+    agent,
+    layer: "macro",
+    lang,
+    prompt_repo_id: "private-prompts",
+    prompt_repo_revision: "abc123",
+    prompt_file_path: `cohort_default/macro/${agent}.${lang}.md`,
+    prompt_sha256: hash,
+    prompt_contract_check_ref: `prompt-contract:${hash}`,
+    benchmark_run_id: "bench-1",
+    ready: true,
+    blockers: [],
+    contract_categories: {},
+  };
+}

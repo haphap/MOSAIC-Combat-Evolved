@@ -31,6 +31,22 @@ describe("rke-darwinian-compute helpers", () => {
           current_data_confirmed: true,
           contradictory_prior_handled: true,
         },
+        {
+          agent: "burry",
+          layer: "superinvestor",
+          rke_context_hash: "d".repeat(64),
+          rke_prior_usage_quality: "used_ranked_prior",
+          current_data_confirmed: true,
+          private_text_included: true,
+        },
+        {
+          agent: "ackman",
+          layer: "superinvestor",
+          rke_context_hash: "e".repeat(64),
+          rke_prior_usage_quality: "used_ranked_prior",
+          current_data_confirmed: true,
+          failure_mode_tags: ["schema_invalid"],
+        },
       ],
       {
         risk_adjusted_return: 0.12,
@@ -45,6 +61,16 @@ describe("rke-darwinian-compute helpers", () => {
     expect(weights.find((row) => row.agent === "dollar")?.weight).toBeGreaterThan(
       weights.find((row) => row.agent === "central_bank")?.weight ?? 0,
     );
+    expect(weights.find((row) => row.agent === "central_bank")).toMatchObject({
+      safety_capped: true,
+      current_data_skill: 0,
+    });
+    expect(weights.find((row) => row.agent === "burry")?.safety_capped).toBe(true);
+    expect(weights.find((row) => row.agent === "ackman")?.safety_capped).toBe(true);
+    expect(weights.find((row) => row.agent === "burry")?.schema_contract_skill).toBe(0);
+    expect(weights.find((row) => row.agent === "ackman")?.schema_contract_skill).toBe(0);
+    expect(weights.find((row) => row.agent === "munger")?.safety_capped).toBe(false);
+    expect(weights.find((row) => row.agent === "dollar")?.safety_capped).toBe(false);
     for (const layer of ["macro", "sector", "superinvestor", "decision"]) {
       const sum = weights
         .filter((row) => row.layer === layer)

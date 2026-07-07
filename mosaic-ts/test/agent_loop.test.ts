@@ -1,12 +1,35 @@
-import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
+import { AIMessage, type BaseMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
+import { tool } from "@langchain/core/tools";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   compactToolOutput,
   parseToolOutputMaxChars,
   pruneConsumedToolHistory,
+  pruneConsumedToolHistoryWithEntries,
   resolveToolOutputMaxChars,
+  runAgentToolLoop,
   toolCallFingerprint,
 } from "../src/agents/helpers/agent_loop.js";
+
+class ScriptedLlm {
+  bindToolsCalled = 0;
+  readonly seenMessages: BaseMessage[][] = [];
+
+  constructor(private readonly responses: AIMessage[]) {}
+
+  bindTools(): ScriptedLlm {
+    this.bindToolsCalled++;
+    return this;
+  }
+
+  async invoke(messages: BaseMessage[]): Promise<AIMessage> {
+    this.seenMessages.push(messages);
+    const next = this.responses.shift();
+    if (!next) throw new Error("script exhausted");
+    return next;
+  }
+}
 
 describe("agent tool loop helpers", () => {
   it("does not truncate tool output by default", () => {
@@ -42,7 +65,8 @@ describe("agent tool loop helpers", () => {
     expect(() => parseToolOutputMaxChars("-1")).toThrow("invalid tool output max chars");
   });
 
-  it("drops consumed tool-call exchanges from the replay history", () => {
+  it("keeps single consumed tool results full in replay history", () => {
+    const fullOutput = "x".repeat(900);
     const pruned = pruneConsumedToolHistory([
       new HumanMessage("initial context"),
       new AIMessage({
@@ -57,7 +81,7 @@ describe("agent tool loop helpers", () => {
         ],
       }),
       new ToolMessage({
-        content: "x".repeat(100_000),
+        content: fullOutput,
         tool_call_id: "c1",
       }),
       new AIMessage("next step"),
@@ -67,8 +91,82 @@ describe("agent tool loop helpers", () => {
     expect(String(pruned[1]?.content)).toBe("retain this short conclusion");
     expect(String(pruned[2]?.content)).toContain("Prior tool results retained");
     expect(String(pruned[2]?.content)).toContain("get_big_table#");
-    expect(String(pruned[2]?.content)).toContain("prior_tool_output_compacted");
-    expect(String(pruned[2]?.content)).not.toContain("x".repeat(1_000));
+    expect(String(pruned[2]?.content)).toContain("[full]");
+    expect(String(pruned[2]?.content)).toContain(fullOutput);
+    expect(String(pruned[2]?.content)).not.toContain("prior_tool_output_compacted");
+  });
+
+  it("keeps only the latest repeated fingerprint full across replay pruning", () => {
+    const firstOutput = "old-duplicate-".repeat(100);
+    const first = pruneConsumedToolHistoryWithEntries(
+      [
+        new HumanMessage("initial context"),
+        new AIMessage({
+          content: "",
+          tool_calls: [
+            {
+              id: "c1",
+              name: "get_big_table",
+              args: { ticker: "600519.SH" },
+              type: "tool_call",
+            },
+          ],
+        }),
+        new ToolMessage({ content: firstOutput, tool_call_id: "c1" }),
+      ],
+      [],
+    );
+    const second = pruneConsumedToolHistoryWithEntries(
+      [
+        ...first.messages,
+        new AIMessage({
+          content: "",
+          tool_calls: [
+            {
+              id: "c2",
+              name: "get_big_table",
+              args: { ticker: "600519.SH" },
+              type: "tool_call",
+            },
+          ],
+        }),
+        new ToolMessage({ content: "latest full output", tool_call_id: "c2" }),
+      ],
+      first.entries,
+    );
+
+    const replay = second.messages.map((message) => String(message.content)).join("\n");
+    expect(replay).toContain("[older_duplicate_memo]");
+    expect(replay).toContain("prior_tool_output_compacted");
+    expect(replay).not.toContain(firstOutput);
+    expect(replay).toContain("[full]");
+    expect(replay).toContain("latest full output");
+  });
+
+  it("demotes oldest full replay entries when the full replay budget is exceeded", () => {
+    const pruned = pruneConsumedToolHistoryWithEntries(
+      [
+        new HumanMessage("initial context"),
+        new AIMessage({
+          content: "",
+          tool_calls: [
+            { id: "c1", name: "get_a", args: { a: 1 }, type: "tool_call" },
+            { id: "c2", name: "get_b", args: { b: 2 }, type: "tool_call" },
+          ],
+        }),
+        new ToolMessage({ content: "old full output", tool_call_id: "c1" }),
+        new ToolMessage({ content: "new full output", tool_call_id: "c2" }),
+      ],
+      [],
+      "new full output".length,
+    );
+
+    const replay = pruned.messages.map((message) => String(message.content)).join("\n");
+    expect(replay).toContain("get_a#");
+    expect(replay).toContain("[full_budget_memo]");
+    expect(replay).toContain("get_b#");
+    expect(replay).toContain("[full]");
+    expect(replay).toContain("new full output");
   });
 
   it("builds stable short tool-call fingerprints from canonical args", () => {
@@ -76,5 +174,81 @@ describe("agent tool loop helpers", () => {
       toolCallFingerprint("get_x", { a: 1, b: 2 }),
     );
     expect(toolCallFingerprint("get_x", { a: 1 })).not.toBe(toolCallFingerprint("get_x", { a: 2 }));
+  });
+
+  it("serves repeated same-args tool calls from the per-agent cache", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c1", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c2", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage("done"),
+    ]);
+    let executions = 0;
+    const logs: string[] = [];
+    const getX = tool(
+      async () => {
+        executions++;
+        return `result-${executions}`;
+      },
+      {
+        name: "get_x",
+        description: "test tool",
+        schema: z.object({ a: z.number() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [getX],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      onLog: (message) => logs.push(message),
+    });
+
+    expect(result.analysisText).toBe("done");
+    expect(result.toolCalls).toBe(2);
+    expect(result.toolExecutions).toBe(1);
+    expect(result.toolCacheHits).toBe(1);
+    expect(executions).toBe(1);
+    expect(logs.some((line) => line.includes("tool_cache_hit"))).toBe(true);
+    expect(
+      result.messages
+        .filter((message) => message.getType() === "tool")
+        .map((message) => String(message.content)),
+    ).toEqual(["result-1", "result-1"]);
+  });
+
+  it("executes role-required initial tool calls before the first LLM turn", async () => {
+    const llm = new ScriptedLlm([new AIMessage("done")]);
+    const logs: string[] = [];
+    const getFundamentals = tool(async ({ ticker }) => `fundamentals:${ticker}`, {
+      name: "get_fundamentals",
+      description: "test tool",
+      schema: z.object({ ticker: z.string() }),
+    });
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [getFundamentals],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      initialToolCalls: [{ name: "get_fundamentals", args: { ticker: "600519.SH" } }],
+      onLog: (message) => logs.push(message),
+    });
+
+    expect(result.analysisText).toBe("done");
+    expect(result.toolCalls).toBe(1);
+    expect(result.toolExecutions).toBe(1);
+    expect(logs.some((line) => line.includes("names=get_fundamentals"))).toBe(true);
+    expect(
+      llm.seenMessages[0]?.some(
+        (message) => message.getType() === "tool" && String(message.content).includes("600519.SH"),
+      ),
+    ).toBe(true);
   });
 });

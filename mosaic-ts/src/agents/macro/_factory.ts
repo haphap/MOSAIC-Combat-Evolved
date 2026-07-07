@@ -186,6 +186,8 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
               `analysis_llm=${loopResult.llmInvocations}`,
               `tools=${loopResult.toolCalls}`,
+              `tool_cache_hits=${loopResult.toolCacheHits}`,
+              `tool_executions=${loopResult.toolExecutions}`,
               ...formatTokenMetricFields(
                 loopResult.promptTokens,
                 loopResult.completionTokens,

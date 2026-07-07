@@ -3,12 +3,14 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
-import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
+import { buildDailyCycleRkeFootprintRows } from "../../agents/rke_footprints.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
 import { BridgeClient, RpcError, BridgeApi as RuntimeBridgeApi } from "../../bridge/index.js";
 import { findRepoRoot } from "../../bridge/python.js";
 import type {
   BridgeApi,
+  PromptContractCheckRow,
+  RkeAgentClaimFootprintInput,
   RkeBenchmarkModelConfig,
   RkeFixedEpisodeManifestResult,
 } from "../../bridge/types.js";
@@ -39,6 +41,33 @@ interface RkeFixedBenchmarkOptions {
   reviewerIndependenceConfirmed?: boolean;
 }
 
+type PairedOutputStatus =
+  | "ready"
+  | "blocked_preflight"
+  | "tool_failed"
+  | "timeout"
+  | "schema_invalid"
+  | "empty_output"
+  | "privacy_blocked";
+
+export interface PromptPin {
+  lang: "zh" | "en";
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_file_path: string;
+  prompt_sha256: string;
+  prompt_contract_check_ref: string;
+}
+
+export interface RkeContextMetadata {
+  rke_context_hashes: string[];
+  ranking_policy_ids: string[];
+  retrieval_ranks: number[];
+  priority_buckets: string[];
+  truncated_item_count_total: number;
+  current_data_confirmed: boolean;
+}
+
 interface PairedOutputRecord {
   benchmark_run_id: string;
   episode_id: string;
@@ -46,6 +75,10 @@ interface PairedOutputRecord {
   model_config_id: string;
   agent: string;
   layer: string;
+  status?: PairedOutputStatus;
+  blocker_codes?: string[];
+  prompt_pins?: PromptPin[];
+  rke_context?: RkeContextMetadata;
   output_sha256: string;
 }
 
@@ -69,6 +102,8 @@ interface AgentBenchmarkMetric {
   elapsedMs: number;
   analysisLlmInvocations: number;
   toolCalls: number;
+  toolCacheHits: number;
+  toolExecutions: number;
   toolCallCountsByName: Record<string, number>;
   toolCallFingerprints: Record<string, number>;
   toolFailureCount: number;
@@ -94,6 +129,8 @@ interface BenchmarkMetricRecord {
   fallback_output_count: number;
   agent_elapsed_ms_total: number;
   tool_calls_total: number;
+  tool_cache_hits_total: number;
+  tool_executions_total: number;
   tool_failure_count: number;
   tool_call_counts_by_name: Record<string, number>;
   tool_call_fingerprints: Record<string, number>;
@@ -193,6 +230,7 @@ export async function runRkeFixedBenchmark(
   }
 
   const config = await api.configGet();
+  const promptPinsByAgent = buildPromptPinsByAgent(contractCheck.rows, config.output_language);
   const modelConfigs = selectModelConfigs(manifest, opts.modelConfig);
   if (modelConfigs.length === 0) {
     throw new Error("no benchmark model configs selected");
@@ -247,12 +285,19 @@ export async function runRkeFixedBenchmark(
         const initialState = makeInitialState(cohort, item.as_of_date);
         initialState.trace_id = `${benchmarkRunId}:${modelConfig.model_config_id}:${item.as_of_date}`;
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
+        const footprintRows = await buildDailyCycleRkeFootprintRows(api, final, {
+          currentDataConfirmed: !opts.fakeLlm,
+          episodeId: item.episode_id,
+          modelConfigId: modelConfig.model_config_id,
+        });
         const rows = collectPairedOutputRecords(
           benchmarkRunId,
           item.episode_id,
           item.as_of_date,
           modelConfig.model_config_id,
           final,
+          promptPinsByAgent,
+          buildRkeContextMetadataByAgent(footprintRows),
         );
         writePairedOutputRecords(benchmarkRunId, rows);
         writeBenchmarkMetricRecord(
@@ -276,12 +321,33 @@ export async function runRkeFixedBenchmark(
         for (const row of rows) stats.coveredAgents.add(row.agent);
         if (opts.fakeLlm) stats.fallbackPromptRunCount += rows.length;
 
-        const capture = await captureDailyCycleRkeFootprints(api, final, benchmarkRunId, {
-          currentDataConfirmed: !opts.fakeLlm,
-        });
+        const capture =
+          footprintRows.length > 0
+            ? await api.rkeBenchmarkCaptureAgentClaimFootprints({
+                benchmark_run_id: benchmarkRunId,
+                rows: footprintRows,
+              })
+            : null;
         if (capture?.capture_status === "blocked") stats.errorCount += 1;
       } catch (err) {
         stats.errorCount += 1;
+        const rows = collectBlockedPairedOutputRecords(
+          benchmarkRunId,
+          item.episode_id,
+          item.as_of_date,
+          modelConfig.model_config_id,
+          manifest,
+          "tool_failed",
+          ["graph_run_failed"],
+          promptPinsByAgent,
+        );
+        writePairedOutputRecords(benchmarkRunId, rows);
+        stats.pairedOutputCount += rows.length;
+        stats.modelConfigOutputCounts[modelConfig.model_config_id] =
+          (stats.modelConfigOutputCounts[modelConfig.model_config_id] ?? 0) + rows.length;
+        stats.coveredEpisodeIds.add(item.episode_id);
+        stats.coveredAsOfDates.add(item.as_of_date);
+        for (const row of rows) stats.coveredAgents.add(row.agent);
         onLog(
           `run failed ${modelConfig.model_config_id} ${item.as_of_date}: ${(err as Error).message}`,
         );
@@ -403,6 +469,8 @@ export function collectPairedOutputRecords(
   asOfDate: string,
   modelConfigId: string,
   state: DailyCycleStateType,
+  promptPinsByAgent?: ReadonlyMap<string, readonly PromptPin[]>,
+  rkeContextByAgent?: ReadonlyMap<string, RkeContextMetadata>,
 ): PairedOutputRecord[] {
   const rows: PairedOutputRecord[] = [];
   for (const [layer, outputs] of [
@@ -413,6 +481,8 @@ export function collectPairedOutputRecords(
   ] as const) {
     for (const [agent, output] of Object.entries(outputs ?? {})) {
       if (!output) continue;
+      const promptPins = promptPinsByAgent?.get(agent) ?? [];
+      const promptPinMissing = promptPinsByAgent !== undefined && promptPins.length === 0;
       rows.push({
         benchmark_run_id: benchmarkRunId,
         episode_id: episodeId,
@@ -420,11 +490,110 @@ export function collectPairedOutputRecords(
         model_config_id: modelConfigId,
         agent,
         layer,
+        status: promptPinMissing ? "blocked_preflight" : "ready",
+        blocker_codes: promptPinMissing ? ["prompt_pin_missing"] : [],
+        prompt_pins: [...promptPins],
+        rke_context: rkeContextByAgent?.get(agent) ?? emptyRkeContextMetadata(),
         output_sha256: sha256(JSON.stringify(output)),
       });
     }
   }
   return rows;
+}
+
+export function buildRkeContextMetadataByAgent(
+  rows: readonly RkeAgentClaimFootprintInput[],
+): Map<string, RkeContextMetadata> {
+  const byAgent = new Map<string, RkeContextMetadata>();
+  for (const row of rows) {
+    if (!row.rke_context_hash) continue;
+    const current = byAgent.get(row.agent) ?? emptyRkeContextMetadata();
+    const firstContext = current.rke_context_hashes.length === 0;
+    current.rke_context_hashes.push(row.rke_context_hash);
+    if (row.ranking_policy_id) current.ranking_policy_ids.push(row.ranking_policy_id);
+    if (row.retrieval_rank !== undefined) current.retrieval_ranks.push(row.retrieval_rank);
+    if (row.priority_bucket) current.priority_buckets.push(row.priority_bucket);
+    current.truncated_item_count_total += row.truncated_item_count ?? 0;
+    current.current_data_confirmed = firstContext
+      ? row.current_data_confirmed === true
+      : current.current_data_confirmed && row.current_data_confirmed === true;
+    byAgent.set(row.agent, current);
+  }
+  return byAgent;
+}
+
+function emptyRkeContextMetadata(): RkeContextMetadata {
+  return {
+    rke_context_hashes: [],
+    ranking_policy_ids: [],
+    retrieval_ranks: [],
+    priority_buckets: [],
+    truncated_item_count_total: 0,
+    current_data_confirmed: false,
+  };
+}
+
+export function collectBlockedPairedOutputRecords(
+  benchmarkRunId: string,
+  episodeId: string,
+  asOfDate: string,
+  modelConfigId: string,
+  manifest: RkeFixedEpisodeManifestResult,
+  status: Exclude<PairedOutputStatus, "ready">,
+  blockerCodes: readonly string[],
+  promptPinsByAgent?: ReadonlyMap<string, readonly PromptPin[]>,
+): PairedOutputRecord[] {
+  const rows: PairedOutputRecord[] = [];
+  for (const [layer, agents] of Object.entries(manifest.agents_by_layer)) {
+    for (const agent of agents) {
+      const promptPins = promptPinsByAgent?.get(agent) ?? [];
+      const missingPromptPin = promptPinsByAgent !== undefined && promptPins.length === 0;
+      rows.push({
+        benchmark_run_id: benchmarkRunId,
+        episode_id: episodeId,
+        as_of_date: asOfDate,
+        model_config_id: modelConfigId,
+        agent,
+        layer,
+        status,
+        blocker_codes: missingPromptPin
+          ? [...blockerCodes, "prompt_pin_missing"]
+          : [...blockerCodes],
+        prompt_pins: [...promptPins],
+        output_sha256: "",
+      });
+    }
+  }
+  return rows;
+}
+
+export function buildPromptPinsByAgent(
+  rows: readonly PromptContractCheckRow[],
+  outputLanguage: string,
+): Map<string, PromptPin[]> {
+  const wantedLangs = promptLangsForOutput(outputLanguage);
+  const pinsByAgent = new Map<string, PromptPin[]>();
+  for (const row of rows) {
+    if (!row.ready || !wantedLangs.has(row.lang)) continue;
+    const pins = pinsByAgent.get(row.agent) ?? [];
+    pins.push({
+      lang: row.lang,
+      prompt_repo_id: row.prompt_repo_id,
+      prompt_repo_revision: row.prompt_repo_revision,
+      prompt_file_path: row.prompt_file_path,
+      prompt_sha256: row.prompt_sha256,
+      prompt_contract_check_ref: row.prompt_contract_check_ref,
+    });
+    pinsByAgent.set(row.agent, pins);
+  }
+  return pinsByAgent;
+}
+
+function promptLangsForOutput(outputLanguage: string): ReadonlySet<"zh" | "en"> {
+  const raw = outputLanguage.toLowerCase().trim();
+  if (raw === "english" || raw === "en") return new Set(["en"]);
+  if (raw === "bilingual") return new Set(["zh", "en"]);
+  return new Set(["zh"]);
 }
 
 function writePairedOutputRecords(benchmarkRunId: string, rows: PairedOutputRecord[]): void {
@@ -479,6 +648,8 @@ export function updateAgentMetricsFromLog(
   metric.elapsedMs += parseDurationMs(fields.elapsed ?? "") ?? 0;
   metric.analysisLlmInvocations += parseInteger(fields.analysis_llm) ?? 0;
   metric.toolCalls += parseInteger(fields.tools) ?? 0;
+  metric.toolCacheHits += parseInteger(fields.tool_cache_hits) ?? 0;
+  metric.toolExecutions += parseInteger(fields.tool_executions) ?? 0;
   metric.outputSource =
     fields.source === "structured" || fields.source === "fallback"
       ? fields.source
@@ -531,6 +702,8 @@ export function buildBenchmarkMetricRecord(
     fallback_output_count: agents.filter((agent) => agent.outputSource === "fallback").length,
     agent_elapsed_ms_total: sum(agents, (agent) => agent.elapsedMs),
     tool_calls_total: sum(agents, (agent) => agent.toolCalls),
+    tool_cache_hits_total: sum(agents, (agent) => agent.toolCacheHits),
+    tool_executions_total: sum(agents, (agent) => agent.toolExecutions),
     tool_failure_count: sum(agents, (agent) => agent.toolFailureCount),
     tool_call_counts_by_name: toolCallCountsByName,
     tool_call_fingerprints: toolCallFingerprints,
@@ -555,6 +728,8 @@ function emptyAgentMetric(agent: string, layer: string): AgentBenchmarkMetric {
     elapsedMs: 0,
     analysisLlmInvocations: 0,
     toolCalls: 0,
+    toolCacheHits: 0,
+    toolExecutions: 0,
     toolCallCountsByName: {},
     toolCallFingerprints: {},
     toolFailureCount: 0,
@@ -647,6 +822,7 @@ export function aggregatePairedOutputStats(
     const key = `${row.model_config_id}|${row.episode_id}|${row.as_of_date}|${row.agent}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (!isCompletedPairedOutputRow(row)) stats.errorCount += 1;
     stats.pairedOutputCount += 1;
     stats.modelConfigOutputCounts[row.model_config_id] =
       (stats.modelConfigOutputCounts[row.model_config_id] ?? 0) + 1;
@@ -663,6 +839,7 @@ export function completedEpisodeDateModelRuns(
 ): Set<string> {
   const agentsByRun = new Map<string, Set<string>>();
   for (const row of rows) {
+    if (!isCompletedPairedOutputRow(row)) continue;
     const key = `${row.model_config_id}|${row.episode_id}|${row.as_of_date}`;
     const agents = agentsByRun.get(key) ?? new Set<string>();
     agents.add(row.agent);
@@ -673,6 +850,10 @@ export function completedEpisodeDateModelRuns(
       .filter(([, agents]) => agents.size >= agentCount)
       .map(([key]) => key),
   );
+}
+
+function isCompletedPairedOutputRow(row: PairedOutputRecord): boolean {
+  return row.status === "ready" || (row.status === undefined && !!row.output_sha256);
 }
 
 export function fixedBenchmarkPrivateOutputDir(): string {

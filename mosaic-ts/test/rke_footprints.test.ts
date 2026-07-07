@@ -96,9 +96,15 @@ describe("RKE footprint capture helpers", () => {
 
     const rows = await buildDailyCycleRkeFootprintRows(api, state, {
       currentDataConfirmed: true,
+      replayRunId: "replay-1",
+      episodeId: "episode-1",
+      modelConfigId: "local_qwen_27b",
     });
 
     expect(rows[0]).toMatchObject({
+      replay_run_id: "replay-1",
+      episode_id: "episode-1",
+      model_config_id: "local_qwen_27b",
       current_data_confirmed: true,
       rke_prior_usage_quality: "used_ranked_prior",
       reason_codes: ["daily_cycle_runtime_capture", "formal_runtime_current_data_confirmed"],

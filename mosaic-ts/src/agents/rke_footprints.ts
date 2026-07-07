@@ -31,6 +31,9 @@ interface RkeAudit {
 
 interface RkeFootprintBuildOptions {
   currentDataConfirmed?: boolean;
+  replayRunId?: string;
+  episodeId?: string;
+  modelConfigId?: string;
 }
 
 export async function captureDailyCycleRkeFootprints(
@@ -125,6 +128,9 @@ async function rowForAgent(
     current_data_confirmed: currentDataConfirmed,
     stale_prior_rejected: false,
     contradictory_prior_handled: false,
+    ...(options.replayRunId ? { replay_run_id: options.replayRunId } : {}),
+    ...(options.episodeId ? { episode_id: options.episodeId } : {}),
+    ...(options.modelConfigId ? { model_config_id: options.modelConfigId } : {}),
     reason_codes: currentDataConfirmed
       ? ["daily_cycle_runtime_capture", "formal_runtime_current_data_confirmed"]
       : ["daily_cycle_runtime_capture"],

@@ -40,10 +40,19 @@ export interface AgentToolLoopOptions {
   initialMessages: ReadonlyArray<BaseMessage>;
   /** Cap loop iterations to bound LLM cost; default 6. */
   maxLoops?: number;
+  /** Full latest-tool replay budget in chars; 0 means unlimited. */
+  replayFullToolMaxChars?: number;
+  /** Deterministic role-required evidence to collect before the first LLM turn. */
+  initialToolCalls?: ReadonlyArray<AgentInitialToolCall>;
   /** Forward LLM stderr / debug logs through this channel (default: silent). */
   onLog?: (msg: string) => void;
   /** Abort signal for the current agent wall-clock timeout. */
   signal?: AbortSignal;
+}
+
+export interface AgentInitialToolCall {
+  name: string;
+  args: Record<string, unknown>;
 }
 
 export interface AgentToolLoopResult {
@@ -57,6 +66,10 @@ export interface AgentToolLoopResult {
   llmInvocations: number;
   /** Total tool_calls dispatched across all iterations. */
   toolCalls: number;
+  /** Tool calls served from the per-agent fingerprint cache. */
+  toolCacheHits: number;
+  /** Registered tool invocations that reached the bridge/local tool. */
+  toolExecutions: number;
   /** Observed provider prompt tokens for analysis-loop calls. */
   promptTokens: number;
   /** Observed provider completion tokens for analysis-loop calls. */
@@ -69,7 +82,13 @@ export interface AgentToolLoopResult {
 
 const DEFAULT_MAX_LOOPS = 6;
 const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0;
+const DEFAULT_REPLAY_FULL_TOOL_MAX_CHARS = 0;
 const PRIOR_TOOL_REPLAY_CHARS = 800;
+
+export interface ToolReplayEntry {
+  fingerprint: string;
+  output: string;
+}
 
 export interface CompactedToolOutput {
   text: string;
@@ -96,6 +115,16 @@ export function resolveToolOutputMaxChars(
   const chars = explicit ?? parseToolOutputMaxChars(envValue) ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS;
   if (!Number.isFinite(chars)) {
     throw new Error(`invalid tool output max chars: ${chars}`);
+  }
+  return Math.max(0, Math.floor(chars));
+}
+
+export function resolveReplayFullToolMaxChars(
+  envValue = process.env.MOSAIC_AGENT_REPLAY_FULL_TOOL_MAX_CHARS,
+): number {
+  const chars = parseToolOutputMaxChars(envValue) ?? DEFAULT_REPLAY_FULL_TOOL_MAX_CHARS;
+  if (!Number.isFinite(chars)) {
+    throw new Error(`invalid replay full tool max chars: ${chars}`);
   }
   return Math.max(0, Math.floor(chars));
 }
@@ -152,27 +181,39 @@ function compactPriorToolReplayText(output: string): string {
   );
 }
 
-export function pruneConsumedToolHistory(messages: ReadonlyArray<BaseMessage>): BaseMessage[] {
-  const pruned: BaseMessage[] = [];
+function renderToolReplaySummary(
+  entries: ReadonlyArray<ToolReplayEntry>,
+  latestByFingerprint: ReadonlyMap<string, ToolReplayEntry>,
+  fullEntries: ReadonlySet<ToolReplayEntry>,
+): HumanMessage | undefined {
+  if (entries.length === 0) return undefined;
+  const lines = entries.map((entry) => {
+    const latest = latestByFingerprint.get(entry.fingerprint) === entry;
+    const full = latest && fullEntries.has(entry);
+    const label = full ? "full" : latest ? "full_budget_memo" : "older_duplicate_memo";
+    const text = full ? entry.output : compactPriorToolReplayText(entry.output);
+    return `- ${entry.fingerprint} [${label}]:\n  ${text.replaceAll("\n", "\n  ")}`;
+  });
+  return new HumanMessage(`Prior tool results retained:\n${lines.join("\n")}`);
+}
+
+function isToolReplaySummary(message: BaseMessage): boolean {
+  return (
+    message.getType() === "human" &&
+    extractTextContent(message.content as unknown).startsWith("Prior tool results retained:\n")
+  );
+}
+
+function collectToolReplayEntries(messages: ReadonlyArray<BaseMessage>): ToolReplayEntry[] {
+  const entries: ToolReplayEntry[] = [];
   let droppingToolReplies = false;
   let pendingToolCalls = new Map<string, string>();
-  let retainedToolReplies: string[] = [];
   for (const message of messages) {
     if (droppingToolReplies && message.getType() !== "tool") {
-      if (retainedToolReplies.length > 0) {
-        pruned.push(
-          new HumanMessage(`Prior tool results retained:\n${retainedToolReplies.join("\n")}`),
-        );
-        retainedToolReplies = [];
-      }
       droppingToolReplies = false;
       pendingToolCalls = new Map();
     }
     if (hasToolCalls(message)) {
-      const content = extractTextContent(message.content as unknown).trim();
-      if (content) {
-        pruned.push(new AIMessage(content));
-      }
       pendingToolCalls = new Map(
         (message.tool_calls ?? []).map((call) => [
           call.id ?? "",
@@ -184,34 +225,127 @@ export function pruneConsumedToolHistory(messages: ReadonlyArray<BaseMessage>): 
     }
     if (droppingToolReplies && message.getType() === "tool") {
       const toolMessage = message as ToolMessage;
-      const fingerprint = pendingToolCalls.get(toolMessage.tool_call_id) ?? "unknown#unknown";
-      const output = extractTextContent(toolMessage.content as unknown);
-      retainedToolReplies.push(
-        `- ${fingerprint}: ${compactPriorToolReplayText(output).replaceAll("\n", "\n  ")}`,
-      );
+      entries.push({
+        fingerprint: pendingToolCalls.get(toolMessage.tool_call_id) ?? "unknown#unknown",
+        output: extractTextContent(toolMessage.content as unknown),
+      });
+    }
+  }
+  return entries;
+}
+
+function latestToolReplayEntries(
+  entries: ReadonlyArray<ToolReplayEntry>,
+): Map<string, ToolReplayEntry> {
+  const latestByFingerprint = new Map<string, ToolReplayEntry>();
+  for (const entry of entries) latestByFingerprint.set(entry.fingerprint, entry);
+  return latestByFingerprint;
+}
+
+function replayFullEntries(
+  entries: ReadonlyArray<ToolReplayEntry>,
+  latestByFingerprint: ReadonlyMap<string, ToolReplayEntry>,
+  maxFullChars: number,
+): Set<ToolReplayEntry> {
+  const fullCandidates = entries.filter(
+    (entry) => latestByFingerprint.get(entry.fingerprint) === entry,
+  );
+  if (maxFullChars <= 0) return new Set(fullCandidates);
+  const fullEntries = new Set<ToolReplayEntry>();
+  let remaining = maxFullChars;
+  for (let index = fullCandidates.length - 1; index >= 0; index--) {
+    const entry = fullCandidates[index];
+    if (!entry) continue;
+    if (entry.output.length > remaining) continue;
+    fullEntries.add(entry);
+    remaining -= entry.output.length;
+  }
+  return fullEntries;
+}
+
+function flushToolReplaySegment(
+  pruned: BaseMessage[],
+  segmentEntries: ToolReplayEntry[],
+  latestByFingerprint: ReadonlyMap<string, ToolReplayEntry>,
+  fullEntries: ReadonlySet<ToolReplayEntry>,
+): void {
+  const summary = renderToolReplaySummary(segmentEntries, latestByFingerprint, fullEntries);
+  if (summary) pruned.push(summary);
+  segmentEntries.length = 0;
+}
+
+export function pruneConsumedToolHistoryWithEntries(
+  messages: ReadonlyArray<BaseMessage>,
+  priorEntries: ReadonlyArray<ToolReplayEntry>,
+  maxFullChars = resolveReplayFullToolMaxChars(),
+): { messages: BaseMessage[]; entries: ToolReplayEntry[] } {
+  const newEntries = collectToolReplayEntries(messages);
+  const entries = [...priorEntries, ...newEntries];
+  const latestByFingerprint = latestToolReplayEntries(entries);
+  const fullEntries = replayFullEntries(entries, latestByFingerprint, maxFullChars);
+  const pruned: BaseMessage[] = [];
+  let droppingToolReplies = false;
+  const segmentEntries: ToolReplayEntry[] = [];
+  let newEntryIndex = 0;
+  let renderedPriorEntries = false;
+
+  for (const message of messages) {
+    if (droppingToolReplies && message.getType() !== "tool") {
+      flushToolReplaySegment(pruned, segmentEntries, latestByFingerprint, fullEntries);
+      droppingToolReplies = false;
+    }
+    if (isToolReplaySummary(message) && priorEntries.length > 0) {
+      if (!renderedPriorEntries) {
+        const summary = renderToolReplaySummary(priorEntries, latestByFingerprint, fullEntries);
+        if (summary) pruned.push(summary);
+        renderedPriorEntries = true;
+      }
+      continue;
+    }
+    if (hasToolCalls(message)) {
+      const content = extractTextContent(message.content as unknown).trim();
+      if (content) {
+        pruned.push(new AIMessage(content));
+      }
+      droppingToolReplies = true;
+      continue;
+    }
+    if (droppingToolReplies && message.getType() === "tool") {
+      const entry = newEntries[newEntryIndex++];
+      if (entry) segmentEntries.push(entry);
       continue;
     }
     pruned.push(message);
   }
-  if (retainedToolReplies.length > 0) {
-    pruned.push(
-      new HumanMessage(`Prior tool results retained:\n${retainedToolReplies.join("\n")}`),
-    );
+  flushToolReplaySegment(pruned, segmentEntries, latestByFingerprint, fullEntries);
+  if (priorEntries.length > 0 && !renderedPriorEntries) {
+    const summary = renderToolReplaySummary(priorEntries, latestByFingerprint, fullEntries);
+    if (summary) pruned.push(summary);
   }
-  return pruned;
+  return { messages: pruned, entries };
+}
+
+export function pruneConsumedToolHistory(messages: ReadonlyArray<BaseMessage>): BaseMessage[] {
+  return pruneConsumedToolHistoryWithEntries(messages, []).messages;
 }
 
 export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<AgentToolLoopResult> {
   const maxLoops = opts.maxLoops ?? DEFAULT_MAX_LOOPS;
   const toolOutputMaxChars = resolveToolOutputMaxChars();
+  const replayFullToolMaxChars = opts.replayFullToolMaxChars ?? resolveReplayFullToolMaxChars();
   const toolByName = new Map(opts.tools.map((t) => [t.name, t] as const));
   const messages: BaseMessage[] = [...opts.initialMessages];
   let replayMessages: BaseMessage[] = [...opts.initialMessages];
   let llmInvocations = 0;
   let toolCalls = 0;
+  let toolCacheHits = 0;
+  let toolExecutions = 0;
   let promptTokens = 0;
   let completionTokens = 0;
   let llmElapsedMs = 0;
+  // ponytail: per-agent cache; make it shared only if duplicate tool IO remains costly.
+  const toolOutputCache = new Map<string, string>();
+  let toolReplayEntries: ToolReplayEntry[] = [];
 
   // Some BaseChatModel subclasses lack bindTools; the caller is responsible
   // for picking a provider that supports tool-calling. Fail loud rather than
@@ -223,6 +357,53 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     );
   }
   const llmWithTools = opts.llm.bindTools(opts.tools as StructuredToolInterface[]);
+
+  if (opts.initialToolCalls?.length) {
+    const calls = opts.initialToolCalls.map((call, index) => ({
+      id: `initial_tool_${index + 1}`,
+      name: call.name,
+      args: call.args,
+      type: "tool_call" as const,
+    }));
+    const ai = new AIMessage({ content: "Collecting role-required evidence.", tool_calls: calls });
+    messages.push(ai);
+    replayMessages.push(ai);
+    opts.onLog?.(
+      `tools=${calls.length} names=${calls.map((call) => call.name).join(",")} fingerprints=${calls
+        .map((call) => toolCallFingerprint(call.name, call.args))
+        .join(",")}`,
+    );
+    for (const call of calls) {
+      const name = call.name;
+      const fingerprint = toolCallFingerprint(call.name, call.args);
+      toolCalls++;
+      const tool = toolByName.get(name);
+      if (!tool) {
+        opts.onLog?.(`unknown tool '${name}', stubbing reply`);
+        const toolMessage = new ToolMessage({
+          content: `Tool '${name}' is not registered for this agent.`,
+          tool_call_id: call.id,
+        });
+        messages.push(toolMessage);
+        replayMessages.push(toolMessage);
+        continue;
+      }
+      toolExecutions++;
+      let output: string;
+      try {
+        const raw = await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
+        output = typeof raw === "string" ? raw : String(raw);
+        toolOutputCache.set(fingerprint, output);
+      } catch (err) {
+        output = `Tool '${name}' raised: ${(err as Error).message}`;
+        opts.onLog?.(output);
+      }
+      const compacted = compactToolOutput(output, toolOutputMaxChars);
+      const toolMessage = new ToolMessage({ content: compacted.text, tool_call_id: call.id });
+      messages.push(toolMessage);
+      replayMessages.push(toolMessage);
+    }
+  }
 
   for (let step = 0; step < maxLoops; step++) {
     opts.onLog?.(`analysis_llm=${step + 1}/${maxLoops}`);
@@ -252,6 +433,8 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         analysisText: analysis,
         llmInvocations,
         toolCalls,
+        toolCacheHits,
+        toolExecutions,
         promptTokens,
         completionTokens,
         llmElapsedMs,
@@ -259,7 +442,13 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       };
     }
 
-    replayMessages = pruneConsumedToolHistory(replayMessages);
+    const prunedReplay = pruneConsumedToolHistoryWithEntries(
+      replayMessages,
+      toolReplayEntries,
+      replayFullToolMaxChars,
+    );
+    replayMessages = prunedReplay.messages;
+    toolReplayEntries = prunedReplay.entries;
     replayMessages.push(ai);
     opts.onLog?.(
       `tools=${calls.length} names=${calls
@@ -270,6 +459,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     );
     for (const call of calls) {
       const name = call.name ?? "";
+      const fingerprint = toolCallFingerprint(call.name, call.args ?? {});
       toolCalls++;
       const tool = toolByName.get(name);
       if (!tool) {
@@ -283,15 +473,24 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         continue;
       }
       let output: string;
-      try {
-        const raw = await tool.invoke(
-          call.args ?? {},
-          opts.signal ? { signal: opts.signal } : undefined,
-        );
-        output = typeof raw === "string" ? raw : String(raw);
-      } catch (err) {
-        output = `Tool '${name}' raised: ${(err as Error).message}`;
-        opts.onLog?.(output);
+      const cachedOutput = toolOutputCache.get(fingerprint);
+      if (cachedOutput !== undefined) {
+        output = cachedOutput;
+        toolCacheHits++;
+        opts.onLog?.(`tool_cache_hit fingerprint=${fingerprint}`);
+      } else {
+        toolExecutions++;
+        try {
+          const raw = await tool.invoke(
+            call.args ?? {},
+            opts.signal ? { signal: opts.signal } : undefined,
+          );
+          output = typeof raw === "string" ? raw : String(raw);
+          toolOutputCache.set(fingerprint, output);
+        } catch (err) {
+          output = `Tool '${name}' raised: ${(err as Error).message}`;
+          opts.onLog?.(output);
+        }
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);
       if (compacted.truncated) {
@@ -334,6 +533,8 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     analysisText: analysis,
     llmInvocations,
     toolCalls,
+    toolCacheHits,
+    toolExecutions,
     promptTokens,
     completionTokens,
     llmElapsedMs,

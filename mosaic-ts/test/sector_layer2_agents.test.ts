@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { pickResearchDigestTools } from "../src/agents/helpers/research_digest_tools.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import {
@@ -454,6 +455,70 @@ describe("buildLayerTwoUserContext", () => {
     };
     const ctx = buildLayerTwoUserContext(state, "semiconductor");
     expect(ctx).toContain("not available");
+  });
+});
+
+describe("compact ETF holdings tool", () => {
+  it("returns a small candidate JSON and does not pass top_n to the bridge tool", async () => {
+    const raw = [
+      "# ETF holdings for 512010.SH",
+      "# Total records: 20",
+      "",
+      "# Key snapshot",
+      "Ticker: 512010.SH",
+      "Disclosure Date: 20260422",
+      "Report Date: 20260331",
+      "Top Holding: 600276.SH",
+      "Top Holding Weight: 20.20%",
+      "",
+      "ts_code,ann_date,end_date,symbol,mkv,amount,stk_mkv_ratio,stk_float_ratio,stk_name",
+      "512010.SH,20260422,20260331,600276.SH,3472136909.78,62878249.0,20.2,0.99,恒瑞医药",
+      "512010.SH,20260422,20260331,603259.SH,3417696580.5,34838905.0,19.88,1.41,药明康德",
+      "512010.SH,20260422,20260331,300760.SZ,1404918967.72,8532242.0,8.17,0.7,迈瑞医疗",
+    ].join("\n");
+    const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
+    const api = {
+      toolsList: async () => [
+        {
+          name: "get_etf_holdings",
+          description: "raw ETF holdings",
+          args_schema: { type: "object", properties: {}, required: [] },
+        },
+      ],
+      toolsCall: async (name: string, input: Record<string, unknown>) => {
+        calls.push({ name, input });
+        return { text: raw };
+      },
+    } as unknown as BridgeApi;
+
+    const [tool] = await pickResearchDigestTools({
+      api,
+      names: ["get_etf_holdings"],
+      options: {},
+      llmHandle: { model: "fake" } as LlmHandle,
+      onLog: () => undefined,
+      signal: new AbortController().signal,
+    });
+    if (!tool) throw new Error("expected get_etf_holdings tool");
+    const output = String(
+      await tool.invoke({ ticker: "512010.SH", curr_date: "2026-06-18", top_n: 2 }),
+    );
+    const parsed = JSON.parse(output) as {
+      candidates: Array<{ ticker: string; name: string; weight_pct: number }>;
+      usage: string;
+    };
+
+    expect(calls).toEqual([
+      { name: "get_etf_holdings", input: { ticker: "512010.SH", curr_date: "2026-06-18" } },
+    ]);
+    expect(parsed.candidates).toHaveLength(2);
+    expect(parsed.candidates[0]).toMatchObject({
+      ticker: "600276.SH",
+      name: "恒瑞医药",
+      weight_pct: 20.2,
+    });
+    expect(parsed.usage).toContain("at most 3 tickers");
+    expect(output).not.toContain("mkv,amount");
   });
 });
 

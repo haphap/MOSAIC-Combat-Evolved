@@ -10,7 +10,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
-import { buildLayerThreeUserContext } from "../src/agents/superinvestor/_factory.js";
+import {
+  buildLayerThreeInitialToolCalls,
+  buildLayerThreeUserContext,
+} from "../src/agents/superinvestor/_factory.js";
 import {
   ackmanSpec,
   buildAckmanNode,
@@ -207,6 +210,8 @@ describe("buildLayerThreeUserContext", () => {
     expect(ctx).toContain("688981.SH");
     expect(ctx).toContain("druckenmiller");
     expect(ctx).toContain("score=0.60");
+    expect(ctx).toContain("pick at least 2 candidate tickers");
+    expect(ctx).toContain("confirmed by current stock research");
   });
 
   it("degrades gracefully when L1/L2 state is empty", () => {
@@ -272,6 +277,61 @@ describe("buildLayerThreeUserContext", () => {
     expect(ctx).toContain("半导体设备链");
     expect(ctx).toContain("contagion_risks");
   });
+
+  it("plans Ackman tools around quality-compounder duties", () => {
+    const state: DailyCycleStateType = {
+      messages: [],
+      active_cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      mode: "live",
+      trace_id: "t",
+      continuity_context: {},
+      lesson_context: {},
+      method_context: {},
+      layer1_outputs: {},
+      layer1_consensus: null,
+      layer2_outputs: {
+        consumer: {
+          agent: "consumer",
+          longs: [{ ticker: "600519.SH", thesis: "pricing power", conviction: 0.8 }],
+          shorts: [],
+          sector_score: 0.4,
+          key_drivers: ["d"],
+          confidence: 0.7,
+        },
+        financials: {
+          agent: "financials",
+          longs: [{ ticker: "600036.SH", thesis: "quality bank", conviction: 0.6 }],
+          shorts: [],
+          sector_score: 0.2,
+          key_drivers: ["d"],
+          confidence: 0.6,
+        },
+      },
+      layer2_consensus: null,
+      layer3_outputs: {},
+      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      portfolio_actions: [],
+      replay_triggered: false,
+      llm_calls: [],
+    };
+
+    const ctx = buildLayerThreeUserContext(state, "ackman");
+    expect(ctx).toContain("pricing power, FCF conversion");
+    expect(ctx).toContain("quality-compounder candidate set");
+    expect(buildLayerThreeInitialToolCalls(state, "ackman")).toEqual([
+      { name: "get_fundamentals", args: { ticker: "600519.SH", curr_date: "2024-06-24" } },
+      {
+        name: "get_cashflow",
+        args: { ticker: "600519.SH", freq: "annual", curr_date: "2024-06-24" },
+      },
+      { name: "get_fundamentals", args: { ticker: "600036.SH", curr_date: "2024-06-24" } },
+      {
+        name: "get_cashflow",
+        args: { ticker: "600036.SH", freq: "annual", curr_date: "2024-06-24" },
+      },
+    ]);
+  });
 });
 
 // ============================================================ end-to-end via factory
@@ -283,6 +343,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     invokeCalls = 0;
     bindToolsCalled = 0;
     structuredCalls = 0;
+    lastMessages: BaseMessage[] | undefined;
     readonly response: AIMessage;
     readonly structuredResponse: SuperinvestorOutput;
     constructor(text: string, structured: SuperinvestorOutput) {
@@ -303,6 +364,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     }
     async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
       this.invokeCalls++;
+      this.lastMessages = _messages;
       return this.response;
     }
   }
@@ -311,8 +373,8 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-l3-"));
     const dir = join(promptDir, "cohort_default", "superinvestor");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "druckenmiller.zh.md"), "FAKE", "utf-8");
-    writeFileSync(join(dir, "druckenmiller.en.md"), "FAKE", "utf-8");
+    writeFileSync(join(dir, "druckenmiller.zh.md"), "FAKE old tool get_xueqiu_heat", "utf-8");
+    writeFileSync(join(dir, "druckenmiller.en.md"), "FAKE old tool get_xueqiu_heat", "utf-8");
     clearPromptCache();
   });
   afterEach(() => {
@@ -446,6 +508,9 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     expect(llm.bindToolsCalled).toBe(1);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.structuredCalls).toBe(1);
+    const system = String(llm.lastMessages?.[0]?.content ?? "");
+    expect(system).toContain("Only call these registered tools");
+    expect(system).toContain("get_stock_research");
   });
 });
 

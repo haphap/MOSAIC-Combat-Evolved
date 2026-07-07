@@ -130,6 +130,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           let analysisText = "";
           let analysisLlmInvocations = 1;
           let toolCalls = 0;
+          let toolCacheHits = 0;
+          let toolExecutions = 0;
           let promptTokens = 0;
           let completionTokens = 0;
           let llmElapsedMs = 0;
@@ -150,6 +152,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             analysisText = loopResult.analysisText;
             analysisLlmInvocations = loopResult.llmInvocations;
             toolCalls = loopResult.toolCalls;
+            toolCacheHits = loopResult.toolCacheHits;
+            toolExecutions = loopResult.toolExecutions;
             promptTokens = loopResult.promptTokens;
             completionTokens = loopResult.completionTokens;
             llmElapsedMs = loopResult.llmElapsedMs;
@@ -197,6 +201,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
               `analysis_llm=${analysisLlmInvocations}`,
               `tools=${toolCalls}`,
+              `tool_cache_hits=${toolCacheHits}`,
+              `tool_executions=${toolExecutions}`,
               ...formatTokenMetricFields(promptTokens, completionTokens, llmElapsedMs),
               `source=${extractor.structured ? "structured" : "fallback"}`,
               summarizeAgentOutput(output),

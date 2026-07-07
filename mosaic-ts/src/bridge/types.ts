@@ -704,6 +704,9 @@ export interface RkeFixedEpisodeBenchmarkEvidenceResult {
 }
 
 export interface RkeAgentClaimFootprintInput {
+  replay_run_id?: string;
+  episode_id?: string;
+  model_config_id?: string;
   agent: string;
   layer?: string;
   as_of_date: string;
@@ -1063,6 +1066,7 @@ export interface RkeShadowReplayReadinessResult {
   prompt_provenance_readiness_status: "ready" | "blocked_preflight";
   benchmark_evidence_status: "ready" | "blocked_preflight";
   darwinian_manifest_status: "ready" | "blocked_preflight";
+  darwinian_consumption_status: "ready" | "blocked_preflight";
   prompt_release_readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   rollback_readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   replay_evidence: {

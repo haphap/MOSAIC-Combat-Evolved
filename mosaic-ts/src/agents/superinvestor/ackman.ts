@@ -11,15 +11,12 @@ import { AckmanSchema, SUPERINVESTOR_FIELD_NAMES } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
   "get_rke_research_context",
-  "get_xueqiu_heat",
-  "get_lhb_ranking",
   "get_stock_research",
   "get_fundamentals",
   "get_income_statement",
   "get_cashflow",
   "get_balance_sheet",
   "get_stock_data",
-  "get_indicators",
 ] as const;
 
 export const ackmanSpec: LayerThreeAgentSpec<AckmanOutput> = {

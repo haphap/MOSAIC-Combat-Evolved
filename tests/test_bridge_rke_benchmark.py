@@ -119,11 +119,19 @@ def _replay_evidence(
     row = {
         "benchmark_run_id": benchmark_run_id,
         "replay_run_id": replay_run_id,
-        "replay_run_ref": f"{benchmark_run_id}-{replay_run_id}-run",
-        "replay_output_manifest_ref": f"{benchmark_run_id}-{replay_run_id}-outputs",
-        "runtime_context_consumption_ref": f"{benchmark_run_id}-{replay_run_id}-contexts",
-        "replay_footprint_ref": f"{benchmark_run_id}-{replay_run_id}-footprints",
-        "downstream_outcome_metrics_ref": f"{benchmark_run_id}-{replay_run_id}-outcomes",
+        "replay_run_ref": f"rke-shadow:{benchmark_run_id}:{replay_run_id}:run",
+        "replay_output_manifest_ref": (
+            f"rke-shadow:{benchmark_run_id}:{replay_run_id}:outputs"
+        ),
+        "runtime_context_consumption_ref": (
+            f"rke-shadow:{benchmark_run_id}:{replay_run_id}:contexts"
+        ),
+        "replay_footprint_ref": (
+            f"rke-shadow:{benchmark_run_id}:{replay_run_id}:footprints"
+        ),
+        "downstream_outcome_metrics_ref": (
+            f"rke-shadow:{benchmark_run_id}:{replay_run_id}:runtime-metrics"
+        ),
         "replay_output_count": 25,
         "replay_footprint_count": 25,
         "privacy_scan_passed": True,
@@ -889,6 +897,9 @@ def test_capture_agent_claim_footprints_writes_private_redacted_rows(
             "benchmark_run_id": "bench-001",
             "rows": [
                 {
+                    "replay_run_id": "replay-001",
+                    "episode_id": "episode-001",
+                    "model_config_id": "local_qwen_27b",
                     "agent": "dollar",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
@@ -930,6 +941,9 @@ def test_capture_agent_claim_footprints_writes_private_redacted_rows(
         for line in private_path.read_text(encoding="utf-8").splitlines()
     ]
     assert len(rows) == 2
+    assert rows[0]["replay_run_id"] == "replay-001"
+    assert rows[0]["episode_id"] == "episode-001"
+    assert rows[0]["model_config_id"] == "local_qwen_27b"
     assert rows[0]["private_text_included"] is False
     assert rows[0]["production_signal_allowed"] is False
     payload = json.dumps(rows, ensure_ascii=False)
@@ -3370,6 +3384,7 @@ def test_shadow_replay_readiness_blocks_missing_proof(tmp_path: Path, monkeypatc
     assert "all_agent_prompt_provenance_not_ready" in manifest["blocked_reasons"]
     assert "benchmark_evidence_not_ready" in manifest["blocked_reasons"]
     assert "darwinian_autoresearch_input_not_ready" in manifest["blocked_reasons"]
+    assert "darwinian_autoresearch_consumption_not_ready" in manifest["blocked_reasons"]
     assert "prompt_mutation_release_not_ready" in manifest["blocked_reasons"]
     assert "rollback_readiness_not_ready" in manifest["blocked_reasons"]
     assert "shadow_replay_evidence_missing" in manifest["blocked_reasons"]
@@ -3510,45 +3525,50 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
             blocked_by=[],
         )
     ]
+    shadow_params = {
+        "benchmark_run_id": "bench-shadow-ready",
+        "all_agent_prompt_release_checks": _all_prompt_release_checks(
+            preflight["rows"], "bench-shadow-ready"
+        ),
+        "paired_output_count": 1275,
+        "model_config_output_counts": _model_config_output_counts(),
+        "benchmark_quality_summary": _benchmark_quality_summary(
+            "bench-shadow-ready"
+        ),
+        "benchmark_evidence_refs": _benchmark_evidence_refs("bench-shadow-ready"),
+        "manual_review": _manual_review("bench-shadow-ready"),
+        "downstream_outcome_metrics": _downstream_outcome_metrics(
+            "bench-shadow-ready"
+        ),
+        "prompt_mutation_provenance": _prompt_mutation_provenance(
+            "bench-shadow-ready"
+        ),
+        "darwinian_autoresearch_consumption_evidence": (
+            _darwinian_consumption_evidence("bench-shadow-ready")
+        ),
+        "replay_evidence": _replay_evidence("bench-shadow-ready"),
+        "candidates": candidates,
+        "prompt_mutation_release_checks": [
+            _prompt_release_check_for_candidates(candidates, "bench-shadow-ready")
+        ],
+        "rollback_evidence": [
+            _rollback_evidence_for_candidates(
+                candidates,
+                "bench-shadow-ready",
+                rollback_trigger_definition="shadow replay regression",
+                monitor_output_ref="monitor-shadow-ready",
+                post_rollback_verification_ref="verify-shadow-ready",
+            )
+        ],
+    }
     manifest = dispatch(
         "rke_benchmark.shadow_replay_readiness",
-        {
-            "benchmark_run_id": "bench-shadow-ready",
-            "all_agent_prompt_release_checks": _all_prompt_release_checks(
-                preflight["rows"], "bench-shadow-ready"
-            ),
-            "paired_output_count": 1275,
-            "model_config_output_counts": _model_config_output_counts(),
-            "benchmark_quality_summary": _benchmark_quality_summary(
-                "bench-shadow-ready"
-            ),
-            "benchmark_evidence_refs": _benchmark_evidence_refs("bench-shadow-ready"),
-            "manual_review": _manual_review("bench-shadow-ready"),
-            "downstream_outcome_metrics": _downstream_outcome_metrics(
-                "bench-shadow-ready"
-            ),
-            "prompt_mutation_provenance": _prompt_mutation_provenance(
-                "bench-shadow-ready"
-            ),
-            "replay_evidence": _replay_evidence("bench-shadow-ready"),
-            "candidates": candidates,
-            "prompt_mutation_release_checks": [
-                _prompt_release_check_for_candidates(candidates, "bench-shadow-ready")
-            ],
-            "rollback_evidence": [
-                _rollback_evidence_for_candidates(
-                    candidates,
-                    "bench-shadow-ready",
-                    rollback_trigger_definition="shadow replay regression",
-                    monitor_output_ref="monitor-shadow-ready",
-                    post_rollback_verification_ref="verify-shadow-ready",
-                )
-            ],
-        },
+        shadow_params,
     )
 
     assert manifest["readiness_status"] == "ready"
     assert manifest["prompt_provenance_readiness_status"] == "ready"
+    assert manifest["darwinian_consumption_status"] == "ready"
     assert manifest["prompt_release_readiness_status"] == "ready"
     assert manifest["shadow_replay_ready"] is True
     assert manifest["paper_trading_allowed"] is False
@@ -3561,6 +3581,20 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
     assert manifest["priority_bucket_counts"] == {"high": 1}
     assert manifest["truncation_audit_count"] == 1
     assert manifest["current_data_confirmed_count"] == 1
+    recorded_params = {
+        key: value for key, value in shadow_params.items() if key != "replay_evidence"
+    }
+    record = dispatch("rke_benchmark.record_delivery_evidence", recorded_params)
+    assert record["record_status"] == "recorded"
+    recorded_manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {
+            "benchmark_run_id": "bench-shadow-ready",
+            "replay_evidence": _replay_evidence("bench-shadow-ready"),
+        },
+    )
+    assert recorded_manifest["readiness_status"] == "ready"
+    assert recorded_manifest["shadow_replay_ready"] is True
 
 
 def test_shadow_replay_blocks_partial_current_data_confirmation(
@@ -3633,6 +3667,9 @@ def test_shadow_replay_blocks_partial_current_data_confirmation(
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-shadow-partial-current-data"
             ),
+            "darwinian_autoresearch_consumption_evidence": (
+                _darwinian_consumption_evidence("bench-shadow-partial-current-data")
+            ),
             "replay_evidence": _replay_evidence(
                 "bench-shadow-partial-current-data"
             ),
@@ -3658,6 +3695,93 @@ def test_shadow_replay_blocks_partial_current_data_confirmation(
     assert "current_data_confirmation_missing" in manifest["blocked_reasons"]
     assert manifest["rke_context_hash_count"] == 2
     assert manifest["current_data_confirmed_count"] == 1
+
+
+def test_shadow_replay_readiness_blocks_unbound_replay_refs(
+    tmp_path: Path, monkeypatch
+):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    private_repo = _private_prompt_repo(tmp_path)
+    monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    preflight = dispatch("prompts.preflight", {"langs": ["zh", "en"]})
+    dispatch(
+        "rke_benchmark.capture_agent_claim_footprints",
+        {
+            "benchmark_run_id": "bench-shadow-unbound-ref",
+            "rows": [
+                {
+                    "agent": "munger",
+                    "as_of_date": "2026-06-18",
+                    "claim_type": "style_candidate_claim",
+                    "target": {"target_type": "stock", "ticker": "000001.SZ"},
+                    "rke_context_hash": "d" * 64,
+                    **_runtime_context_proof(1),
+                    "report_claim_refs": ["forecast_claim:stock-000001-shadow"],
+                    "rke_prior_usage_quality": "used_ranked_prior",
+                    "current_data_confirmed": True,
+                }
+            ],
+        },
+    )
+    candidates = [
+        _mutation_candidate(
+            candidate_type="stock_prior_recipe_rule_candidate",
+            target_scope="stock",
+            target_component="superinvestor.munger",
+            blocked_by=[],
+        )
+    ]
+    manifest = dispatch(
+        "rke_benchmark.shadow_replay_readiness",
+        {
+            "benchmark_run_id": "bench-shadow-unbound-ref",
+            "all_agent_prompt_release_checks": _all_prompt_release_checks(
+                preflight["rows"], "bench-shadow-unbound-ref"
+            ),
+            "paired_output_count": 1275,
+            "model_config_output_counts": _model_config_output_counts(),
+            "benchmark_quality_summary": _benchmark_quality_summary(
+                "bench-shadow-unbound-ref"
+            ),
+            "benchmark_evidence_refs": _benchmark_evidence_refs(
+                "bench-shadow-unbound-ref"
+            ),
+            "manual_review": _manual_review("bench-shadow-unbound-ref"),
+            "downstream_outcome_metrics": _downstream_outcome_metrics(
+                "bench-shadow-unbound-ref"
+            ),
+            "prompt_mutation_provenance": _prompt_mutation_provenance(
+                "bench-shadow-unbound-ref"
+            ),
+            "darwinian_autoresearch_consumption_evidence": (
+                _darwinian_consumption_evidence("bench-shadow-unbound-ref")
+            ),
+            "replay_evidence": _replay_evidence(
+                "bench-shadow-unbound-ref",
+                replay_run_ref="manual:unbound",
+            ),
+            "candidates": candidates,
+            "prompt_mutation_release_checks": [
+                _prompt_release_check_for_candidates(
+                    candidates, "bench-shadow-unbound-ref"
+                )
+            ],
+            "rollback_evidence": [
+                _rollback_evidence_for_candidates(
+                    candidates,
+                    "bench-shadow-unbound-ref",
+                    rollback_trigger_definition="shadow replay regression",
+                    monitor_output_ref="monitor-shadow-unbound-ref",
+                    post_rollback_verification_ref="verify-shadow-unbound-ref",
+                )
+            ],
+        },
+    )
+
+    assert manifest["readiness_status"] == "blocked_preflight"
+    assert "replay_run_ref_not_bound_to_replay_run" in manifest["blocked_reasons"]
 
 
 def test_paper_trading_readiness_blocks_missing_shadow_and_plan(
@@ -3735,6 +3859,9 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             ),
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-paper-ready"
+            ),
+            "darwinian_autoresearch_consumption_evidence": (
+                _darwinian_consumption_evidence("bench-paper-ready")
             ),
             "replay_evidence": _replay_evidence("bench-paper-ready"),
             "candidates": candidates,
@@ -4125,6 +4252,9 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             ),
             "prompt_mutation_provenance": _prompt_mutation_provenance(
                 "bench-promotion-ready"
+            ),
+            "darwinian_autoresearch_consumption_evidence": (
+                _darwinian_consumption_evidence("bench-promotion-ready")
             ),
             "replay_evidence": _replay_evidence("bench-promotion-ready"),
             "candidates": candidates,

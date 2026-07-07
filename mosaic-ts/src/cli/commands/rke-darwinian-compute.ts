@@ -35,6 +35,13 @@ interface FootprintRow {
   current_data_confirmed?: boolean;
   stale_prior_rejected?: boolean;
   contradictory_prior_handled?: boolean;
+  private_text_included?: boolean;
+  source_prose_included?: boolean;
+  production_signal_allowed?: boolean;
+  rke_prior_treated_as_current_data?: boolean;
+  schema_valid?: boolean;
+  schema_validity?: boolean | string;
+  failure_mode_tags?: string[];
 }
 
 export interface AgentSkillWeight {
@@ -42,6 +49,7 @@ export interface AgentSkillWeight {
   layer: string;
   weight: number;
   cold_start: boolean;
+  safety_capped: boolean;
   current_data_skill: number;
   rke_prior_usage_skill: number;
   stale_prior_rejection_skill: number;
@@ -164,21 +172,27 @@ export function computeAgentSkillWeights(
       1 - Number(downstream.turnover ?? 0) * 0.1 - Number(downstream.cost_bps ?? 0) / 1000,
     );
     const coldStart = agentRows.length === 0;
-    const schemaContractSkill = coldStart ? 0.5 : 1;
+    const schemaContractViolation = agentRows.some(hasSchemaContractViolation);
+    const safetyCapped =
+      (contextRows.length > 0 && contextRows.some((row) => row.current_data_confirmed !== true)) ||
+      agentRows.some(hasSafetyCapViolation);
+    const schemaContractSkill = coldStart ? 0.5 : schemaContractViolation ? 0 : 1;
     const mutationReliabilitySkill = 1;
-    const raw = coldStart
-      ? 0.2
-      : 0.25 * currentDataSkill +
-        0.2 * rkePriorUsageSkill +
-        0.15 * stalePriorRejectionSkill +
-        0.15 * schemaContractSkill +
-        0.15 * downstreamOutcomeSkill +
-        0.05 * turnoverCostSkill +
-        0.05 * mutationReliabilitySkill;
+    const raw =
+      coldStart || safetyCapped
+        ? 0.2
+        : 0.25 * currentDataSkill +
+          0.2 * rkePriorUsageSkill +
+          0.15 * stalePriorRejectionSkill +
+          0.15 * schemaContractSkill +
+          0.15 * downstreamOutcomeSkill +
+          0.05 * turnoverCostSkill +
+          0.05 * mutationReliabilitySkill;
     rawByAgent.set(agent, {
       agent,
       layer: LAYER_BY_AGENT[agent] ?? "unknown",
       cold_start: coldStart,
+      safety_capped: safetyCapped,
       current_data_skill: currentDataSkill,
       rke_prior_usage_skill: rkePriorUsageSkill,
       stale_prior_rejection_skill: stalePriorRejectionSkill,
@@ -202,6 +216,25 @@ export function computeAgentSkillWeights(
     }
   }
   return out;
+}
+
+function hasSafetyCapViolation(row: FootprintRow): boolean {
+  return (
+    hasSchemaContractViolation(row) ||
+    row.production_signal_allowed === true ||
+    row.rke_prior_treated_as_current_data === true
+  );
+}
+
+function hasSchemaContractViolation(row: FootprintRow): boolean {
+  return (
+    row.private_text_included === true ||
+    row.source_prose_included === true ||
+    row.schema_valid === false ||
+    row.schema_validity === false ||
+    row.schema_validity === "invalid" ||
+    (row.failure_mode_tags ?? []).includes("schema_invalid")
+  );
 }
 
 export function buildConsumptionEvidence(

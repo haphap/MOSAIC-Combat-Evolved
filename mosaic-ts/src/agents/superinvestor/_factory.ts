@@ -17,9 +17,10 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
-import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
+import type { BridgeApi, BridgeToolFactoryOptions, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
-import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
+import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
   AgentTimeoutError,
   buildLlmCall,
@@ -83,17 +84,26 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L3", spec.agentId, ["prepare"]));
 
-          const systemPrompt = await loadPrompt({
+          const baseSystemPrompt = await loadPrompt({
             agent: spec.agentId,
             cohort,
             language,
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
+          const systemPrompt = `${baseSystemPrompt}\n\n${buildLayerThreeCurrentToolContract(spec.requiredTools)}`;
 
-          const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
+          const toolOptions = {
             ...(state.mode === "backtest" && state.as_of_date
               ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
               : {}),
+          } satisfies BridgeToolFactoryOptions;
+          const tools = await pickResearchDigestTools({
+            api: deps.api,
+            names: spec.requiredTools,
+            options: toolOptions,
+            llmHandle: deps.llmHandle,
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
+            signal,
           });
 
           const userContext = buildLayerThreeUserContext(state, spec.agentId);
@@ -102,6 +112,9 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
             initialMessages: [new HumanMessage(userContext)],
+            initialToolCalls: buildLayerThreeInitialToolCalls(state, spec.agentId),
+            maxLoops: 3,
+            replayFullToolMaxChars: 80_000,
             onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
             signal,
           });
@@ -137,6 +150,8 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
               `analysis_llm=${loopResult.llmInvocations}`,
               `tools=${loopResult.toolCalls}`,
+              `tool_cache_hits=${loopResult.toolCacheHits}`,
+              `tool_executions=${loopResult.toolExecutions}`,
               ...formatTokenMetricFields(
                 loopResult.promptTokens,
                 loopResult.completionTokens,
@@ -215,12 +230,75 @@ export function buildLayerThreeUserContext(state: DailyCycleStateType, agentId: 
     `* cohort:     ${cohort}\n\n` +
     `${regimeBlock}\n` +
     `${sectorBlocks}\n` +
+    buildLayerThreeToolPlan(agentId) +
+    `\n` +
     `Use get_rke_research_context only as report-derived research prior and ` +
     `style-fit hint. It may expand or annotate the candidate set, but any pick ` +
-    `must be confirmed by current fundamentals, price, and indicator tools. ` +
+    `must be confirmed by current stock research, fundamentals, financials, or price data. ` +
     `Apply your investment philosophy to the candidate set above. Use your ` +
     `philosophy-specific tools for current verification before selecting stocks.`
   );
+}
+
+export function buildLayerThreeInitialToolCalls(
+  state: DailyCycleStateType,
+  agentId: string,
+): AgentInitialToolCall[] {
+  if (agentId !== "ackman") return [];
+  const date = state.as_of_date || new Date().toISOString().slice(0, 10);
+  const tickers = pickAckmanCandidateTickers(state).slice(0, 2);
+  return tickers.flatMap((ticker) => [
+    { name: "get_fundamentals", args: { ticker, curr_date: date } },
+    { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
+  ]);
+}
+
+function buildLayerThreeToolPlan(agentId: string): string {
+  if (agentId === "ackman") {
+    return (
+      `## Tool plan\n` +
+      `* Initial evidence: verify 1-2 consumer/financial quality candidates with fundamentals and cashflow.\n` +
+      `* Round 1: judge pricing power, FCF conversion, balance-sheet durability, and candidate fit.\n` +
+      `* Round 2: use stock research, income statement, balance sheet, or stock data only for catalyst/quality gaps.\n` +
+      `* Round 3: fill one critical gap only; do not broaden beyond the quality-compounder candidate set.\n` +
+      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+    );
+  }
+  return (
+    `## Tool plan\n` +
+    `* Round 1: pick at least 2 candidate tickers that fit your philosophy and verify them with stock research or fundamentals.\n` +
+    `* Round 2: verify the strongest candidates with available financial, cashflow, balance-sheet, price, or indicator tools.\n` +
+    `* Round 3: fill only critical gaps with stock research, cashflow, or policy evidence.\n` +
+    `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+  );
+}
+
+function buildLayerThreeCurrentToolContract(requiredTools: ReadonlyArray<string>): string {
+  return (
+    `## Current tool contract\n` +
+    `Only call these registered tools: ${requiredTools.join(", ")}.\n` +
+    `Do not call older prompt names that are not listed above.\n` +
+    `Use current financial, stock research, price, policy, or RKE-prior tools according to your role; ` +
+    `do not skip current verification for final picks.`
+  );
+}
+
+function pickAckmanCandidateTickers(state: DailyCycleStateType): string[] {
+  const outputs = state.layer2_outputs ?? {};
+  const preferred = ["consumer", "financials"];
+  const tickers: string[] = [];
+  for (const agent of preferred) {
+    const output = outputs[agent];
+    if (output && "longs" in output) {
+      tickers.push(...output.longs.map((pick) => pick.ticker));
+    }
+  }
+  if (tickers.length === 0) {
+    for (const output of Object.values(outputs)) {
+      if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
+    }
+  }
+  return [...new Set(tickers.filter(Boolean))];
 }
 
 function renderSectorPicks(state: DailyCycleStateType): string {

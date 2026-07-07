@@ -23,9 +23,10 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
-import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
+import type { BridgeApi, BridgeToolFactoryOptions, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
   AgentTimeoutError,
   buildLlmCall,
@@ -89,17 +90,26 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L2", spec.agentId, ["prepare"]));
 
-          const systemPrompt = await loadPrompt({
+          const baseSystemPrompt = await loadPrompt({
             agent: spec.agentId,
             cohort,
             language,
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
+          const systemPrompt = `${baseSystemPrompt}\n\n${buildCurrentToolContract(spec.requiredTools)}`;
 
-          const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
+          const toolOptions = {
             ...(state.mode === "backtest" && state.as_of_date
               ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
               : {}),
+          } satisfies BridgeToolFactoryOptions;
+          const tools = await pickResearchDigestTools({
+            api: deps.api,
+            names: spec.requiredTools,
+            options: toolOptions,
+            llmHandle: deps.llmHandle,
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L2", spec.agentId, [msg])),
+            signal,
           });
 
           // Phase 1: tool-bound analysis. User context now includes Layer-1
@@ -110,6 +120,8 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
             initialMessages: [new HumanMessage(userContext)],
+            maxLoops: 3,
+            replayFullToolMaxChars: 80_000,
             onLog: (msg) => onLog(formatAgentEvent("phase", "L2", spec.agentId, [msg])),
             signal,
           });
@@ -146,6 +158,8 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
               `analysis_llm=${loopResult.llmInvocations}`,
               `tools=${loopResult.toolCalls}`,
+              `tool_cache_hits=${loopResult.toolCacheHits}`,
+              `tool_executions=${loopResult.toolExecutions}`,
               ...formatTokenMetricFields(
                 loopResult.promptTokens,
                 loopResult.completionTokens,
@@ -226,6 +240,12 @@ export function buildLayerTwoUserContext(state: DailyCycleStateType, agentId: st
     `${regimeBlock}\n` +
     `${chinaBlock}\n` +
     `${flowBlock}\n` +
+    `Tool plan for this sector agent:\n` +
+    `* Round 1: use industry-level evidence only: RKE prior, broker research, policy digest, compact ETF candidate pool, and moneyflow.\n` +
+    `* Round 2: verify only 2-3 highest-relevance ETF/research candidates with price/indicator tools.\n` +
+    `* Round 3: fill one remaining evidence gap only if needed; do not expand the ticker list.\n` +
+    `* Round 4: no more tools; write the final analysis from gathered evidence.\n\n` +
+    `ETF holdings are candidate-pool evidence, not a checklist. Do not verify every ETF constituent. ` +
     `Use get_rke_research_context only as report-derived research prior; it ` +
     `does not replace current sector, flow, ETF, policy, price, or indicator ` +
     `confirmation. ` +
@@ -257,6 +277,17 @@ function renderInstitutionalFlowSummary(state: DailyCycleStateType): string {
     `## institutional_flow (Layer 1)\n` +
     `* main_net_flow_cny: ${out.main_net_flow_cny.toFixed(0)} CNY mil\n` +
     `* sectors_in_out:     ${sectors}\n`
+  );
+}
+
+function buildCurrentToolContract(requiredTools: ReadonlyArray<string>): string {
+  return (
+    `## Current tool contract\n` +
+    `Only call these registered tools: ${requiredTools.join(", ")}.\n` +
+    `Do not call older prompt names that are not listed above.\n` +
+    `Use get_broker_research for research evidence and get_industry_policy_digest for policy evidence when available.\n` +
+    `get_etf_holdings returns a compact candidate pool. Treat ETF constituents as candidates, not as a checklist; ` +
+    `verify at most 3 tickers with get_stock_data/get_indicators.`
   );
 }
 

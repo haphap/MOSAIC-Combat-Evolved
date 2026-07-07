@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
-import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
+import { buildDailyCycleRkeFootprintRows } from "../../agents/rke_footprints.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
 import { BridgeClient, RpcError, BridgeApi as RuntimeBridgeApi } from "../../bridge/index.js";
 import { findRepoRoot } from "../../bridge/python.js";
@@ -13,6 +13,12 @@ import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 import { buildFakeLlmHandle, makeInitialState } from "../_backtest_helpers.js";
 import { applyPromptSourceOverrides } from "../prompt-source.js";
+import {
+  buildPromptPinsByAgent,
+  buildRkeContextMetadataByAgent,
+  type PromptPin,
+  type RkeContextMetadata,
+} from "./rke-fixed-benchmark.js";
 
 const PRIVATE_OUTPUT_DIR = ".mosaic/rke/all_agent_evolution/shadow_replay";
 const REPLAY_PREREQUISITE_CONDITION_IDS = [
@@ -48,6 +54,8 @@ interface ReplayOutputRecord {
   as_of_date: string;
   agent: string;
   layer: string;
+  prompt_pins: PromptPin[];
+  rke_context?: RkeContextMetadata;
   output_sha256: string;
 }
 
@@ -133,6 +141,7 @@ export async function runRkeShadowReplay(
   }
 
   const config = await api.configGet();
+  const promptPinsByAgent = buildPromptPinsByAgent(contractCheck.rows, config.output_language);
   const llmHandle = makeReplayLlmHandle(config, opts);
   const graph = buildDailyCycleGraph({
     llmHandle,
@@ -155,12 +164,27 @@ export async function runRkeShadowReplay(
     const initialState = makeInitialState(cohort, asOfDate);
     initialState.trace_id = `${benchmarkRunId}:${replayRunId}:${asOfDate}`;
     const final = (await graph.invoke(initialState)) as DailyCycleStateType;
-    const rows = collectReplayOutputRecords(benchmarkRunId, replayRunId, asOfDate, final);
+    const footprintRows = await buildDailyCycleRkeFootprintRows(api, final, {
+      currentDataConfirmed: !opts.fakeLlm,
+      replayRunId,
+    });
+    const rows = collectReplayOutputRecords(
+      benchmarkRunId,
+      replayRunId,
+      asOfDate,
+      final,
+      promptPinsByAgent,
+      buildRkeContextMetadataByAgent(footprintRows),
+    );
     writeReplayOutputRecords(benchmarkRunId, replayRunId, rows);
     stats.replayOutputCount += rows.length;
-    const capture = await captureDailyCycleRkeFootprints(api, final, benchmarkRunId, {
-      currentDataConfirmed: !opts.fakeLlm,
-    });
+    const capture =
+      footprintRows.length > 0
+        ? await api.rkeBenchmarkCaptureAgentClaimFootprints({
+            benchmark_run_id: benchmarkRunId,
+            rows: footprintRows,
+          })
+        : null;
     stats.replayFootprintCount += capture?.captured_count ?? 0;
     if (capture?.capture_status === "blocked") stats.privacyScanPassed = false;
   }
@@ -172,13 +196,16 @@ export async function runRkeShadowReplay(
     summary.rke_context_hash_count > 0 &&
     summary.current_data_confirmed_count >= summary.rke_context_hash_count;
   const replayEvidence = buildReplayEvidence(benchmarkRunId, replayRunId, stats);
+  const shadowReadiness = await api.rkeBenchmarkShadowReplayReadiness(
+    buildShadowReplayReadinessParams(benchmarkRunId, cohort, replayEvidence),
+  );
   const record = await api.rkeBenchmarkRecordDeliveryEvidence({
     benchmark_run_id: benchmarkRunId,
     cohort,
     replay_evidence: replayEvidence,
   });
   writeReplayMetricArtifact(benchmarkRunId, replayRunId, stats);
-  return { benchmarkRunId, replayRunId, replayEvidence, record, stats };
+  return { benchmarkRunId, replayRunId, replayEvidence, shadowReadiness, record, stats };
 }
 
 export function assertReplayPrerequisitesReady(readiness: RkeDeliveryReadinessResult): void {
@@ -201,6 +228,8 @@ export function collectReplayOutputRecords(
   replayRunId: string,
   asOfDate: string,
   state: DailyCycleStateType,
+  promptPinsByAgent?: ReadonlyMap<string, readonly PromptPin[]>,
+  rkeContextByAgent?: ReadonlyMap<string, RkeContextMetadata>,
 ): ReplayOutputRecord[] {
   const rows: ReplayOutputRecord[] = [];
   for (const [layer, outputs] of [
@@ -211,12 +240,15 @@ export function collectReplayOutputRecords(
   ] as const) {
     for (const [agent, output] of Object.entries(outputs ?? {})) {
       if (!output) continue;
+      const rkeContext = rkeContextByAgent?.get(agent);
       rows.push({
         benchmark_run_id: benchmarkRunId,
         replay_run_id: replayRunId,
         as_of_date: asOfDate,
         agent,
         layer,
+        prompt_pins: [...(promptPinsByAgent?.get(agent) ?? [])],
+        ...(rkeContext ? { rke_context: rkeContext } : {}),
         output_sha256: sha256(JSON.stringify(output)),
       });
     }
@@ -241,6 +273,18 @@ export function buildReplayEvidence(
     replay_footprint_count: stats.replayFootprintCount,
     privacy_scan_passed: stats.privacyScanPassed,
     current_data_confirmed: stats.currentDataConfirmed,
+  };
+}
+
+export function buildShadowReplayReadinessParams(
+  benchmarkRunId: string,
+  cohort: string,
+  replayEvidence: Record<string, unknown>,
+): Parameters<BridgeApi["rkeBenchmarkShadowReplayReadiness"]>[0] {
+  return {
+    benchmark_run_id: benchmarkRunId,
+    cohort,
+    replay_evidence: replayEvidence,
   };
 }
 

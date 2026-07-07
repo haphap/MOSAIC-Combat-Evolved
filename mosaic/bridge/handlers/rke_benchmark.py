@@ -1971,50 +1971,70 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
 def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate shadow replay on benchmark, footprint, Darwinian, and rollback proof."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
+    recorded_evidence, _evidence_failures = _read_delivery_evidence(benchmark_run_id)
+    direct_evidence = {
+        key: params[key] for key in _DELIVERY_RECORD_KEYS if key in params
+    }
+    effective_params = dict(recorded_evidence)
+    effective_params.update(direct_evidence)
+    allow_recorded_prompt_release_only = (
+        "all_agent_prompt_release_checks" in recorded_evidence
+        and "all_agent_prompt_release_checks" not in direct_evidence
+    )
     prompt_provenance = all_agent_prompt_provenance_readiness(
         {
             "benchmark_run_id": benchmark_run_id,
-            "cohort": params.get("cohort"),
-            "release_checks": params.get("all_agent_prompt_release_checks"),
-            "_allow_recorded_release_only": params.get(
-                "_allow_recorded_prompt_release_only"
-            )
-            is True,
+            "cohort": effective_params.get("cohort"),
+            "release_checks": effective_params.get("all_agent_prompt_release_checks"),
+            "_allow_recorded_release_only": (
+                params.get("_allow_recorded_prompt_release_only") is True
+                or allow_recorded_prompt_release_only
+            ),
         }
     )
     benchmark = fixed_episode_benchmark_evidence(
         {
             "benchmark_run_id": benchmark_run_id,
-            "cohort": params.get("cohort"),
-            "paired_output_count": params.get("paired_output_count"),
-            "model_config_output_counts": params.get("model_config_output_counts"),
-            "benchmark_quality_summary": params.get("benchmark_quality_summary"),
-            "evidence_refs": params.get("benchmark_evidence_refs"),
-            "manual_review": params.get("manual_review"),
+            "cohort": effective_params.get("cohort"),
+            "paired_output_count": effective_params.get("paired_output_count"),
+            "model_config_output_counts": effective_params.get("model_config_output_counts"),
+            "benchmark_quality_summary": effective_params.get("benchmark_quality_summary"),
+            "evidence_refs": effective_params.get("benchmark_evidence_refs"),
+            "manual_review": effective_params.get("manual_review"),
         }
     )
     darwinian = darwinian_autoresearch_input_manifest(
         {
             "benchmark_run_id": benchmark_run_id,
-            "downstream_outcome_metrics": params.get("downstream_outcome_metrics"),
-            "prompt_mutation_provenance": params.get("prompt_mutation_provenance"),
+            "downstream_outcome_metrics": effective_params.get("downstream_outcome_metrics"),
+            "prompt_mutation_provenance": effective_params.get("prompt_mutation_provenance"),
+        }
+    )
+    darwinian_consumption = darwinian_autoresearch_consumption_readiness(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "downstream_outcome_metrics": effective_params.get("downstream_outcome_metrics"),
+            "prompt_mutation_provenance": effective_params.get("prompt_mutation_provenance"),
+            "consumption_evidence": effective_params.get(
+                "darwinian_autoresearch_consumption_evidence"
+            ),
         }
     )
     prompt_release = prompt_mutation_release_readiness(
         {
             "benchmark_run_id": benchmark_run_id,
-            "candidates": params.get("candidates"),
-            "release_checks": params.get("prompt_mutation_release_checks"),
+            "candidates": effective_params.get("candidates"),
+            "release_checks": effective_params.get("prompt_mutation_release_checks"),
         }
     )
     rollback = prompt_mutation_rollback_readiness(
         {
             "benchmark_run_id": benchmark_run_id,
-            "candidates": params.get("candidates"),
-            "rollback_evidence": params.get("rollback_evidence"),
+            "candidates": effective_params.get("candidates"),
+            "rollback_evidence": effective_params.get("rollback_evidence"),
         }
     )
-    replay_evidence = params.get("replay_evidence")
+    replay_evidence = effective_params.get("replay_evidence")
     if not isinstance(replay_evidence, dict):
         replay_evidence = {}
     current_data = darwinian["skill_inputs"]["current_data_skill"]
@@ -2027,6 +2047,8 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("benchmark_evidence_not_ready")
     if darwinian["manifest_status"] != "ready":
         blocked_reasons.append("darwinian_autoresearch_input_not_ready")
+    if darwinian_consumption["readiness_status"] != "ready":
+        blocked_reasons.append("darwinian_autoresearch_consumption_not_ready")
     if prompt_release["readiness_status"] not in {"ready", "not_applicable"}:
         blocked_reasons.append("prompt_mutation_release_not_ready")
     if rollback["readiness_status"] not in {"ready", "not_applicable"}:
@@ -2045,6 +2067,19 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     replay_benchmark_run_id = _clean_str(replay_evidence.get("benchmark_run_id"))
     if replay_benchmark_run_id and replay_benchmark_run_id != benchmark_run_id:
         blocked_reasons.append("replay_evidence_benchmark_run_id_mismatch")
+    replay_run_id = _clean_str(replay_evidence.get("replay_run_id"))
+    if replay_run_id:
+        replay_ref_prefix = f"rke-shadow:{benchmark_run_id}:{replay_run_id}:"
+        for key in (
+            "replay_run_ref",
+            "replay_output_manifest_ref",
+            "runtime_context_consumption_ref",
+            "replay_footprint_ref",
+            "downstream_outcome_metrics_ref",
+        ):
+            ref = _clean_str(replay_evidence.get(key))
+            if ref and not ref.startswith(replay_ref_prefix):
+                blocked_reasons.append(f"{key}_not_bound_to_replay_run")
     if _optional_positive_int(replay_evidence.get("replay_output_count")) is None:
         blocked_reasons.append("replay_output_count_missing")
     if _optional_positive_int(replay_evidence.get("replay_footprint_count")) is None:
@@ -2081,6 +2116,7 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "prompt_provenance_readiness_status": prompt_provenance["readiness_status"],
         "benchmark_evidence_status": benchmark["evidence_status"],
         "darwinian_manifest_status": darwinian["manifest_status"],
+        "darwinian_consumption_status": darwinian_consumption["readiness_status"],
         "prompt_release_readiness_status": prompt_release["readiness_status"],
         "rollback_readiness_status": rollback["readiness_status"],
         "replay_evidence": {
@@ -2985,6 +3021,9 @@ def _sanitize_claim_footprint_row(
         "schema_version": "rke_agent_claim_footprint_v1",
         "agent_claim_footprint_id": hashlib.sha256(record_key.encode("utf-8")).hexdigest()[:24],
         "benchmark_run_id": benchmark_run_id,
+        "replay_run_id": _clean_str(row.get("replay_run_id")),
+        "episode_id": _clean_str(row.get("episode_id")),
+        "model_config_id": _clean_str(row.get("model_config_id")),
         "agent": agent,
         "layer": layer,
         "as_of_date": as_of_date,

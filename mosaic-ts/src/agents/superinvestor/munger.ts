@@ -17,8 +17,6 @@ export const REQUIRED_TOOLS = [
   "get_cashflow",
   "get_balance_sheet",
   "get_stock_data",
-  "get_indicators",
-  "get_xueqiu_heat",
 ] as const;
 
 export const mungerSpec: LayerThreeAgentSpec<MungerOutput> = {
