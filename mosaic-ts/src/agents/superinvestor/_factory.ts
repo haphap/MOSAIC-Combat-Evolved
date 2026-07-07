@@ -247,7 +247,7 @@ export function buildLayerThreeInitialToolCalls(
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   if (agentId === "ackman") {
     return pickAckmanCandidateTickers(state)
-      .slice(0, 2)
+      .slice(0, 1)
       .flatMap((ticker) => [
         { name: "get_fundamentals", args: { ticker, curr_date: date } },
         { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
@@ -276,7 +276,7 @@ function buildLayerThreeToolPlan(agentId: string): string {
   if (agentId === "ackman") {
     return (
       `## Tool plan\n` +
-      `* Initial evidence: verify 1-2 consumer/financial quality candidates with fundamentals and cashflow.\n` +
+      `* Initial evidence: verify the highest-priority consumer/financial quality candidate with fundamentals and cashflow.\n` +
       `* Round 1: judge pricing power, FCF conversion, balance-sheet durability, and candidate fit.\n` +
       `* Round 2: use stock research, income statement, balance sheet, or stock data only for catalyst/quality gaps.\n` +
       `* Round 3: fill one critical gap only; do not broaden beyond the quality-compounder candidate set.\n` +
