@@ -293,7 +293,10 @@ describe("buildLayerThreeUserContext", () => {
       layer2_outputs: {
         consumer: {
           agent: "consumer",
-          longs: [{ ticker: "600519.SH", thesis: "pricing power", conviction: 0.8 }],
+          longs: [
+            { ticker: "600519.SH", thesis: "pricing power", conviction: 0.8 },
+            { ticker: "000858.SZ", thesis: "brand compounder", conviction: 0.7 },
+          ],
           shorts: [],
           sector_score: 0.4,
           key_drivers: ["d"],

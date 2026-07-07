@@ -263,7 +263,7 @@ export function buildLayerThreeInitialToolCalls(
   }
   if (agentId === "munger") {
     return pickMungerCandidateTickers(state)
-      .slice(0, 2)
+      .slice(0, 1)
       .flatMap((ticker) => [
         { name: "get_fundamentals", args: { ticker, curr_date: date } },
         { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
