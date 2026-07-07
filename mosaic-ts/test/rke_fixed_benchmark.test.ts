@@ -171,7 +171,7 @@ describe("rke-fixed-benchmark helpers", () => {
     updateAgentMetricsFromLog(metrics, "[agent:start] L2 consumer timeout=5m00s");
     updateAgentMetricsFromLog(
       metrics,
-      "[agent:phase] L2 consumer tools=2 names=get_stock_data,get_indicators",
+      "[agent:phase] L2 consumer tools=2 names=get_stock_data,get_indicators fingerprints=get_stock_data#aaa,get_indicators#bbb",
     );
     updateAgentMetricsFromLog(
       metrics,
@@ -196,19 +196,29 @@ describe("rke-fixed-benchmark helpers", () => {
         get_stock_data: 1,
         get_indicators: 1,
       },
+      toolCallFingerprints: {
+        "get_stock_data#aaa": 1,
+        "get_indicators#bbb": 1,
+      },
     });
   });
 
   it("aggregates repeated agent executions in runtime metrics", () => {
     const metrics = new Map();
     updateAgentMetricsFromLog(metrics, "[agent:start] L4 cio timeout=5m00s");
-    updateAgentMetricsFromLog(metrics, "[agent:phase] L4 cio tools=1 names=get_rke_research_context");
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:phase] L4 cio tools=1 names=get_rke_research_context fingerprints=get_rke_research_context#aaa",
+    );
     updateAgentMetricsFromLog(
       metrics,
       "[agent:done] L4 cio elapsed=1.0s analysis_llm=2 tools=1 prompt_tokens=10 completion_tokens=3 llm_elapsed_ms=100 source=structured",
     );
     updateAgentMetricsFromLog(metrics, "[agent:start] L4 cio timeout=5m00s");
-    updateAgentMetricsFromLog(metrics, "[agent:phase] L4 cio tools=2 names=get_x,get_y");
+    updateAgentMetricsFromLog(
+      metrics,
+      "[agent:phase] L4 cio tools=2 names=get_x,get_y fingerprints=get_x#bbb,get_y#ccc",
+    );
     updateAgentMetricsFromLog(
       metrics,
       "[agent:done] L4 cio elapsed=2.0s analysis_llm=3 tools=2 prompt_tokens=20 completion_tokens=7 llm_elapsed_ms=200 source=structured",
@@ -227,6 +237,11 @@ describe("rke-fixed-benchmark helpers", () => {
         get_rke_research_context: 1,
         get_x: 1,
         get_y: 1,
+      },
+      toolCallFingerprints: {
+        "get_rke_research_context#aaa": 1,
+        "get_x#bbb": 1,
+        "get_y#ccc": 1,
       },
     });
   });

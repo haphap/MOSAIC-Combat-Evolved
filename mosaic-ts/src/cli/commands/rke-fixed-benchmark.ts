@@ -70,6 +70,7 @@ interface AgentBenchmarkMetric {
   analysisLlmInvocations: number;
   toolCalls: number;
   toolCallCountsByName: Record<string, number>;
+  toolCallFingerprints: Record<string, number>;
   toolFailureCount: number;
   outputSource: "structured" | "fallback" | "unknown";
   promptTokens: number;
@@ -95,6 +96,7 @@ interface BenchmarkMetricRecord {
   tool_calls_total: number;
   tool_failure_count: number;
   tool_call_counts_by_name: Record<string, number>;
+  tool_call_fingerprints: Record<string, number>;
   analysis_llm_invocations_total: number;
   observed_prompt_tokens_total: number;
   observed_completion_tokens_total: number;
@@ -461,6 +463,7 @@ export function updateAgentMetricsFromLog(
 
   if (kind === "phase") {
     recordToolNames(metric, rest);
+    recordToolFingerprints(metric, rest);
     if (/Tool '[^']+' raised:/.test(rest)) metric.toolFailureCount += 1;
     return;
   }
@@ -499,9 +502,13 @@ export function buildBenchmarkMetricRecord(
     `${a.layer}:${a.agent}`.localeCompare(`${b.layer}:${b.agent}`),
   );
   const toolCallCountsByName: Record<string, number> = {};
+  const toolCallFingerprints: Record<string, number> = {};
   for (const agent of agents) {
     for (const [name, count] of Object.entries(agent.toolCallCountsByName)) {
       toolCallCountsByName[name] = (toolCallCountsByName[name] ?? 0) + count;
+    }
+    for (const [fingerprint, count] of Object.entries(agent.toolCallFingerprints)) {
+      toolCallFingerprints[fingerprint] = (toolCallFingerprints[fingerprint] ?? 0) + count;
     }
   }
   const observedCompletionTokens = sum(agents, (agent) => agent.completionTokens);
@@ -526,6 +533,7 @@ export function buildBenchmarkMetricRecord(
     tool_calls_total: sum(agents, (agent) => agent.toolCalls),
     tool_failure_count: sum(agents, (agent) => agent.toolFailureCount),
     tool_call_counts_by_name: toolCallCountsByName,
+    tool_call_fingerprints: toolCallFingerprints,
     analysis_llm_invocations_total: sum(agents, (agent) => agent.analysisLlmInvocations),
     observed_prompt_tokens_total: sum(agents, (agent) => agent.promptTokens),
     observed_completion_tokens_total: observedCompletionTokens,
@@ -548,6 +556,7 @@ function emptyAgentMetric(agent: string, layer: string): AgentBenchmarkMetric {
     analysisLlmInvocations: 0,
     toolCalls: 0,
     toolCallCountsByName: {},
+    toolCallFingerprints: {},
     toolFailureCount: 0,
     outputSource: "unknown",
     promptTokens: 0,
@@ -565,6 +574,18 @@ function recordToolNames(metric: AgentBenchmarkMetric, text: string): void {
     .map((part) => part.trim())
     .filter(Boolean)) {
     metric.toolCallCountsByName[name] = (metric.toolCallCountsByName[name] ?? 0) + 1;
+  }
+}
+
+function recordToolFingerprints(metric: AgentBenchmarkMetric, text: string): void {
+  const match = text.match(/\bfingerprints=([^\s]+)/);
+  const fingerprints = match?.[1];
+  if (!fingerprints) return;
+  for (const fingerprint of fingerprints
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)) {
+    metric.toolCallFingerprints[fingerprint] = (metric.toolCallFingerprints[fingerprint] ?? 0) + 1;
   }
 }
 

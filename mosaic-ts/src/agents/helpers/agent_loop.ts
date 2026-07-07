@@ -17,6 +17,7 @@
  * tool calls happened (for the LlmCallRecord ledger in DailyCycleState).
  */
 
+import { createHash } from "node:crypto";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import {
   AIMessage,
@@ -68,6 +69,7 @@ export interface AgentToolLoopResult {
 
 const DEFAULT_MAX_LOOPS = 6;
 const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0;
+const PRIOR_TOOL_REPLAY_CHARS = 800;
 
 export interface CompactedToolOutput {
   text: string;
@@ -91,8 +93,7 @@ export function resolveToolOutputMaxChars(
   explicit?: number,
   envValue = process.env.MOSAIC_AGENT_TOOL_OUTPUT_MAX_CHARS,
 ): number {
-  const chars =
-    explicit ?? parseToolOutputMaxChars(envValue) ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS;
+  const chars = explicit ?? parseToolOutputMaxChars(envValue) ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS;
   if (!Number.isFinite(chars)) {
     throw new Error(`invalid tool output max chars: ${chars}`);
   }
@@ -116,26 +117,86 @@ export function compactToolOutput(output: string, maxChars: number): CompactedTo
 }
 
 function hasToolCalls(message: BaseMessage): message is AIMessage {
-  return message.getType() === "ai" && (((message as AIMessage).tool_calls ?? []).length > 0);
+  return message.getType() === "ai" && ((message as AIMessage).tool_calls ?? []).length > 0;
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)]),
+    );
+  }
+  return value === undefined ? null : value;
+}
+
+export function toolCallFingerprint(name: string | undefined, args: unknown): string {
+  const toolName = name || "unknown";
+  const hash = createHash("sha256")
+    .update(JSON.stringify(canonicalize(args ?? {})))
+    .digest("hex")
+    .slice(0, 10);
+  return `${toolName}#${hash}`;
+}
+
+function compactPriorToolReplayText(output: string): string {
+  if (output.length <= PRIOR_TOOL_REPLAY_CHARS) return output;
+  const headChars = Math.floor(PRIOR_TOOL_REPLAY_CHARS * 0.7);
+  const tailChars = PRIOR_TOOL_REPLAY_CHARS - headChars;
+  return (
+    `${output.slice(0, headChars)}\n` +
+    `[prior_tool_output_compacted original_chars=${output.length}]\n` +
+    output.slice(-tailChars)
+  );
 }
 
 export function pruneConsumedToolHistory(messages: ReadonlyArray<BaseMessage>): BaseMessage[] {
   const pruned: BaseMessage[] = [];
   let droppingToolReplies = false;
+  let pendingToolCalls = new Map<string, string>();
+  let retainedToolReplies: string[] = [];
   for (const message of messages) {
+    if (droppingToolReplies && message.getType() !== "tool") {
+      if (retainedToolReplies.length > 0) {
+        pruned.push(
+          new HumanMessage(`Prior tool results retained:\n${retainedToolReplies.join("\n")}`),
+        );
+        retainedToolReplies = [];
+      }
+      droppingToolReplies = false;
+      pendingToolCalls = new Map();
+    }
     if (hasToolCalls(message)) {
       const content = extractTextContent(message.content as unknown).trim();
       if (content) {
         pruned.push(new AIMessage(content));
       }
+      pendingToolCalls = new Map(
+        (message.tool_calls ?? []).map((call) => [
+          call.id ?? "",
+          toolCallFingerprint(call.name, call.args ?? {}),
+        ]),
+      );
       droppingToolReplies = true;
       continue;
     }
     if (droppingToolReplies && message.getType() === "tool") {
+      const toolMessage = message as ToolMessage;
+      const fingerprint = pendingToolCalls.get(toolMessage.tool_call_id) ?? "unknown#unknown";
+      const output = extractTextContent(toolMessage.content as unknown);
+      retainedToolReplies.push(
+        `- ${fingerprint}: ${compactPriorToolReplayText(output).replaceAll("\n", "\n  ")}`,
+      );
       continue;
     }
-    droppingToolReplies = false;
     pruned.push(message);
+  }
+  if (retainedToolReplies.length > 0) {
+    pruned.push(
+      new HumanMessage(`Prior tool results retained:\n${retainedToolReplies.join("\n")}`),
+    );
   }
   return pruned;
 }
@@ -203,7 +264,8 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     opts.onLog?.(
       `tools=${calls.length} names=${calls
         .map((call) => call.name ?? "unknown")
-        .slice(0, 5)
+        .join(",")} fingerprints=${calls
+        .map((call) => toolCallFingerprint(call.name, call.args ?? {}))
         .join(",")}`,
     );
     for (const call of calls) {

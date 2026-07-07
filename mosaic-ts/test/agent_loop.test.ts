@@ -5,6 +5,7 @@ import {
   parseToolOutputMaxChars,
   pruneConsumedToolHistory,
   resolveToolOutputMaxChars,
+  toolCallFingerprint,
 } from "../src/agents/helpers/agent_loop.js";
 
 describe("agent tool loop helpers", () => {
@@ -46,7 +47,14 @@ describe("agent tool loop helpers", () => {
       new HumanMessage("initial context"),
       new AIMessage({
         content: "retain this short conclusion",
-        tool_calls: [{ id: "c1", name: "get_big_table", args: {}, type: "tool_call" }],
+        tool_calls: [
+          {
+            id: "c1",
+            name: "get_big_table",
+            args: { ticker: "600519.SH" },
+            type: "tool_call",
+          },
+        ],
       }),
       new ToolMessage({
         content: "x".repeat(100_000),
@@ -55,10 +63,18 @@ describe("agent tool loop helpers", () => {
       new AIMessage("next step"),
     ]);
 
-    expect(pruned.map((message) => message.getType())).toEqual(["human", "ai", "ai"]);
+    expect(pruned.map((message) => message.getType())).toEqual(["human", "ai", "human", "ai"]);
     expect(String(pruned[1]?.content)).toBe("retain this short conclusion");
-    expect(pruned.some((message) => String(message.content).includes("x".repeat(100)))).toBe(
-      false,
+    expect(String(pruned[2]?.content)).toContain("Prior tool results retained");
+    expect(String(pruned[2]?.content)).toContain("get_big_table#");
+    expect(String(pruned[2]?.content)).toContain("prior_tool_output_compacted");
+    expect(String(pruned[2]?.content)).not.toContain("x".repeat(1_000));
+  });
+
+  it("builds stable short tool-call fingerprints from canonical args", () => {
+    expect(toolCallFingerprint("get_x", { b: 2, a: 1 })).toBe(
+      toolCallFingerprint("get_x", { a: 1, b: 2 }),
     );
+    expect(toolCallFingerprint("get_x", { a: 1 })).not.toBe(toolCallFingerprint("get_x", { a: 2 }));
   });
 });
