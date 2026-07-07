@@ -367,11 +367,6 @@ describe("buildLayerThreeUserContext", () => {
         name: "get_balance_sheet",
         args: { ticker: "300750.SZ", freq: "annual", curr_date: "2024-06-24" },
       },
-      { name: "get_fundamentals", args: { ticker: "688981.SH", curr_date: "2024-06-24" } },
-      {
-        name: "get_balance_sheet",
-        args: { ticker: "688981.SH", freq: "annual", curr_date: "2024-06-24" },
-      },
     ]);
   });
 

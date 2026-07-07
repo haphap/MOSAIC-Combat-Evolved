@@ -255,7 +255,7 @@ export function buildLayerThreeInitialToolCalls(
   }
   if (agentId === "burry") {
     return pickBurryCandidateTickers(state)
-      .slice(0, 2)
+      .slice(0, 1)
       .flatMap((ticker) => [
         { name: "get_fundamentals", args: { ticker, curr_date: date } },
         { name: "get_balance_sheet", args: { ticker, freq: "annual", curr_date: date } },
