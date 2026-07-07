@@ -321,7 +321,8 @@ describe("buildLayerThreeUserContext", () => {
 
     const ctx = buildLayerThreeUserContext(state, "ackman");
     expect(ctx).toContain("pricing power, FCF conversion");
-    expect(ctx).toContain("quality-compounder candidate set");
+    expect(ctx).toContain("same candidate or one backup");
+    expect(ctx).toContain("initial quality candidate and one backup");
     expect(buildLayerThreeInitialToolCalls(state, "ackman")).toEqual([
       { name: "get_fundamentals", args: { ticker: "600519.SH", curr_date: "2024-06-24" } },
       {

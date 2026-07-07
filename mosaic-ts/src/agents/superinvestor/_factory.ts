@@ -277,9 +277,9 @@ function buildLayerThreeToolPlan(agentId: string): string {
     return (
       `## Tool plan\n` +
       `* Initial evidence: verify the highest-priority consumer/financial quality candidate with fundamentals and cashflow.\n` +
-      `* Round 1: judge pricing power, FCF conversion, balance-sheet durability, and candidate fit.\n` +
-      `* Round 2: use stock research, income statement, balance sheet, or stock data only for catalyst/quality gaps.\n` +
-      `* Round 3: fill one critical gap only; do not broaden beyond the quality-compounder candidate set.\n` +
+      `* Round 1: judge pricing power, FCF conversion, balance-sheet durability, and candidate fit for that candidate.\n` +
+      `* Round 2: use stock research, income statement, balance sheet, or stock data only for the same candidate or one backup.\n` +
+      `* Round 3: fill one critical gap only; do not broaden beyond the initial quality candidate and one backup.\n` +
       `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
     );
   }
