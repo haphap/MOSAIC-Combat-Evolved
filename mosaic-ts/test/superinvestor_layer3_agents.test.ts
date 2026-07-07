@@ -376,6 +376,45 @@ describe("buildLayerThreeUserContext", () => {
       },
     ]);
   });
+
+  it("plans Munger tools around compounding-quality duties", () => {
+    const state: DailyCycleStateType = {
+      messages: [],
+      active_cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      mode: "live",
+      trace_id: "t",
+      continuity_context: {},
+      lesson_context: {},
+      method_context: {},
+      layer1_outputs: {},
+      layer1_consensus: null,
+      layer2_outputs: {
+        consumer: {
+          agent: "consumer",
+          longs: [{ ticker: "600519.SH", thesis: "pricing power", conviction: 0.8 }],
+          shorts: [],
+          sector_score: 0.4,
+          key_drivers: ["d"],
+          confidence: 0.7,
+        },
+      },
+      layer2_consensus: null,
+      layer3_outputs: {},
+      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      portfolio_actions: [],
+      replay_triggered: false,
+      llm_calls: [],
+    };
+
+    expect(buildLayerThreeInitialToolCalls(state, "munger")).toEqual([
+      { name: "get_fundamentals", args: { ticker: "600519.SH", curr_date: "2024-06-24" } },
+      {
+        name: "get_cashflow",
+        args: { ticker: "600519.SH", freq: "annual", curr_date: "2024-06-24" },
+      },
+    ]);
+  });
 });
 
 // ============================================================ end-to-end via factory

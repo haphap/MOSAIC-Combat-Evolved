@@ -261,6 +261,14 @@ export function buildLayerThreeInitialToolCalls(
         { name: "get_balance_sheet", args: { ticker, freq: "annual", curr_date: date } },
       ]);
   }
+  if (agentId === "munger") {
+    return pickMungerCandidateTickers(state)
+      .slice(0, 2)
+      .flatMap((ticker) => [
+        { name: "get_fundamentals", args: { ticker, curr_date: date } },
+        { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
+      ]);
+  }
   return [];
 }
 
@@ -317,6 +325,14 @@ function pickBurryCandidateTickers(state: DailyCycleStateType): string[] {
   for (const output of Object.values(state.layer2_outputs ?? {})) {
     if (output && "shorts" in output) tickers.push(...output.shorts.map((pick) => pick.ticker));
   }
+  for (const output of Object.values(state.layer2_outputs ?? {})) {
+    if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
+  }
+  return [...new Set(tickers.filter(Boolean))];
+}
+
+function pickMungerCandidateTickers(state: DailyCycleStateType): string[] {
+  const tickers: string[] = [];
   for (const output of Object.values(state.layer2_outputs ?? {})) {
     if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
   }
