@@ -332,6 +332,40 @@ describe("rke-fixed-benchmark helpers", () => {
     expect(summary.schema_failure_gate_passed).toBe(false);
   });
 
+  it("lets a later ready retry replace an earlier failed paired output", () => {
+    const failed = collectBlockedPairedOutputRecords(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "local_qwen_27b",
+      {
+        ...manifest,
+        agents_by_layer: { macro: ["dollar"] },
+        agent_count: 1,
+      },
+      "tool_failed",
+      ["graph_run_failed"],
+    );
+    const ready = collectPairedOutputRecords(
+      "bench-1",
+      "episode-1",
+      "2024-01-02",
+      "local_qwen_27b",
+      {
+        layer1_outputs: { dollar: { agent: "dollar", confidence: 0.7 } },
+        layer2_outputs: {},
+        layer3_outputs: {},
+        layer4_outputs: {},
+      } as unknown as DailyCycleStateType,
+    );
+
+    const stats = aggregatePairedOutputStats("bench-1", [...failed, ...ready]);
+
+    expect(stats.errorCount).toBe(0);
+    expect(stats.pairedOutputCount).toBe(1);
+    expect(stats.modelConfigOutputCounts).toEqual({ local_qwen_27b: 1 });
+  });
+
   it("parses agent runtime metrics from benchmark logs", () => {
     const metrics = new Map();
     updateAgentMetricsFromLog(metrics, "[agent:start] L2 consumer timeout=5m00s");

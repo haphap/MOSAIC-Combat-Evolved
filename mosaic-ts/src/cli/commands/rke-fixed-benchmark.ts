@@ -817,11 +817,15 @@ export function aggregatePairedOutputStats(
     fallbackPromptRunCount,
     errorCount,
   };
-  const seen = new Set<string>();
+  const byKey = new Map<string, PairedOutputRecord>();
   for (const row of rows) {
     const key = `${row.model_config_id}|${row.episode_id}|${row.as_of_date}|${row.agent}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const previous = byKey.get(key);
+    if (previous && isCompletedPairedOutputRow(previous)) continue;
+    if (previous && !isCompletedPairedOutputRow(row)) continue;
+    byKey.set(key, row);
+  }
+  for (const row of byKey.values()) {
     if (!isCompletedPairedOutputRow(row)) stats.errorCount += 1;
     stats.pairedOutputCount += 1;
     stats.modelConfigOutputCounts[row.model_config_id] =
