@@ -397,6 +397,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       } catch (err) {
         output = `Tool '${name}' raised: ${(err as Error).message}`;
         opts.onLog?.(output);
+        toolOutputCache.set(fingerprint, output);
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);
       const toolMessage = new ToolMessage({ content: compacted.text, tool_call_id: call.id });
@@ -490,6 +491,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         } catch (err) {
           output = `Tool '${name}' raised: ${(err as Error).message}`;
           opts.onLog?.(output);
+          toolOutputCache.set(fingerprint, output);
         }
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);

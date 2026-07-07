@@ -27,6 +27,7 @@ export const institutionalFlowSpec: LayerOneAgentSpec<InstitutionalFlowOutput> =
   schema: InstitutionalFlowSchema,
   fieldNames: INSTITUTIONAL_FLOW_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
+  maxLoops: 3,
   render: renderInstitutionalFlow,
   fallback: fallbackInstitutionalFlow,
 };

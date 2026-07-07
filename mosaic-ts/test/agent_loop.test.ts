@@ -223,6 +223,53 @@ describe("agent tool loop helpers", () => {
     ).toEqual(["result-1", "result-1"]);
   });
 
+  it("serves repeated same-args tool failures from the per-agent cache", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c1", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c2", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage("done"),
+    ]);
+    let executions = 0;
+    const logs: string[] = [];
+    const getX = tool(
+      async () => {
+        executions++;
+        throw new Error("no rows");
+      },
+      {
+        name: "get_x",
+        description: "test tool",
+        schema: z.object({ a: z.number() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [getX],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      onLog: (message) => logs.push(message),
+    });
+
+    expect(result.analysisText).toBe("done");
+    expect(result.toolCalls).toBe(2);
+    expect(result.toolExecutions).toBe(1);
+    expect(result.toolCacheHits).toBe(1);
+    expect(executions).toBe(1);
+    expect(logs.some((line) => line.includes("tool_cache_hit"))).toBe(true);
+    expect(
+      result.messages
+        .filter((message) => message.getType() === "tool")
+        .map((message) => String(message.content)),
+    ).toEqual(["Tool 'get_x' raised: no rows", "Tool 'get_x' raised: no rows"]);
+  });
+
   it("executes role-required initial tool calls before the first LLM turn", async () => {
     const llm = new ScriptedLlm([new AIMessage("done")]);
     const logs: string[] = [];

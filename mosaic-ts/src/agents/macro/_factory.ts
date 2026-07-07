@@ -83,6 +83,8 @@ export interface LayerOneAgentSpec<TOutput extends MacroAgentOutput> {
    * is a generic "extract from the analysis below" template.
    */
   buildExtractorSystem?: (lang: LoaderLanguage) => string;
+  /** Optional per-agent loop cap when broad candidate scans would exhaust context. */
+  maxLoops?: number;
 }
 
 export interface LayerOneAgentDeps {
@@ -150,6 +152,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
             initialMessages: [new HumanMessage(userContext)],
+            ...(spec.maxLoops !== undefined ? { maxLoops: spec.maxLoops } : {}),
             onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
             signal,
           });

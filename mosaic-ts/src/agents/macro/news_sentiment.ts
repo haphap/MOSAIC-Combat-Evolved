@@ -29,6 +29,7 @@ export const newsSentimentSpec: LayerOneAgentSpec<NewsSentimentOutput> = {
   schema: NewsSentimentSchema,
   fieldNames: NEWS_SENTIMENT_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
+  maxLoops: 3,
   render: renderNewsSentiment,
   fallback: fallbackNewsSentiment,
 };
