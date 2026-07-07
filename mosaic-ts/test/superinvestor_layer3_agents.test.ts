@@ -362,6 +362,9 @@ describe("buildLayerThreeUserContext", () => {
       llm_calls: [],
     };
 
+    const ctx = buildLayerThreeUserContext(state, "burry");
+    expect(ctx).toContain("balance-sheet stress, cash burn");
+    expect(ctx).toContain("initial downside candidate and one backup");
     expect(buildLayerThreeInitialToolCalls(state, "burry")).toEqual([
       { name: "get_fundamentals", args: { ticker: "300750.SZ", curr_date: "2024-06-24" } },
       {

@@ -293,6 +293,16 @@ function buildLayerThreeToolPlan(agentId: string): string {
       `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
     );
   }
+  if (agentId === "burry") {
+    return (
+      `## Tool plan\n` +
+      `* Initial evidence: verify the highest-downside candidate with fundamentals and balance sheet.\n` +
+      `* Round 1: judge balance-sheet stress, cash burn, valuation risk, and downside asymmetry for that candidate.\n` +
+      `* Round 2: use cashflow, stock data, stock research, or RKE prior only for the same candidate or one backup.\n` +
+      `* Round 3: fill one critical short-thesis gap only; do not broaden beyond the initial downside candidate and one backup.\n` +
+      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+    );
+  }
   return (
     `## Tool plan\n` +
     `* Round 1: pick at least 2 candidate tickers that fit your philosophy and verify them with stock research or fundamentals.\n` +
