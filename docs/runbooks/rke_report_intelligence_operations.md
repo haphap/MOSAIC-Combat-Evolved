@@ -79,6 +79,48 @@ If downstream macro or investment agents need one of these views, consume it
 from the local registry. Do not re-add Report Intelligence artifacts to
 `REQUIRED_REGISTRY_FILES`.
 
+## Private Registry Repo
+
+The private registry repo is the source of truth for report-intelligence
+JSON/JSONL artifacts. Do not record its real remote URL, access token, licensed
+source content, or operator-specific local paths in this public runbook.
+MOSAIC-RKE does not auto-clone or auto-pull that repo at runtime. Operators
+clone, pull, commit, and push it explicitly so a batch run cannot change its
+de-duplication baseline in the middle of processing.
+
+First setup on a machine:
+
+```bash
+git clone <private-registry-remote> <private-registry-checkout>
+export MOSAIC_REGISTRIES_REPO=<private-registry-checkout>
+```
+
+Before formal extraction, batch merge, agent context export, or remote
+processing:
+
+```bash
+cd <private-registry-checkout>
+git pull --ff-only
+cd <mosaic-rke-checkout>
+mosaic-rke registries-preflight --root .
+```
+
+After generating or merging private registry outputs:
+
+```bash
+mosaic-rke export-private-registries --root . --output-dir <private-registry-checkout>
+cd <private-registry-checkout>
+git status
+git add registry registry_manifest.json
+git commit -m "sync report intelligence registries"
+git push
+```
+
+Use `MOSAIC_REGISTRY_DIR=<private-registry-checkout>/registry/report_intelligence`
+only when the registry directory is not under the standard repo layout. Explicit
+CLI/RPC `--registry-dir` or `registry_dir` still wins over both environment
+variables.
+
 Last source build:
 
 - Command:

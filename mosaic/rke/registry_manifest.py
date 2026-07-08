@@ -84,6 +84,7 @@ PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/gap_distribution_history.jsonl",
+        "registry/report_intelligence/report_fingerprint_manifest.jsonl",
         "registry/report_intelligence/industry_context_snapshots.jsonl",
         "registry/report_intelligence/macro_agent_research_priors.jsonl",
         "registry/report_intelligence/macro_regime_snapshots.jsonl",

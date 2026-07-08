@@ -44,6 +44,13 @@ from .required_data import (
     canonical_metric_name as _canonical_metric_name,
     normalize_required_data_items,
 )
+from .private_registries import (
+    FINGERPRINT_MANIFEST_NAME,
+    duplicate_report_fingerprint_reason,
+    load_report_fingerprint_index,
+    resolve_report_intelligence_registry_dir,
+    write_report_fingerprint_manifest,
+)
 from .temp_paths import operator_command, rke_tmp_root
 
 
@@ -189,6 +196,7 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/gap_distribution_history.jsonl",
+        "registry/report_intelligence/report_fingerprint_manifest.jsonl",
         REPORT_INTELLIGENCE_INDUSTRY_CONTEXT_SNAPSHOTS_PATH,
         REPORT_INTELLIGENCE_MACRO_AGENT_RESEARCH_PRIORS_PATH,
         REPORT_INTELLIGENCE_MACRO_REGIME_SNAPSHOTS_PATH,
@@ -1184,7 +1192,7 @@ LlmExtractor = Callable[[Mapping[str, Any], str, str, int, int], Mapping[str, An
 class ReportIntelligenceConfig:
     root: str | Path = "."
     source_path: str | Path = TUSHARE_REPORT_SOURCE_PATH
-    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR
+    registry_dir: str | Path | None = None
     cache_dir: str | Path = REPORT_INTELLIGENCE_CACHE_DIR
     source_ids: Sequence[str] = ()
     exclude_processed_registry_dirs: Sequence[str | Path] = ()
@@ -21054,15 +21062,13 @@ def build_macro_agent_research_priors(
 def export_macro_agent_research_priors(
     *,
     root: str | Path = ".",
-    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+    registry_dir: str | Path | None = None,
     as_of_date: str = "",
     agent_id: str = "",
     no_source_prose: bool = True,
 ) -> dict[str, Any]:
     root_path = Path(root).expanduser().resolve()
-    registry_path = Path(registry_dir)
-    if not registry_path.is_absolute():
-        registry_path = root_path / registry_path
+    registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
     path = registry_path / "macro_agent_research_priors.jsonl"
     blockers: list[str] = []
     rows = _read_registry_jsonl(
@@ -34543,16 +34549,12 @@ def merge_report_intelligence_batch_outputs(
     *,
     root: str | Path = ".",
     input_dirs: Sequence[str | Path],
-    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+    registry_dir: str | Path | None = None,
     include_existing_registry: bool = True,
     replace_source_ids: bool = False,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
-    registry_path = (
-        Path(registry_dir)
-        if Path(registry_dir).is_absolute()
-        else root_path / registry_dir
-    )
+    registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
     resolved_inputs = [
         Path(input_dir) if Path(input_dir).is_absolute() else root_path / input_dir
         for input_dir in input_dirs
@@ -34646,6 +34648,10 @@ def merge_report_intelligence_batch_outputs(
             existing_file_counts[filename] = existing_file_count
     if not outputs:
         blockers.append("no report-intelligence batch jsonl files found")
+    elif not blockers:
+        fingerprint = write_report_fingerprint_manifest(registry_path)
+        outputs[FINGERPRINT_MANIFEST_NAME] = str(fingerprint["path"])
+        row_counts[FINGERPRINT_MANIFEST_NAME] = int(fingerprint["rows"])
     return {
         "input_dirs": [str(path) for path in resolved_inputs],
         "input_dir_count": len(resolved_inputs),
@@ -34792,11 +34798,7 @@ def run_report_intelligence_derived_refresh(
 ) -> ReportIntelligenceRunResult:
     cfg = config or ReportIntelligenceConfig(refresh_derived_only=True)
     root_path = Path(cfg.root).resolve()
-    registry_dir = (
-        Path(cfg.registry_dir)
-        if Path(cfg.registry_dir).is_absolute()
-        else root_path / cfg.registry_dir
-    )
+    registry_dir = resolve_report_intelligence_registry_dir(root_path, cfg.registry_dir)
     run_id = "RIR-DERIVED-" + _utc_now().replace(":", "").replace("-", "")
     missing_private_inputs = _missing_report_intelligence_private_inputs(
         root_path=root_path,
@@ -35557,6 +35559,8 @@ def run_report_intelligence_derived_refresh(
         ),
         "status": str(registry_dir / "processing_status.jsonl"),
     }
+    fingerprint = write_report_fingerprint_manifest(registry_dir)
+    outputs["report_fingerprint_manifest"] = str(fingerprint["path"])
     outputs = {
         key: _relative_or_absolute(Path(path), root_path)
         for key, path in outputs.items()
@@ -35701,11 +35705,7 @@ def run_report_intelligence_refresh(
     if cfg.refresh_derived_only:
         return run_report_intelligence_derived_refresh(cfg)
     root_path = Path(cfg.root).resolve()
-    registry_dir = (
-        Path(cfg.registry_dir)
-        if Path(cfg.registry_dir).is_absolute()
-        else root_path / cfg.registry_dir
-    )
+    registry_dir = resolve_report_intelligence_registry_dir(root_path, cfg.registry_dir)
     cache_dir = (
         Path(cfg.cache_dir)
         if Path(cfg.cache_dir).is_absolute()
@@ -35729,6 +35729,43 @@ def run_report_intelligence_refresh(
         selection_order=cfg.selection_order,
     )
     blockers: list[str] = [*processed_source_blockers, *source_blockers]
+    duplicate_status_rows: list[dict[str, Any]] = []
+    if (registry_dir / FINGERPRINT_MANIFEST_NAME).exists():
+        fingerprint_index = load_report_fingerprint_index(registry_dir)
+        filtered_rows: list[Mapping[str, Any]] = []
+        for row in rows:
+            duplicate_reason = duplicate_report_fingerprint_reason(
+                row,
+                fingerprint_index,
+            )
+            if not duplicate_reason:
+                filtered_rows.append(row)
+                continue
+            source_id = str(row.get("source_id") or "")
+            duplicate_status_rows.append(
+                {
+                    "run_id": run_id,
+                    "source_id": source_id,
+                    "report_id": _report_id(row),
+                    "pdf_status": "skipped",
+                    "markdown_status": "skipped",
+                    "markdown_backend": cfg.mineru_backend,
+                    "markdown_blocker": "duplicate_report_fingerprint",
+                    "markdown_returncode": None,
+                    "markdown_timed_out": False,
+                    "markdown_duration_seconds": None,
+                    "markdown_quality_gate_status": "",
+                    "markdown_quality_gap": "",
+                    "markdown_stderr_tail": "",
+                    "markdown_stdout_tail": "",
+                    "llm_status": "skipped",
+                    "llm_model": "",
+                    "blockers": [
+                        f"duplicate_report_fingerprint:{duplicate_reason}"
+                    ],
+                }
+            )
+        rows = filtered_rows
     macro_regime_calendar_rows = _read_macro_regime_calendar_rows(registry_dir)
     _emit_report_intelligence_progress(
         cfg,
@@ -35781,7 +35818,7 @@ def run_report_intelligence_refresh(
     metric_rows: list[dict[str, Any]] = []
     method_rows: list[dict[str, Any]] = []
     tool_gap_rows: list[dict[str, Any]] = []
-    status_rows: list[dict[str, Any]] = []
+    status_rows: list[dict[str, Any]] = list(duplicate_status_rows)
 
     prepared_rows: list[dict[str, Any]] = []
     for index, row in enumerate(rows, 1):
@@ -36752,6 +36789,8 @@ def run_report_intelligence_refresh(
             _write_jsonl(registry_dir / "processing_status.jsonl", status_rows)["path"]
         ),
     }
+    fingerprint = write_report_fingerprint_manifest(registry_dir)
+    outputs["report_fingerprint_manifest"] = str(fingerprint["path"])
     outputs = {
         key: _relative_or_absolute(Path(path), root_path)
         for key, path in outputs.items()

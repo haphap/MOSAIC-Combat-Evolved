@@ -17,6 +17,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from .private_registries import resolve_report_intelligence_registry_dir
 
 SCHEMA_VERSION = "rke_agent_research_context_v1"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
@@ -315,7 +316,7 @@ def normalize_agent_id(agent_id: str, layer: str = "") -> str:
 def build_rke_agent_research_context(
     *,
     root: str | Path = ".",
-    registry_dir: str | Path = DEFAULT_REGISTRY_DIR,
+    registry_dir: str | Path | None = None,
     agent_id: str,
     as_of_date: str = "",
     layer: str = "",
@@ -325,9 +326,7 @@ def build_rke_agent_research_context(
 ) -> dict[str, Any]:
     """Build a public-safe context from local private RKE artifacts."""
     root_path = Path(root).expanduser().resolve()
-    registry_path = Path(registry_dir)
-    if not registry_path.is_absolute():
-        registry_path = root_path / registry_path
+    registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
 
     rows = {
         "forecasts": _read_jsonl(registry_path / "forecast_claims.jsonl"),
