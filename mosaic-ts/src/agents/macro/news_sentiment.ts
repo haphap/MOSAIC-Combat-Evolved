@@ -1,10 +1,8 @@
 /**
  * news_sentiment Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 tools: `get_xueqiu_heat` + `get_news` (opencli) +
- * `get_caixin_sentiment` (now available — Caixin/财新 via opencli, gap closed
- * §14 #8). `get_industry_policy` (gov.cn policy document library) retained
- * as a corroborator.
+ * Plan §5.1 tools: `get_news` (opencli) + `get_caixin_sentiment` (Caixin/财新
+ * via opencli) + `get_industry_policy` (gov.cn policy document library).
  */
 
 import type { NewsSentimentOutput } from "../types.js";
@@ -18,7 +16,6 @@ import { NEWS_SENTIMENT_FIELD_NAMES, NewsSentimentSchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
   "get_rke_research_context",
-  "get_xueqiu_heat",
   "get_news",
   "get_caixin_sentiment",
   "get_industry_policy",
