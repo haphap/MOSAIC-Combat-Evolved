@@ -33,6 +33,7 @@
     "ink": "^7.0.4",
     "picocolors": "1.1.1",
     "react": "^19.2.6",
+    "yaml": "^2.9.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

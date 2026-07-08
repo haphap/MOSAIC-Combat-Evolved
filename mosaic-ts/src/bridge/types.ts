@@ -474,6 +474,8 @@ export interface PromptContractCheckRow {
   ready: boolean;
   blockers: string[];
   contract_categories: Record<string, boolean>;
+  research_knobs_required?: boolean;
+  research_knobs_check_passed?: boolean;
 }
 
 export interface PromptContractCheckResult {
@@ -510,6 +512,8 @@ export interface PromptFormalReleaseCheckRow {
   verify_release_passed: boolean;
   leak_drift_passed: boolean;
   prompt_contract_check_passed: boolean;
+  research_knobs_required?: boolean;
+  research_knobs_check_passed?: boolean;
   ready: boolean;
   blockers: string[];
 }

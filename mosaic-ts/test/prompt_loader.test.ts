@@ -12,7 +12,12 @@ import {
   promptPath,
   resolvePromptPath,
 } from "../src/agents/prompts/cohorts.js";
-import { clearPromptCache, loadPrompt, PromptNotFoundError } from "../src/agents/prompts/loader.js";
+import {
+  clearPromptCache,
+  loadPrompt,
+  loadPromptWithKnobs,
+  PromptNotFoundError,
+} from "../src/agents/prompts/loader.js";
 
 interface FakeRoot {
   root: string;
@@ -40,6 +45,62 @@ function makeFakePromptsRoot(): FakeRoot {
       return path;
     },
   };
+}
+
+function makeFakePromptRepo(): FakeRoot {
+  const repoRoot = mkdtempSync(join(tmpdir(), "mosaic-prompts-repo-test-"));
+  const root = join(repoRoot, "prompts", "mosaic");
+  return {
+    root: repoRoot,
+    cleanup: () => rmSync(repoRoot, { recursive: true, force: true }),
+    putPrompt({ cohort, layer, agent, language, body }) {
+      const dir = join(root, cohort, layer);
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `${agent}.${language}.md`);
+      writeFileSync(path, body, "utf-8");
+      return path;
+    },
+  };
+}
+
+function researchKnobsFence(extra = ""): string {
+  return `\`\`\`research-knobs
+research-knobs:
+  schema_version: research_knobs_v1
+  layer: macro
+  agent: macro.central_bank
+  research_scope:
+    must_cover: [liquidity_regime]
+    must_not_cover: [final_portfolio_sizing]
+  prediction_targets:
+    - id: liquidity_regime_20d
+      target_variable: liquidity_regime
+      horizon: 20d
+      allowed_outputs: [positive, neutral, negative]
+  evidence_registry:
+    pboc_liquidity:
+      tool: get_pboc_ops
+      metric: pboc_net_injection_7d
+      current_data: true
+      primary: true
+  evidence_weights:
+    pboc_liquidity: 1.0
+  lookbacks:
+    net_injection_window_days: 7
+  thresholds: {}
+  confidence_caps:
+    missing_current_data:
+      cap: 0.55
+      trigger: missing_required_evidence
+      enforcement: code
+      required_evidence: [pboc_liquidity]
+  tie_breaks: []
+  mutation_targets:
+    - path: /rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value
+      type: number
+      min: 0
+      max: 1
+${extra}\`\`\``;
 }
 
 describe("AGENTS_BY_LAYER + LAYER_BY_AGENT (Plan §5)", () => {
@@ -196,6 +257,29 @@ describe("resolvePromptPath fallback chain", () => {
       privatePromptsRoot: privateFake.root,
     });
     expect(found).toBe(expected);
+  });
+
+  it("accepts a private prompt repo root as an explicit privatePromptsRoot", () => {
+    const privateRepo = makeFakePromptRepo();
+    try {
+      const expected = privateRepo.putPrompt({
+        cohort: "cohort_default",
+        layer: "macro",
+        agent: "central_bank",
+        language: "zh",
+        body: "private repo root",
+      });
+      const found = resolvePromptPath({
+        agent: "central_bank",
+        cohort: "cohort_default",
+        language: "zh",
+        promptsRoot: fake.root,
+        privatePromptsRoot: privateRepo.root,
+      });
+      expect(found).toBe(expected);
+    } finally {
+      privateRepo.cleanup();
+    }
   });
 
   it("prefers private default prompt over repo cohort prompt", () => {
@@ -461,5 +545,78 @@ describe("loadPrompt", () => {
 
     expect(baseline).toBe("baseline");
     expect(overlay).toBe("private");
+  });
+
+  it("loadPromptWithKnobs injects a parity-checked runtime contract", async () => {
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: `${researchKnobsFence()}\n\nZH body`,
+    });
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "en",
+      body: `${researchKnobsFence()}\n\nEN body`,
+    });
+
+    const out = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      promptsRoot: fake.root,
+    });
+
+    expect(out.prompt).toContain("## Runtime Research Knobs Contract");
+    expect(out.prompt).toContain("ZH body");
+    expect(out.prompt).toContain("EN body");
+    expect(out.prompt).not.toContain("```research-knobs");
+    expect(out.snapshot.knobs.evidence_weights.pboc_liquidity).toBe(1);
+    expect(out.snapshot.hash).toMatch(/^sha256:/);
+  });
+
+  it("loadPromptWithKnobs fails closed when one language is missing", async () => {
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: `${researchKnobsFence()}\n\nZH body`,
+    });
+
+    await expect(
+      loadPromptWithKnobs({
+        agent: "central_bank",
+        cohort: "cohort_default",
+        promptsRoot: fake.root,
+      }),
+    ).rejects.toBeInstanceOf(PromptNotFoundError);
+  });
+
+  it("loadPromptWithKnobs rejects zh/en knob value drift", async () => {
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: `${researchKnobsFence()}\n\nZH body`,
+    });
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "en",
+      body: `${researchKnobsFence().replace("pboc_liquidity: 1.0", "pboc_liquidity: 0.9")}\n\nEN body`,
+    });
+
+    await expect(
+      loadPromptWithKnobs({
+        agent: "central_bank",
+        cohort: "cohort_default",
+        promptsRoot: fake.root,
+      }),
+    ).rejects.toThrow(/evidence_weights must sum to 1.0|parity mismatch/);
   });
 });

@@ -40,6 +40,7 @@ REQUIRED_SCHEMA_FILES = {
     "parameter_prior.schema.json",
     "validation_experiment_v2.schema.json",
     "production_patch.schema.json",
+    "research_knobs_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
     "report_intelligence_feature_flags.schema.json",

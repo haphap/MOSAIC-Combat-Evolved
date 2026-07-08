@@ -29,6 +29,7 @@ import {
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { extractTextContent } from "./content.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
+import type { ToolStatus } from "./research_knobs.js";
 import { extractLlmTokenUsage } from "./runtime.js";
 
 export interface AgentToolLoopOptions {
@@ -78,6 +79,8 @@ export interface AgentToolLoopResult {
   llmElapsedMs: number;
   /** The full message thread including ToolMessages, useful for debugging. */
   messages: BaseMessage[];
+  /** Per-tool call status ledger consumed by research-knob cap enforcement. */
+  toolStatuses: ToolStatus[];
 }
 
 const DEFAULT_MAX_LOOPS = 6;
@@ -343,6 +346,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   let promptTokens = 0;
   let completionTokens = 0;
   let llmElapsedMs = 0;
+  const toolStatuses: ToolStatus[] = [];
   // ponytail: per-agent cache; make it shared only if duplicate tool IO remains costly.
   const toolOutputCache = new Map<string, string>();
   let toolReplayEntries: ToolReplayEntry[] = [];
@@ -380,6 +384,16 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       const tool = toolByName.get(name);
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
+        toolStatuses.push({
+          name,
+          called: true,
+          failed: false,
+          missing: true,
+          fallback: false,
+          cache_hit: false,
+          args: call.args,
+          fingerprint,
+        });
         const toolMessage = new ToolMessage({
           content: `Tool '${name}' is not registered for this agent.`,
           tool_call_id: call.id,
@@ -394,10 +408,30 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         const raw = await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
         output = typeof raw === "string" ? raw : String(raw);
         toolOutputCache.set(fingerprint, output);
+        toolStatuses.push({
+          name,
+          called: true,
+          failed: false,
+          missing: false,
+          fallback: false,
+          cache_hit: false,
+          args: call.args,
+          fingerprint,
+        });
       } catch (err) {
         output = `Tool '${name}' raised: ${(err as Error).message}`;
         opts.onLog?.(output);
         toolOutputCache.set(fingerprint, output);
+        toolStatuses.push({
+          name,
+          called: true,
+          failed: true,
+          missing: false,
+          fallback: false,
+          cache_hit: false,
+          args: call.args,
+          fingerprint,
+        });
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);
       const toolMessage = new ToolMessage({ content: compacted.text, tool_call_id: call.id });
@@ -440,6 +474,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         completionTokens,
         llmElapsedMs,
         messages,
+        toolStatuses,
       };
     }
 
@@ -465,6 +500,16 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       const tool = toolByName.get(name);
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
+        toolStatuses.push({
+          name,
+          called: true,
+          failed: false,
+          missing: true,
+          fallback: false,
+          cache_hit: false,
+          args: call.args,
+          fingerprint,
+        });
         const toolMessage = new ToolMessage({
           content: `Tool '${name}' is not registered for this agent.`,
           tool_call_id: call.id ?? "",
@@ -479,6 +524,16 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         output = cachedOutput;
         toolCacheHits++;
         opts.onLog?.(`tool_cache_hit fingerprint=${fingerprint}`);
+        toolStatuses.push({
+          name,
+          called: true,
+          failed: false,
+          missing: false,
+          fallback: false,
+          cache_hit: true,
+          args: call.args,
+          fingerprint,
+        });
       } else {
         toolExecutions++;
         try {
@@ -488,10 +543,30 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           );
           output = typeof raw === "string" ? raw : String(raw);
           toolOutputCache.set(fingerprint, output);
+          toolStatuses.push({
+            name,
+            called: true,
+            failed: false,
+            missing: false,
+            fallback: false,
+            cache_hit: false,
+            args: call.args,
+            fingerprint,
+          });
         } catch (err) {
           output = `Tool '${name}' raised: ${(err as Error).message}`;
           opts.onLog?.(output);
           toolOutputCache.set(fingerprint, output);
+          toolStatuses.push({
+            name,
+            called: true,
+            failed: true,
+            missing: false,
+            fallback: false,
+            cache_hit: false,
+            args: call.args,
+            fingerprint,
+          });
         }
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);
@@ -541,5 +616,6 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     completionTokens,
     llmElapsedMs,
     messages,
+    toolStatuses,
   };
 }

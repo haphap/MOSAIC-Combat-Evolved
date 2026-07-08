@@ -22,6 +22,11 @@ import type { LlmHandle } from "../../llm/factory.js";
 import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
+  applyResearchKnobCaps,
+  isResearchKnobsEnabled,
+  type ResearchKnobsSnapshot,
+} from "../helpers/research_knobs.js";
+import {
   AgentTimeoutError,
   buildLlmCall,
   formatAgentEvent,
@@ -33,7 +38,7 @@ import {
   withAgentTimeout,
 } from "../helpers/runtime.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
-import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { RegimeSignal, SuperinvestorOutput } from "../types.js";
 
@@ -84,12 +89,24 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L3", spec.agentId, ["prepare"]));
 
-          const baseSystemPrompt = await loadPrompt({
-            agent: spec.agentId,
-            cohort,
-            language,
-            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-          });
+          let knobSnapshot: ResearchKnobsSnapshot | null = null;
+          let baseSystemPrompt: string;
+          if (isResearchKnobsEnabled(spec.agentId)) {
+            const loaded = await loadPromptWithKnobs({
+              agent: spec.agentId,
+              cohort,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+            knobSnapshot = loaded.snapshot;
+            baseSystemPrompt = loaded.prompt;
+          } else {
+            baseSystemPrompt = await loadPrompt({
+              agent: spec.agentId,
+              cohort,
+              language,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+          }
           const systemPrompt = `${baseSystemPrompt}\n\n${buildLayerThreeCurrentToolContract(spec.requiredTools)}`;
 
           const toolOptions = {
@@ -141,8 +158,14 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             signal,
           });
 
-          const output =
+          const rawOutput =
             extractor.structured ?? spec.fallback(loopResult.analysisText, state.layer1_consensus);
+          const capped = knobSnapshot
+            ? applyResearchKnobCaps(rawOutput, knobSnapshot, {
+                toolStatuses: loopResult.toolStatuses,
+              })
+            : null;
+          const output = capped?.output ?? rawOutput;
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
 
           onLog(
@@ -158,6 +181,14 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 loopResult.llmElapsedMs,
               ),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(capped
+                ? [
+                    `pre_cap_confidence=${capped.audit.pre_cap_confidence ?? "null"}`,
+                    `post_cap_confidence=${capped.audit.post_cap_confidence ?? "null"}`,
+                    `fired_caps=${capped.audit.fired_cap_ids.join(",") || "none"}`,
+                    `knob_snapshot=${capped.audit.knob_snapshot_hash}`,
+                  ]
+                : []),
               summarizeAgentOutput(output),
             ]),
           );

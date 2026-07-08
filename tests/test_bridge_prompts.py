@@ -62,6 +62,71 @@ Mutable: thresholds and wording. Immutable: role boundary, output schema, requir
 """.strip()
 
 
+def _valid_zh_contract_prompt(agent: str, layer: str, fields: tuple[str, ...]) -> str:
+    return f"""
+# {agent}
+## 角色边界
+agent id {agent}; layer {layer}; 只在本角色内判断，不越权做组合决策。
+## 必需输入与工具
+必需工具：get_rke_research_context 和当前数据工具。若工具缺失或工具不可用，使用保守输出并应用置信度上限。
+## RKE 先验策略
+get_rke_research_context 是脱敏研究先验，不是当前数据，不能替代当前数据，不能直接生成交易。没有当前数据确认就不交易。
+## 工作流程
+收集证据，处理矛盾，确认当前数据，在角色边界内推理，输出结构化 JSON。
+## 输出 schema
+字段必须保持：{", ".join(fields)}。
+## 审计/足迹契约
+字段承载 claim type、target、confidence、current-data confirmation、stale prior、contradictory prior、RKE context hash、ranking_policy_id、retrieval_rank、priority_bucket、truncation audit、truncated_item_count、current_data_confirmed、rke_context_hash。
+## 隐私边界
+不得输出 report prose、source spans、source_span_ids、prompt body、local paths、URLs、reviewer text 或 licensed metadata。
+## 置信度策略
+高置信度需要当前数据和两个证据族；fallback data caps confidence。
+## 拒绝与 no-action
+若必需数据不可用，在 schema 内输出保守 no-action。
+## Autoresearch 演化契约
+可变：阈值和措辞。不可变：角色边界、输出 schema、必需工具、当前数据门槛、RKE 先验策略、隐私边界、审计/足迹契约、shadow/promotion 安全策略。
+""".strip()
+
+
+def _research_knobs_fence(agent: str = "volatility") -> str:
+    return f"""```research-knobs
+research-knobs:
+  schema_version: research_knobs_v1
+  layer: macro
+  agent: macro.{agent}
+  research_scope:
+    must_cover: [regime_signal]
+    must_not_cover: [final_portfolio_sizing]
+  prediction_targets:
+    - id: regime_signal_5d
+      target_variable: regime_signal
+      horizon: 5d
+      allowed_outputs: [negative, neutral, positive]
+  evidence_registry:
+    current_data:
+      tool: get_rke_research_context
+      metric: policy_prior
+      current_data: false
+      primary: false
+  evidence_weights:
+    current_data: 1.0
+  lookbacks: {{}}
+  thresholds: {{}}
+  confidence_caps:
+    missing_current_data:
+      cap: 0.55
+      trigger: missing_required_evidence
+      enforcement: code
+      required_evidence: [current_data]
+  tie_breaks: []
+  mutation_targets:
+    - path: /rule_packs/macro.{agent}.regime.v1/rules/macro.{agent}.soft.001/learnable_parameters/current_data_weight/value
+      type: number
+      min: 0
+      max: 1
+```"""
+
+
 def _write_contract_prompt(
     private_repo: Path,
     *,
@@ -570,6 +635,75 @@ def test_contract_check_accepts_valid_private_prompts_by_layer(
     assert "content" not in result["rows"][0]
 
 
+def test_contract_check_accepts_localized_zh_contract(repo: Path, tmp_path: Path, monkeypatch):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    _write_contract_prompt(
+        private_repo,
+        text=_valid_zh_contract_prompt("volatility", "macro", fields),
+    )
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "localized zh contract prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+
+    assert result["ready"] is True
+    assert result["blocked_reasons"] == []
+
+
+def test_contract_check_blocks_enabled_agent_missing_research_knobs(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    _write_contract_prompt(private_repo)
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "contract prompt")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "volatility")
+
+    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+
+    assert result["ready"] is False
+    assert "research_knobs_fence_count_0" in result["blocked_reasons"]
+    assert result["rows"][0]["research_knobs_required"] is True
+    assert result["rows"][0]["research_knobs_check_passed"] is False
+
+
+def test_contract_check_blocks_research_knobs_bilingual_drift(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    prompt = _valid_contract_prompt("volatility", "macro", fields)
+    _write_contract_prompt(
+        private_repo,
+        lang="zh",
+        text=f"{_research_knobs_fence()}\n\n{prompt}",
+    )
+    _write_contract_prompt(
+        private_repo,
+        lang="en",
+        text=f"{_research_knobs_fence().replace('cap: 0.55', 'cap: 0.6')}\n\n{prompt}",
+    )
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "bilingual research knobs drift")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "volatility")
+
+    result = dispatch(
+        "prompts.contract_check",
+        {"agents": ["volatility"], "langs": ["zh", "en"]},
+    )
+
+    assert result["ready"] is False
+    assert "research_knobs_bilingual_drift" in result["blocked_reasons"]
+    assert all(row["research_knobs_check_passed"] is False for row in result["rows"])
+
+
 def test_formal_release_checks_emit_no_body_rows(repo: Path, tmp_path: Path, monkeypatch):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
@@ -605,6 +739,39 @@ def test_formal_release_checks_emit_no_body_rows(repo: Path, tmp_path: Path, mon
     assert all(row["prompt_contract_check_passed"] is True for row in result["rows"])
     assert "Role boundary" not in str(result)
     assert "content" not in result["rows"][0]
+
+
+def test_formal_release_checks_include_research_knobs_status(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    prompt = _valid_contract_prompt("volatility", "macro", fields)
+    for lang in ("zh", "en"):
+        _write_contract_prompt(
+            private_repo,
+            lang=lang,
+            text=f"{_research_knobs_fence()}\n\n{prompt}",
+        )
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "contract prompt with research knobs")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "volatility")
+
+    result = dispatch(
+        "prompts.formal_release_checks",
+        {
+            "agents": ["volatility"],
+            "langs": ["zh", "en"],
+            "benchmark_run_id": "bench-release",
+        },
+    )
+
+    assert result["ready"] is True
+    assert result["blocked_reasons"] == []
+    assert all(row["research_knobs_required"] is True for row in result["rows"])
+    assert all(row["research_knobs_check_passed"] is True for row in result["rows"])
 
 
 def test_formal_release_checks_block_invalid_contract(

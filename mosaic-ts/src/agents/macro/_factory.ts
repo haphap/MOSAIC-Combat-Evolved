@@ -33,6 +33,11 @@ import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import {
+  applyResearchKnobCaps,
+  isResearchKnobsEnabled,
+  type ResearchKnobsSnapshot,
+} from "../helpers/research_knobs.js";
+import {
   AgentTimeoutError,
   buildLlmCall,
   formatAgentEvent,
@@ -44,7 +49,7 @@ import {
   withAgentTimeout,
 } from "../helpers/runtime.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
-import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { MacroAgentOutput } from "../types.js";
 
@@ -129,13 +134,27 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L1", spec.agentId, ["prepare"]));
 
-          // Phase 0: load bilingual prompt for this cohort.
-          const systemPrompt = await loadPrompt({
-            agent: spec.agentId,
-            cohort,
-            language,
-            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-          });
+          // Phase 0: load prompt for this cohort. Research-knobs enabled
+          // agents fail closed on zh/en parity and share one immutable snapshot
+          // between prompt injection and runtime cap enforcement.
+          let knobSnapshot: ResearchKnobsSnapshot | null = null;
+          let systemPrompt: string;
+          if (isResearchKnobsEnabled(spec.agentId)) {
+            const loaded = await loadPromptWithKnobs({
+              agent: spec.agentId,
+              cohort,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+            knobSnapshot = loaded.snapshot;
+            systemPrompt = loaded.prompt;
+          } else {
+            systemPrompt = await loadPrompt({
+              agent: spec.agentId,
+              cohort,
+              language,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+          }
 
           // Phase 0b: pull the agent's tools from the bridge (with backtest
           // context attached so date-bound tools clamp end_date correctly).
@@ -181,7 +200,13 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           });
 
           // Phase 3: assemble state update.
-          const output = extractor.structured ?? spec.fallback(loopResult.analysisText);
+          const rawOutput = extractor.structured ?? spec.fallback(loopResult.analysisText);
+          const capped = knobSnapshot
+            ? applyResearchKnobCaps(rawOutput, knobSnapshot, {
+                toolStatuses: loopResult.toolStatuses,
+              })
+            : null;
+          const output = capped?.output ?? rawOutput;
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
 
           onLog(
@@ -197,6 +222,14 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                 loopResult.llmElapsedMs,
               ),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(capped
+                ? [
+                    `pre_cap_confidence=${capped.audit.pre_cap_confidence ?? "null"}`,
+                    `post_cap_confidence=${capped.audit.post_cap_confidence ?? "null"}`,
+                    `fired_caps=${capped.audit.fired_cap_ids.join(",") || "none"}`,
+                    `knob_snapshot=${capped.audit.knob_snapshot_hash}`,
+                  ]
+                : []),
               summarizeAgentOutput(output),
             ]),
           );

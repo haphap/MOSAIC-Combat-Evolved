@@ -6,8 +6,10 @@ from pathlib import Path
 from mosaic.rke import (
     build_central_bank_mvp_bundle,
     build_central_bank_prompt_ir,
+    build_research_knobs_projection,
     render_prompt_markdown,
     validate_prompt_ir_contract,
+    validate_research_knobs_projection,
     write_central_bank_mvp_registry,
 )
 
@@ -56,6 +58,37 @@ def test_central_bank_mvp_bundle_reaches_paper_trading_but_blocks_broad_rollout(
     assert not bundle.completion_audit.ready_for_broad_rollout
     assert "manual gold-set review still required" in bundle.completion_audit.blockers
     assert "source license review still pending" in bundle.completion_audit.blockers
+
+
+def test_research_knobs_projection_uses_rule_pack_channel_weights_not_source_profiles():
+    bundle = build_central_bank_mvp_bundle()
+    rule_pack = bundle.artifacts["rule_pack"]
+
+    knobs = build_research_knobs_projection(bundle.prompt_ir, (rule_pack,))
+
+    assert validate_research_knobs_projection(knobs, bundle.prompt_ir) == ()
+    assert knobs["schema_version"] == "research_knobs_v1"
+    assert knobs["evidence_registry"]["pboc_liquidity"]["tool"] == "get_pboc_ops"
+    assert knobs["evidence_registry"]["pboc_liquidity"]["metric"] == "pboc_net_injection_7d"
+    assert knobs["evidence_weights"] == {"pboc_liquidity": 1.0}
+    target_paths = {target["path"] for target in knobs["mutation_targets"]}
+    assert (
+        "/rule_packs/macro.central_bank.liquidity.v1/rules/"
+        "macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value"
+    ) in target_paths
+    assert not any(path.startswith("/research_weighting/source_profiles/") for path in target_paths)
+
+    invalid = dict(knobs)
+    invalid["mutation_targets"] = [
+        {
+            "path": "/research_weighting/source_profiles/AUTH-001/weight_policy",
+            "type": "number",
+        }
+    ]
+
+    failures = validate_research_knobs_projection(invalid, bundle.prompt_ir)
+
+    assert "evidence weights must not target report-source reliability paths" in failures
 
 
 def test_central_bank_registry_writer_emits_schema_aligned_artifacts(tmp_path: Path):

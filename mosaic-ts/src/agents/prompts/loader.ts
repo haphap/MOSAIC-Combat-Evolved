@@ -14,6 +14,12 @@
 import { readFile } from "node:fs/promises";
 import { redactSensitiveText } from "../../security/redaction.js";
 import {
+  assertResearchKnobsParity,
+  buildResearchKnobsSnapshot,
+  parseResearchKnobsPrompt,
+  type ResearchKnobsSnapshot,
+} from "../helpers/research_knobs.js";
+import {
   findPrivatePromptsRoot,
   type Language,
   promptPathCandidates,
@@ -53,11 +59,13 @@ interface LoadOptions {
 }
 
 const cache = new Map<string, string>();
+const knobsCache = new Map<string, LoadPromptWithKnobsResult>();
 
 /** Drop the in-memory prompt cache. Used by tests and after autoresearch
  *  mutation rewrites prompt files on disk. */
 export function clearPromptCache(): void {
   cache.clear();
+  knobsCache.clear();
 }
 
 /** Read one prompt file (no fallback merging here — done by ``loadPrompt``
@@ -139,4 +147,63 @@ export async function loadPrompt(opts: LoadOptions): Promise<string> {
   }
   if (!opts.noCache) cache.set(cacheKey, single.text);
   return single.text;
+}
+
+export interface LoadPromptWithKnobsResult {
+  prompt: string;
+  snapshot: ResearchKnobsSnapshot;
+  paths: {
+    zh: string;
+    en: string;
+  };
+}
+
+/**
+ * Load zh/en prompt pair with a required research-knobs projection.
+ *
+ * Unlike legacy ``loadPrompt({ language: "Bilingual" })``, this fails closed
+ * if either language is missing or the parsed knobs differ.
+ */
+export async function loadPromptWithKnobs(
+  opts: Omit<LoadOptions, "language"> & { language?: "Bilingual" },
+): Promise<LoadPromptWithKnobsResult> {
+  const privateRoot =
+    opts.privatePromptsRoot ?? (opts.promptsRoot ? "" : (findPrivatePromptsRoot() ?? ""));
+  const cacheKey = [
+    opts.promptsRoot ?? "",
+    privateRoot,
+    opts.cohort,
+    opts.agent,
+    "ResearchKnobs",
+  ].join("|");
+  if (!opts.noCache) {
+    const cached = knobsCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+  }
+
+  const [zh, en] = await Promise.all([
+    readSingle({ ...opts, language: "zh" }),
+    readSingle({ ...opts, language: "en" }),
+  ]);
+  if (zh.text === null || en.text === null) {
+    throw new PromptNotFoundError(opts.agent, opts.cohort, "Bilingual", [
+      ...(zh.text === null ? zh.triedPaths : []),
+      ...(en.text === null ? en.triedPaths : []),
+    ]);
+  }
+
+  const zhParsed = parseResearchKnobsPrompt(zh.text);
+  const enParsed = parseResearchKnobsPrompt(en.text);
+  assertResearchKnobsParity(zhParsed.knobs, enParsed.knobs);
+  const snapshot = buildResearchKnobsSnapshot({
+    agent: opts.agent,
+    cohort: opts.cohort,
+    knobs: zhParsed.knobs,
+  });
+  const prompt = [snapshot.visibleContract, "", zhParsed.body, "", "---", "", enParsed.body].join(
+    "\n",
+  );
+  const result = { prompt, snapshot, paths: { zh: zh.path, en: en.path } };
+  if (!opts.noCache) knobsCache.set(cacheKey, result);
+  return result;
 }

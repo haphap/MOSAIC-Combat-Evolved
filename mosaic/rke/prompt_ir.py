@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isclose
 from typing import Any, Literal, Mapping, Sequence
 
 from .governance import EvolutionTargets, default_evolution_targets
+from .p0 import LearnableParameter, RulePack
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,204 @@ class AgentRuntimeInput:
     active_rule_packs: Sequence[str]
     current_regime: Mapping[str, str]
     rule_validation_scores: Mapping[str, Mapping[str, Any]]
+
+
+def _parameter_type_for_knobs(parameter: LearnableParameter) -> str:
+    if parameter.type == "float":
+        return "number"
+    return parameter.type
+
+
+def _normalize_horizon(days: tuple[int, int]) -> str:
+    if days[0] == days[1]:
+        return f"{days[0]}d"
+    return f"{days[0]}-{days[1]}d"
+
+
+def _research_knob_metadata(parameter: LearnableParameter) -> Mapping[str, Any]:
+    metadata = parameter.metadata.get("research_knob")
+    return metadata if isinstance(metadata, Mapping) else {}
+
+
+def _rule_pack_path(rule_pack: RulePack, rule_id: str, parameter_name: str) -> str:
+    return (
+        f"/rule_packs/{rule_pack.rule_pack_id}/rules/{rule_id}"
+        f"/learnable_parameters/{parameter_name}/value"
+    )
+
+
+def build_research_knobs_projection(
+    contract: PromptIRContract,
+    rule_packs: Sequence[RulePack],
+    *,
+    rke_promotion_gate_passed: bool = False,
+) -> Mapping[str, Any]:
+    """Project Prompt IR and rule-pack learnable parameters into research-knobs v1."""
+    tool_by_name = {tool.name: tool for tool in contract.required_tools}
+    evidence_registry: dict[str, dict[str, Any]] = {}
+    raw_weights: dict[str, float] = {}
+    mutation_targets: list[dict[str, Any]] = []
+    prediction_targets: list[dict[str, Any]] = []
+    lookbacks: dict[str, Any] = {}
+    excluded_channels: list[str] = []
+
+    for rule_pack in rule_packs:
+        if rule_pack.agent_id != contract.agent_id:
+            continue
+        for rule in rule_pack.rules.values():
+            prediction_targets.append(
+                {
+                    "id": rule.rule_id,
+                    "target_variable": rule.metric_proxies[-1] if rule.metric_proxies else rule.rule_id,
+                    "horizon": _normalize_horizon(rule.horizon_days),
+                    "allowed_outputs": ["negative", "neutral", "positive"],
+                }
+            )
+            for parameter_name, parameter in rule.learnable_parameters.items():
+                path = _rule_pack_path(rule_pack, rule.rule_id, parameter_name)
+                target: dict[str, Any] = {
+                    "path": path,
+                    "type": _parameter_type_for_knobs(parameter),
+                }
+                if parameter.min is not None:
+                    target["min"] = parameter.min
+                if parameter.max is not None:
+                    target["max"] = parameter.max
+                mutation_targets.append(target)
+
+                if parameter_name.endswith("_window_days"):
+                    lookbacks[parameter_name] = parameter.value
+
+                knob = _research_knob_metadata(parameter)
+                if knob.get("kind") != "evidence_channel_weight":
+                    continue
+                evidence_key = str(knob.get("evidence_key") or "")
+                tool_name = str(knob.get("tool") or "")
+                metric = str(knob.get("metric") or "")
+                if not evidence_key:
+                    continue
+                if knob.get("requires_rke_promotion_gate") and not rke_promotion_gate_passed:
+                    excluded_channels.append(evidence_key)
+                    raw_weights[evidence_key] = 0.0
+                    continue
+                tool = tool_by_name.get(tool_name)
+                evidence_registry[evidence_key] = {
+                    "tool": tool_name,
+                    "metric": metric,
+                    "current_data": bool(knob.get("current_data", True)),
+                    "primary": bool(knob.get("primary", False)),
+                }
+                if tool is not None and tool.fallback_confidence_cap is not None:
+                    evidence_registry[evidence_key]["fallback_confidence_cap"] = (
+                        tool.fallback_confidence_cap
+                    )
+                raw_weights[evidence_key] = float(parameter.value)
+
+    total_weight = sum(value for value in raw_weights.values() if value > 0.0)
+    evidence_weights = {
+        key: (value / total_weight if total_weight else 0.0)
+        for key, value in sorted(raw_weights.items())
+    }
+    required_evidence = [
+        key
+        for key, value in evidence_registry.items()
+        if value.get("current_data") and value.get("primary")
+    ]
+    return {
+        "schema_version": "research_knobs_v1",
+        "layer": contract.layer,
+        "agent": contract.agent_id,
+        "research_scope": {
+            "must_cover": list(contract.role_contract.may_decide),
+            "must_not_cover": list(contract.role_contract.must_not_decide),
+        },
+        "prediction_targets": prediction_targets,
+        "evidence_registry": evidence_registry,
+        "evidence_weights": evidence_weights,
+        "lookbacks": lookbacks,
+        "thresholds": {},
+        "confidence_caps": {
+            "missing_current_data": {
+                "cap": 0.55,
+                "trigger": "missing_required_evidence",
+                "enforcement": "code",
+                "required_evidence": required_evidence,
+            },
+            "fallback_primary_tool": {
+                "cap": min(
+                    (tool.fallback_confidence_cap for tool in contract.required_tools if tool.fallback_confidence_cap is not None),
+                    default=0.60,
+                ),
+                "trigger": "primary_tool_failed_or_fallback",
+                "enforcement": "code",
+                "required_evidence": required_evidence,
+            },
+        },
+        "tie_breaks": [],
+        "mutation_targets": mutation_targets,
+        "projection_metadata": {
+            "source": "prompt_ir_rule_pack_projection",
+            "excluded_channels": excluded_channels,
+        },
+    }
+
+
+def validate_research_knobs_projection(
+    knobs: Mapping[str, Any],
+    contract: PromptIRContract,
+) -> tuple[str, ...]:
+    """Validate the Prompt IR research-knobs projection contract."""
+    failures: list[str] = []
+    if knobs.get("schema_version") != "research_knobs_v1":
+        failures.append("schema_version must be research_knobs_v1")
+    if knobs.get("agent") != contract.agent_id:
+        failures.append("agent must match Prompt IR agent_id")
+    if knobs.get("layer") != contract.layer:
+        failures.append("layer must match Prompt IR layer")
+
+    registry = knobs.get("evidence_registry")
+    weights = knobs.get("evidence_weights")
+    if not isinstance(registry, Mapping) or not registry:
+        failures.append("evidence_registry required")
+        registry = {}
+    if not isinstance(weights, Mapping) or not weights:
+        failures.append("evidence_weights required")
+        weights = {}
+    if set(weights) - set(registry):
+        failures.append("evidence_weights keys must exist in evidence_registry")
+    tool_by_name = {tool.name: tool for tool in contract.required_tools}
+    for key, entry in registry.items():
+        if not isinstance(entry, Mapping):
+            failures.append(f"{key}: evidence_registry entry must be object")
+            continue
+        tool = tool_by_name.get(str(entry.get("tool") or ""))
+        if tool is None:
+            failures.append(f"{key}: tool must exist in Prompt IR required_tools")
+            continue
+        metric = str(entry.get("metric") or "")
+        if metric not in set(tool.metric_ids):
+            failures.append(f"{key}: metric must exist in ToolRequirement.metric_ids")
+    total = 0.0
+    for key, value in weights.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            failures.append(f"{key}: evidence weight must be number")
+            continue
+        if value < 0.0:
+            failures.append(f"{key}: evidence weight must be non-negative")
+        total += float(value)
+    if weights and not isclose(total, 1.0, rel_tol=0.0, abs_tol=1e-9):
+        failures.append("evidence_weights must sum to 1.0")
+
+    for target in knobs.get("mutation_targets") or ():
+        if not isinstance(target, Mapping):
+            failures.append("mutation target must be object")
+            continue
+        path = str(target.get("path") or "")
+        if path.startswith("/research_weighting/source_profiles/"):
+            failures.append("evidence weights must not target report-source reliability paths")
+        if not contract.evolution_targets.allows(path):
+            failures.append(f"{path}: mutation target not allowed by Prompt IR governance")
+    return tuple(failures)
 
 
 def build_central_bank_prompt_ir() -> PromptIRContract:

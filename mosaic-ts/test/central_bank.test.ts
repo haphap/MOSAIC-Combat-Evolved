@@ -62,6 +62,60 @@ function makeFakePromptsRootWithCentralBank(): FakePromptsRoot {
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
+function researchKnobsFence(): string {
+  return `\`\`\`research-knobs
+research-knobs:
+  schema_version: research_knobs_v1
+  layer: macro
+  agent: macro.central_bank
+  research_scope:
+    must_cover: [liquidity_regime]
+    must_not_cover: [final_portfolio_sizing]
+  prediction_targets:
+    - id: policy_stance_1w
+      target_variable: central_bank_stance
+      horizon: 1w
+      allowed_outputs: [tightening, neutral, easing]
+  evidence_registry:
+    pboc_liquidity:
+      tool: get_pboc_ops
+      metric: pboc_net_injection_7d
+      current_data: true
+      primary: true
+  evidence_weights:
+    pboc_liquidity: 1.0
+  lookbacks:
+    net_injection_window_days: 7
+  thresholds: {}
+  confidence_caps:
+    missing_current_data:
+      cap: 0.55
+      trigger: missing_required_evidence
+      enforcement: code
+      required_evidence: [pboc_liquidity]
+  tie_breaks: []
+  mutation_targets:
+    - path: /rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value
+      type: number
+      min: 0
+      max: 1
+\`\`\``;
+}
+
+function writeCentralBankPromptWithKnobs(root: string): void {
+  const dir = join(root, "cohort_default", "macro");
+  writeFileSync(
+    join(dir, "central_bank.zh.md"),
+    `${researchKnobsFence()}\n\n# central_bank zh\n\nFAKE PROMPT ZH`,
+    "utf-8",
+  );
+  writeFileSync(
+    join(dir, "central_bank.en.md"),
+    `${researchKnobsFence()}\n\n# central_bank en\n\nFAKE PROMPT EN`,
+    "utf-8",
+  );
+}
+
 const TOOL_SCHEMA: JsonSchemaObject = {
   type: "object",
   properties: {
@@ -281,13 +335,21 @@ describe("fallbackOutputFromText", () => {
 
 describe("buildCentralBankNode (vertical slice)", () => {
   let fakePrompts: FakePromptsRoot;
+  let oldKnobsEnabled: string | undefined;
 
   beforeEach(() => {
+    oldKnobsEnabled = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
+    delete process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
     fakePrompts = makeFakePromptsRootWithCentralBank();
     clearPromptCache();
   });
 
   afterEach(() => {
+    if (oldKnobsEnabled === undefined) {
+      delete process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
+    } else {
+      process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = oldKnobsEnabled;
+    }
     fakePrompts.cleanup();
     clearPromptCache();
   });
@@ -371,6 +433,39 @@ describe("buildCentralBankNode (vertical slice)", () => {
     expect(out.llm_calls).toBeDefined();
     expect(out.llm_calls?.[0]?.agent).toBe("central_bank");
     expect(out.llm_calls?.[0]?.model).toBe("fake-model");
+  });
+
+  it("uses research knobs snapshot and caps confidence when the agent is enabled", async () => {
+    process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = "central_bank";
+    writeCentralBankPromptWithKnobs(fakePrompts.root);
+    const llm = new ScriptedLlm({
+      responses: [new AIMessage("analysis without required current-data tool call")],
+      structuredResponse: {
+        agent: "central_bank",
+        stance: "ACCOMMODATIVE",
+        key_rate_change_bps: -5,
+        qe_qt_balance_change: "PBOC liquidity supportive",
+        next_window: "2024-07-15",
+        key_drivers: ["PBOC supportive"],
+        confidence: 0.82,
+      },
+    });
+    const logs: string[] = [];
+    const node = buildCentralBankNode({
+      llmHandle: makeScriptedHandle(llm),
+      api: makeFakeBridgeApi(),
+      config: BASE_CONFIG,
+      promptsRoot: fakePrompts.root,
+      onLog: (message) => logs.push(message),
+    });
+
+    const update = await node(SAMPLE_STATE);
+
+    const output = unwrapUpdate(update).layer1_outputs?.central_bank as CentralBankOutput;
+    expect(output.confidence).toBe(0.55);
+    expect(String(llm.invokeCalls[0]?.[0]?.content)).toContain("Runtime Research Knobs Contract");
+    expect(logs.join("\n")).toContain("fired_caps=missing_current_data");
+    expect(logs.join("\n")).toContain("knob_snapshot=sha256:");
   });
 
   it("forwards backtest context to the bridge when as_of_date is set", async () => {

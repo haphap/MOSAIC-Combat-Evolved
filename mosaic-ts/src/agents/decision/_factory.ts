@@ -26,6 +26,12 @@ import { formatMirofishContext } from "../../mirofish/context.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
+  applyResearchKnobCaps,
+  isResearchKnobsEnabled,
+  type ResearchKnobsSnapshot,
+  type ToolStatus,
+} from "../helpers/research_knobs.js";
+import {
   AgentTimeoutError,
   buildLlmCall,
   extractLlmTokenUsage,
@@ -38,7 +44,7 @@ import {
   withAgentTimeout,
 } from "../helpers/runtime.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
-import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
   AlphaDiscoveryOutput,
@@ -109,12 +115,24 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           onLog(formatAgentEvent("phase", "L4", spec.agentId, ["prepare"]));
 
           // Phase 0: load prompt.
-          const systemPrompt = await loadPrompt({
-            agent: spec.agentId,
-            cohort,
-            language,
-            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-          });
+          let knobSnapshot: ResearchKnobsSnapshot | null = null;
+          let systemPrompt: string;
+          if (isResearchKnobsEnabled(spec.agentId)) {
+            const loaded = await loadPromptWithKnobs({
+              agent: spec.agentId,
+              cohort,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+            knobSnapshot = loaded.snapshot;
+            systemPrompt = loaded.prompt;
+          } else {
+            systemPrompt = await loadPrompt({
+              agent: spec.agentId,
+              cohort,
+              language,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+          }
 
           // Phase 1: synthesis, with optional tools when the spec requires them.
           const userContext = await spec.buildUserContext(state);
@@ -135,6 +153,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           let promptTokens = 0;
           let completionTokens = 0;
           let llmElapsedMs = 0;
+          let toolStatuses: ReadonlyArray<ToolStatus> = [];
           if (requiredTools.length > 0 && hasToolApi(deps.api)) {
             const tools = await pickBridgeTools(deps.api, requiredTools, {
               ...(state.mode === "backtest" && state.as_of_date
@@ -157,6 +176,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             promptTokens = loopResult.promptTokens;
             completionTokens = loopResult.completionTokens;
             llmElapsedMs = loopResult.llmElapsedMs;
+            toolStatuses = loopResult.toolStatuses;
           } else {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
             const llmStartedAt = Date.now();
@@ -195,7 +215,11 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             signal,
           });
 
-          const output = extractor.structured ?? spec.fallback(analysisText);
+          const rawOutput = extractor.structured ?? spec.fallback(analysisText);
+          const capped = knobSnapshot
+            ? applyResearchKnobCaps(rawOutput, knobSnapshot, { toolStatuses })
+            : null;
+          const output = capped?.output ?? rawOutput;
           onLog(
             formatAgentEvent("done", "L4", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -205,6 +229,14 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               `tool_executions=${toolExecutions}`,
               ...formatTokenMetricFields(promptTokens, completionTokens, llmElapsedMs),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(capped
+                ? [
+                    `pre_cap_confidence=${capped.audit.pre_cap_confidence ?? "null"}`,
+                    `post_cap_confidence=${capped.audit.post_cap_confidence ?? "null"}`,
+                    `fired_caps=${capped.audit.fired_cap_ids.join(",") || "none"}`,
+                    `knob_snapshot=${capped.audit.knob_snapshot_hash}`,
+                  ]
+                : []),
               summarizeAgentOutput(output),
             ]),
           );

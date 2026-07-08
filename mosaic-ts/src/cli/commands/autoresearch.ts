@@ -24,6 +24,7 @@ interface TriggerOptions {
   max?: string;
   dryRun?: boolean;
   fakeLlm?: boolean;
+  mutationMode?: "auto" | "knob_patch" | "prompt_rewrite";
   evalDays?: string;
   llmProvider?: string;
   model?: string;
@@ -62,6 +63,10 @@ export function registerAutoresearch(program: Command): void {
     .option("--max <n>", "Max mutations per cycle (default 1)")
     .option("--dry-run", "Generate mutation but do not commit")
     .option("--fake-llm", "Use in-memory mock LLM (zero cost)")
+    .option(
+      "--mutation-mode <mode>",
+      "auto | knob_patch | prompt_rewrite (default auto; auto uses knob patches for enabled research-knobs agents)",
+    )
     .option("--eval-days <n>", "Evaluation window in trading days (default 60)")
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
@@ -101,6 +106,7 @@ export function registerAutoresearch(program: Command): void {
           dryRun: opts.dryRun ?? false,
           ...(opts.agent ? { forceAgent: opts.agent } : {}),
           ...(opts.fakeLlm ? { fakeLlm: true } : {}),
+          ...(opts.mutationMode ? { mutationMode: opts.mutationMode } : {}),
           deps: { llm: llmHandle.llm, api },
           onLog: (msg) => console.log(pc.dim(`  ${msg}`)),
         });

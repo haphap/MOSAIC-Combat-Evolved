@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Optional
@@ -60,17 +61,23 @@ _LANGS = ("zh", "en")
 _WRITE_TARGETS = ("private_git", "project_git", "working_tree")
 _CANONICAL_PROMPT_REPO_ID = "https://github.com/haphap/MOSAIC-Prompts"
 _PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
+_RESEARCH_KNOBS_FENCE_RE = re.compile(r"```research-knobs\s*\n([\s\S]*?)```")
 _PROMPT_CONTRACT_CATEGORIES = {
-    "role_boundary": ("role boundary",),
-    "required_inputs_tools": ("required inputs", "required tools"),
-    "rke_prior_policy": ("rke prior policy",),
-    "workflow": ("workflow",),
-    "output_schema": ("output schema",),
-    "audit_footprint_contract": ("audit and footprint contract", "audit/footprint contract"),
-    "privacy_boundary": ("privacy boundary",),
-    "confidence_policy": ("confidence policy",),
-    "refusal_no_action": ("refusal and no-action", "refusal/no-action"),
-    "autoresearch_evolution_contract": ("autoresearch evolution contract",),
+    "role_boundary": ("role boundary", "角色边界"),
+    "required_inputs_tools": ("required inputs", "required tools", "必需输入", "必需工具"),
+    "rke_prior_policy": ("rke prior policy", "rke 先验策略"),
+    "workflow": ("workflow", "工作流程"),
+    "output_schema": ("output schema", "输出 schema"),
+    "audit_footprint_contract": (
+        "audit and footprint contract",
+        "audit/footprint contract",
+        "审计与足迹契约",
+        "审计/足迹契约",
+    ),
+    "privacy_boundary": ("privacy boundary", "隐私边界"),
+    "confidence_policy": ("confidence policy", "置信度策略"),
+    "refusal_no_action": ("refusal and no-action", "refusal/no-action", "拒绝与 no-action"),
+    "autoresearch_evolution_contract": ("autoresearch evolution contract", "autoresearch 演化契约"),
 }
 _AUDIT_FOOTPRINT_TOKENS = {
     "claim_type": ("claim type", "claim_type"),
@@ -94,16 +101,19 @@ _PRIVACY_TOKENS = {
     "reviewer_text": ("reviewer text",),
     "licensed_metadata": ("licensed metadata",),
 }
-_IMMUTABLE_GUARDRAIL_TOKENS = (
-    "role boundary",
-    "output schema",
-    "required tools",
-    "current-data gate",
-    "rke-prior policy",
-    "privacy boundary",
-    "audit/footprint contract",
-    "shadow/promotion safety policy",
-)
+_IMMUTABLE_GUARDRAIL_TOKENS = {
+    "role boundary": ("role boundary", "角色边界"),
+    "output schema": ("output schema", "输出 schema"),
+    "required tools": ("required tools", "必需工具"),
+    "current-data gate": ("current-data gate", "current data gate", "当前数据门槛"),
+    "rke-prior policy": ("rke-prior policy", "rke prior policy", "rke 先验策略"),
+    "privacy boundary": ("privacy boundary", "隐私边界"),
+    "audit/footprint contract": ("audit/footprint contract", "审计/足迹契约"),
+    "shadow/promotion safety policy": (
+        "shadow/promotion safety policy",
+        "shadow/promotion 安全策略",
+    ),
+}
 _STANDARD_SECTOR_FIELDS = ("longs", "shorts", "sector_score", "key_drivers", "confidence")
 _SUPERINVESTOR_FIELDS = ("picks", "philosophy_note", "key_drivers", "confidence")
 _AGENT_SCHEMA_FIELDS: dict[str, tuple[str, ...]] = {
@@ -291,6 +301,24 @@ def _count(counts: dict[str, int], key: str) -> None:
 
 def _safe_str(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _research_knobs_enabled_agents() -> set[str]:
+    raw = os.getenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _research_knobs_enabled(agent: str, enabled: set[str]) -> bool:
+    return "*" in enabled or agent in enabled
+
+
+def _canonical_research_knobs_fence(text: str) -> tuple[str | None, list[str]]:
+    matches = list(_RESEARCH_KNOBS_FENCE_RE.finditer(text))
+    if len(matches) != 1:
+        return None, [f"research_knobs_fence_count_{len(matches)}"]
+    body = matches[0].group(1)
+    lines = [line.rstrip() for line in body.strip().splitlines()]
+    return "\n".join(lines), []
 
 
 def _git_run(cwd: Path, *args: str) -> str:
@@ -796,18 +824,28 @@ def _check_prompt_contract_text(agent: str, text: str) -> tuple[list[str], dict[
 
     if "get_rke_research_context" not in lower and "injected rke context" not in lower:
         blockers.append("required_tool_missing:get_rke_research_context")
-    if not any(token in lower for token in ("missing tool", "tool unavailable", "fallback")):
+    if not any(
+        token in lower
+        for token in ("missing tool", "tool unavailable", "fallback", "工具缺失", "工具不可用")
+    ):
         blockers.append("missing_tool_fallback_missing")
-    if not any(token in lower for token in ("confidence cap", "caps confidence")):
+    if not any(token in lower for token in ("confidence cap", "caps confidence", "置信度上限")):
         blockers.append("missing_tool_confidence_cap_missing")
-    if "current data" not in lower and "current-data" not in lower:
+    if "current data" not in lower and "current-data" not in lower and "当前数据" not in lower:
         blockers.append("current_data_policy_missing")
     if not (
-        "research prior" in lower
-        and ("not current data" in lower or "cannot replace current" in lower)
+        ("research prior" in lower or "研究先验" in lower)
+        and (
+            "not current data" in lower
+            or "cannot replace current" in lower
+            or "不是当前数据" in lower
+            or "不能替代当前数据" in lower
+        )
         and (
             "cannot directly create trades" in lower
             or "no trade without current data confirmation" in lower
+            or "不能直接生成交易" in lower
+            or "没有当前数据确认就不交易" in lower
         )
     ):
         blockers.append("rke_current_data_separation_missing")
@@ -825,11 +863,10 @@ def _check_prompt_contract_text(agent: str, text: str) -> tuple[list[str], dict[
         blockers.append(f"audit_footprint_token_missing:{name}")
     for name in _missing_token_groups(text, _PRIVACY_TOKENS):
         blockers.append(f"privacy_token_missing:{name}")
-    if "mutable" not in lower or "immutable" not in lower:
+    if not (("mutable" in lower or "可变" in lower) and ("immutable" in lower or "不可变" in lower)):
         blockers.append("autoresearch_mutable_immutable_boundary_missing")
-    for token in _IMMUTABLE_GUARDRAIL_TOKENS:
-        if token not in lower:
-            blockers.append(f"immutable_guardrail_missing:{token}")
+    for name in _missing_token_groups(text, _IMMUTABLE_GUARDRAIL_TOKENS):
+        blockers.append(f"immutable_guardrail_missing:{name}")
 
     return blockers, categories
 
@@ -866,9 +903,11 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
     benchmark_run_id = _safe_str(params.get("benchmark_run_id"))
     rows = _contract_input_rows(params, cohort, agents, langs)
     source = _formal_prompt_source()
+    research_knobs_enabled = _research_knobs_enabled_agents()
 
     checked_rows: list[dict[str, Any]] = []
     categories_by_agent_lang: dict[tuple[str, str], dict[str, bool]] = {}
+    knobs_by_agent_lang: dict[tuple[str, str], str] = {}
     for input_row in rows:
         agent = _safe_str(input_row.get("agent"))
         lang = _safe_str(input_row.get("lang"))
@@ -880,6 +919,8 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
         prompt_file_path = _safe_str(input_row.get("prompt_file_path"))
         row_run_id = _safe_str(input_row.get("benchmark_run_id"))
         categories = {category: False for category in _PROMPT_CONTRACT_CATEGORIES}
+        research_knobs_required = _research_knobs_enabled(agent, research_knobs_enabled)
+        research_knobs_check_passed = not research_knobs_required
 
         if agent not in _ALL_AGENTS:
             blockers.append("unknown_agent")
@@ -910,6 +951,14 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
                     blockers.append("prompt_sha256_mismatch")
                 text_blockers, categories = _check_prompt_contract_text(agent, text)
                 blockers.extend(text_blockers)
+                if research_knobs_required:
+                    knobs_fence, knobs_failures = _canonical_research_knobs_fence(text)
+                    if knobs_failures:
+                        blockers.extend(knobs_failures)
+                    else:
+                        research_knobs_check_passed = True
+                        if knobs_fence is not None:
+                            knobs_by_agent_lang[(agent, lang)] = knobs_fence
 
         categories_by_agent_lang[(agent, lang)] = categories
         checked_rows.append(
@@ -928,6 +977,8 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
                 "ready": not blockers,
                 "blockers": sorted(set(blockers)),
                 "contract_categories": categories,
+                "research_knobs_required": research_knobs_required,
+                "research_knobs_check_passed": research_knobs_check_passed,
             }
         )
 
@@ -940,6 +991,16 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
             if row["agent"] == agent and row["lang"] in {"zh", "en"}:
                 row["ready"] = False
                 row["blockers"] = sorted(set(row["blockers"]) | {"bilingual_contract_category_drift"})
+    for agent in {row["agent"] for row in checked_rows if row.get("research_knobs_required")}:
+        zh = knobs_by_agent_lang.get((agent, "zh"))
+        en = knobs_by_agent_lang.get((agent, "en"))
+        if zh is None or en is None or zh == en:
+            continue
+        for row in checked_rows:
+            if row["agent"] == agent and row["lang"] in {"zh", "en"}:
+                row["ready"] = False
+                row["research_knobs_check_passed"] = False
+                row["blockers"] = sorted(set(row["blockers"]) | {"research_knobs_bilingual_drift"})
 
     blocker_counts: dict[str, int] = {}
     layer_counts: dict[str, int] = {}
@@ -1038,6 +1099,8 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
                 "verify_release_passed": release_passed,
                 "leak_drift_passed": release_passed,
                 "prompt_contract_check_passed": row.get("ready") is True,
+                "research_knobs_required": row.get("research_knobs_required") is True,
+                "research_knobs_check_passed": row.get("research_knobs_check_passed") is True,
                 "ready": release_passed,
                 "blockers": sorted(set(row_blockers)),
             }

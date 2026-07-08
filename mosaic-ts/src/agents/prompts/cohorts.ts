@@ -84,13 +84,21 @@ export function findBundledPromptsRoot(): string {
 
 export function getConfiguredPromptSource(): ConfiguredPromptSource | null {
   const explicitRoot = process.env.MOSAIC_PROMPTS_ROOT?.trim();
-  if (explicitRoot) return { kind: "private-root", root: explicitRoot };
+  if (explicitRoot) return { kind: "private-root", root: normalizePromptsRoot(explicitRoot) };
 
   const repo =
     process.env.MOSAIC_PROMPTS_REPO?.trim() ?? process.env.MOSAIC_PRIVATE_PROMPT_REPO?.trim();
   if (repo) return { kind: "private-repo", repo, root: join(repo, "prompts", "mosaic") };
 
   return null;
+}
+
+export function normalizePromptsRoot(root: string): string {
+  const repoStyleRoot = join(root, "prompts", "mosaic");
+  if (existsSync(repoStyleRoot) && !existsSync(join(root, DEFAULT_COHORT))) {
+    return repoStyleRoot;
+  }
+  return root;
 }
 
 /** Find the configured private/external prompt root, if explicitly set. */
@@ -170,9 +178,13 @@ export function promptPathCandidates(opts: {
   if (opts.cohort !== DEFAULT_COHORT) {
     candidates.push(DEFAULT_COHORT);
   }
-  const baselineRoot = opts.promptsRoot ?? findPromptsRoot();
+  const baselineRoot = normalizePromptsRoot(opts.promptsRoot ?? findPromptsRoot());
   const privateRoot =
-    opts.privatePromptsRoot ?? (opts.promptsRoot ? undefined : findPrivatePromptsRoot());
+    opts.privatePromptsRoot !== undefined
+      ? normalizePromptsRoot(opts.privatePromptsRoot)
+      : opts.promptsRoot
+        ? undefined
+        : findPrivatePromptsRoot();
   const roots: string[] = [];
   for (const root of [privateRoot, baselineRoot]) {
     if (root && !roots.includes(root)) roots.push(root);

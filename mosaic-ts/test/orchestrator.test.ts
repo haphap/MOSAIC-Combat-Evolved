@@ -4,12 +4,32 @@ import type { BridgeApi } from "../src/bridge/types.js";
 
 // Mock the mutator module
 vi.mock("../src/autoresearch/mutator.js", () => ({
+  buildKnobMutationMetadata: vi.fn((opts) => ({
+    schema_version: "knob_mutation_metadata_v1",
+    mutation_id: opts.mutationId,
+    created_at: "2026-01-01T00:00:00.000Z",
+    agent: opts.agent,
+    cohort: opts.cohort,
+    prediction_target: opts.mutation.prediction_target,
+    evaluation_metric: opts.mutation.evaluation_metric,
+    base_knobs_sha256: "sha256:base",
+    new_knobs_sha256: "sha256:new",
+    changed_paths: opts.mutation.knob_patches.map((patch: { path: string }) => patch.path),
+    patches: opts.mutation.knob_patches,
+    renormalization: opts.mutation.renormalization,
+    decision: opts.decision,
+    expected_effect: "effect",
+    risk: opts.mutation.risk,
+  })),
+  appendKnobMutationMetadataLog: vi.fn(),
   mutate: vi.fn(),
+  mutateResearchKnobs: vi.fn(),
 }));
 
-import { mutate } from "../src/autoresearch/mutator.js";
+import { mutate, mutateResearchKnobs } from "../src/autoresearch/mutator.js";
 
 const mockedMutate = vi.mocked(mutate);
+const mockedMutateResearchKnobs = vi.mocked(mutateResearchKnobs);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,6 +83,29 @@ describe("runAutoresearchCycle", () => {
       modification_summary: "tighten thresholds",
       rationale: "low sharpe",
     });
+    mockedMutateResearchKnobs.mockResolvedValue({
+      zh_prompt: "knob zh",
+      en_prompt: "knob en",
+      modification_summary: "knob patch: missing_current_data",
+      rationale: "calibration",
+      knob_mutation: {
+        prediction_target: "policy_stance_1w",
+        evaluation_metric: "confidence_calibration_error",
+        knob_patches: [
+          {
+            path: "/rule_packs/x/rules/y/confidence_policy/missing_current_data/cap",
+            old_value: 0.55,
+            new_value: 0.5,
+            rationale: "calibration",
+            expected_effect: "lower overconfidence",
+          },
+        ],
+        renormalization: [],
+        risk: "noise",
+      },
+      base_knobs: {} as never,
+      new_knobs: {} as never,
+    });
   });
 
   it("dry-run generates mutation but does not commit", async () => {
@@ -108,6 +151,38 @@ describe("runAutoresearchCycle", () => {
       deps: { llm: llm as never, api },
       fakeLlm: true,
     });
+  });
+
+  it("auto mode uses parameter-level knob mutation for enabled agents", async () => {
+    const api = fakeBridgeApi();
+    const llm = new FakeLlm();
+    const oldEnv = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
+    process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = "*";
+    try {
+      const result = await runAutoresearchCycle({
+        cohort: "cohort_default",
+        dryRun: true,
+        fakeLlm: true,
+        maxMutations: 1,
+        deps: { llm: llm as never, api },
+      });
+
+      expect(result.mutations[0]?.summary).toBe("knob patch: missing_current_data");
+      expect(mockedMutateResearchKnobs).toHaveBeenCalledWith({
+        cohort: "cohort_default",
+        agent: "volatility",
+        deps: { llm: llm as never, api },
+        fakeLlm: true,
+      });
+      expect(mockedMutate).not.toHaveBeenCalled();
+      expect(api.promptsWrite).not.toHaveBeenCalled();
+    } finally {
+      if (oldEnv === undefined) {
+        delete process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
+      } else {
+        process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = oldEnv;
+      }
+    }
   });
 
   it("full cycle triggers, mutates, writes, and records", async () => {

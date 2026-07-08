@@ -15,10 +15,18 @@
  * persisted).
  */
 
+import { join } from "node:path";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { isResearchKnobsEnabled } from "../agents/helpers/research_knobs.js";
 import type { AutoresearchMissingRun, BridgeApi } from "../bridge/types.js";
 import { redactSensitiveText } from "../security/redaction.js";
-import { mutate } from "./mutator.js";
+import {
+  appendKnobMutationMetadataLog,
+  buildKnobMutationMetadata,
+  mutate,
+  mutateResearchKnobs,
+  type ResearchKnobPromptMutation,
+} from "./mutator.js";
 
 export interface AutoresearchCycleOptions {
   cohort: string;
@@ -28,6 +36,7 @@ export interface AutoresearchCycleOptions {
   forceAgent?: string;
   /** Use the deterministic canned mutation (Plan §11.5 4F --fake-llm smoke). */
   fakeLlm?: boolean;
+  mutationMode?: "auto" | "knob_patch" | "prompt_rewrite";
   deps: {
     llm: BaseChatModel;
     api: BridgeApi;
@@ -52,6 +61,24 @@ export interface CycleResult {
 function shellQuote(value: string): string {
   if (/^[A-Za-z0-9_./:@+=,-]+$/.test(value)) return value;
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function knobMutationLogPath(): string | null {
+  const explicit = process.env.MOSAIC_KNOB_MUTATION_LOG?.trim();
+  if (explicit) return explicit;
+  const repo =
+    process.env.MOSAIC_PROMPTS_REPO?.trim() ?? process.env.MOSAIC_PRIVATE_PROMPT_REPO?.trim();
+  return repo ? join(repo, "mutation_patches", "knob_mutations.jsonl") : null;
+}
+
+function isResearchKnobPromptMutation(value: unknown): value is ResearchKnobPromptMutation {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "knob_mutation" in value &&
+    "base_knobs" in value &&
+    "new_knobs" in value
+  );
 }
 
 export function backtestFillCommand(run: AutoresearchMissingRun): string {
@@ -92,6 +119,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     dryRun = false,
     forceAgent,
     fakeLlm = false,
+    mutationMode = "auto",
     deps,
     onLog,
   } = opts;
@@ -118,15 +146,25 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       `triggered: agent=${triggerResult.agent} version_id=${triggerResult.version_id} branch=${triggerResult.branch_name}`,
     );
 
-    // 2. Mutate: generate prompt rewrite via LLM
+    // 2. Mutate: parameter-level research-knobs patch when enabled, otherwise legacy rewrite.
     let mutation: Awaited<ReturnType<typeof mutate>>;
     try {
-      mutation = await mutate({
-        cohort,
-        agent: triggerResult.agent,
-        deps: { llm: deps.llm, api: deps.api },
-        ...(fakeLlm ? { fakeLlm: true } : {}),
-      });
+      const useKnobMutation =
+        mutationMode === "knob_patch" ||
+        (mutationMode === "auto" && isResearchKnobsEnabled(triggerResult.agent));
+      mutation = useKnobMutation
+        ? await mutateResearchKnobs({
+            cohort,
+            agent: triggerResult.agent,
+            deps: { llm: deps.llm, api: deps.api },
+            ...(fakeLlm ? { fakeLlm: true } : {}),
+          })
+        : await mutate({
+            cohort,
+            agent: triggerResult.agent,
+            deps: { llm: deps.llm, api: deps.api },
+            ...(fakeLlm ? { fakeLlm: true } : {}),
+          });
     } catch (err) {
       results.push({
         agent: triggerResult.agent,
@@ -138,9 +176,27 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     }
 
     safeLog(`mutated: ${mutation.modification_summary}`);
+    const knobPromptMutation = isResearchKnobPromptMutation(mutation) ? mutation : null;
 
     // 3. Dry-run: record result without committing
     if (dryRun) {
+      if (knobPromptMutation) {
+        const logPath = knobMutationLogPath();
+        if (logPath) {
+          await appendKnobMutationMetadataLog({
+            logPath,
+            metadata: buildKnobMutationMetadata({
+              mutationId: `KM-${Date.now()}`,
+              agent: triggerResult.agent,
+              cohort,
+              baseKnobs: knobPromptMutation.base_knobs,
+              newKnobs: knobPromptMutation.new_knobs,
+              mutation: knobPromptMutation.knob_mutation,
+              decision: "dry_run",
+            }),
+          });
+        }
+      }
       results.push({
         agent: triggerResult.agent,
         version_id: triggerResult.version_id,
@@ -195,6 +251,23 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
       code_commit_hash: triggerResult.base_commit,
     });
+    if (knobPromptMutation) {
+      const logPath = knobMutationLogPath();
+      if (logPath) {
+        await appendKnobMutationMetadataLog({
+          logPath,
+          metadata: buildKnobMutationMetadata({
+            mutationId: `KM-${Date.now()}`,
+            agent: triggerResult.agent,
+            cohort,
+            baseKnobs: knobPromptMutation.base_knobs,
+            newKnobs: knobPromptMutation.new_knobs,
+            mutation: knobPromptMutation.knob_mutation,
+            decision: "applied",
+          }),
+        });
+      }
+    }
 
     // 6. Prepare worktree for evaluation
     let worktreePath: string | undefined;

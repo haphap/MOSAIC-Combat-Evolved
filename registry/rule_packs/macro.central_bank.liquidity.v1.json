@@ -10,15 +10,33 @@
       "hypothesis_ids": [
         "HYP-CB-20260605-0001"
       ],
-      "learnable_parameters": {
-        "net_injection_window_days": {
-          "max": 20,
-          "min": 3,
-          "type": "integer",
-          "unit": "trading_day",
-          "value": 7
-        }
-      },
+        "learnable_parameters": {
+          "net_injection_window_days": {
+            "max": 20,
+            "min": 3,
+            "type": "integer",
+            "unit": "trading_day",
+            "value": 7
+          },
+          "pboc_liquidity_weight": {
+            "max": 1.0,
+            "metadata": {
+              "research_knob": {
+                "current_data": true,
+                "evidence_key": "pboc_liquidity",
+                "kind": "evidence_channel_weight",
+                "metric": "pboc_net_injection_7d",
+                "primary": true,
+                "tool": "get_pboc_ops",
+                "weight_group": "evidence_weights"
+              }
+            },
+            "min": 0.0,
+            "type": "float",
+            "unit": "evidence_channel_weight_raw",
+            "value": 1.0
+          }
+        },
       "mechanism_chain": [
         "pboc_net_injection",
         "short_term_liquidity_pressure",

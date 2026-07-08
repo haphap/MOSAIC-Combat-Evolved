@@ -26,6 +26,7 @@ SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
         "$schema",
         "additionalProperties",
         "allOf",
+        "anyOf",
         "const",
         "enum",
         "exclusiveMaximum",

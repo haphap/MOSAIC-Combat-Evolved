@@ -6,8 +6,24 @@
  * them under the project `prompts/mosaic/**` tree.
  */
 
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { parseResearchKnobsPrompt } from "../../agents/helpers/research_knobs.js";
+import { promptPath } from "../../agents/prompts/cohorts.js";
+import { checkResearchKnobsPrompts } from "../../agents/prompts/research_knobs_checker.js";
+import {
+  buildRuntimeResearchKnobs,
+  upsertResearchKnobsFence,
+} from "../../agents/prompts/research_knobs_projection.js";
+import { RUNTIME_AGENT_SPECS } from "../../agents/prompts/runtime_agent_spec.js";
+import {
+  appendKnobMutationMetadataLog,
+  applyKnobPatchesToPromptPair,
+  buildKnobMutationMetadata,
+  type KnobMutation,
+} from "../../autoresearch/mutator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 
@@ -30,6 +46,29 @@ interface VerifyReleaseOpts {
 interface GcWorktreesOpts {
   repoTarget?: "project_git" | "private_git" | "all";
   maxAgeHours?: string;
+}
+
+interface CheckResearchKnobsOpts {
+  cohort?: string;
+  promptsRoot?: string;
+  privatePromptsRoot?: string;
+  enabledAgents?: string;
+  json?: boolean;
+}
+
+interface SyncResearchKnobsOpts {
+  cohort?: string;
+  privatePromptsRoot: string;
+  agents?: string;
+  write?: boolean;
+}
+
+interface DryRunKnobPatchOpts {
+  cohort?: string;
+  privatePromptsRoot: string;
+  agent: string;
+  metadataLog?: string;
+  writeMetadata?: boolean;
 }
 
 export function registerPrompts(program: Command): void {
@@ -146,6 +185,192 @@ export function registerPrompts(program: Command): void {
       } finally {
         await client.close();
       }
+    });
+
+  prompts
+    .command("check-research-knobs")
+    .description("Validate research-knobs fences for enabled runtime agents.")
+    .option("--cohort <name>", "Cohort to check (default cohort_default)")
+    .option("--prompts-root <path>", "Bundled/baseline prompts root override")
+    .option("--private-prompts-root <path>", "Private prompts root override")
+    .option(
+      "--enabled-agents <list>",
+      "Comma-separated agent ids to fail-closed check; '*' checks all 25. Defaults to all agents for private prompts, otherwise MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS.",
+    )
+    .option("--json", "Print the full machine-readable report")
+    .action(async (opts: CheckResearchKnobsOpts) => {
+      const enabledAgents =
+        opts.enabledAgents !== undefined
+          ? new Set(
+              opts.enabledAgents
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          : undefined;
+      try {
+        const result = await checkResearchKnobsPrompts({
+          cohort: opts.cohort ?? "cohort_default",
+          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+          ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
+          ...(enabledAgents ? { enabledAgents } : {}),
+        });
+        if (opts.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          const color = result.ready ? pc.green : pc.red;
+          console.log(
+            color(
+              `research-knobs ${result.ready ? "ready" : "blocked"} ` +
+                `enabled=${result.enabled_agents.length} legacy=${result.legacy_agents.length}`,
+            ),
+          );
+          for (const row of result.rows.filter(
+            (item) => item.enabled || item.status === "failed",
+          )) {
+            const marker = row.ready ? pc.green("ok") : row.enabled ? pc.red("no") : pc.dim("--");
+            console.log(
+              `  ${marker} ${row.layer}/${row.agent} ${row.status}` +
+                (row.snapshot_hash ? ` ${row.snapshot_hash.slice(0, 19)}` : ""),
+            );
+            for (const reason of row.reasons) {
+              console.log(pc.dim(`     ${redactSensitiveText(reason).slice(0, 220)}`));
+            }
+          }
+        }
+        if (!result.ready) process.exitCode = 1;
+      } catch (err) {
+        console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
+        process.exitCode = 1;
+      }
+    });
+
+  prompts
+    .command("sync-research-knobs")
+    .description("Generate/update research-knobs fences from runtime agent specs.")
+    .requiredOption("--private-prompts-root <path>", "Private prompts root to update")
+    .option("--cohort <name>", "Cohort to update (default cohort_default)")
+    .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
+    .option("--write", "Write changes. Without this, only reports pending updates.", false)
+    .action(async (opts: SyncResearchKnobsOpts) => {
+      const cohort = opts.cohort ?? "cohort_default";
+      const selected = opts.agents
+        ? new Set(
+            opts.agents
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          )
+        : null;
+      const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
+      const changed: string[] = [];
+      for (const spec of specs) {
+        const knobs = buildRuntimeResearchKnobs(spec);
+        for (const language of ["zh", "en"] as const) {
+          const path = promptPath({
+            agent: spec.agent,
+            layer: spec.layer,
+            cohort,
+            language,
+            promptsRoot: opts.privatePromptsRoot,
+          });
+          const current = await readFile(path, "utf-8");
+          const next = upsertResearchKnobsFence(current, knobs);
+          if (next === current) continue;
+          changed.push(path);
+          if (opts.write) {
+            await mkdir(dirname(path), { recursive: true });
+            await writeFile(path, next, "utf-8");
+          }
+        }
+      }
+      const label = opts.write ? "updated" : "pending";
+      console.log(`${label} research-knobs files: ${changed.length}`);
+      for (const path of changed.slice(0, 50)) {
+        console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
+      }
+      if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
+    });
+
+  prompts
+    .command("dry-run-knob-patch")
+    .description("Generate a legal parameter-level knob patch and assemble prompt projections.")
+    .requiredOption("--private-prompts-root <path>", "Private prompts root")
+    .requiredOption("--agent <name>", "Agent id to mutate")
+    .option("--cohort <name>", "Cohort to read (default cohort_default)")
+    .option("--metadata-log <path>", "JSONL mutation metadata log path")
+    .option("--write-metadata", "Append dry-run metadata to the mutation log", false)
+    .action(async (opts: DryRunKnobPatchOpts) => {
+      const cohort = opts.cohort ?? "cohort_default";
+      const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === opts.agent);
+      if (!spec) throw new Error(`unknown runtime agent: ${opts.agent}`);
+      const zhPath = promptPath({
+        agent: spec.agent,
+        layer: spec.layer,
+        cohort,
+        language: "zh",
+        promptsRoot: opts.privatePromptsRoot,
+      });
+      const enPath = promptPath({
+        agent: spec.agent,
+        layer: spec.layer,
+        cohort,
+        language: "en",
+        promptsRoot: opts.privatePromptsRoot,
+      });
+      const [zhPrompt, enPrompt] = await Promise.all([
+        readFile(zhPath, "utf-8"),
+        readFile(enPath, "utf-8"),
+      ]);
+      const baseKnobs = parseResearchKnobsPrompt(zhPrompt).knobs;
+      const target = baseKnobs.mutation_targets.find((item) =>
+        item.path.includes("/confidence_policy/missing_current_data/cap"),
+      );
+      if (!target) throw new Error(`${opts.agent}: missing confidence cap mutation target`);
+      const oldValue = baseKnobs.confidence_caps.missing_current_data?.cap;
+      if (typeof oldValue !== "number") {
+        throw new Error(`${opts.agent}: missing_current_data cap is not numeric`);
+      }
+      const step = target.step ?? 0.05;
+      const min = target.min ?? 0;
+      const newValue = Math.max(min, Number((oldValue - step).toFixed(10)));
+      const mutation: KnobMutation = {
+        prediction_target: baseKnobs.prediction_targets[0]?.id ?? "primary",
+        evaluation_metric: "confidence_calibration_error",
+        knob_patches: [
+          {
+            path: target.path,
+            old_value: oldValue,
+            new_value: newValue,
+            rationale: "Dry-run cap tightening to test parameter-level mutation plumbing.",
+            expected_effect: "Reduce overconfident outputs when required current data is missing.",
+          },
+        ],
+        renormalization: [],
+        risk: "May understate confidence when missing-data flags are noisy.",
+      };
+      const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, mutation);
+      const metadata = buildKnobMutationMetadata({
+        mutationId: `KM-${Date.now()}`,
+        agent: opts.agent,
+        cohort,
+        baseKnobs,
+        newKnobs: assembled.knobs,
+        mutation,
+        decision: "dry_run",
+      });
+      if (opts.writeMetadata) {
+        const logPath =
+          opts.metadataLog ??
+          `${dirname(dirname(opts.privatePromptsRoot))}/mutation_patches/knob_mutations.jsonl`;
+        await appendKnobMutationMetadataLog({ logPath, metadata });
+        console.log(`metadata_log: ${redactSensitiveText(logPath).slice(0, 220)}`);
+      }
+      console.log(
+        `dry-run knob patch ${opts.agent}: ${oldValue.toFixed(2)} -> ${newValue.toFixed(2)} ` +
+          `prompt_chars=${assembled.zh_prompt.length + assembled.en_prompt.length} ` +
+          `metadata=${metadata.mutation_id}`,
+      );
     });
 
   prompts
