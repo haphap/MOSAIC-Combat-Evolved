@@ -289,7 +289,7 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
       escalation_level: 3,
       hot_zones: ["US-China semi exports"],
       trade_impact: "半导体设备 -2% 风险溢价上升",
-      key_drivers: ["6/24 US BIS 新增 5 家中国实体清单", "半导体设备相关股关注度+35%"],
+      key_drivers: ["6/24 US BIS 新增 5 家中国实体清单", "半导体设备相关新闻强度+35%"],
       confidence: 0.6,
     };
     const llm = new ScriptedLlm(

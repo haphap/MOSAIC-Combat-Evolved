@@ -104,10 +104,10 @@ export interface EmergingMarketsOutput extends MacroAgentOutputBase {
 
 export interface NewsSentimentOutput extends MacroAgentOutputBase {
   agent: "news_sentiment";
-  /** Retail sentiment from Xueqiu, normalised to [-1, 1]. */
+  /** Retail sentiment from news/Caixin/policy flow, normalised to [-1, 1]. */
   retail_sentiment_score: number;
   hot_topics: string[];
-  /** True when retail sentiment diverges sharply from institutional flow. */
+  /** True only when sentiment diverges from explicit current flow evidence. */
   contrarian_flag: boolean;
 }
 

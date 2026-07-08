@@ -390,11 +390,11 @@ export const NewsSentimentSchema = z
       .min(-1)
       .max(1)
       .describe(
-        "Retail sentiment from Xueqiu hot-follow + recent policy documents, scaled to [-1, 1]. " +
+        "Retail sentiment from news, Caixin sentiment, and policy documents, scaled to [-1, 1]. " +
           "+1 = euphoria; -1 = capitulation.",
       ),
     hot_topics: STRING_LIST_1_8(
-      "Top 5-8 hot topics on Xueqiu / news today (concrete tickers or themes, e.g. " +
+      "Top 5-8 hot topics from news/Caixin/policy flow today (concrete tickers or themes, e.g. " +
         "'600519.SH 茅台', '半导体设备国产替代').",
     ),
     contrarian_flag: z
@@ -407,7 +407,7 @@ export const NewsSentimentSchema = z
     confidence: CONFIDENCE,
   })
   .describe(
-    "Retail-sentiment read built from Xueqiu hot-follow + gov.cn policy documents. The " +
+    "Retail-sentiment read built from news, Caixin sentiment, and gov.cn policy documents. The " +
       "contrarian_flag is the most actionable downstream signal.",
   );
 

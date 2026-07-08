@@ -138,7 +138,7 @@ const NS_BULL: NewsSentimentOutput = {
   retail_sentiment_score: 0.6,
   hot_topics: ["半导体设备"],
   contrarian_flag: false,
-  key_drivers: ["Xueqiu top-50 follower count +12%"],
+  key_drivers: ["news/Caixin policy theme intensity +12%"],
   confidence: 0.6,
 };
 const NS_CONTRARIAN: NewsSentimentOutput = {
