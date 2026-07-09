@@ -398,6 +398,18 @@ describe("checkResearchKnobsPrompts", () => {
         "mirofish_liquidity_stress_haircut",
       ]),
     );
+    const semiconductorSpec = RUNTIME_AGENT_SPECS.find((spec) => spec.agent === "semiconductor");
+    expect(semiconductorSpec).toBeDefined();
+    if (!semiconductorSpec) return;
+    const semiconductorKnobs = buildRuntimeResearchKnobs(semiconductorSpec);
+    for (const id of [
+      "financial_statement_quarters",
+      "inventory_cycle_quarters",
+      "capex_cycle_quarters",
+    ]) {
+      expect(semiconductorKnobs.lookbacks[id]).toBeDefined();
+      expect(semiconductorKnobs.thresholds[id]).toBeUndefined();
+    }
     for (const spec of RUNTIME_AGENT_SPECS) {
       const generated = buildRuntimeResearchKnobs(spec);
       const cards = domainKnobCardsForSpec(spec);

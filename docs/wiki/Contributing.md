@@ -27,7 +27,9 @@ Notes:
 - Domain knob catalog changes must keep `projection_bucket` aligned across
   TypeScript, schema, and visible-contract filtering. The v1 buckets are
   `lookbacks`, `thresholds`, `tie_breaks`, `evidence_weights`, and
-  `confidence_caps`.
+  `confidence_caps`; bucket assignment is explicit catalog behavior, so
+  quarter-count history windows are `lookbacks` even though they do not use a
+  `_days` suffix.
 - When a PR changes `prompts/mosaic/**` and you operate a private prompt repo, run `pnpm prompt:drift -- --base-ref origin/main` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set (`MOSAIC_PRIVATE_PROMPT_REPO` remains a compatibility alias). The check is staleness-aware: it only reports overrides not yet reconciled with the changed baseline *content* (tracked per-path in `prompts/mosaic/.baseline-sync.json` inside the private repo). After merging the baseline tool/schema/contract changes into a flagged override, rerun with `-- --mark-synced` to record it reconciled — it then stops alerting until that baseline content changes again.
 - For scheduled operator checks, initialize `data/prompt-drift-state.json` with a known-good `baseline_ref`, then run `pnpm prompt:drift:scheduled` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set. The state advances when the check passes; prefer `-- --mark-synced` to acknowledge specific overrides precisely, or `-- --accept` to blanket-advance the state past all current findings.
 

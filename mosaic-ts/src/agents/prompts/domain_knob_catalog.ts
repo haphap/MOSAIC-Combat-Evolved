@@ -155,6 +155,42 @@ interface DomainSeed {
   horizon?: string;
 }
 
+const LOOKBACK_DOMAIN_KNOB_IDS = new Set([
+  "liquidity_net_injection_window_days",
+  "omo_mlf_freshness_days",
+  "policy_confirmation_window_days",
+  "dxy_trend_window_days",
+  "term_spread_window_days",
+  "inventory_confirmation_window_days",
+  "vol_amplification_window_days",
+  "hk_a_relative_strength_window_days",
+  "foreign_flow_confirmation_days",
+  "event_decay_window_days",
+  "lhb_window_days",
+  "industry_moneyflow_window_days",
+  "flow_persistence_days",
+  "industry_moneyflow_days",
+  "financial_statement_quarters",
+  "inventory_cycle_quarters",
+  "capex_cycle_quarters",
+  "price_momentum_days",
+  "policy_digest_days",
+  "broker_research_days",
+  "inventory_window_days",
+  "approval_catalyst_window_days",
+  "inventory_cycle_window_days",
+  "military_order_confirmation_days",
+  "policy_catalyst_window_days",
+  "flow_diffusion_window_days",
+  "trend_confirmation_window_days",
+  "short_signal_window_days",
+  "compounder_window_days",
+  "activist_catalyst_window_days",
+  "theme_persistence_days",
+  "idea_decay_days",
+  "stale_thesis_days",
+]);
+
 const RUNTIME_SOURCE_IDS = [
   "current_position_snapshot",
   "current_market_data",
@@ -1208,7 +1244,7 @@ function metric(
 }
 
 function bucketForId(id: string): ProjectionBucket {
-  return id.endsWith("_days") || id.endsWith("_window") ? "lookbacks" : "thresholds";
+  return LOOKBACK_DOMAIN_KNOB_IDS.has(id) ? "lookbacks" : "thresholds";
 }
 
 function typeForId(id: string): KnobValueType {

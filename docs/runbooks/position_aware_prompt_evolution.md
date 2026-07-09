@@ -97,6 +97,9 @@ Acceptance checks:
   card projection, mutation old-value checks, and visible-contract filtering
   must use the catalog bucket instead of treating every non-lookback as a
   threshold;
+- bucket assignment is explicit catalog behavior, not a suffix convention:
+  quarter-count history windows such as `financial_statement_quarters`,
+  `inventory_cycle_quarters`, and `capex_cycle_quarters` are `lookbacks`;
 - catalog schema validation rejects incomplete executable cards: in-run
   tool-derived dependencies must declare their scope source fields, numeric
   targets must carry bounds/step, and `enforcement: code` cards must declare
