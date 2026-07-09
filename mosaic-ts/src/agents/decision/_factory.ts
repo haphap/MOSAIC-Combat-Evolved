@@ -63,6 +63,8 @@ import type {
   AutoExecOutput,
   CioOutput,
   CroOutput,
+  CurrentPosition,
+  CurrentPositionsSnapshot,
   Layer4Outputs,
   LlmCallRecord,
   PortfolioAction,
@@ -245,7 +247,13 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           const capped = knobSnapshot
             ? applyResearchKnobCaps(rawOutput, knobSnapshot, { toolStatuses })
             : null;
-          const output = capped?.output ?? rawOutput;
+          let output = capped?.output ?? rawOutput;
+          if (spec.stateUpdateField === "cio") {
+            output = withConservativeCioCurrentPositionActions(
+              output as unknown as CioOutput,
+              state.current_positions ?? emptyCurrentPositions(),
+            ) as TOutput;
+          }
           onLog(
             formatAgentEvent("done", "L4", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -535,6 +543,43 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
     ).portfolio_actions;
   }
   return baseUpdate;
+}
+
+function withConservativeCioCurrentPositionActions(
+  output: CioOutput,
+  currentPositions: CurrentPositionsSnapshot,
+): CioOutput {
+  if (currentPositions.snapshot_status !== "loaded" || currentPositions.positions.length === 0) {
+    return output;
+  }
+  const coveredTickers = new Set(output.portfolio_actions.map((action) => action.ticker));
+  const missingPositions = currentPositions.positions.filter(
+    (position) => !coveredTickers.has(position.ticker),
+  );
+  if (missingPositions.length === 0) return output;
+  return {
+    ...output,
+    portfolio_actions: [
+      ...output.portfolio_actions,
+      ...missingPositions.map(conservativeHoldActionForCurrentPosition),
+    ],
+  };
+}
+
+function conservativeHoldActionForCurrentPosition(position: CurrentPosition): PortfolioAction {
+  return {
+    ticker: position.ticker,
+    action: "HOLD",
+    position_decision: "HOLD",
+    current_weight: position.current_weight,
+    target_weight: position.current_weight,
+    delta_weight: 0,
+    holding_period: "1M",
+    position_decision_reason: "current position reviewed by conservative fallback",
+    thesis_status: "intact",
+    risk_flags: [],
+    dissent_notes: "",
+  };
 }
 
 function activeKnobValuesFromUpstreamDecisionAgents(

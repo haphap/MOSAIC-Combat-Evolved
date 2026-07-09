@@ -897,6 +897,52 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     }
   }
 
+  class FallbackLlm {
+    invokeCalls = 0;
+    bindToolsCalled = 0;
+    structuredCalls = 0;
+    bindTools(_t: unknown): FallbackLlm {
+      this.bindToolsCalled++;
+      return this;
+    }
+    withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
+      return {
+        invoke: async () => {
+          this.structuredCalls++;
+          throw new Error("force fallback");
+        },
+      };
+    }
+    async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
+      this.invokeCalls++;
+      return new AIMessage("fallback text without JSON");
+    }
+  }
+
+  function testConfig(): MosaicConfig {
+    return {
+      llm_provider: "fake",
+      deep_think_llm: "fake",
+      quick_think_llm: "fake",
+      backend_url: null,
+      anthropic_base_url: null,
+      anthropic_effort: null,
+      output_language: "Chinese",
+      research_depth_name: "标准",
+      active_cohort: "cohort_default",
+      cohorts: { cohort_default: { start: "2000-01-01", end: "2099-12-31" } },
+      autoresearch: {
+        agent_mutation_cooldown_hours: 24,
+        keep_revert_lockout_days: 3,
+        keep_threshold_delta_sharpe: 0.1,
+        monthly_modification_cap_per_cohort: 100,
+        evaluation_horizon_trading_days: 5,
+      },
+      data_vendors: {},
+      tool_vendors: {},
+    };
+  }
+
   beforeEach(() => {
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-l4-"));
     const dir = join(promptDir, "cohort_default", "decision");
@@ -1018,6 +1064,65 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     expect(u.portfolio_actions).toHaveLength(cannedPortfolio.length);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.bindToolsCalled).toBe(0); // Layer-4 bypasses tool loop
+    expect(llm.structuredCalls).toBe(1);
+  });
+
+  it("conservatively reviews loaded current positions when CIO extraction falls back", async () => {
+    const llm = new FallbackLlm();
+    const handle: LlmHandle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fake-model",
+      baseUrl: undefined,
+    };
+    const sample: DailyCycleStateType = baseState();
+    sample.current_positions = loadedPositions([
+      heldPosition,
+      {
+        ...heldPosition,
+        ticker: "688981.SH",
+        current_weight: 0.08,
+        entry_thesis_id: "thesis-688981",
+      },
+      {
+        ...heldPosition,
+        ticker: "300750.SZ",
+        current_weight: 0.05,
+        entry_thesis_id: "thesis-300750",
+      },
+    ]);
+
+    const node = buildCioNode({ llmHandle: handle, config: testConfig(), promptsRoot: promptDir });
+    const update = await node(sample);
+    const u = update as DailyCycleStateUpdate as unknown as {
+      layer4_outputs?: Partial<Layer4Outputs>;
+      portfolio_actions?: PortfolioAction[];
+      position_reviews?: Array<{ ticker: string; decision: string }>;
+      position_audit?: {
+        positions_loaded: number;
+        positions_reviewed: number;
+        positions_unreviewed: number;
+        hold_count: number;
+        target_current_drift_count: number;
+      };
+    };
+
+    expect(u.portfolio_actions?.map((action) => action.ticker).sort()).toEqual([
+      "300750.SZ",
+      "600519.SH",
+      "688981.SH",
+    ]);
+    expect(u.portfolio_actions?.every((action) => action.action === "HOLD")).toBe(true);
+    expect(u.layer4_outputs?.cio?.portfolio_actions).toEqual(u.portfolio_actions);
+    expect(u.position_reviews?.map((review) => review.decision)).toEqual(["HOLD", "HOLD", "HOLD"]);
+    expect(u.position_audit).toMatchObject({
+      positions_loaded: 3,
+      positions_reviewed: 3,
+      positions_unreviewed: 0,
+      hold_count: 3,
+      target_current_drift_count: 0,
+    });
+    expect(llm.invokeCalls).toBe(2);
     expect(llm.structuredCalls).toBe(1);
   });
 });

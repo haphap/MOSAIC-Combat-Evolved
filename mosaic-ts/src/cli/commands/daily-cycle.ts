@@ -15,7 +15,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseMessage } from "@langchain/core/messages";
 import { AIMessage } from "@langchain/core/messages";
@@ -30,6 +30,7 @@ import { formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import { type DailyCycleStateType, emptyCurrentPositions } from "../../agents/state.js";
 import type {
+  CurrentPosition,
   CurrentPositionsSnapshot,
   PortfolioAction,
   PositionAudit,
@@ -62,6 +63,8 @@ interface DailyCycleOptions {
   vetoThreshold?: string;
   agentTimeoutSeconds?: string;
   paperPositions?: boolean;
+  currentPositionsJson?: string;
+  currentPositionsFile?: string;
   paperExecuteDeltas?: boolean;
 }
 
@@ -98,6 +101,8 @@ export function registerDailyCycle(program: Command): void {
       "Per-agent wall-clock timeout in seconds (default 300; 0/off disables)",
     )
     .option("--paper-positions", "Seed current_positions from the active paper account")
+    .option("--current-positions-json <json>", "Seed current_positions from an inline JSON fixture")
+    .option("--current-positions-file <path>", "Seed current_positions from a JSON fixture file")
     .option(
       "--paper-execute-deltas",
       "Submit paper orders after the run using paper.suggest_order_from_signal target-current deltas",
@@ -139,9 +144,7 @@ export function registerDailyCycle(program: Command): void {
         const onAgentLog = (msg: string) => {
           console.log(pc.dim(`  ${redactSensitiveText(msg)}`));
         };
-        const currentPositions = opts.paperPositions
-          ? await loadPaperCurrentPositions(api)
-          : emptyCurrentPositions();
+        const currentPositions = await loadDailyCycleCurrentPositions(opts, api);
 
         const graph = buildDailyCycleGraph({
           llmHandle,
@@ -390,6 +393,40 @@ function formatWeight(value: number | undefined): string {
 
 // pad() imported from ../_format.js (§14 R-T2: shared CJK + ANSI-aware).
 
+export async function loadDailyCycleCurrentPositions(
+  opts: Pick<DailyCycleOptions, "paperPositions" | "currentPositionsJson" | "currentPositionsFile">,
+  api: BridgeApi,
+): Promise<CurrentPositionsSnapshot> {
+  if (opts.paperPositions && (opts.currentPositionsJson || opts.currentPositionsFile)) {
+    throw new Error("choose either --paper-positions or a current-position fixture, not both");
+  }
+  const fixture = loadCurrentPositionsFixture(opts);
+  if (fixture) return fixture;
+  return opts.paperPositions ? await loadPaperCurrentPositions(api) : emptyCurrentPositions();
+}
+
+export function loadCurrentPositionsFixture(
+  opts: Pick<DailyCycleOptions, "currentPositionsJson" | "currentPositionsFile">,
+): CurrentPositionsSnapshot | null {
+  if (opts.currentPositionsJson && opts.currentPositionsFile) {
+    throw new Error("choose only one current-position fixture source");
+  }
+  let raw: unknown = null;
+  if (opts.currentPositionsFile) {
+    raw = JSON.parse(readFileSync(opts.currentPositionsFile, "utf-8")) as unknown;
+  }
+  if (opts.currentPositionsJson) {
+    raw = JSON.parse(opts.currentPositionsJson) as unknown;
+  }
+  if (raw === null) return null;
+  const snapshot = normalizeCurrentPositionsFixture(raw);
+  return {
+    ...snapshot,
+    position_snapshot_hash:
+      snapshot.position_snapshot_hash ?? currentPositionFixtureHash(snapshot.positions),
+  };
+}
+
 async function loadPaperCurrentPositions(api: BridgeApi): Promise<CurrentPositionsSnapshot> {
   try {
     const [account, positions] = await Promise.all([
@@ -447,6 +484,102 @@ function paperPositionHash(account: PaperAccount, positions: ReadonlyArray<Paper
     })),
   });
   return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+function currentPositionFixtureHash(positions: ReadonlyArray<CurrentPosition>): string {
+  const payload = JSON.stringify(positions);
+  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+function normalizeCurrentPositionsFixture(raw: unknown): CurrentPositionsSnapshot {
+  if (Array.isArray(raw)) {
+    return snapshotFromFixturePositions(raw);
+  }
+  if (raw === null || typeof raw !== "object") {
+    throw new Error("current positions fixture must be a JSON array or object");
+  }
+  const record = raw as Record<string, unknown>;
+  const positionsValue = record.current_positions ?? record.positions;
+  if (!Array.isArray(positionsValue)) {
+    throw new Error("current positions fixture must contain current_positions or positions array");
+  }
+  const snapshot = snapshotFromFixturePositions(positionsValue);
+  const status = optionalString(record.snapshot_status);
+  if (status !== null) {
+    if (!["loaded", "empty_confirmed", "missing"].includes(status)) {
+      throw new Error(`snapshot_status must be loaded, empty_confirmed, or missing: ${status}`);
+    }
+    snapshot.snapshot_status = status as CurrentPositionsSnapshot["snapshot_status"];
+  }
+  snapshot.source_error_code = optionalString(record.source_error_code);
+  snapshot.position_snapshot_hash = optionalString(record.position_snapshot_hash) ?? undefined;
+  return snapshot;
+}
+
+function snapshotFromFixturePositions(values: unknown[]): CurrentPositionsSnapshot {
+  const positions = values.map((value, index) => normalizeFixturePosition(value, index));
+  return {
+    snapshot_status: positions.length > 0 ? "loaded" : "empty_confirmed",
+    position_source: positions.length > 0 ? "cli_fixture" : "empty_confirmed",
+    source_error_code: null,
+    positions,
+  };
+}
+
+function normalizeFixturePosition(value: unknown, index: number): CurrentPosition {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`current_positions[${index}] must be an object`);
+  }
+  const record = value as Record<string, unknown>;
+  const ticker = requiredString(record.ticker, `current_positions[${index}].ticker`);
+  return {
+    ticker,
+    current_weight: requiredFiniteNumber(
+      record.current_weight,
+      `current_positions[${index}].current_weight`,
+    ),
+    cost_basis: requiredFiniteNumber(record.cost_basis, `current_positions[${index}].cost_basis`),
+    market_price: requiredFiniteNumber(
+      record.market_price,
+      `current_positions[${index}].market_price`,
+    ),
+    unrealized_pnl_pct: requiredFiniteNumber(
+      record.unrealized_pnl_pct,
+      `current_positions[${index}].unrealized_pnl_pct`,
+    ),
+    holding_days: requiredFiniteNumber(
+      record.holding_days,
+      `current_positions[${index}].holding_days`,
+    ),
+    entry_date: requiredString(record.entry_date, `current_positions[${index}].entry_date`),
+    source_agent: requiredString(record.source_agent, `current_positions[${index}].source_agent`),
+    entry_thesis_id: requiredString(
+      record.entry_thesis_id,
+      `current_positions[${index}].entry_thesis_id`,
+    ),
+    last_review_date: requiredString(
+      record.last_review_date,
+      `current_positions[${index}].last_review_date`,
+    ),
+  };
+}
+
+function requiredString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+  return value;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function requiredFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  return value;
 }
 
 function positionAuditFromSnapshot(snapshot: CurrentPositionsSnapshot): PositionAudit {
@@ -532,8 +665,9 @@ export async function submitPaperTargetDeltaOrders(
  * A minimal mock that returns a non-tool-calling response for every invoke.
  * Each agent's structured-output extractor will fail → factory falls back
  * to the agent's ``fallback()`` (zero-conviction outputs). The cycle still
- * runs end-to-end and validates wiring; portfolio_actions ends up empty,
- * which is the expected smoke outcome.
+ * runs end-to-end and validates wiring. With a loaded current-position
+ * fixture, the CIO fallback emits conservative HOLD reviews for those
+ * positions; otherwise portfolio_actions stays empty.
  *
  * For LLM-driven structured outputs we use the test-style canned responses
  * — see ``test/daily_cycle.test.ts``. Reusing that here would couple the

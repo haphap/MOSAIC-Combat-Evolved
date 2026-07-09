@@ -17,7 +17,9 @@ Output defaults to Chinese reports; CLI flags stay English. `--lang zh|en|biling
 ```bash
 pnpm dev daily-cycle --cohort cohort_default --fake-llm
 ```
-Options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--fake-llm`, `--llm-provider <name>`, `--model <name>`, `--base-url <url>`, `--prompts-repo <path>`, `--prompts-root <path>`, `--out <path>`. Runs all 25 agents through the LangGraph.js graph; the CIO writes `portfolio_actions` (persisted to the `recommendations` table).
+Options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--fake-llm`, `--llm-provider <name>`, `--model <name>`, `--base-url <url>`, `--prompts-repo <path>`, `--prompts-root <path>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--paper-positions`, `--paper-execute-deltas`, `--out <path>`. Runs all 25 agents through the LangGraph.js graph; the CIO writes `portfolio_actions` (persisted to the `recommendations` table).
+
+Current-position fixture files may be a JSON array or an object with `current_positions`; each row must include ticker, current weight, cost basis, market price, unrealized PnL, holding days, entry date, source agent, entry thesis id, and last review date.
 
 Prompt source: by default agents load bundled prompts from `MOSAIC-Combat-Evolved/prompts/mosaic`. Set `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` in `.env` to make all subsequent agent runs prefer a private prompt repo, or use `daily-cycle --prompts-repo <path>` / `--prompts-root <path>` for a single run.
 

@@ -76,8 +76,38 @@ rtk pnpm --dir mosaic-ts dev daily-cycle \
   --out .mosaic/tmp/daily-cycle-empty-position-smoke.json
 ```
 
-For a current-position smoke, pass the private prompt root and the local fixture
-used by the operator environment. The acceptance evidence is the final JSON:
+For a current-position smoke, pass the private prompt root and a local fixture:
+
+```json
+{
+  "current_positions": [
+    {
+      "ticker": "600519.SH",
+      "current_weight": 0.08,
+      "cost_basis": 1500,
+      "market_price": 1700,
+      "unrealized_pnl_pct": 0.12,
+      "holding_days": 42,
+      "entry_date": "2026-05-28",
+      "source_agent": "cio",
+      "entry_thesis_id": "fixture:600519.SH",
+      "last_review_date": "2026-07-08"
+    }
+  ]
+}
+```
+
+```bash
+rtk pnpm --dir mosaic-ts dev daily-cycle \
+  --cohort cohort_default \
+  --fake-llm \
+  --agent-timeout-seconds 0 \
+  --prompts-root /home/hap/Project/MOSAIC-Prompts/prompts/mosaic \
+  --current-positions-file .mosaic/tmp/current-positions.json \
+  --out .mosaic/tmp/daily-cycle-current-position-smoke.json
+```
+
+The acceptance evidence is the final JSON:
 
 - `current_positions.snapshot_status` is `loaded` or `empty_confirmed`.
 - `position_audit.positions_loaded` matches the fixture.
