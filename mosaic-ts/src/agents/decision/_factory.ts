@@ -441,7 +441,23 @@ async function fetchMirofishContext(
         },
       };
     }
-    const contextHash = context.context_hash ?? context.created_at ?? context.date ?? "latest";
+    const missingMetadata = missingMirofishContextMetadata(context);
+    if (missingMetadata.length > 0) {
+      deps.onLog?.(
+        `mirofish context disabled: missing required metadata ${missingMetadata.join(",")}`,
+      );
+      return {
+        context: null,
+        status: {
+          source_id: "mirofish_context",
+          scope: `context:${context.context_hash ?? context.as_of_date}`,
+          status: "source_error",
+          as_of: context.as_of_date,
+          error_code: `mirofish_context_missing_metadata:${missingMetadata.join(",")}`,
+        },
+      };
+    }
+    const contextHash = context.context_hash ?? context.as_of_date;
     return {
       context,
       status: {
@@ -465,6 +481,23 @@ async function fetchMirofishContext(
       },
     };
   }
+}
+
+function missingMirofishContextMetadata(context: MirofishContext): string[] {
+  const missing: string[] = [];
+  if (!Number.isFinite(context.scenario_count) || (context.scenario_count ?? 0) <= 0) {
+    missing.push("scenario_count");
+  }
+  if (!Number.isFinite(context.horizon_days) || (context.horizon_days ?? 0) <= 0) {
+    missing.push("horizon_days");
+  }
+  if (!context.context_hash) {
+    missing.push("context_hash");
+  }
+  if (!context.generator_version) {
+    missing.push("generator_version");
+  }
+  return missing;
 }
 
 /** Opt-in injection of the latest MiroFish scenario context into L4 consumers.

@@ -270,6 +270,37 @@ describe("CIO MiroFish context injection (opt-in)", () => {
     expect(logs.join("\n")).toContain("mirofish context disabled: as_of_date 2024-07-01");
   });
 
+  it("toggle on but incomplete scenario metadata disables context injection", async () => {
+    const llm = new ScriptedLlm();
+    const handle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fake",
+    } as LlmHandle;
+    const {
+      scenario_count: _scenarioCount,
+      horizon_days: _horizonDays,
+      context_hash: _contextHash,
+      generator_version: _generatorVersion,
+      ...missingMetadata
+    } = FULL;
+    const api = fakeApi(missingMetadata as MirofishContext);
+    const logs: string[] = [];
+    const config = { ...baseConfig(), mirofish: { inject_context: true } } as MosaicConfig;
+    const node = buildCioNode({
+      llmHandle: handle,
+      api,
+      config,
+      promptsRoot: promptDir,
+      onLog: (msg) => logs.push(msg),
+    });
+    await node(state());
+    expect(humanText(llm)).not.toContain("前瞻情景参考");
+    expect(logs.join("\n")).toContain(
+      "mirofish context disabled: missing required metadata scenario_count,horizon_days,context_hash,generator_version",
+    );
+  });
+
   it("shares one context lookup and context_hash across CRO, execution, and CIO", async () => {
     const llm = new ScriptedLlm();
     llm.structuredResponses = [

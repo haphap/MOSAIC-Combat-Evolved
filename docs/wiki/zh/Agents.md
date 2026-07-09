@@ -33,7 +33,7 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 
 ### MiroFish 上下文注入(opt-in)
 
-当 `config.mirofish.inject_context` 为真时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。默认关闭。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。autonomous_execution 节点还会在输出进入 CIO 前,对已激活的最小交易 delta、滑点上限和流动性下限 execution cards 做运行时校验。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext` 和 L4 validators。
+当 `config.mirofish.inject_context` 为真时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。默认关闭。context 必须带 `scenario_count`、`horizon_days`、`as_of_date`、`context_hash` 和 `generator_version`;字段不完整或 lookahead 的 context 会在 prompt injection 前禁用。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。autonomous_execution 节点还会在输出进入 CIO 前,对已激活的最小交易 delta、滑点上限和流动性下限 execution cards 做运行时校验。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext` 和 L4 validators。
 
 RKE report context 仍是 shadow-only research prior。若 portfolio action 声明的
 影响来源只有 RKE prior 和/或 MiroFish simulation context,CIO 校验会拒绝。

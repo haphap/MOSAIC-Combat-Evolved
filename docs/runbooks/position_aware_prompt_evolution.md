@@ -321,7 +321,8 @@ Do not promote a mutation when any of these are true:
 - RKE report prior is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or
   `EXIT`;
 - MiroFish is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or `EXIT`;
-- MiroFish context is missing `as_of_date` or has an `as_of_date` later than the
+- MiroFish context is missing `scenario_count`, `horizon_days`, `as_of_date`,
+  `context_hash`, or `generator_version`, or has an `as_of_date` later than the
   run date;
 - a MiroFish-influenced `ADD`, `REDUCE`, or `EXIT` on an existing position
   lacks non-empty `dissent_notes`;
