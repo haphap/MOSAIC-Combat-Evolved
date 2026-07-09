@@ -1187,6 +1187,11 @@ function requiredEvidenceMissingScopes(
       for (const sourceId of runtimeSourceIdsForEvidence(registry.source, registry.metric)) {
         const matching = runtimeSourceStatuses.filter((status) => status.source_id === sourceId);
         if (matching.length === 0) scopes.push(`${sourceId}:*:missing`);
+        for (const status of matching) {
+          if (["missing", "stale", "source_error"].includes(status.status)) {
+            scopes.push(`${sourceId}:${status.scope}:${status.status}`);
+          }
+        }
       }
     }
   }

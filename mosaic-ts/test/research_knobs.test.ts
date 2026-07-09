@@ -552,6 +552,33 @@ research-knobs:
       }),
     );
 
+    const missingState = {
+      ...emptyState,
+      current_positions: {
+        snapshot_status: "missing",
+        position_source: "cli_fixture",
+        source_error_code: "fixture_unavailable",
+        positions: [],
+      },
+      portfolio_actions: [],
+    } as unknown as Parameters<typeof resolveRuntimeSourceStatusesForAgent>[0];
+    const missingStatuses = resolveRuntimeSourceStatusesForAgent(missingState, "cio");
+    expect(missingStatuses).toContainEqual(
+      expect.objectContaining({
+        source_id: "current_position_snapshot",
+        status: "missing",
+        error_code: "fixture_unavailable",
+      }),
+    );
+    expect(missingStatuses).toContainEqual(
+      expect.objectContaining({
+        source_id: "current_market_data",
+        scope: "ticker_scope:unknown",
+        status: "missing",
+        error_code: "current_market_data_unresolved_without_positions",
+      }),
+    );
+
     const loadedState = {
       ...emptyState,
       current_positions: {
@@ -697,6 +724,17 @@ research-knobs:
       toolStatuses: [],
       runtimeSourceStatuses: [],
     });
+    const sourceMissing = applyResearchKnobCaps({ confidence: 0.9 }, snapshot, {
+      toolStatuses: [],
+      runtimeSourceStatuses: [
+        {
+          source_id: "upstream_agent_outputs",
+          scope: "agent:macro",
+          status: "missing",
+          error_code: "upstream_missing",
+        },
+      ],
+    });
     const loaded = applyResearchKnobCaps({ confidence: 0.9 }, snapshot, {
       toolStatuses: [],
       runtimeSourceStatuses: [
@@ -714,6 +752,11 @@ research-knobs:
     expect(missing.audit.runtime_source_status_summary.missing).toBe(0);
     expect(missing.audit.fired_cap_ids).toContain("missing_current_data");
     expect(missing.audit.missing_scopes).toContain("upstream_agent_outputs:*:missing");
+    expect(sourceMissing.output.confidence).toBe(0.55);
+    expect(sourceMissing.audit.runtime_source_status_summary.missing).toBe(1);
+    expect(sourceMissing.audit.missing_scopes).toContain(
+      "upstream_agent_outputs:agent:macro:missing",
+    );
     expect(loaded.output.confidence).toBe(0.9);
     expect(loaded.audit.fired_cap_ids).toEqual([]);
     expect(loaded.audit.runtime_source_status_summary.loaded).toBe(2);

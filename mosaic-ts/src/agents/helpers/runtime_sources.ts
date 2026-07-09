@@ -58,11 +58,15 @@ export function resolveRuntimeSourceStatusesForAgent(
       ...currentPositions.positions.map((position) => position.ticker),
       ...state.portfolio_actions.map((action) => action.ticker),
     ]);
-    if (marketScopes.length === 0 && currentPositions.snapshot_status !== "missing") {
+    if (marketScopes.length === 0) {
       statuses.push(
-        runtimeStatus("current_market_data", "ticker_scope:empty", "loaded", asOf, {
-          snapshot_hash: stableHash({ asOf, scope: "ticker_scope:empty" }),
-        }),
+        currentPositions.snapshot_status === "missing"
+          ? runtimeStatus("current_market_data", "ticker_scope:unknown", "missing", asOf, {
+              error_code: "current_market_data_unresolved_without_positions",
+            })
+          : runtimeStatus("current_market_data", "ticker_scope:empty", "loaded", asOf, {
+              snapshot_hash: stableHash({ asOf, scope: "ticker_scope:empty" }),
+            }),
       );
     } else {
       for (const scope of marketScopes) {

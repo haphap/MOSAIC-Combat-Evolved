@@ -21,6 +21,10 @@ Options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--fake-llm`, `--llm-provider
 
 Current-position fixture files may be a JSON array or an object with `current_positions`; each row must include ticker, current weight, cost basis, market price, unrealized PnL, holding days, entry date, source agent, entry thesis id, and last review date. `sector` is optional, but required for fixtures that exercise `max_sector_weight`. CIO validation rejects `position_decision` rows whose action or target/current/delta weights contradict `ADD`/`REDUCE`/`EXIT` semantics.
 The resulting `position_audit` includes a `tool_status_summary` for the position source and market-price evidence scope.
+When the position snapshot is missing, runtime evidence audit records
+`current_position_snapshot` as missing and marks unresolved market data as
+`current_market_data:ticker_scope:unknown`; confirmed empty portfolios still use
+an empty market-data scope and do not trigger the missing-data cap.
 
 Prompt source: by default agents load bundled prompts from `MOSAIC-Combat-Evolved/prompts/mosaic`. Set `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` in `.env` to make all subsequent agent runs prefer a private prompt repo, or use `daily-cycle --prompts-repo <path>` / `--prompts-root <path>` for a single run.
 

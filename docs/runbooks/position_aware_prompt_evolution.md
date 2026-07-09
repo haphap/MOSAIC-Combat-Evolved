@@ -133,6 +133,9 @@ The acceptance evidence is the final JSON:
 - `position_audit.positions_reviewed` covers every loaded position.
 - `position_audit.tool_status_summary` records the position source and market
   price evidence status.
+- missing position snapshots surface as scoped runtime evidence misses:
+  `current_position_snapshot` is `missing`, and unresolved market data is
+  recorded as `current_market_data:ticker_scope:unknown`.
 - `portfolio_actions[*]` include `current_weight`, `target_weight`,
   `delta_weight`, `position_decision`, `thesis_status`, and `risk_flags`.
 - `position_decision` semantics are enforced: `ADD` maps to positive-delta

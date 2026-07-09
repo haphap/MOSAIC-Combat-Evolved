@@ -21,6 +21,10 @@ pnpm dev daily-cycle --cohort cohort_default --fake-llm
 
 current-position fixture 文件可以是 JSON 数组,也可以是包含 `current_positions` 的对象;每行必须包含 ticker、当前权重、成本、市场价格、未实现盈亏、持有天数、建仓日期、来源 agent、entry thesis id 和最近复盘日期。`sector` 可选,但用于测试 `max_sector_weight` 时必须提供。CIO 校验会拒绝 action 或 target/current/delta 权重与 `ADD`/`REDUCE`/`EXIT` 语义矛盾的 `position_decision` 行。
 输出的 `position_audit` 会带 `tool_status_summary`,记录持仓来源与市场价格 evidence scope 状态。
+当持仓快照缺失时,runtime evidence audit 会把 `current_position_snapshot` 记录为
+missing,并把无法解析的行情 scope 标成
+`current_market_data:ticker_scope:unknown`;确认空仓仍使用空行情 scope,不会触发
+missing-data cap。
 
 Prompt 来源:默认使用 `MOSAIC-Combat-Evolved/prompts/mosaic` 内置 prompts。在 `.env` 中设置 `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` 后,后续 agent 运行会优先使用 private prompt repo;也可以用 `daily-cycle --prompts-repo <path>` / `--prompts-root <path>` 对单次运行覆盖。
 
