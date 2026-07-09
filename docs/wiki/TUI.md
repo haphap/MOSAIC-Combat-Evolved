@@ -31,7 +31,9 @@ reviewed position counts, stale thesis and stop-loss override counts, explicit
 warning labels, target-current deltas, per-action fired caps, declared knob
 influence ids, decision-agent audit summaries, and MiroFish per-position stress.
 Stale-thesis actions are expected to carry the `stale_thesis` risk flag and an
-explicit review reason.
+explicit review reason. CIO action rows are also checked against
+`position_decision` semantics, so `ADD`/`REDUCE`/`EXIT` must agree with action,
+target, current, and delta weights.
 Operator steps and migration checks live in
 [`docs/runbooks/position_aware_prompt_evolution.md`](../runbooks/position_aware_prompt_evolution.md).
 

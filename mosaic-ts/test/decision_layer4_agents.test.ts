@@ -609,6 +609,76 @@ describe("CIO position validator", () => {
     ).toThrow(/sector is missing/);
   });
 
+  it("rejects ADD decisions that do not map to a positive BUY delta", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "HOLD",
+            position_decision: "ADD",
+            target_weight: 0.2,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([heldPosition]),
+      }),
+    ).toThrow(/ADD position_decision must map to BUY/);
+
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "BUY",
+            position_decision: "ADD",
+            target_weight: 0.18,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([heldPosition]),
+      }),
+    ).toThrow(/target_weight above current_weight/);
+  });
+
+  it("rejects REDUCE decisions that do not trim an existing holding", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "REDUCE",
+            position_decision: "REDUCE",
+            target_weight: 0.22,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([heldPosition]),
+      }),
+    ).toThrow(/0 < target_weight < current_weight/);
+  });
+
+  it("rejects EXIT decisions that retain target weight", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "SELL",
+            position_decision: "EXIT",
+            target_weight: 0.05,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([heldPosition]),
+      }),
+    ).toThrow(/target_weight = 0/);
+  });
+
   it("rejects MiroFish-only portfolio actions", () => {
     expect(() =>
       validateCioPositionActions({

@@ -56,6 +56,7 @@ export function validateCioPositionActions(opts: {
   if (currentPositions.snapshot_status === "loaded") {
     assertEveryCurrentPositionReviewed(currentPositions, actions, reviews);
   }
+  assertPositionDecisionSemantics(actions, currentPositions);
   for (const action of actions) {
     if (action.target_weight > maxSingleNameWeight && !action.override_reason) {
       throw new PositionActionValidationError(
@@ -180,6 +181,107 @@ function assertSectorConcentration(
       throw new PositionActionValidationError(
         `${sector}: target_weight ${total.toFixed(3)} exceeds max_sector_weight ${maxSectorWeight}`,
       );
+    }
+  }
+}
+
+function assertPositionDecisionSemantics(
+  actions: ReadonlyArray<PortfolioAction>,
+  currentPositions: CurrentPositionsSnapshot,
+): void {
+  const currentByTicker = new Map(
+    currentPositions.positions.map((position) => [position.ticker, position.current_weight]),
+  );
+  for (const action of actions) {
+    const currentWeight = action.current_weight ?? currentByTicker.get(action.ticker);
+    const deltaWeight =
+      action.delta_weight ??
+      (currentWeight === undefined ? undefined : action.target_weight - currentWeight);
+    const decision = action.position_decision ?? inferPositionDecision(action, currentWeight);
+    switch (decision) {
+      case "ADD":
+        if (action.action !== "BUY") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision must map to BUY action`,
+          );
+        }
+        if (action.target_weight <= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision requires positive target_weight`,
+          );
+        }
+        if (currentWeight !== undefined && action.target_weight <= currentWeight) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision requires target_weight above current_weight`,
+          );
+        }
+        if (deltaWeight !== undefined && deltaWeight <= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision requires positive delta_weight`,
+          );
+        }
+        break;
+      case "REDUCE":
+        if (action.action !== "REDUCE") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision must map to REDUCE action`,
+          );
+        }
+        if (currentWeight === undefined) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision requires current_weight`,
+          );
+        }
+        if (action.target_weight <= 0 || action.target_weight >= currentWeight) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision requires 0 < target_weight < current_weight`,
+          );
+        }
+        if (deltaWeight === undefined || deltaWeight >= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision requires negative delta_weight`,
+          );
+        }
+        break;
+      case "EXIT":
+        if (action.action !== "SELL") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision must map to SELL action`,
+          );
+        }
+        if (currentWeight === undefined) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision requires current_weight`,
+          );
+        }
+        if (action.target_weight !== 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision requires target_weight = 0`,
+          );
+        }
+        if (deltaWeight !== undefined && deltaWeight > 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision cannot have positive delta_weight`,
+          );
+        }
+        break;
+      case "HOLD":
+        if (action.action !== "HOLD") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision must map to HOLD action`,
+          );
+        }
+        if (currentWeight === undefined) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision requires current_weight`,
+          );
+        }
+        if (action.target_weight <= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision requires positive target_weight`,
+          );
+        }
+        break;
     }
   }
 }

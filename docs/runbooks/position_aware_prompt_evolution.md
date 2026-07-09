@@ -133,6 +133,9 @@ The acceptance evidence is the final JSON:
 - `position_audit.positions_reviewed` covers every loaded position.
 - `portfolio_actions[*]` include `current_weight`, `target_weight`,
   `delta_weight`, `position_decision`, `thesis_status`, and `risk_flags`.
+- `position_decision` semantics are enforced: `ADD` maps to positive-delta
+  `BUY`, `REDUCE` trims an existing holding, `EXIT` maps to zero-weight `SELL`,
+  and `HOLD` maps to an existing held position.
 - fixtures may include `sector`; it is required when testing an active
   `max_sector_weight` runtime card.
 
@@ -309,6 +312,8 @@ Do not promote a mutation when any of these are true:
 - a stop-loss-breached holding remains `HOLD` without override rationale;
 - a stale-thesis holding lacks a `stale_thesis` risk flag and explicit review
   reason;
+- a `position_decision` contradicts its action or target/current weight
+  semantics;
 - an active `max_sector_weight` runtime card is breached, or an action lacks
   sector exposure while that card is active;
 - MiroFish is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or `EXIT`;
