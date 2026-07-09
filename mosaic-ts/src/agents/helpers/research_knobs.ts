@@ -544,6 +544,20 @@ export function applyResearchKnobCaps<T>(
   };
 }
 
+export function assertResearchKnobCappedOutputSchema<T>(
+  output: T,
+  schema: z.ZodTypeAny,
+  agentName: string,
+): T {
+  const parsed = schema.safeParse(stripRuntimeOwnedOutputAudit(output));
+  if (!parsed.success) {
+    throw new Error(
+      `research_knob_capped_output_schema_failed:${agentName}:${parsed.error.message}`,
+    );
+  }
+  return output;
+}
+
 function capTriggered(
   policy: ResearchKnobs["confidence_caps"][string],
   knobs: ResearchKnobs,
@@ -1333,6 +1347,13 @@ function attachVerifiedKnobAudit<T>(value: T, audit: ResearchKnobCapAudit): T {
     ...(value as Record<string, unknown>),
     verified_knob_audit: audit,
   } as T;
+}
+
+function stripRuntimeOwnedOutputAudit(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const copy = { ...(value as Record<string, unknown>) };
+  delete copy.verified_knob_audit;
+  return copy;
 }
 
 function summarizeToolStatuses(

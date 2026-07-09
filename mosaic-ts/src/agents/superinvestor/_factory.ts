@@ -23,6 +23,7 @@ import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_lo
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
   applyResearchKnobCaps,
+  assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
   isResearchKnobsEnabled,
   type ResearchKnobsSnapshot,
@@ -169,7 +170,9 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 toolStatuses: loopResult.toolStatuses,
               })
             : null;
-          const output = capped?.output ?? rawOutput;
+          const output = capped
+            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
+            : rawOutput;
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
 
           onLog(

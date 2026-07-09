@@ -40,6 +40,9 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 - `conflicting_evidence` confidence cap 在 direction-adapter registry 可用前
   由 prompt check fail-closed。不要只靠 prose conflict rule 把这个 trigger 加进
   production knobs。
+- Runtime confidence cap 会在 clamp 后对 structured 与 fallback output 都重新跑
+  agent schema 校验。校验视图只移除 runtime-owned 顶层
+  `verified_knob_audit`;返回 envelope 仍保留该 audit,用于样本排除和 UI 展示。
 - 当 PR 修改 `prompts/mosaic/**` 且你运行 private prompt repo 时,在 `mosaic-ts/` 下设置 `MOSAIC_PROMPTS_REPO` 后运行 `pnpm prompt:drift -- --base-ref origin/main`(`MOSAIC_PRIVATE_PROMPT_REPO` 仍作为兼容别名)。检查是 staleness-aware 的:只报告尚未与变更后 baseline **内容**对齐的 override(对齐状态按路径记录在 private repo 的 `prompts/mosaic/.baseline-sync.json`)。把 baseline 的工具/schema/contract 变更并入某个被标记的 override 后,用 `-- --mark-synced` 重新运行以记录其已对齐 —— 之后直到该 baseline 内容再次变化前都不再告警。
 - scheduled operator check 先用已知安全的 `baseline_ref` 初始化 `data/prompt-drift-state.json`,再在 `mosaic-ts/` 下设置 `MOSAIC_PROMPTS_REPO` 并运行 `pnpm prompt:drift:scheduled`。检查通过时 state 会前进;优先用 `-- --mark-synced` 精确确认具体 override,或用 `-- --accept` 一次性把 state 推进到当前所有 findings 之后。
 

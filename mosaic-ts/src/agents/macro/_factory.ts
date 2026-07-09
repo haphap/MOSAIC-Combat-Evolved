@@ -34,6 +34,7 @@ import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import {
   applyResearchKnobCaps,
+  assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
   isResearchKnobsEnabled,
   type ResearchKnobsSnapshot,
@@ -210,7 +211,9 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                 toolStatuses: loopResult.toolStatuses,
               })
             : null;
-          const output = capped?.output ?? rawOutput;
+          const output = capped
+            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
+            : rawOutput;
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
 
           onLog(

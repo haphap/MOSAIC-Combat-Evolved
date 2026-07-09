@@ -42,6 +42,10 @@ Notes:
 - `conflicting_evidence` confidence caps are fail-closed in prompt checks until
   a direction-adapter registry exists. Do not add that trigger to production
   knobs as a prose-only conflict rule.
+- Runtime confidence caps revalidate both structured and fallback outputs
+  against the agent schema after clamping. The validation view drops only the
+  runtime-owned top-level `verified_knob_audit`; the returned envelope keeps the
+  audit for sample exclusion and UI reporting.
 - When a PR changes `prompts/mosaic/**` and you operate a private prompt repo, run `pnpm prompt:drift -- --base-ref origin/main` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set (`MOSAIC_PRIVATE_PROMPT_REPO` remains a compatibility alias). The check is staleness-aware: it only reports overrides not yet reconciled with the changed baseline *content* (tracked per-path in `prompts/mosaic/.baseline-sync.json` inside the private repo). After merging the baseline tool/schema/contract changes into a flagged override, rerun with `-- --mark-synced` to record it reconciled — it then stops alerting until that baseline content changes again.
 - For scheduled operator checks, initialize `data/prompt-drift-state.json` with a known-good `baseline_ref`, then run `pnpm prompt:drift:scheduled` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set. The state advances when the check passes; prefer `-- --mark-synced` to acknowledge specific overrides precisely, or `-- --accept` to blanket-advance the state past all current findings.
 

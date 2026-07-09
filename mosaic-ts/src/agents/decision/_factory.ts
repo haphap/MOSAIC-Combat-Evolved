@@ -32,6 +32,7 @@ import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
   applyResearchKnobCaps,
+  assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
   isResearchKnobsEnabled,
   type ResearchKnobsSnapshot,
@@ -248,7 +249,9 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           const capped = knobSnapshot
             ? applyResearchKnobCaps(rawOutput, knobSnapshot, { toolStatuses })
             : null;
-          let output = capped?.output ?? rawOutput;
+          let output = capped
+            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
+            : rawOutput;
           if (spec.stateUpdateField === "autonomous_execution") {
             output = validateAutonomousExecutionActions({
               output: output as unknown as AutoExecOutput,

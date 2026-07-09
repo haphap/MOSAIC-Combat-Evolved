@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   applyResearchKnobCaps,
+  assertResearchKnobCappedOutputSchema,
   assertResearchKnobsParity,
   buildResearchKnobsSnapshot,
   canonicalResearchKnobs,
@@ -214,6 +216,47 @@ research-knobs:
     expect(result.audit.fired_cap_ids).toContain("missing_current_data");
     expect(result.audit.knob_snapshot_hash).toMatch(/^sha256:/);
     expect(result.audit.missing_scopes).toContain("tool:get_pboc_ops:missing");
+  });
+
+  it("revalidates capped output against the agent schema while preserving runtime audit", () => {
+    const snapshot = buildResearchKnobsSnapshot({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      knobs: knobs(),
+    });
+    const result = applyResearchKnobCaps(
+      {
+        confidence: 0.82,
+        evidence_ledger: [{ confidence_impact: 0.7 }],
+      },
+      snapshot,
+      {
+        toolStatuses: [],
+      },
+    );
+    const schema = z
+      .object({
+        confidence: z.number().max(0.55),
+        evidence_ledger: z.array(z.object({ confidence_impact: z.number().max(0.55) })),
+      })
+      .strict();
+    const tooStrictSchema = z
+      .object({
+        confidence: z.number().max(0.5),
+        evidence_ledger: z.array(z.object({ confidence_impact: z.number().max(0.5) })),
+      })
+      .strict();
+
+    const output = assertResearchKnobCappedOutputSchema(
+      result.output,
+      schema,
+      "central_bank",
+    ) as typeof result.output & { verified_knob_audit: unknown };
+
+    expect(output.verified_knob_audit).toBeDefined();
+    expect(() =>
+      assertResearchKnobCappedOutputSchema(result.output, tooStrictSchema, "central_bank"),
+    ).toThrow(/research_knob_capped_output_schema_failed:central_bank/);
   });
 
   it("uses the strictest cap when multiple policies fire", () => {

@@ -121,6 +121,10 @@ Acceptance checks:
 - `conflicting_evidence` confidence caps require an explicit `conflict_rule`;
   until a direction-adapter registry is available, production prompt checks fail
   closed for that trigger instead of relying on LLM prose;
+- runtime cap enforcement must revalidate capped structured or fallback output
+  against the agent output schema before returning it; the validation view omits
+  the runtime-owned top-level `verified_knob_audit`, but the returned envelope
+  must preserve that audit;
 - private zh/en prompts have exactly one canonical `research-knobs` fence for
   enabled agents;
 - historical runtime-source aliases are rejected in production catalog files.
