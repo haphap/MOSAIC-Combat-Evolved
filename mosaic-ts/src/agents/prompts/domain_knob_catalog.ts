@@ -848,6 +848,7 @@ export function validateDomainKnobCatalogArtifact(
         reasons.push(`domain_catalog_duplicate_path:${card.path}`);
       }
       seenPaths.add(card.path);
+      reasons.push(...validateCardSourceBinding(card));
       for (const source of card.runtime_input_sources) {
         if (!Object.hasOwn(artifact.runtime_sources, source)) {
           reasons.push(`domain_catalog_card_runtime_source_unregistered:${card.id}:${source}`);
@@ -935,9 +936,7 @@ function validateCard(
   if (!(card.rollback_condition.metric in EVALUATION_METRIC_REGISTRY)) {
     reasons.push(`domain_card_rollback_metric_unregistered:${card.id}`);
   }
-  if (card.runtime_input_sources.length === 0 && card.evidence_dependencies.length === 0) {
-    reasons.push(`domain_card_source_binding_missing:${card.id}`);
-  }
+  reasons.push(...validateCardSourceBinding(card));
   for (const source of card.runtime_input_sources) {
     if (!(source in RUNTIME_SOURCE_REGISTRY)) {
       reasons.push(`domain_card_runtime_source_unregistered:${card.id}:${source}`);
@@ -1010,6 +1009,30 @@ function validateCard(
   }
   if (card.enforcement === "code" && (!card.runtime_validator || !card.audit_field)) {
     reasons.push(`domain_card_code_enforcement_incomplete:${card.id}`);
+  }
+  return reasons;
+}
+
+function validateCardSourceBinding(card: DomainKnobCard): string[] {
+  const reasons: string[] = [];
+  if (card.coverage_level === "gap_pending_tool") return reasons;
+  if (card.runtime_input_sources.length === 0 && card.evidence_dependencies.length === 0) {
+    reasons.push(`domain_card_source_binding_missing:${card.id}`);
+  }
+  if (
+    card.coverage_level === "direct_tool" &&
+    !card.evidence_dependencies.some((dependency) => dependency.dependency_type === "direct_tool")
+  ) {
+    reasons.push(`domain_card_direct_tool_dependency_missing:${card.id}`);
+  }
+  if (
+    card.coverage_level === "derived_proxy" &&
+    !card.evidence_dependencies.some((dependency) => dependency.dependency_type === "derived_proxy")
+  ) {
+    reasons.push(`domain_card_derived_proxy_dependency_missing:${card.id}`);
+  }
+  if (card.coverage_level === "runtime_state" && card.runtime_input_sources.length === 0) {
+    reasons.push(`domain_card_runtime_source_missing:${card.id}`);
   }
   return reasons;
 }

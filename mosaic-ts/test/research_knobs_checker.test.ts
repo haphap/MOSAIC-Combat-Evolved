@@ -469,6 +469,42 @@ describe("checkResearchKnobsPrompts", () => {
         expect(artifact.runtime_sources[source]).toBeDefined();
       }
     }
+
+    const missingDirectDependency = structuredClone(artifact);
+    const directCard = missingDirectDependency.agents
+      .find((agent) => agent.agent === "semiconductor")
+      ?.cards.find((card) => card.id === "inventory_to_revenue_risk");
+    expect(directCard).toBeDefined();
+    if (!directCard) return;
+    directCard.evidence_dependencies = [];
+    directCard.evidence_dependency_policies = {};
+    expect(validateDomainKnobCatalogArtifact(missingDirectDependency)).toContain(
+      "domain_card_direct_tool_dependency_missing:inventory_to_revenue_risk",
+    );
+
+    const missingDerivedDependency = structuredClone(artifact);
+    const derivedCard = missingDerivedDependency.agents
+      .find((agent) => agent.agent === "semiconductor")
+      ?.cards.find((card) => card.id === "export_control_discount");
+    expect(derivedCard).toBeDefined();
+    if (!derivedCard) return;
+    derivedCard.evidence_dependencies = [];
+    derivedCard.evidence_dependency_policies = {};
+    expect(validateDomainKnobCatalogArtifact(missingDerivedDependency)).toContain(
+      "domain_card_derived_proxy_dependency_missing:export_control_discount",
+    );
+
+    const missingRuntimeSource = structuredClone(artifact);
+    const runtimeCard = missingRuntimeSource.agents
+      .find((agent) => agent.agent === "cro")
+      ?.cards.find((card) => card.id === "stop_loss_pct");
+    expect(runtimeCard).toBeDefined();
+    if (!runtimeCard) return;
+    runtimeCard.runtime_input_sources = [];
+    runtimeCard.runtime_input_source_policies = {};
+    expect(validateDomainKnobCatalogArtifact(missingRuntimeSource)).toContain(
+      "domain_card_runtime_source_missing:stop_loss_pct",
+    );
   });
 
   it("requires private domain knob value registries and checks projections against them", async () => {

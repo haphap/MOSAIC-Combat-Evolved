@@ -32,6 +32,9 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 - Decision-layer domain mutation target 必须保持在 PR3 owner list 内。额外的 CIO
   组合构建 knob 或 read-only 风险/情景默认值,先补 card、metric policy 和测试,
   才能进入 `mutation_targets`。
+- Domain source binding 按 coverage 区分:`direct_tool` / `derived_proxy`
+  card 需要匹配的 evidence dependency;`runtime_state` card 需要 runtime
+  input source。
 - `conflicting_evidence` confidence cap 在 direction-adapter registry 可用前
   由 prompt check fail-closed。不要只靠 prose conflict rule 把这个 trigger 加进
   production knobs。

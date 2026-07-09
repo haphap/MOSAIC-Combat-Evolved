@@ -34,6 +34,9 @@ Notes:
   Extra CIO portfolio-construction knobs or read-only risk/scenario defaults
   need their own card, metric policy, and tests before they enter
   `mutation_targets`.
+- Domain source bindings are coverage-specific: `direct_tool` and
+  `derived_proxy` cards need matching evidence dependencies; `runtime_state`
+  cards need runtime input sources.
 - `conflicting_evidence` confidence caps are fail-closed in prompt checks until
   a direction-adapter registry exists. Do not add that trigger to production
   knobs as a prose-only conflict rule.
