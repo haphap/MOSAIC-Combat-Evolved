@@ -24,6 +24,10 @@ Notes:
 - A July 2026 local profile showed `tests/test_rke_cli.py` was the main drag: one CLI refresh contract test took 274s and several master-plan/promotion/review-progress CLI cases took 22-89s. Those tests now stub unrelated deep refresh/review-progress builders; the file should finish in about 10s locally. Accepted-import tests also stub unrelated downstream report-bundle rewrites; the remaining known local hotspot is `tests/test_rke_operator_handoff.py`, where deep handoff cases still exercise the real manual review progress builder.
 - Some tests are guarded by `_HAS_QLIB` / dep-presence and skip cleanly when an optional extra (e.g. `pyqlib`, `bcrypt`, `numpy`) is absent, so the suite runs hermetically.
 - CI also runs the prompt leak guard. It blocks autoresearch/private prompt artifacts in the project repo, but it is provenance-based and does not classify ordinary prompt content.
+- Domain knob catalog changes must keep `projection_bucket` aligned across
+  TypeScript, schema, and visible-contract filtering. The v1 buckets are
+  `lookbacks`, `thresholds`, `tie_breaks`, `evidence_weights`, and
+  `confidence_caps`.
 - When a PR changes `prompts/mosaic/**` and you operate a private prompt repo, run `pnpm prompt:drift -- --base-ref origin/main` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set (`MOSAIC_PRIVATE_PROMPT_REPO` remains a compatibility alias). The check is staleness-aware: it only reports overrides not yet reconciled with the changed baseline *content* (tracked per-path in `prompts/mosaic/.baseline-sync.json` inside the private repo). After merging the baseline tool/schema/contract changes into a flagged override, rerun with `-- --mark-synced` to record it reconciled — it then stops alerting until that baseline content changes again.
 - For scheduled operator checks, initialize `data/prompt-drift-state.json` with a known-good `baseline_ref`, then run `pnpm prompt:drift:scheduled` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set. The state advances when the check passes; prefer `-- --mark-synced` to acknowledge specific overrides precisely, or `-- --accept` to blanket-advance the state past all current findings.
 

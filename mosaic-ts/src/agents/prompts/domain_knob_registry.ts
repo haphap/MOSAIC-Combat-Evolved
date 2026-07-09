@@ -168,24 +168,71 @@ export function domainKnobValueForCard(
 }
 
 export function applyDomainKnobValueToProjection(
-  knobs: Pick<ResearchKnobs, "lookbacks" | "thresholds">,
+  knobs: Pick<
+    ResearchKnobs,
+    "evidence_weights" | "lookbacks" | "thresholds" | "confidence_caps" | "tie_breaks"
+  >,
   card: Pick<DomainKnobCard, "id" | "projection_bucket">,
   value: unknown,
 ): void {
   if (card.projection_bucket === "lookbacks") {
     knobs.lookbacks[card.id] = value;
-  } else {
+  } else if (card.projection_bucket === "thresholds") {
     knobs.thresholds[card.id] = value;
+  } else if (card.projection_bucket === "evidence_weights") {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new Error(`${card.id}: evidence_weights projection value must be finite number`);
+    }
+    knobs.evidence_weights[card.id] = value;
+  } else if (card.projection_bucket === "confidence_caps") {
+    const cap = knobs.confidence_caps[card.id];
+    if (!cap) throw new Error(`${card.id}: confidence cap projection target not found`);
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new Error(`${card.id}: confidence_caps projection value must be finite number`);
+    }
+    cap.cap = value;
+  } else {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error(`${card.id}: tie_breaks projection value must be non-empty string`);
+    }
+    if (!knobs.tie_breaks.includes(value)) knobs.tie_breaks.push(value);
   }
 }
 
-export function projectionValueForDomainCard(
-  knobs: Pick<ResearchKnobs, "lookbacks" | "thresholds">,
+export function replaceDomainKnobValueInProjection(
+  knobs: Pick<
+    ResearchKnobs,
+    "evidence_weights" | "lookbacks" | "thresholds" | "confidence_caps" | "tie_breaks"
+  >,
   card: Pick<DomainKnobCard, "id" | "projection_bucket">,
+  oldValue: unknown,
+  newValue: unknown,
+): void {
+  if (card.projection_bucket !== "tie_breaks") {
+    applyDomainKnobValueToProjection(knobs, card, newValue);
+    return;
+  }
+  if (typeof oldValue !== "string" || typeof newValue !== "string" || newValue.length === 0) {
+    throw new Error(`${card.id}: tie_breaks projection values must be non-empty strings`);
+  }
+  const index = knobs.tie_breaks.findIndex((value) => Object.is(value, oldValue));
+  if (index < 0) throw new Error(`${card.id}: tie_breaks old value not found`);
+  knobs.tie_breaks[index] = newValue;
+}
+
+export function projectionValueForDomainCard(
+  knobs: Pick<
+    ResearchKnobs,
+    "evidence_weights" | "lookbacks" | "thresholds" | "confidence_caps" | "tie_breaks"
+  >,
+  card: Pick<DomainKnobCard, "id" | "projection_bucket"> & Partial<Pick<DomainKnobCard, "default">>,
 ): unknown {
-  return card.projection_bucket === "lookbacks"
-    ? knobs.lookbacks[card.id]
-    : knobs.thresholds[card.id];
+  if (card.projection_bucket === "lookbacks") return knobs.lookbacks[card.id];
+  if (card.projection_bucket === "thresholds") return knobs.thresholds[card.id];
+  if (card.projection_bucket === "evidence_weights") return knobs.evidence_weights[card.id];
+  if (card.projection_bucket === "confidence_caps") return knobs.confidence_caps[card.id]?.cap;
+  const value = typeof card.default === "string" ? card.default : card.id;
+  return knobs.tie_breaks.includes(value) ? value : undefined;
 }
 
 export function applyKnobPatchesToDomainKnobRegistry(

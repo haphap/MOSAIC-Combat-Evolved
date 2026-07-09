@@ -1,14 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ResearchKnobs } from "../src/agents/helpers/research_knobs.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import {
   buildDomainKnobCatalogArtifact,
   DOMAIN_KNOB_CATALOG_VERSION,
+  type DomainKnobCard,
   domainKnobCardsForSpec,
   EVALUATION_METRIC_REGISTRY,
   minDomainTargetCount,
+  PROJECTION_BUCKETS,
   RUNTIME_SOURCE_REGISTRY,
   validateDomainKnobCatalogArtifact,
 } from "../src/agents/prompts/domain_knob_catalog.js";
@@ -401,11 +404,7 @@ describe("checkResearchKnobsPrompts", () => {
       expect(cards.length).toBeGreaterThanOrEqual(minDomainTargetCount(spec.layer, spec.agent));
       for (const card of cards) {
         expect(generated.mutation_targets.some((target) => target.path === card.path)).toBe(true);
-        expect(
-          card.projection_bucket === "lookbacks"
-            ? generated.lookbacks[card.id]
-            : generated.thresholds[card.id],
-        ).toBe(card.default);
+        expect(domainProjectionValue(generated, card)).toBe(card.default);
       }
     }
   });
@@ -425,6 +424,30 @@ describe("checkResearchKnobsPrompts", () => {
     expect(Object.keys(artifact.evaluation_metrics)).toEqual(
       Object.keys(EVALUATION_METRIC_REGISTRY).sort(),
     );
+    expect(PROJECTION_BUCKETS).toEqual([
+      "lookbacks",
+      "thresholds",
+      "tie_breaks",
+      "evidence_weights",
+      "confidence_caps",
+    ]);
+    const schema = JSON.parse(
+      readFileSync(
+        new URL("../../schemas/domain_knob_catalog_v1.schema.json", import.meta.url),
+        "utf-8",
+      ),
+    ) as {
+      properties: {
+        agents: {
+          items: {
+            properties: { cards: { items: { properties: { projection_bucket: unknown } } } };
+          };
+        };
+      };
+    };
+    expect(
+      schema.properties.agents.items.properties.cards.items.properties.projection_bucket,
+    ).toEqual({ enum: [...PROJECTION_BUCKETS] });
     expect(new Set(cardPaths).size).toBe(cardPaths.length);
     expect(cards.length).toBeGreaterThan(170);
     for (const agent of artifact.agents) {
@@ -601,3 +624,12 @@ describe("checkResearchKnobsPrompts", () => {
     );
   });
 });
+
+function domainProjectionValue(knobs: ResearchKnobs, card: DomainKnobCard): unknown {
+  if (card.projection_bucket === "lookbacks") return knobs.lookbacks[card.id];
+  if (card.projection_bucket === "thresholds") return knobs.thresholds[card.id];
+  if (card.projection_bucket === "evidence_weights") return knobs.evidence_weights[card.id];
+  if (card.projection_bucket === "confidence_caps") return knobs.confidence_caps[card.id]?.cap;
+  const value = typeof card.default === "string" ? card.default : card.id;
+  return knobs.tie_breaks.includes(value) ? value : undefined;
+}

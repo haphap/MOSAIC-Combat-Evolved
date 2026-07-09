@@ -10,7 +10,14 @@ import {
 export const DOMAIN_KNOB_CATALOG_VERSION = "domain_knob_catalog_v1";
 
 export type CoverageLevel = "direct_tool" | "derived_proxy" | "runtime_state" | "gap_pending_tool";
-export type ProjectionBucket = "lookbacks" | "thresholds";
+export const PROJECTION_BUCKETS = [
+  "lookbacks",
+  "thresholds",
+  "tie_breaks",
+  "evidence_weights",
+  "confidence_caps",
+] as const;
+export type ProjectionBucket = (typeof PROJECTION_BUCKETS)[number];
 export type KnobValueType = "number" | "integer" | "enum" | "boolean";
 
 type RuntimeSourceStatus = "missing" | "stale" | "source_error" | "empty_confirmed";
@@ -699,13 +706,17 @@ export function domainKnobDescriptorFromPath(
     /^\/rule_packs\/(?:macro|sector|superinvestor|decision)\.([^.]+)\./,
   )?.[1];
   const id = match?.[1];
-  if (!agent || !id || !(DOMAIN_SEEDS_BY_AGENT[agent] ?? []).some((seed) => seed.id === id)) {
+  if (!agent || !id) {
+    return null;
+  }
+  const seed = (DOMAIN_SEEDS_BY_AGENT[agent] ?? []).find((item) => item.id === id);
+  if (!seed) {
     return null;
   }
   return {
     agent,
     id,
-    projection_bucket: bucketForId(id),
+    projection_bucket: seed.bucket ?? bucketForId(id),
   };
 }
 
@@ -843,7 +854,16 @@ export function validateDomainKnobCatalogArtifact(
 
 export function validateDomainKnobClosure(
   spec: RuntimeAgentSpec,
-  knobs: Pick<ResearchKnobs, "evidence_registry" | "lookbacks" | "thresholds" | "mutation_targets">,
+  knobs: Pick<
+    ResearchKnobs,
+    | "evidence_registry"
+    | "evidence_weights"
+    | "lookbacks"
+    | "thresholds"
+    | "confidence_caps"
+    | "tie_breaks"
+    | "mutation_targets"
+  >,
   opts: { domainRegistry?: DomainKnobValueRegistry | null | undefined; cohort?: string } = {},
 ): string[] {
   const reasons: string[] = [];
@@ -865,7 +885,15 @@ export function validateDomainKnobClosure(
 function validateCard(
   spec: RuntimeAgentSpec,
   card: DomainKnobCard,
-  knobs: Pick<ResearchKnobs, "evidence_registry" | "lookbacks" | "thresholds">,
+  knobs: Pick<
+    ResearchKnobs,
+    | "evidence_registry"
+    | "evidence_weights"
+    | "lookbacks"
+    | "thresholds"
+    | "confidence_caps"
+    | "tie_breaks"
+  >,
   targetPaths: ReadonlySet<string>,
   domainRegistry?: DomainKnobValueRegistry | null,
 ): string[] {
@@ -953,8 +981,7 @@ function validateCard(
       }
     }
   }
-  const projected =
-    card.projection_bucket === "lookbacks" ? knobs.lookbacks[card.id] : knobs.thresholds[card.id];
+  const projected = projectedValueForCard(knobs, card);
   const expected =
     domainRegistry && Object.hasOwn(domainRegistry.values_by_path, card.path)
       ? domainRegistry.values_by_path[card.path]
@@ -1006,7 +1033,10 @@ export function validateCrossFieldInvariants(
 
 export function validateWeightGroupInvariants(
   spec: RuntimeAgentSpec,
-  knobs: Pick<ResearchKnobs, "lookbacks" | "thresholds">,
+  knobs: Pick<
+    ResearchKnobs,
+    "evidence_weights" | "lookbacks" | "thresholds" | "confidence_caps" | "tie_breaks"
+  >,
 ): string[] {
   const reasons: string[] = [];
   const groups = new Map<string, DomainKnobCard[]>();
@@ -1018,10 +1048,7 @@ export function validateWeightGroupInvariants(
   }
   for (const [group, cards] of groups) {
     const values = cards.map((card) => {
-      const raw =
-        card.projection_bucket === "lookbacks"
-          ? knobs.lookbacks[card.id]
-          : knobs.thresholds[card.id];
+      const raw = projectedValueForCard(knobs, card);
       return typeof raw === "number" && Number.isFinite(raw) ? raw : NaN;
     });
     if (values.some((item) => !Number.isFinite(item) || item < 0)) {
@@ -1034,6 +1061,21 @@ export function validateWeightGroupInvariants(
     }
   }
   return reasons;
+}
+
+function projectedValueForCard(
+  knobs: Pick<
+    ResearchKnobs,
+    "evidence_weights" | "lookbacks" | "thresholds" | "confidence_caps" | "tie_breaks"
+  >,
+  card: Pick<DomainKnobCard, "id" | "projection_bucket" | "default">,
+): unknown {
+  if (card.projection_bucket === "lookbacks") return knobs.lookbacks[card.id];
+  if (card.projection_bucket === "thresholds") return knobs.thresholds[card.id];
+  if (card.projection_bucket === "evidence_weights") return knobs.evidence_weights[card.id];
+  if (card.projection_bucket === "confidence_caps") return knobs.confidence_caps[card.id]?.cap;
+  const value = typeof card.default === "string" ? card.default : card.id;
+  return knobs.tie_breaks.includes(value) ? value : undefined;
 }
 
 function buildCard(spec: RuntimeAgentSpec, seed: DomainSeed): DomainKnobCard {

@@ -6,7 +6,12 @@ import {
   parseResearchKnobsPrompt,
   type ResearchKnobs,
 } from "../src/agents/helpers/research_knobs.js";
-import { buildDomainKnobValueRegistry } from "../src/agents/prompts/domain_knob_registry.js";
+import {
+  applyDomainKnobValueToProjection,
+  buildDomainKnobValueRegistry,
+  projectionValueForDomainCard,
+  replaceDomainKnobValueInProjection,
+} from "../src/agents/prompts/domain_knob_registry.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
@@ -620,6 +625,78 @@ describe("knob mutation validation", () => {
 
     expect(next.thresholds.pboc_fed_policy_weight).toBe(0.35);
     expect(knobs.thresholds.pboc_fed_policy_weight).toBe(0.2);
+  });
+
+  it("projects catalog-governed domain knobs into every v1 bucket", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const knobs = buildRuntimeResearchKnobs(spec);
+
+    applyDomainKnobValueToProjection(
+      knobs,
+      { id: "custom_window_days", projection_bucket: "lookbacks" },
+      12,
+    );
+    applyDomainKnobValueToProjection(
+      knobs,
+      { id: "custom_threshold", projection_bucket: "thresholds" },
+      0.25,
+    );
+    applyDomainKnobValueToProjection(
+      knobs,
+      { id: "pboc_liquidity", projection_bucket: "evidence_weights" },
+      0.42,
+    );
+    applyDomainKnobValueToProjection(
+      knobs,
+      { id: "missing_current_data", projection_bucket: "confidence_caps" },
+      0.45,
+    );
+    applyDomainKnobValueToProjection(
+      knobs,
+      { id: "risk_priority", projection_bucket: "tie_breaks" },
+      "risk_priority",
+    );
+    replaceDomainKnobValueInProjection(
+      knobs,
+      { id: "risk_priority", projection_bucket: "tie_breaks" },
+      "risk_priority",
+      "liquidity_priority",
+    );
+
+    expect(
+      projectionValueForDomainCard(knobs, {
+        id: "custom_window_days",
+        projection_bucket: "lookbacks",
+      }),
+    ).toBe(12);
+    expect(
+      projectionValueForDomainCard(knobs, {
+        id: "custom_threshold",
+        projection_bucket: "thresholds",
+      }),
+    ).toBe(0.25);
+    expect(
+      projectionValueForDomainCard(knobs, {
+        id: "pboc_liquidity",
+        projection_bucket: "evidence_weights",
+      }),
+    ).toBe(0.42);
+    expect(
+      projectionValueForDomainCard(knobs, {
+        id: "missing_current_data",
+        projection_bucket: "confidence_caps",
+      }),
+    ).toBe(0.45);
+    expect(
+      projectionValueForDomainCard(knobs, {
+        id: "risk_priority",
+        projection_bucket: "tie_breaks",
+        default: "liquidity_priority",
+      }),
+    ).toBe("liquidity_priority");
+    expect(knobs.tie_breaks).not.toContain("risk_priority");
   });
 
   it("writes catalog-governed domain knob patches through the value registry", () => {

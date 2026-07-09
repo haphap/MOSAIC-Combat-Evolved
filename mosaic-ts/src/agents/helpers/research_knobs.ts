@@ -180,6 +180,21 @@ export type EvidenceDependencyState =
   | "fallback"
   | "tool_failed";
 
+type DomainProjectionBucket =
+  | "lookbacks"
+  | "thresholds"
+  | "tie_breaks"
+  | "evidence_weights"
+  | "confidence_caps";
+
+const DOMAIN_PROJECTION_BUCKETS = new Set<DomainProjectionBucket>([
+  "lookbacks",
+  "thresholds",
+  "tie_breaks",
+  "evidence_weights",
+  "confidence_caps",
+]);
+
 export interface EvidenceDependencyStatus {
   card_id: string;
   dependency_id: string;
@@ -200,14 +215,14 @@ export interface EvidenceDependencyStatus {
 export interface ActiveKnobConsumption {
   card_id: string;
   path: string;
-  projection_bucket: "lookbacks" | "thresholds";
+  projection_bucket: DomainProjectionBucket;
   value: unknown;
 }
 
 export interface DisabledKnobConsumption {
   card_id: string;
   path: string;
-  projection_bucket: "lookbacks" | "thresholds";
+  projection_bucket: DomainProjectionBucket;
   disabled_reason: string;
   missing_runtime_sources: string[];
 }
@@ -402,10 +417,10 @@ export function renderVisibleResearchKnobsContract(
     research_scope: knobs.research_scope,
     prediction_targets: knobs.prediction_targets,
     evidence_registry: knobs.evidence_registry,
-    evidence_weights: knobs.evidence_weights,
+    evidence_weights: visibleEvidenceWeights(knobs, consumptionSnapshot),
     lookbacks: visibleProjectionBucket(knobs, "lookbacks", consumptionSnapshot),
     thresholds: visibleProjectionBucket(knobs, "thresholds", consumptionSnapshot),
-    tie_breaks: knobs.tie_breaks,
+    tie_breaks: visibleTieBreaks(knobs, consumptionSnapshot),
     active_knobs: consumptionSnapshot.active_knobs,
     disabled_knobs: consumptionSnapshot.disabled_knobs,
     mutation_targets: knobs.mutation_targets
@@ -561,7 +576,8 @@ function capTriggered(
 interface DomainCardSummary {
   id: string;
   path: string;
-  projection_bucket: "lookbacks" | "thresholds";
+  projection_bucket: DomainProjectionBucket;
+  default?: unknown;
   runtime_input_sources: string[];
   runtime_input_source_policies: Record<
     string,
@@ -595,7 +611,8 @@ function domainCardSummaries(knobs: ResearchKnobs): DomainCardSummary[] {
     if (
       typeof record.id !== "string" ||
       typeof record.path !== "string" ||
-      (record.projection_bucket !== "lookbacks" && record.projection_bucket !== "thresholds")
+      typeof record.projection_bucket !== "string" ||
+      !DOMAIN_PROJECTION_BUCKETS.has(record.projection_bucket as DomainProjectionBucket)
     ) {
       return [];
     }
@@ -608,7 +625,8 @@ function domainCardSummaries(knobs: ResearchKnobs): DomainCardSummary[] {
       {
         id: record.id,
         path: record.path,
-        projection_bucket: record.projection_bucket,
+        projection_bucket: record.projection_bucket as DomainProjectionBucket,
+        default: record.default,
         runtime_input_sources: sources,
         runtime_input_source_policies: runtimeInputSourcePolicies(
           record.runtime_input_source_policies,
@@ -720,10 +738,55 @@ function visibleProjectionBucket(
   );
 }
 
+function visibleEvidenceWeights(
+  knobs: ResearchKnobs,
+  consumptionSnapshot: KnobConsumptionSnapshot,
+): ResearchKnobs["evidence_weights"] {
+  const domainIds = new Set(
+    domainCardSummaries(knobs)
+      .filter((card) => card.projection_bucket === "evidence_weights")
+      .map((card) => card.id),
+  );
+  const activeIds = new Set(
+    consumptionSnapshot.active_knobs
+      .filter((card) => card.projection_bucket === "evidence_weights")
+      .map((card) => card.card_id),
+  );
+  return Object.fromEntries(
+    Object.entries(knobs.evidence_weights).filter(
+      ([key]) => !domainIds.has(key) || activeIds.has(key),
+    ),
+  );
+}
+
+function visibleTieBreaks(
+  knobs: ResearchKnobs,
+  consumptionSnapshot: KnobConsumptionSnapshot,
+): ResearchKnobs["tie_breaks"] {
+  const domainValues = new Set(
+    domainCardSummaries(knobs)
+      .filter((card) => card.projection_bucket === "tie_breaks")
+      .map((card) => tieBreakValueForCard(card)),
+  );
+  const activeValues = new Set(
+    consumptionSnapshot.active_knobs
+      .filter((card) => card.projection_bucket === "tie_breaks" && typeof card.value === "string")
+      .map((card) => card.value as string),
+  );
+  return knobs.tie_breaks.filter((value) => !domainValues.has(value) || activeValues.has(value));
+}
+
 function projectionValueForCard(knobs: ResearchKnobs, card: DomainCardSummary): unknown {
-  return card.projection_bucket === "lookbacks"
-    ? knobs.lookbacks[card.id]
-    : knobs.thresholds[card.id];
+  if (card.projection_bucket === "lookbacks") return knobs.lookbacks[card.id];
+  if (card.projection_bucket === "thresholds") return knobs.thresholds[card.id];
+  if (card.projection_bucket === "evidence_weights") return knobs.evidence_weights[card.id];
+  if (card.projection_bucket === "confidence_caps") return knobs.confidence_caps[card.id]?.cap;
+  const value = tieBreakValueForCard(card);
+  return knobs.tie_breaks.includes(value) ? value : undefined;
+}
+
+function tieBreakValueForCard(card: Pick<DomainCardSummary, "id" | "default">): string {
+  return typeof card.default === "string" && card.default.length > 0 ? card.default : card.id;
 }
 
 function disabledReasonForCard(

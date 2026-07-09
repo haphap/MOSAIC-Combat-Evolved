@@ -24,6 +24,10 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 - 2026 年 7 月的一次本地 profile 显示,主要拖慢点是 `tests/test_rke_cli.py`:一个 CLI refresh contract 测试耗时 274s,多个 master-plan/promotion/review-progress CLI 用例耗时 22-89s。现在这些测试会 stub 掉本断言无关的深层 refresh/review-progress builder;本地跑该文件应约 10s 完成。accepted-import 测试也会 stub 掉无关的下游 report-bundle 重写;剩余已知本地热点是 `tests/test_rke_operator_handoff.py`,其中深层 handoff 用例仍会跑真实 manual review progress builder。
 - 部分测试由 `_HAS_QLIB` / 依赖存在性 guard,当某可选 extra(如 `pyqlib`、`bcrypt`、`numpy`)缺失时干净跳过,使套件可 hermetic 运行。
 - CI 也会运行 prompt leak guard。它会阻止 autoresearch/private prompt 产物进入项目 repo,但它是 provenance-based 检查,不对普通 prompt 正文做内容分类。
+- Domain knob catalog 改动必须同时对齐 TypeScript、schema 和
+  visible-contract filtering 中的 `projection_bucket`。v1 bucket 为
+  `lookbacks`、`thresholds`、`tie_breaks`、`evidence_weights` 和
+  `confidence_caps`。
 - 当 PR 修改 `prompts/mosaic/**` 且你运行 private prompt repo 时,在 `mosaic-ts/` 下设置 `MOSAIC_PROMPTS_REPO` 后运行 `pnpm prompt:drift -- --base-ref origin/main`(`MOSAIC_PRIVATE_PROMPT_REPO` 仍作为兼容别名)。检查是 staleness-aware 的:只报告尚未与变更后 baseline **内容**对齐的 override(对齐状态按路径记录在 private repo 的 `prompts/mosaic/.baseline-sync.json`)。把 baseline 的工具/schema/contract 变更并入某个被标记的 override 后,用 `-- --mark-synced` 重新运行以记录其已对齐 —— 之后直到该 baseline 内容再次变化前都不再告警。
 - scheduled operator check 先用已知安全的 `baseline_ref` 初始化 `data/prompt-drift-state.json`,再在 `mosaic-ts/` 下设置 `MOSAIC_PROMPTS_REPO` 并运行 `pnpm prompt:drift:scheduled`。检查通过时 state 会前进;优先用 `-- --mark-synced` 精确确认具体 override,或用 `-- --accept` 一次性把 state 推进到当前所有 findings 之后。
 

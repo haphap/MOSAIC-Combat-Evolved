@@ -92,6 +92,11 @@ rtk env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
 Acceptance checks:
 
 - exported catalog validates against `schemas/domain_knob_catalog_v1.schema.json`;
+- `projection_bucket` is restricted to the v1 buckets `lookbacks`,
+  `thresholds`, `tie_breaks`, `evidence_weights`, and `confidence_caps`; domain
+  card projection, mutation old-value checks, and visible-contract filtering
+  must use the catalog bucket instead of treating every non-lookback as a
+  threshold;
 - catalog schema validation rejects incomplete executable cards: in-run
   tool-derived dependencies must declare their scope source fields, numeric
   targets must carry bounds/step, and `enforcement: code` cards must declare

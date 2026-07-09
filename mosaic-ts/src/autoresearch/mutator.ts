@@ -34,6 +34,7 @@ import {
 import { bindStructured } from "../agents/helpers/structured_output.js";
 import { ALL_MACRO_AGENTS } from "../agents/macro/_aggregator.js";
 import {
+  type DomainKnobCard,
   domainKnobCardFromPath,
   domainKnobCardsForSpec,
   domainKnobDescriptorFromPath,
@@ -43,9 +44,12 @@ import {
 } from "../agents/prompts/domain_knob_catalog.js";
 import {
   applyKnobPatchesToDomainKnobRegistry as applyDomainKnobRegistryPatches,
+  applyDomainKnobValueToProjection,
   type DomainKnobRegistryPatchResult,
   type DomainKnobValueRegistry,
+  projectionValueForDomainCard,
   readDomainKnobValueRegistryFile,
+  replaceDomainKnobValueInProjection,
   writeDomainKnobValueRegistryFile,
 } from "../agents/prompts/domain_knob_registry.js";
 import { loadPrompt } from "../agents/prompts/loader.js";
@@ -365,11 +369,7 @@ function applyKnobPatchesToProjectionUnchecked(
       continue;
     }
     if (domainKnob) {
-      if (domainKnob.projection_bucket === "lookbacks") {
-        next.lookbacks[domainKnob.id] = patch.new_value;
-      } else {
-        next.thresholds[domainKnob.id] = patch.new_value;
-      }
+      replaceDomainKnobValueInProjection(next, domainKnob, patch.old_value, patch.new_value);
       changedDomainCards.push(patch.path);
       continue;
     }
@@ -725,9 +725,8 @@ function pathMatches(pattern: string, path: string): boolean {
 function currentProjectionValue(knobs: ResearchKnobs, path: string): unknown {
   const capMatch = path.match(/\/confidence_policy\/([^/]+)\/cap$/);
   if (capMatch?.[1]) return knobs.confidence_caps[capMatch[1]]?.cap;
-  const domainKnob = domainKnobDescriptorFromPath(path);
-  if (domainKnob?.projection_bucket === "lookbacks") return knobs.lookbacks[domainKnob.id];
-  if (domainKnob?.projection_bucket === "thresholds") return knobs.thresholds[domainKnob.id];
+  const domainCard = domainKnobCardFromPath(path);
+  if (domainCard) return projectionValueForDomainCard(knobs, domainCard);
   const evidenceKey = evidenceKeyFromLearnableWeightPath(path);
   if (evidenceKey) return knobs.evidence_weights[evidenceKey];
   return undefined;
@@ -788,23 +787,19 @@ function renormalizeDomainWeightGroups(knobs: ResearchKnobs, changedPaths: strin
       (card) => card.weight_group === groupName && card.normalization === "sum_to_one",
     );
     const total = members.reduce(
-      (sum, card) => sum + Math.max(0, readDomainProjectionNumber(knobs, card.id)),
+      (sum, card) => sum + Math.max(0, readDomainProjectionNumber(knobs, card)),
       0,
     );
     if (total <= 0) continue;
     for (const card of members) {
-      const normalized = Math.max(0, readDomainProjectionNumber(knobs, card.id)) / total;
-      if (card.projection_bucket === "lookbacks") {
-        knobs.lookbacks[card.id] = normalized;
-      } else {
-        knobs.thresholds[card.id] = normalized;
-      }
+      const normalized = Math.max(0, readDomainProjectionNumber(knobs, card)) / total;
+      applyDomainKnobValueToProjection(knobs, card, normalized);
     }
   }
 }
 
-function readDomainProjectionNumber(knobs: ResearchKnobs, id: string): number {
-  const value = knobs.thresholds[id] ?? knobs.lookbacks[id];
+function readDomainProjectionNumber(knobs: ResearchKnobs, card: DomainKnobCard): number {
+  const value = projectionValueForDomainCard(knobs, card);
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 

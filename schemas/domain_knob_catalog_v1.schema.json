@@ -246,7 +246,13 @@
                   }
                 },
                 "projection_bucket": {
-                  "enum": ["lookbacks", "thresholds"]
+                  "enum": [
+                    "lookbacks",
+                    "thresholds",
+                    "tie_breaks",
+                    "evidence_weights",
+                    "confidence_caps"
+                  ]
                 },
                 "path": {
                   "type": "string",

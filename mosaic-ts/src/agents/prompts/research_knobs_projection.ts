@@ -35,6 +35,7 @@ export function buildRuntimeResearchKnobs(
   const mutationTargets: ResearchKnobs["mutation_targets"] = [];
   const lookbacks: ResearchKnobs["lookbacks"] = {};
   const thresholds: ResearchKnobs["thresholds"] = {};
+  const tieBreaks: ResearchKnobs["tie_breaks"] = [];
 
   const weightedKeys =
     nonRkeTools.length > 0
@@ -109,6 +110,24 @@ export function buildRuntimeResearchKnobs(
     evidenceWeights.rke_prior = 0;
   }
 
+  const requiredEvidence = Object.entries(evidenceRegistry)
+    .filter(([, entry]) => entry.current_data && entry.primary && (entry.tool || entry.source))
+    .map(([key]) => key);
+  const confidenceCaps: ResearchKnobs["confidence_caps"] = {
+    missing_current_data: {
+      cap: 0.55,
+      trigger: "missing_required_evidence",
+      enforcement: "code",
+      required_evidence: requiredEvidence,
+    },
+    fallback_primary_tool: {
+      cap: 0.6,
+      trigger: "primary_tool_failed_or_fallback",
+      enforcement: "code",
+      required_evidence: requiredEvidence,
+    },
+  };
+
   mutationTargets.push({
     path: `/rule_packs/${rulePackId}/rules/${ruleId}/confidence_policy/missing_current_data/cap`,
     type: "number",
@@ -128,7 +147,13 @@ export function buildRuntimeResearchKnobs(
   for (const card of domainCards) {
     if (card.coverage_level === "gap_pending_tool") continue;
     applyDomainKnobValueToProjection(
-      { lookbacks, thresholds },
+      {
+        evidence_weights: evidenceWeights,
+        lookbacks,
+        thresholds,
+        confidence_caps: confidenceCaps,
+        tie_breaks: tieBreaks,
+      },
       card,
       domainKnobValueForCard(card, opts.domainRegistry),
     );
@@ -141,10 +166,6 @@ export function buildRuntimeResearchKnobs(
       ...(card.allowed_values !== undefined ? { allowed_values: card.allowed_values } : {}),
     });
   }
-
-  const requiredEvidence = Object.entries(evidenceRegistry)
-    .filter(([, entry]) => entry.current_data && entry.primary && (entry.tool || entry.source))
-    .map(([key]) => key);
 
   return {
     schema_version: "research_knobs_v1",
@@ -167,21 +188,8 @@ export function buildRuntimeResearchKnobs(
     evidence_weights: evidenceWeights,
     lookbacks,
     thresholds,
-    confidence_caps: {
-      missing_current_data: {
-        cap: 0.55,
-        trigger: "missing_required_evidence",
-        enforcement: "code",
-        required_evidence: requiredEvidence,
-      },
-      fallback_primary_tool: {
-        cap: 0.6,
-        trigger: "primary_tool_failed_or_fallback",
-        enforcement: "code",
-        required_evidence: requiredEvidence,
-      },
-    },
-    tie_breaks: [],
+    confidence_caps: confidenceCaps,
+    tie_breaks: tieBreaks,
     mutation_targets: mutationTargets,
     projection_metadata: {
       source: "runtime_agent_spec_projection",
@@ -197,6 +205,7 @@ export function buildRuntimeResearchKnobs(
             id: card.id,
             path: card.path,
             projection_bucket: card.projection_bucket,
+            default: card.default,
             runtime_input_sources: card.runtime_input_sources,
             runtime_input_source_policies: card.runtime_input_source_policies,
             evidence_dependencies: card.evidence_dependencies,
