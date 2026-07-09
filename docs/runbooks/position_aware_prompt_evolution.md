@@ -128,6 +128,9 @@ Acceptance checks:
 - agent outputs must not declare influence from disabled domain cards. The
   postprocessor rejects disabled card ids instead of treating them as merely
   unsupported audit entries;
+- `toolStatuses` must carry runtime fallback and `as_of` metadata. The tool loop
+  derives these fields from JSON tool output and preserves them on cache hits so
+  primary-tool fallback caps can fire after the run;
 - private zh/en prompts have exactly one canonical `research-knobs` fence for
   enabled agents;
 - historical runtime-source aliases are rejected in production catalog files.

@@ -223,6 +223,55 @@ describe("agent tool loop helpers", () => {
     ).toEqual(["result-1", "result-1"]);
   });
 
+  it("records fallback and as_of metadata from successful and cached tool outputs", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c1", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c2", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage("done"),
+    ]);
+    const getX = tool(
+      async () =>
+        JSON.stringify({
+          status: "fallback",
+          as_of: "2024-06-24",
+          rows: [],
+        }),
+      {
+        name: "get_x",
+        description: "test tool",
+        schema: z.object({ a: z.number() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [getX],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+    });
+
+    expect(result.toolStatuses).toEqual([
+      expect.objectContaining({
+        name: "get_x",
+        fallback: true,
+        cache_hit: false,
+        as_of: "2024-06-24",
+      }),
+      expect.objectContaining({
+        name: "get_x",
+        fallback: true,
+        cache_hit: true,
+        as_of: "2024-06-24",
+      }),
+    ]);
+  });
+
   it("serves repeated same-args tool failures from the per-agent cache", async () => {
     const llm = new ScriptedLlm([
       new AIMessage({

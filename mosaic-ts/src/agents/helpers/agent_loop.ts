@@ -148,6 +148,46 @@ export function compactToolOutput(output: string, maxChars: number): CompactedTo
   };
 }
 
+function toolOutputStatusMetadata(output: string): Pick<ToolStatus, "fallback" | "as_of"> {
+  const parsed = parseToolOutputJson(output);
+  if (!parsed) return { fallback: false };
+  const fallback = [
+    parsed.fallback,
+    parsed.is_fallback,
+    parsed.source,
+    parsed.data_source,
+    parsed.status,
+    parsed.tool_status,
+  ].some(isFallbackMarker);
+  const asOf = firstString(parsed.as_of, parsed.as_of_date, parsed.date, parsed.timestamp);
+  return {
+    fallback,
+    ...(asOf ? { as_of: asOf } : {}),
+  };
+}
+
+function parseToolOutputJson(output: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(output);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function isFallbackMarker(value: unknown): boolean {
+  if (value === true) return true;
+  return (
+    typeof value === "string" &&
+    ["fallback", "true", "degraded_fallback", "primary_fallback"].includes(value.toLowerCase())
+  );
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0);
+}
+
 function hasToolCalls(message: BaseMessage): message is AIMessage {
   return message.getType() === "ai" && ((message as AIMessage).tool_calls ?? []).length > 0;
 }
@@ -408,15 +448,17 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         const raw = await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
         output = typeof raw === "string" ? raw : String(raw);
         toolOutputCache.set(fingerprint, output);
+        const metadata = toolOutputStatusMetadata(output);
         toolStatuses.push({
           name,
           called: true,
           failed: false,
           missing: false,
-          fallback: false,
+          fallback: metadata.fallback,
           cache_hit: false,
           args: call.args,
           fingerprint,
+          ...(metadata.as_of ? { as_of: metadata.as_of } : {}),
         });
       } catch (err) {
         output = `Tool '${name}' raised: ${(err as Error).message}`;
@@ -524,15 +566,17 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         output = cachedOutput;
         toolCacheHits++;
         opts.onLog?.(`tool_cache_hit fingerprint=${fingerprint}`);
+        const metadata = toolOutputStatusMetadata(output);
         toolStatuses.push({
           name,
           called: true,
           failed: false,
           missing: false,
-          fallback: false,
+          fallback: metadata.fallback,
           cache_hit: true,
           args: call.args,
           fingerprint,
+          ...(metadata.as_of ? { as_of: metadata.as_of } : {}),
         });
       } else {
         toolExecutions++;
@@ -543,15 +587,17 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           );
           output = typeof raw === "string" ? raw : String(raw);
           toolOutputCache.set(fingerprint, output);
+          const metadata = toolOutputStatusMetadata(output);
           toolStatuses.push({
             name,
             called: true,
             failed: false,
             missing: false,
-            fallback: false,
+            fallback: metadata.fallback,
             cache_hit: false,
             args: call.args,
             fingerprint,
+            ...(metadata.as_of ? { as_of: metadata.as_of } : {}),
           });
         } catch (err) {
           output = `Tool '${name}' raised: ${(err as Error).message}`;

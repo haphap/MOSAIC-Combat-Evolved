@@ -49,6 +49,9 @@ Notes:
 - Agent outputs must not list disabled domain-card ids in
   `declared_knob_influence_ids`; runtime rejects those ids after scoped source
   resolution.
+- Tool outputs that return JSON fallback metadata must populate
+  `toolStatuses.fallback` and `toolStatuses.as_of`, including repeated calls
+  served from the per-agent cache.
 - When a PR changes `prompts/mosaic/**` and you operate a private prompt repo, run `pnpm prompt:drift -- --base-ref origin/main` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set (`MOSAIC_PRIVATE_PROMPT_REPO` remains a compatibility alias). The check is staleness-aware: it only reports overrides not yet reconciled with the changed baseline *content* (tracked per-path in `prompts/mosaic/.baseline-sync.json` inside the private repo). After merging the baseline tool/schema/contract changes into a flagged override, rerun with `-- --mark-synced` to record it reconciled — it then stops alerting until that baseline content changes again.
 - For scheduled operator checks, initialize `data/prompt-drift-state.json` with a known-good `baseline_ref`, then run `pnpm prompt:drift:scheduled` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set. The state advances when the check passes; prefer `-- --mark-synced` to acknowledge specific overrides precisely, or `-- --accept` to blanket-advance the state past all current findings.
 
