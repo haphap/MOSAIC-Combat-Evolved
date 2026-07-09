@@ -6,6 +6,7 @@ import {
   canonicalResearchKnobs,
   parseResearchKnobsPrompt,
   type ResearchKnobs,
+  ResearchKnobsSchema,
 } from "../src/agents/helpers/research_knobs.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../src/agents/helpers/runtime_sources.js";
 import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
@@ -174,6 +175,18 @@ research-knobs:
     left.tie_breaks = ["first", "second"];
     expect(canonicalResearchKnobs(right)).not.toEqual(canonicalResearchKnobs(left));
     expect(() => assertResearchKnobsParity(left, right)).toThrow(/parity mismatch/);
+  });
+
+  it("requires an explicit conflict rule for conflicting-evidence caps", () => {
+    const bad = knobs();
+    bad.confidence_caps.conflicting_signals = {
+      cap: 0.65,
+      trigger: "conflicting_evidence",
+      enforcement: "code",
+      required_evidence: ["pboc_liquidity"],
+    };
+
+    expect(() => ResearchKnobsSchema.parse(bad)).toThrow(/conflict_rule/);
   });
 
   it("clamps top-level and nested confidence when required current data is missing", () => {

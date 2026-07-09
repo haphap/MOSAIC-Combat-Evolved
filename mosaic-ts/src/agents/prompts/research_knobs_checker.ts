@@ -281,6 +281,11 @@ function validateLoadedKnobsAgainstRuntimeSpec(
   if (rkePriorWeight !== undefined && rkePriorWeight !== 0) {
     reasons.push("rke_prior_weight_nonzero_without_promotion_gate");
   }
+  for (const [capId, policy] of Object.entries(knobs.confidence_caps)) {
+    if (policy.trigger === "conflicting_evidence") {
+      reasons.push(`conflicting_evidence_direction_adapter_missing:${capId}`);
+    }
+  }
   if (opts.domainRegistry) {
     reasons.push(...validateDomainKnobValueRegistry(spec, opts.domainRegistry, opts.cohort));
   }

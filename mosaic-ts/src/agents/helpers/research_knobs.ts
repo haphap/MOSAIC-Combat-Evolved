@@ -119,6 +119,16 @@ export const ResearchKnobsSchema = z
         path: ["evidence_weights"],
       });
     }
+    for (const [capId, policy] of Object.entries(knobs.confidence_caps)) {
+      if (policy.trigger !== "conflicting_evidence") continue;
+      if (!policy.conflict_rule || policy.conflict_rule.evidence.length < 2) {
+        ctx.addIssue({
+          code: "custom",
+          message: "conflicting_evidence requires conflict_rule with at least two evidence keys",
+          path: ["confidence_caps", capId, "conflict_rule"],
+        });
+      }
+    }
   });
 
 export type ResearchKnobs = z.infer<typeof ResearchKnobsSchema>;

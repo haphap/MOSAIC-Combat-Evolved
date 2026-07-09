@@ -106,6 +106,9 @@ Acceptance checks:
   their runtime validator and audit field;
 - Prompt IR contracts keep runtime tool, metric, current-data, and RKE-prior
   guardrails aligned with the TypeScript runtime registry;
+- `conflicting_evidence` confidence caps require an explicit `conflict_rule`;
+  until a direction-adapter registry is available, production prompt checks fail
+  closed for that trigger instead of relying on LLM prose;
 - private zh/en prompts have exactly one canonical `research-knobs` fence for
   enabled agents;
 - historical runtime-source aliases are rejected in production catalog files.

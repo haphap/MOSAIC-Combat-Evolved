@@ -635,6 +635,44 @@ describe("checkResearchKnobsPrompts", () => {
       "mutation_target_noncanonical_rule_id:macro.central_bank.primary.001",
     );
   });
+
+  it("fails closed for conflicting-evidence caps without direction adapters", async () => {
+    const spec = specForAgent("central_bank");
+    const knobs = buildRuntimeResearchKnobs(spec);
+    const evidenceKeys = Object.keys(knobs.evidence_registry).filter((key) => key !== "rke_prior");
+    expect(evidenceKeys.length).toBeGreaterThanOrEqual(2);
+    knobs.confidence_caps.conflicting_signals = {
+      cap: 0.65,
+      trigger: "conflicting_evidence",
+      enforcement: "code",
+      required_evidence: evidenceKeys.slice(0, 2),
+      conflict_rule: {
+        evidence: evidenceKeys.slice(0, 2),
+        operator: "opposes",
+      },
+    };
+    for (const lang of ["zh", "en"] as const) {
+      writePrompt(
+        fake.root,
+        spec.agent,
+        spec.layer,
+        lang,
+        upsertResearchKnobsFence(promptBodyForSpec(spec, lang), knobs),
+      );
+    }
+
+    const report = await checkResearchKnobsPrompts({
+      cohort: "cohort_default",
+      promptsRoot: fake.root,
+      enabledAgents: new Set(["central_bank"]),
+    });
+
+    const row = report.rows.find((item) => item.agent === "central_bank");
+    expect(report.ready).toBe(false);
+    expect(row?.reasons.join("\n")).toContain(
+      "conflicting_evidence_direction_adapter_missing:conflicting_signals",
+    );
+  });
 });
 
 function domainProjectionValue(knobs: ResearchKnobs, card: DomainKnobCard): unknown {
