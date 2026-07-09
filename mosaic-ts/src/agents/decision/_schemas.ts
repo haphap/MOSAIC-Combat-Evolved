@@ -132,11 +132,45 @@ export const AutonomousExecutionSchema = z
             .min(0)
             .max(1)
             .describe("[0, 1] portion of the long sleeve to allocate. 0 = pass."),
+          delta_weight: z
+            .number()
+            .min(-1)
+            .max(1)
+            .optional()
+            .describe("Optional target-current trade delta when candidate target state exists."),
+          estimated_slippage_pct: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe("Optional expected execution slippage as a portfolio-weight ratio."),
+          liquidity_score: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe("Optional executable liquidity score; higher is more liquid."),
+          order_split_count: z
+            .number()
+            .int()
+            .min(1)
+            .max(100)
+            .optional()
+            .describe("Optional number of order slices planned for this ticker."),
           conviction: z.number().min(0).max(1),
         }),
       )
       .max(20)
       .describe("Per-ticker trade decisions; HOLD picks at zero size also fine."),
+    execution_enforcement: z
+      .object({
+        checked_trade_count: z.number().int().min(0),
+        active_policy_ids: z.array(z.string().min(1)),
+        min_delta_trade_weight: z.number().optional(),
+        slippage_cap: z.number().optional(),
+        liquidity_floor: z.number().optional(),
+      })
+      .optional(),
     confidence: z.number().min(0).max(1),
     ...KNOB_INFLUENCE_FIELDS,
   })

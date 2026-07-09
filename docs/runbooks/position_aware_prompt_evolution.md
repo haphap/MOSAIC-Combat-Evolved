@@ -309,6 +309,9 @@ Do not promote a mutation when any of these are true:
   run date;
 - a MiroFish-influenced `ADD`, `REDUCE`, or `EXIT` on an existing position
   lacks non-empty `dissent_notes`;
+- an autonomous execution output breaches an active `min_delta_trade_weight`,
+  `slippage_cap`, or `liquidity_floor` runtime card, or omits the slippage or
+  liquidity field required by an active execution card;
 - the run lacks current account or current market evidence;
 - the prompt-leak guard fails;
 - private prompt, account, report, or local cache content appears in public

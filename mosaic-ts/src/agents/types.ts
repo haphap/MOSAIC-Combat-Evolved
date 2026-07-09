@@ -287,8 +287,21 @@ export interface AutoExecOutput extends KnobInfluenceDeclaration {
     ticker: string;
     action: "BUY" | "SELL" | "HOLD" | "REDUCE";
     size_pct: number;
+    delta_weight?: number | undefined;
+    estimated_slippage_pct?: number | undefined;
+    liquidity_score?: number | undefined;
+    order_split_count?: number | undefined;
     conviction: number;
   }>;
+  execution_enforcement?:
+    | {
+        checked_trade_count: number;
+        active_policy_ids: string[];
+        min_delta_trade_weight?: number | undefined;
+        slippage_cap?: number | undefined;
+        liquidity_floor?: number | undefined;
+      }
+    | undefined;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
 }

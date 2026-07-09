@@ -30,11 +30,18 @@ import {
 import { buildCioNode, cioSpec, fallbackCio, renderCio } from "../src/agents/decision/cio.js";
 import { buildCroNode, croSpec, fallbackCro, renderCro } from "../src/agents/decision/cro.js";
 import {
+  ExecutionActionValidationError,
+  validateAutonomousExecutionActions,
+} from "../src/agents/decision/execution_validator.js";
+import {
   PositionActionValidationError,
   validateCioPositionActions,
 } from "../src/agents/decision/position_validator.js";
+import { buildResearchKnobsSnapshot } from "../src/agents/helpers/research_knobs.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
+import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
+import { RUNTIME_AGENT_SPEC_BY_AGENT } from "../src/agents/prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
 import type {
   CioOutput,
@@ -264,6 +271,157 @@ describe("schemas reject malformations", () => {
         confidence: 0.5,
       }),
     ).toThrow();
+  });
+});
+
+function activeAutoExecSnapshot() {
+  const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get("autonomous_execution");
+  expect(spec).toBeDefined();
+  if (!spec) throw new Error("missing autonomous_execution runtime spec");
+  return buildResearchKnobsSnapshot({
+    agent: "autonomous_execution",
+    cohort: "cohort_default",
+    knobs: buildRuntimeResearchKnobs(spec),
+    runtimeSourceStatuses: [
+      {
+        source_id: "current_position_snapshot",
+        scope: "account:default|cohort:cohort_default|run:test",
+        status: "loaded",
+      },
+      { source_id: "current_market_data", scope: "ticker:600519.SH", status: "loaded" },
+      {
+        source_id: "candidate_target_state",
+        scope: "account:default|cohort:cohort_default|run:test",
+        status: "loaded",
+      },
+      {
+        source_id: "execution_liquidity_state",
+        scope: "ticker:600519.SH",
+        status: "loaded",
+      },
+      {
+        source_id: "mirofish_context",
+        scope: "context:sha256:test",
+        status: "loaded",
+        snapshot_hash: "sha256:test",
+      },
+    ],
+  });
+}
+
+describe("autonomous execution validator", () => {
+  it("rejects active min-delta policy breaches and audits accepted trades", () => {
+    const snapshot = activeAutoExecSnapshot();
+
+    expect(() =>
+      validateAutonomousExecutionActions({
+        output: {
+          agent: "autonomous_execution",
+          trades: [
+            {
+              ticker: "600519.SH",
+              action: "BUY",
+              size_pct: 0.005,
+              conviction: 0.7,
+              estimated_slippage_pct: 0.001,
+              liquidity_score: 0.8,
+            },
+          ],
+          confidence: 0.6,
+        },
+        knobSnapshot: snapshot,
+      }),
+    ).toThrow(ExecutionActionValidationError);
+
+    const accepted = validateAutonomousExecutionActions({
+      output: {
+        agent: "autonomous_execution",
+        trades: [
+          {
+            ticker: "600519.SH",
+            action: "BUY",
+            size_pct: 0.02,
+            conviction: 0.7,
+            estimated_slippage_pct: 0.001,
+            liquidity_score: 0.8,
+          },
+        ],
+        confidence: 0.6,
+      },
+      knobSnapshot: snapshot,
+    });
+    expect(accepted.execution_enforcement).toMatchObject({
+      checked_trade_count: 1,
+      active_policy_ids: expect.arrayContaining([
+        "min_delta_trade_weight",
+        "slippage_cap",
+        "liquidity_floor",
+      ]),
+      min_delta_trade_weight: 0.01,
+      slippage_cap: 0.003,
+      liquidity_floor: 0.6,
+    });
+  });
+
+  it("rejects active slippage and liquidity policy breaches", () => {
+    const snapshot = activeAutoExecSnapshot();
+    const base = {
+      agent: "autonomous_execution" as const,
+      confidence: 0.6,
+    };
+
+    expect(() =>
+      validateAutonomousExecutionActions({
+        output: {
+          ...base,
+          trades: [
+            {
+              ticker: "600519.SH",
+              action: "BUY",
+              size_pct: 0.02,
+              conviction: 0.7,
+              estimated_slippage_pct: 0.004,
+              liquidity_score: 0.8,
+            },
+          ],
+        },
+        knobSnapshot: snapshot,
+      }),
+    ).toThrow(/slippage_cap/);
+    expect(() =>
+      validateAutonomousExecutionActions({
+        output: {
+          ...base,
+          trades: [
+            {
+              ticker: "600519.SH",
+              action: "BUY",
+              size_pct: 0.02,
+              conviction: 0.7,
+              estimated_slippage_pct: 0.001,
+              liquidity_score: 0.5,
+            },
+          ],
+        },
+        knobSnapshot: snapshot,
+      }),
+    ).toThrow(/liquidity_floor/);
+  });
+
+  it("does not enforce disabled execution cards", () => {
+    const accepted = validateAutonomousExecutionActions({
+      output: {
+        agent: "autonomous_execution",
+        trades: [{ ticker: "600519.SH", action: "BUY", size_pct: 0.005, conviction: 0.7 }],
+        confidence: 0.6,
+      },
+      knobSnapshot: null,
+    });
+
+    expect(accepted.execution_enforcement).toEqual({
+      checked_trade_count: 1,
+      active_policy_ids: [],
+    });
   });
 });
 

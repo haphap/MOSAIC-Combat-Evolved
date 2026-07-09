@@ -33,7 +33,7 @@ The six industry agents share a common core of 8 tools — `get_industry_policy`
 
 ### MiroFish context injection (opt-in)
 
-When `config.mirofish.inject_context` is true, the L4 **CRO**, **autonomous_execution**, and **CIO** prompts share one appended MiroFish forward-looking section for the run (latest scenario context, with a "simulation only" disclaimer, context hash, and `as_of_date` anti-lookahead bound). Off by default. MiroFish remains simulation-only: it cannot replace current account or market evidence, and MiroFish-influenced position changes must pass the L4 position validator. See `maybeAppendMirofishContext` in `decision/_factory.ts`.
+When `config.mirofish.inject_context` is true, the L4 **CRO**, **autonomous_execution**, and **CIO** prompts share one appended MiroFish forward-looking section for the run (latest scenario context, with a "simulation only" disclaimer, context hash, and `as_of_date` anti-lookahead bound). Off by default. MiroFish remains simulation-only: it cannot replace current account or market evidence, and MiroFish-influenced position changes must pass the L4 position validator. The autonomous execution node also enforces active execution cards for minimum trade delta, slippage cap, and liquidity floor before its output reaches CIO. See `maybeAppendMirofishContext` and the L4 validators in `decision/_factory.ts`.
 
 ## Prompts
 

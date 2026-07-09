@@ -69,6 +69,7 @@ import type {
   LlmCallRecord,
   PortfolioAction,
 } from "../types.js";
+import { validateAutonomousExecutionActions } from "./execution_validator.js";
 import { validateCioPositionActions } from "./position_validator.js";
 
 /** Union of the 4 Layer-4 outputs handled by this factory. */
@@ -248,6 +249,12 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             ? applyResearchKnobCaps(rawOutput, knobSnapshot, { toolStatuses })
             : null;
           let output = capped?.output ?? rawOutput;
+          if (spec.stateUpdateField === "autonomous_execution") {
+            output = validateAutonomousExecutionActions({
+              output: output as unknown as AutoExecOutput,
+              knobSnapshot,
+            }) as TOutput;
+          }
           if (spec.stateUpdateField === "cio") {
             output = withConservativeCioCurrentPositionActions(
               output as unknown as CioOutput,
