@@ -20,6 +20,7 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 
 注意:
 - `ruff` 排除 vendored 采集器(`mosaic/dataflows/collectors`)—— 第三方,逐字保留。
+- operator checkout 如果带有 ignored private `registry/report_intelligence/` 产物,本地 `python -m pytest tests/ -q` 会比 CI 慢很多,因为部分 RKE 测试会复制完整本地 registry。卡住时先查 `du -sh registry`,本地迭代优先用 CI 风格的 RKE 单文件拆分或带 `--basetemp .mosaic/tmp/...` 的 targeted tests。
 - 部分测试由 `_HAS_QLIB` / 依赖存在性 guard,当某可选 extra(如 `pyqlib`、`bcrypt`、`numpy`)缺失时干净跳过,使套件可 hermetic 运行。
 - CI 也会运行 prompt leak guard。它会阻止 autoresearch/private prompt 产物进入项目 repo,但它是 provenance-based 检查,不对普通 prompt 正文做内容分类。
 - 当 PR 修改 `prompts/mosaic/**` 且你运行 private prompt repo 时,在 `mosaic-ts/` 下设置 `MOSAIC_PROMPTS_REPO` 后运行 `pnpm prompt:drift -- --base-ref origin/main`(`MOSAIC_PRIVATE_PROMPT_REPO` 仍作为兼容别名)。检查是 staleness-aware 的:只报告尚未与变更后 baseline **内容**对齐的 override(对齐状态按路径记录在 private repo 的 `prompts/mosaic/.baseline-sync.json`)。把 baseline 的工具/schema/contract 变更并入某个被标记的 override 后,用 `-- --mark-synced` 重新运行以记录其已对齐 —— 之后直到该 baseline 内容再次变化前都不再告警。

@@ -38,6 +38,24 @@ rtk uv run python scripts/check_prompt_leaks.py
 For full RKE pytest, use `.mosaic/tmp` as `--basetemp`. Several RKE tests copy
 the registry tree and can produce large temporary directories.
 
+If `pytest tests/ -q` looks stuck locally, first check local private registry
+size:
+
+```bash
+du -sh registry
+du -ah registry/report_intelligence | sort -hr | head
+```
+
+On a checkout with ignored private `registry/report_intelligence/` artifacts,
+`tests/test_rke_cli.py::test_rke_cli_master_plan_status_*` is usually the slow
+section because those tests copy the full registry into `tmp_path`. In this
+operator checkout, the largest local private file was
+`registry/report_intelligence/analytical_footprint_reviewed.jsonl`, and the two
+master-plan status tests measured about 46s and 92s. CI runs on the public
+checkout and is much smaller; for local iteration prefer the targeted commands
+above or the CI-style per-file RKE split instead of a monolithic
+`pytest tests/ -q`.
+
 ## Prompt IR And Domain Knob Catalog
 
 Position-aware prompt evolution uses Prompt IR, the runtime source registry, and
