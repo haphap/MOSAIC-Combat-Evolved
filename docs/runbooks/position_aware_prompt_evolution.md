@@ -80,7 +80,7 @@ parameters. Do not hand-maintain a second knob list in docs or prompts.
 
 ```bash
 rtk pnpm --dir mosaic-ts dev prompts export-domain-knob-catalog \
-  --out registry/prompt_checks/domain_knob_catalog_v1.json
+  --out ../registry/prompt_checks/domain_knob_catalog_v1.json
 rtk pnpm --dir mosaic-ts dev prompts check-research-knobs \
   --cohort cohort_default \
   --enabled-agents '*'
@@ -109,6 +109,10 @@ Acceptance checks:
 - source binding is coverage-level specific: `direct_tool` and `derived_proxy`
   cards must carry matching `evidence_dependencies`, while `runtime_state`
   cards must declare runtime input sources;
+- card metric closure includes `evaluation_metric`, `rollback_condition.metric`,
+  and `secondary_metrics`; every referenced metric must exist in the evaluation
+  registry and use the card horizon, and rollback units must match the metric
+  unit;
 - CIO pre-decision cards must not declare `candidate_target_state`; that source
   is only available after the CIO proposal and is reserved for CRO/execution
   validation and downstream cards;

@@ -6831,6 +6831,7 @@ def _domain_knob_catalog_fixture() -> dict:
                         "learning_objective": "calibrate inventory cycle lookback",
                         "prediction_target": "sector.semiconductor.inventory_cycle_quarters.20d",
                         "evaluation_metric": "sector_rank_correlation_20d",
+                        "secondary_metrics": [],
                         "horizon": "20d",
                         "rollback_condition": {
                             "metric": "sector_rank_correlation_20d",
@@ -6909,6 +6910,16 @@ def test_domain_knob_catalog_schema_requires_numeric_bounds(tmp_path: Path):
 
     assert not record.accepted
     assert any(".step: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_catalog_schema_requires_secondary_metrics(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    del catalog["agents"][0]["cards"][0]["secondary_metrics"]
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any(".secondary_metrics: required" in failure for failure in record.failures)
 
 
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):

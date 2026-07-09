@@ -465,10 +465,24 @@ describe("checkResearchKnobsPrompts", () => {
       expect(card.owner_agent).toContain(".");
       expect(card.path).toMatch(/^\/rule_packs\/[^/]+\/rules\/[^/]+\/learnable_parameters\//);
       expect(artifact.evaluation_metrics[card.evaluation_metric]).toBeDefined();
+      expect(artifact.evaluation_metrics[card.rollback_condition.metric]).toBeDefined();
+      for (const metricId of card.secondary_metrics) {
+        expect(artifact.evaluation_metrics[metricId]).toBeDefined();
+      }
       for (const source of card.runtime_input_sources) {
         expect(artifact.runtime_sources[source]).toBeDefined();
       }
     }
+    const referencedMetricIds = new Set(
+      cards.flatMap((card) => [
+        card.evaluation_metric,
+        card.rollback_condition.metric,
+        ...card.secondary_metrics,
+      ]),
+    );
+    expect([...referencedMetricIds].sort()).toEqual(
+      [...referencedMetricIds].filter((id) => EVALUATION_METRIC_REGISTRY[id]).sort(),
+    );
 
     const missingDirectDependency = structuredClone(artifact);
     const directCard = missingDirectDependency.agents
@@ -521,6 +535,28 @@ describe("checkResearchKnobsPrompts", () => {
     };
     expect(validateDomainKnobCatalogArtifact(selfLoopSource)).toContain(
       "domain_card_cio_self_loop_source:min_confidence_to_add:candidate_target_state",
+    );
+
+    const missingSecondaryMetric = structuredClone(artifact);
+    const secondaryCard = missingSecondaryMetric.agents
+      .find((agent) => agent.agent === "semiconductor")
+      ?.cards.find((card) => card.id === "inventory_cycle_quarters");
+    expect(secondaryCard).toBeDefined();
+    if (!secondaryCard) return;
+    secondaryCard.secondary_metrics = ["unregistered_metric"];
+    expect(validateDomainKnobCatalogArtifact(missingSecondaryMetric)).toContain(
+      "domain_catalog_card_secondary_metric_unregistered:inventory_cycle_quarters:unregistered_metric",
+    );
+
+    const wrongWindowMetric = structuredClone(artifact);
+    const windowCard = wrongWindowMetric.agents
+      .find((agent) => agent.agent === "semiconductor")
+      ?.cards.find((card) => card.id === "inventory_cycle_quarters");
+    expect(windowCard).toBeDefined();
+    if (!windowCard) return;
+    windowCard.secondary_metrics = ["hit_rate_5d"];
+    expect(validateDomainKnobCatalogArtifact(wrongWindowMetric)).toContain(
+      "domain_card_secondary_metric_window_mismatch:inventory_cycle_quarters:hit_rate_5d:5d:expected:20d",
     );
   });
 

@@ -211,6 +211,7 @@ export function buildRuntimeResearchKnobs(
             evidence_dependencies: card.evidence_dependencies,
             evidence_dependency_policies: card.evidence_dependency_policies,
             evaluation_metric: card.evaluation_metric,
+            secondary_metrics: card.secondary_metrics,
             learning_objective: card.learning_objective,
             enforcement: card.enforcement,
             cross_field_group: card.cross_field_group,

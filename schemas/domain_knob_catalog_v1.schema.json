@@ -220,6 +220,7 @@
                 "learning_objective",
                 "prediction_target",
                 "evaluation_metric",
+                "secondary_metrics",
                 "horizon",
                 "rollback_condition",
                 "enforcement",
@@ -431,6 +432,13 @@
                 "evaluation_metric": {
                   "type": "string",
                   "minLength": 1
+                },
+                "secondary_metrics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 },
                 "horizon": {
                   "type": "string",

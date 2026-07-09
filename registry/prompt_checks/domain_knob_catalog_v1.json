@@ -702,6 +702,10 @@
           "learning_objective": "calibrate easing threshold bps for macro.central_bank prediction quality",
           "prediction_target": "macro.central_bank.easing_threshold_bps.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -761,6 +765,10 @@
           "learning_objective": "calibrate liquidity net injection window days for macro.central_bank prediction quality",
           "prediction_target": "macro.central_bank.liquidity_net_injection_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -820,6 +828,10 @@
           "learning_objective": "calibrate omo mlf freshness days for macro.central_bank prediction quality",
           "prediction_target": "macro.central_bank.omo_mlf_freshness_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -879,6 +891,10 @@
           "learning_objective": "calibrate pboc fed policy weight for macro.central_bank prediction quality",
           "prediction_target": "macro.central_bank.pboc_fed_policy_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -938,6 +954,10 @@
           "learning_objective": "calibrate policy conflict cap for macro.central_bank prediction quality",
           "prediction_target": "macro.central_bank.policy_conflict_cap.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -997,6 +1017,10 @@
           "learning_objective": "calibrate tightening threshold bps for macro.central_bank prediction quality",
           "prediction_target": "macro.central_bank.tightening_threshold_bps.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1065,6 +1089,10 @@
           "learning_objective": "calibrate conflict weight for macro.geopolitical prediction quality",
           "prediction_target": "macro.geopolitical.conflict_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1124,6 +1152,10 @@
           "learning_objective": "calibrate event decay window days for macro.geopolitical prediction quality",
           "prediction_target": "macro.geopolitical.event_decay_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1183,6 +1215,10 @@
           "learning_objective": "calibrate risk event severity threshold for macro.geopolitical prediction quality",
           "prediction_target": "macro.geopolitical.risk_event_severity_threshold.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1242,6 +1278,10 @@
           "learning_objective": "calibrate risk off override threshold for macro.geopolitical prediction quality",
           "prediction_target": "macro.geopolitical.risk_off_override_threshold.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1301,6 +1341,10 @@
           "learning_objective": "calibrate sanction weight for macro.geopolitical prediction quality",
           "prediction_target": "macro.geopolitical.sanction_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1360,6 +1404,10 @@
           "learning_objective": "calibrate supply chain weight for macro.geopolitical prediction quality",
           "prediction_target": "macro.geopolitical.supply_chain_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1428,6 +1476,10 @@
           "learning_objective": "calibrate a share beta discount for macro.china prediction quality",
           "prediction_target": "macro.china.a_share_beta_discount.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1487,6 +1539,10 @@
           "learning_objective": "calibrate consumption weight for macro.china prediction quality",
           "prediction_target": "macro.china.consumption_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1546,6 +1602,10 @@
           "learning_objective": "calibrate pmi weight for macro.china prediction quality",
           "prediction_target": "macro.china.pmi_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1605,6 +1665,10 @@
           "learning_objective": "calibrate policy confirmation window days for macro.china prediction quality",
           "prediction_target": "macro.china.policy_confirmation_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1664,6 +1728,10 @@
           "learning_objective": "calibrate property cycle weight for macro.china prediction quality",
           "prediction_target": "macro.china.property_cycle_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1723,6 +1791,10 @@
           "learning_objective": "calibrate social financing weight for macro.china prediction quality",
           "prediction_target": "macro.china.social_financing_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1791,6 +1863,10 @@
           "learning_objective": "calibrate cn us spread weight for macro.dollar prediction quality",
           "prediction_target": "macro.dollar.cn_us_spread_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1850,6 +1926,10 @@
           "learning_objective": "calibrate dollar pressure cap for macro.dollar prediction quality",
           "prediction_target": "macro.dollar.dollar_pressure_cap.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1909,6 +1989,10 @@
           "learning_objective": "calibrate dxy trend window days for macro.dollar prediction quality",
           "prediction_target": "macro.dollar.dxy_trend_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -1968,6 +2052,10 @@
           "learning_objective": "calibrate em flow pressure weight for macro.dollar prediction quality",
           "prediction_target": "macro.dollar.em_flow_pressure_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2027,6 +2115,10 @@
           "learning_objective": "calibrate fed pboc divergence threshold bps for macro.dollar prediction quality",
           "prediction_target": "macro.dollar.fed_pboc_divergence_threshold_bps.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2086,6 +2178,10 @@
           "learning_objective": "calibrate real rate weight for macro.dollar prediction quality",
           "prediction_target": "macro.dollar.real_rate_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2154,6 +2250,10 @@
           "learning_objective": "calibrate credit spread discount for macro.yield_curve prediction quality",
           "prediction_target": "macro.yield_curve.credit_spread_discount.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2213,6 +2313,10 @@
           "learning_objective": "calibrate duration risk weight for macro.yield_curve prediction quality",
           "prediction_target": "macro.yield_curve.duration_risk_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2272,6 +2376,10 @@
           "learning_objective": "calibrate flattening threshold bps for macro.yield_curve prediction quality",
           "prediction_target": "macro.yield_curve.flattening_threshold_bps.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2331,6 +2439,10 @@
           "learning_objective": "calibrate inversion threshold bps for macro.yield_curve prediction quality",
           "prediction_target": "macro.yield_curve.inversion_threshold_bps.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2390,6 +2502,10 @@
           "learning_objective": "calibrate steepening threshold bps for macro.yield_curve prediction quality",
           "prediction_target": "macro.yield_curve.steepening_threshold_bps.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2449,6 +2565,10 @@
           "learning_objective": "calibrate term spread window days for macro.yield_curve prediction quality",
           "prediction_target": "macro.yield_curve.term_spread_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2517,6 +2637,10 @@
           "learning_objective": "calibrate agriculture weight for macro.commodities prediction quality",
           "prediction_target": "macro.commodities.agriculture_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2576,6 +2700,10 @@
           "learning_objective": "calibrate china demand weight for macro.commodities prediction quality",
           "prediction_target": "macro.commodities.china_demand_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2635,6 +2763,10 @@
           "learning_objective": "calibrate industrial metals weight for macro.commodities prediction quality",
           "prediction_target": "macro.commodities.industrial_metals_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2694,6 +2826,10 @@
           "learning_objective": "calibrate inventory confirmation window days for macro.commodities prediction quality",
           "prediction_target": "macro.commodities.inventory_confirmation_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2753,6 +2889,10 @@
           "learning_objective": "calibrate oil weight for macro.commodities prediction quality",
           "prediction_target": "macro.commodities.oil_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2812,6 +2952,10 @@
           "learning_objective": "calibrate precious metals weight for macro.commodities prediction quality",
           "prediction_target": "macro.commodities.precious_metals_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2880,6 +3024,10 @@
           "learning_objective": "calibrate ivx weight for macro.volatility prediction quality",
           "prediction_target": "macro.volatility.ivx_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2939,6 +3087,10 @@
           "learning_objective": "calibrate realized vol weight for macro.volatility prediction quality",
           "prediction_target": "macro.volatility.realized_vol_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -2998,6 +3150,10 @@
           "learning_objective": "calibrate risk off threshold for macro.volatility prediction quality",
           "prediction_target": "macro.volatility.risk_off_threshold.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3057,6 +3213,10 @@
           "learning_objective": "calibrate vix weight for macro.volatility prediction quality",
           "prediction_target": "macro.volatility.vix_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3116,6 +3276,10 @@
           "learning_objective": "calibrate vol amplification window days for macro.volatility prediction quality",
           "prediction_target": "macro.volatility.vol_amplification_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3175,6 +3339,10 @@
           "learning_objective": "calibrate volatility cap for macro.volatility prediction quality",
           "prediction_target": "macro.volatility.volatility_cap.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3243,6 +3411,10 @@
           "learning_objective": "calibrate dxy pressure threshold for macro.emerging_markets prediction quality",
           "prediction_target": "macro.emerging_markets.dxy_pressure_threshold.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3302,6 +3474,10 @@
           "learning_objective": "calibrate em drawdown cap for macro.emerging_markets prediction quality",
           "prediction_target": "macro.emerging_markets.em_drawdown_cap.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3361,6 +3537,10 @@
           "learning_objective": "calibrate em etf weight for macro.emerging_markets prediction quality",
           "prediction_target": "macro.emerging_markets.em_etf_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3420,6 +3600,10 @@
           "learning_objective": "calibrate foreign flow confirmation days for macro.emerging_markets prediction quality",
           "prediction_target": "macro.emerging_markets.foreign_flow_confirmation_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3479,6 +3663,10 @@
           "learning_objective": "calibrate hk a relative strength window days for macro.emerging_markets prediction quality",
           "prediction_target": "macro.emerging_markets.hk_a_relative_strength_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3538,6 +3726,10 @@
           "learning_objective": "calibrate northbound flow weight for macro.emerging_markets prediction quality",
           "prediction_target": "macro.emerging_markets.northbound_flow_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3606,6 +3798,10 @@
           "learning_objective": "calibrate contrarian threshold for macro.news_sentiment prediction quality",
           "prediction_target": "macro.news_sentiment.contrarian_threshold.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3665,6 +3861,10 @@
           "learning_objective": "calibrate event decay window days for macro.news_sentiment prediction quality",
           "prediction_target": "macro.news_sentiment.event_decay_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3724,6 +3924,10 @@
           "learning_objective": "calibrate news sentiment scale for macro.news_sentiment prediction quality",
           "prediction_target": "macro.news_sentiment.news_sentiment_scale.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3783,6 +3987,10 @@
           "learning_objective": "calibrate policy semantic weight for macro.news_sentiment prediction quality",
           "prediction_target": "macro.news_sentiment.policy_semantic_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3842,6 +4050,10 @@
           "learning_objective": "calibrate topic filter threshold for macro.news_sentiment prediction quality",
           "prediction_target": "macro.news_sentiment.topic_filter_threshold.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3901,6 +4113,10 @@
           "learning_objective": "calibrate xueqiu replacement weight for macro.news_sentiment prediction quality",
           "prediction_target": "macro.news_sentiment.xueqiu_replacement_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -3969,6 +4185,10 @@
           "learning_objective": "calibrate flow persistence days for macro.institutional_flow prediction quality",
           "prediction_target": "macro.institutional_flow.flow_persistence_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -4028,6 +4248,10 @@
           "learning_objective": "calibrate industry moneyflow window days for macro.institutional_flow prediction quality",
           "prediction_target": "macro.institutional_flow.industry_moneyflow_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -4087,6 +4311,10 @@
           "learning_objective": "calibrate lhb window days for macro.institutional_flow prediction quality",
           "prediction_target": "macro.institutional_flow.lhb_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -4146,6 +4374,10 @@
           "learning_objective": "calibrate main net inflow threshold for macro.institutional_flow prediction quality",
           "prediction_target": "macro.institutional_flow.main_net_inflow_threshold.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -4205,6 +4437,10 @@
           "learning_objective": "calibrate null flow fallback cap for macro.institutional_flow prediction quality",
           "prediction_target": "macro.institutional_flow.null_flow_fallback_cap.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -4264,6 +4500,10 @@
           "learning_objective": "calibrate top buyer weight for macro.institutional_flow prediction quality",
           "prediction_target": "macro.institutional_flow.top_buyer_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "macro_signal_accuracy_5d",
@@ -4332,6 +4572,10 @@
           "learning_objective": "calibrate ai compute weight for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.ai_compute_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4391,6 +4635,10 @@
           "learning_objective": "calibrate broker research days for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.broker_research_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4452,6 +4700,10 @@
           "learning_objective": "calibrate capex cycle quarters for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.capex_cycle_quarters.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4513,6 +4765,10 @@
           "learning_objective": "calibrate capex to revenue min for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.capex_to_revenue_min.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4572,6 +4828,10 @@
           "learning_objective": "calibrate design weight for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.design_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4631,6 +4891,10 @@
           "learning_objective": "calibrate equipment weight for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.equipment_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4690,6 +4954,10 @@
           "learning_objective": "calibrate export control discount for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.export_control_discount.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4749,6 +5017,10 @@
           "learning_objective": "calibrate financial statement quarters for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.financial_statement_quarters.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4808,6 +5080,10 @@
           "learning_objective": "calibrate foundry weight for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.foundry_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4867,6 +5143,10 @@
           "learning_objective": "calibrate gross margin change min for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.gross_margin_change_min.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4926,6 +5206,10 @@
           "learning_objective": "calibrate industry moneyflow days for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.industry_moneyflow_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -4986,6 +5270,10 @@
           "learning_objective": "calibrate inventory cycle quarters for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.inventory_cycle_quarters.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5046,6 +5334,10 @@
           "learning_objective": "calibrate inventory to revenue risk for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.inventory_to_revenue_risk.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5105,6 +5397,10 @@
           "learning_objective": "calibrate localization policy weight for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.localization_policy_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5164,6 +5460,10 @@
           "learning_objective": "calibrate materials weight for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.materials_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5229,6 +5529,10 @@
           "learning_objective": "calibrate max verified constituents for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.max_verified_constituents.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5288,6 +5592,10 @@
           "learning_objective": "calibrate min long conviction for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.min_long_conviction.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5347,6 +5655,10 @@
           "learning_objective": "calibrate min short conviction for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.min_short_conviction.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5406,6 +5718,10 @@
           "learning_objective": "calibrate packaging weight for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.packaging_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5465,6 +5781,10 @@
           "learning_objective": "calibrate policy digest days for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.policy_digest_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5524,6 +5844,10 @@
           "learning_objective": "calibrate price confirmation pct for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.price_confirmation_pct.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5583,6 +5907,10 @@
           "learning_objective": "calibrate price momentum days for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.price_momentum_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5642,6 +5970,10 @@
           "learning_objective": "calibrate valuation risk max for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.valuation_risk_max.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5710,6 +6042,10 @@
           "learning_objective": "calibrate coal price weight for sector.energy prediction quality",
           "prediction_target": "sector.energy.coal_price_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5769,6 +6105,10 @@
           "learning_objective": "calibrate energy security theme weight for sector.energy prediction quality",
           "prediction_target": "sector.energy.energy_security_theme_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5828,6 +6168,10 @@
           "learning_objective": "calibrate inventory window days for sector.energy prediction quality",
           "prediction_target": "sector.energy.inventory_window_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5887,6 +6231,10 @@
           "learning_objective": "calibrate oil price transmission weight for sector.energy prediction quality",
           "prediction_target": "sector.energy.oil_price_transmission_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -5946,6 +6294,10 @@
           "learning_objective": "calibrate power tariff policy weight for sector.energy prediction quality",
           "prediction_target": "sector.energy.power_tariff_policy_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6005,6 +6357,10 @@
           "learning_objective": "calibrate refining margin threshold for sector.energy prediction quality",
           "prediction_target": "sector.energy.refining_margin_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6073,6 +6429,10 @@
           "learning_objective": "calibrate approval catalyst window days for sector.biotech prediction quality",
           "prediction_target": "sector.biotech.approval_catalyst_window_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6132,6 +6492,10 @@
           "learning_objective": "calibrate clinical failure risk cap for sector.biotech prediction quality",
           "prediction_target": "sector.biotech.clinical_failure_risk_cap.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6191,6 +6555,10 @@
           "learning_objective": "calibrate cxo external demand weight for sector.biotech prediction quality",
           "prediction_target": "sector.biotech.cxo_external_demand_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6250,6 +6618,10 @@
           "learning_objective": "calibrate medical insurance discount for sector.biotech prediction quality",
           "prediction_target": "sector.biotech.medical_insurance_discount.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6309,6 +6681,10 @@
           "learning_objective": "calibrate pipeline stage weight for sector.biotech prediction quality",
           "prediction_target": "sector.biotech.pipeline_stage_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6368,6 +6744,10 @@
           "learning_objective": "calibrate valuation risk threshold for sector.biotech prediction quality",
           "prediction_target": "sector.biotech.valuation_risk_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6436,6 +6816,10 @@
           "learning_objective": "calibrate consumption policy weight for sector.consumer prediction quality",
           "prediction_target": "sector.consumer.consumption_policy_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6495,6 +6879,10 @@
           "learning_objective": "calibrate income elasticity weight for sector.consumer prediction quality",
           "prediction_target": "sector.consumer.income_elasticity_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6554,6 +6942,10 @@
           "learning_objective": "calibrate inventory cycle window days for sector.consumer prediction quality",
           "prediction_target": "sector.consumer.inventory_cycle_window_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6613,6 +7005,10 @@
           "learning_objective": "calibrate margin recovery threshold for sector.consumer prediction quality",
           "prediction_target": "sector.consumer.margin_recovery_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6672,6 +7068,10 @@
           "learning_objective": "calibrate premium brand discount for sector.consumer prediction quality",
           "prediction_target": "sector.consumer.premium_brand_discount.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6731,6 +7131,10 @@
           "learning_objective": "calibrate property chain weight for sector.consumer prediction quality",
           "prediction_target": "sector.consumer.property_chain_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6799,6 +7203,10 @@
           "learning_objective": "calibrate capacity utilization weight for sector.industrials prediction quality",
           "prediction_target": "sector.industrials.capacity_utilization_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6858,6 +7266,10 @@
           "learning_objective": "calibrate capex weight for sector.industrials prediction quality",
           "prediction_target": "sector.industrials.capex_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6917,6 +7329,10 @@
           "learning_objective": "calibrate export chain weight for sector.industrials prediction quality",
           "prediction_target": "sector.industrials.export_chain_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -6976,6 +7392,10 @@
           "learning_objective": "calibrate military order confirmation days for sector.industrials prediction quality",
           "prediction_target": "sector.industrials.military_order_confirmation_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7035,6 +7455,10 @@
           "learning_objective": "calibrate order backlog threshold for sector.industrials prediction quality",
           "prediction_target": "sector.industrials.order_backlog_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7094,6 +7518,10 @@
           "learning_objective": "calibrate policy catalyst window days for sector.industrials prediction quality",
           "prediction_target": "sector.industrials.policy_catalyst_window_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7162,6 +7590,10 @@
           "learning_objective": "calibrate brokerage volume threshold for sector.financials prediction quality",
           "prediction_target": "sector.financials.brokerage_volume_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7221,6 +7653,10 @@
           "learning_objective": "calibrate credit risk cap for sector.financials prediction quality",
           "prediction_target": "sector.financials.credit_risk_cap.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7280,6 +7716,10 @@
           "learning_objective": "calibrate curve weight for sector.financials prediction quality",
           "prediction_target": "sector.financials.curve_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7339,6 +7779,10 @@
           "learning_objective": "calibrate insurance rate sensitivity for sector.financials prediction quality",
           "prediction_target": "sector.financials.insurance_rate_sensitivity.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7398,6 +7842,10 @@
           "learning_objective": "calibrate property risk discount for sector.financials prediction quality",
           "prediction_target": "sector.financials.property_risk_discount.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7457,6 +7905,10 @@
           "learning_objective": "calibrate turnover beta weight for sector.financials prediction quality",
           "prediction_target": "sector.financials.turnover_beta_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7525,6 +7977,10 @@
           "learning_objective": "calibrate cross sector spillover threshold for sector.relationship_mapper prediction quality",
           "prediction_target": "sector.relationship_mapper.cross_sector_spillover_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7584,6 +8040,10 @@
           "learning_objective": "calibrate etf overlap threshold for sector.relationship_mapper prediction quality",
           "prediction_target": "sector.relationship_mapper.etf_overlap_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7643,6 +8103,10 @@
           "learning_objective": "calibrate flow diffusion window days for sector.relationship_mapper prediction quality",
           "prediction_target": "sector.relationship_mapper.flow_diffusion_window_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7702,6 +8166,10 @@
           "learning_objective": "calibrate holding overlap threshold for sector.relationship_mapper prediction quality",
           "prediction_target": "sector.relationship_mapper.holding_overlap_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7761,6 +8229,10 @@
           "learning_objective": "calibrate policy resonance weight for sector.relationship_mapper prediction quality",
           "prediction_target": "sector.relationship_mapper.policy_resonance_weight.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7820,6 +8292,10 @@
           "learning_objective": "calibrate supply chain transmission strength for sector.relationship_mapper prediction quality",
           "prediction_target": "sector.relationship_mapper.supply_chain_transmission_strength.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_rank_correlation_20d",
@@ -7888,6 +8364,7 @@
           "learning_objective": "calibrate concentration cap for superinvestor.druckenmiller prediction quality",
           "prediction_target": "superinvestor.druckenmiller.concentration_cap.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -7947,6 +8424,7 @@
           "learning_objective": "calibrate error cut rule for superinvestor.druckenmiller prediction quality",
           "prediction_target": "superinvestor.druckenmiller.error_cut_rule.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8006,6 +8484,7 @@
           "learning_objective": "calibrate macro weight for superinvestor.druckenmiller prediction quality",
           "prediction_target": "superinvestor.druckenmiller.macro_weight.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8065,6 +8544,7 @@
           "learning_objective": "calibrate payoff threshold for superinvestor.druckenmiller prediction quality",
           "prediction_target": "superinvestor.druckenmiller.payoff_threshold.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8124,6 +8604,7 @@
           "learning_objective": "calibrate trend confirmation window days for superinvestor.druckenmiller prediction quality",
           "prediction_target": "superinvestor.druckenmiller.trend_confirmation_window_days.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8192,6 +8673,7 @@
           "learning_objective": "calibrate balance sheet quality weight for superinvestor.munger prediction quality",
           "prediction_target": "superinvestor.munger.balance_sheet_quality_weight.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8251,6 +8733,7 @@
           "learning_objective": "calibrate capital allocation quality min for superinvestor.munger prediction quality",
           "prediction_target": "superinvestor.munger.capital_allocation_quality_min.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8310,6 +8793,7 @@
           "learning_objective": "calibrate compounder window days for superinvestor.munger prediction quality",
           "prediction_target": "superinvestor.munger.compounder_window_days.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8369,6 +8853,7 @@
           "learning_objective": "calibrate moat score min for superinvestor.munger prediction quality",
           "prediction_target": "superinvestor.munger.moat_score_min.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8428,6 +8913,7 @@
           "learning_objective": "calibrate pricing power weight for superinvestor.munger prediction quality",
           "prediction_target": "superinvestor.munger.pricing_power_weight.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8496,6 +8982,7 @@
           "learning_objective": "calibrate crowding penalty for superinvestor.burry prediction quality",
           "prediction_target": "superinvestor.burry.crowding_penalty.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8555,6 +9042,7 @@
           "learning_objective": "calibrate distress catalyst weight for superinvestor.burry prediction quality",
           "prediction_target": "superinvestor.burry.distress_catalyst_weight.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8614,6 +9102,7 @@
           "learning_objective": "calibrate downside protection min for superinvestor.burry prediction quality",
           "prediction_target": "superinvestor.burry.downside_protection_min.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8673,6 +9162,7 @@
           "learning_objective": "calibrate short signal window days for superinvestor.burry prediction quality",
           "prediction_target": "superinvestor.burry.short_signal_window_days.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8732,6 +9222,7 @@
           "learning_objective": "calibrate valuation mispricing threshold for superinvestor.burry prediction quality",
           "prediction_target": "superinvestor.burry.valuation_mispricing_threshold.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8800,6 +9291,7 @@
           "learning_objective": "calibrate activist catalyst window days for superinvestor.ackman prediction quality",
           "prediction_target": "superinvestor.ackman.activist_catalyst_window_days.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8859,6 +9351,7 @@
           "learning_objective": "calibrate brand quality weight for superinvestor.ackman prediction quality",
           "prediction_target": "superinvestor.ackman.brand_quality_weight.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8918,6 +9411,7 @@
           "learning_objective": "calibrate free cashflow growth weight for superinvestor.ackman prediction quality",
           "prediction_target": "superinvestor.ackman.free_cashflow_growth_weight.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -8977,6 +9471,7 @@
           "learning_objective": "calibrate growth quality min for superinvestor.ackman prediction quality",
           "prediction_target": "superinvestor.ackman.growth_quality_min.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -9036,6 +9531,7 @@
           "learning_objective": "calibrate operating leverage threshold for superinvestor.ackman prediction quality",
           "prediction_target": "superinvestor.ackman.operating_leverage_threshold.60d",
           "evaluation_metric": "style_pick_alpha_60d",
+          "secondary_metrics": [],
           "horizon": "60d",
           "rollback_condition": {
             "metric": "style_pick_alpha_60d",
@@ -9094,6 +9590,10 @@
           "learning_objective": "calibrate sector concentration ceiling",
           "prediction_target": "portfolio_risk_quality_20d",
           "evaluation_metric": "sector_concentration_breach_rate",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "sector_concentration_breach_rate",
@@ -9145,6 +9645,10 @@
           "learning_objective": "calibrate single-name concentration ceiling",
           "prediction_target": "portfolio_risk_quality_20d",
           "evaluation_metric": "concentration_breach_rate",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "concentration_breach_rate",
@@ -9203,6 +9707,9 @@
           "learning_objective": "calibrate scenario drawdown penalty for risk holds",
           "prediction_target": "portfolio_risk_quality_20d",
           "evaluation_metric": "max_drawdown_after_hold",
+          "secondary_metrics": [
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "max_drawdown_after_hold",
@@ -9259,6 +9766,10 @@
           "learning_objective": "learn tail-loss threshold for allowing hold",
           "prediction_target": "hold_exit_quality_20d",
           "evaluation_metric": "tail_loss_after_hold",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "tail_loss_after_hold",
@@ -9315,6 +9826,10 @@
           "learning_objective": "calibrate CRO veto threshold from scenario tail risk",
           "prediction_target": "tail_risk_review_20d",
           "evaluation_metric": "false_veto_adjusted_drawdown_avoidance",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "false_veto_adjusted_drawdown_avoidance",
@@ -9371,6 +9886,10 @@
           "learning_objective": "learn how strongly tail scenarios should affect CRO risk review",
           "prediction_target": "tail_risk_review_20d",
           "evaluation_metric": "drawdown_avoidance_after_tail_veto",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "drawdown_avoidance_after_tail_veto",
@@ -9420,6 +9939,9 @@
           "learning_objective": "calibrate risk exit threshold for losing positions",
           "prediction_target": "hold_exit_quality_20d",
           "evaluation_metric": "max_drawdown_after_hold",
+          "secondary_metrics": [
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "max_drawdown_after_hold",
@@ -9471,6 +9993,10 @@
           "learning_objective": "learn when gains require risk review instead of automatic hold",
           "prediction_target": "reduce_decision_quality_20d",
           "evaluation_metric": "opportunity_cost_after_reduce",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "opportunity_cost_after_reduce",
@@ -9529,6 +10055,10 @@
           "learning_objective": "calibrate cross agent agreement threshold for decision.alpha_discovery prediction quality",
           "prediction_target": "decision.alpha_discovery.cross_agent_agreement_threshold.20d",
           "evaluation_metric": "alpha_discovery_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "alpha_discovery_quality_20d",
@@ -9578,6 +10108,10 @@
           "learning_objective": "calibrate false positive penalty for decision.alpha_discovery prediction quality",
           "prediction_target": "decision.alpha_discovery.false_positive_penalty.20d",
           "evaluation_metric": "alpha_discovery_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "alpha_discovery_quality_20d",
@@ -9627,6 +10161,10 @@
           "learning_objective": "calibrate idea decay days for decision.alpha_discovery prediction quality",
           "prediction_target": "decision.alpha_discovery.idea_decay_days.20d",
           "evaluation_metric": "alpha_discovery_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "alpha_discovery_quality_20d",
@@ -9676,6 +10214,10 @@
           "learning_objective": "calibrate novelty floor for decision.alpha_discovery prediction quality",
           "prediction_target": "decision.alpha_discovery.novelty_floor.20d",
           "evaluation_metric": "alpha_discovery_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "alpha_discovery_quality_20d",
@@ -9725,6 +10267,10 @@
           "learning_objective": "calibrate theme persistence days for decision.alpha_discovery prediction quality",
           "prediction_target": "decision.alpha_discovery.theme_persistence_days.20d",
           "evaluation_metric": "alpha_discovery_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "alpha_discovery_quality_20d",
@@ -9774,6 +10320,10 @@
           "learning_objective": "calibrate upstream disagreement filter for decision.alpha_discovery prediction quality",
           "prediction_target": "decision.alpha_discovery.upstream_disagreement_filter.20d",
           "evaluation_metric": "alpha_discovery_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "alpha_discovery_quality_20d",
@@ -9832,6 +10382,10 @@
           "learning_objective": "learn liquidity floor for executable target changes",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "failed_or_partial_fill_rate",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "failed_or_partial_fill_rate",
@@ -9883,6 +10437,10 @@
           "learning_objective": "learn order splitting complexity versus execution benefit",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "turnover_adjusted_slippage",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "turnover_adjusted_slippage",
@@ -9939,6 +10497,10 @@
           "learning_objective": "learn minimum useful trade delta to avoid churn",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "churn_adjusted_slippage",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "churn_adjusted_slippage",
@@ -9997,6 +10559,10 @@
           "learning_objective": "learn liquidity haircut under stressed scenario paths",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "failed_or_partial_fill_rate",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "failed_or_partial_fill_rate",
@@ -10053,6 +10619,10 @@
           "learning_objective": "calibrate maximum scenario-driven size adjustment",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "tail_stress_drawdown_after_sizing",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "tail_stress_drawdown_after_sizing",
@@ -10109,6 +10679,10 @@
           "learning_objective": "learn how path stress should adjust execution sizing",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "scenario_adjusted_slippage",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "scenario_adjusted_slippage",
@@ -10165,6 +10739,10 @@
           "learning_objective": "learn turnover penalty when scenario stress changes trade path",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "turnover_adjusted_slippage",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "turnover_adjusted_slippage",
@@ -10214,10 +10792,14 @@
           "learning_objective": "calibrate maximum acceptable execution cost",
           "prediction_target": "execution_quality_5d",
           "evaluation_metric": "realized_slippage_bps",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "execution_quality_5d"
+          ],
           "horizon": "5d",
           "rollback_condition": {
             "metric": "realized_slippage_bps",
-            "worse_by": 0.02,
+            "worse_by": 5,
             "unit": "bps"
           },
           "enforcement": "code",
@@ -10274,6 +10856,10 @@
           "learning_objective": "calibrate add hurdle for new or existing position expansion",
           "prediction_target": "add_decision_quality_20d",
           "evaluation_metric": "incremental_alpha_after_add_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_construction_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "incremental_alpha_after_add_20d",
@@ -10323,6 +10909,10 @@
           "learning_objective": "calibrate hold versus exit threshold under uncertain thesis quality",
           "prediction_target": "hold_exit_quality_20d",
           "evaluation_metric": "max_drawdown_after_hold",
+          "secondary_metrics": [
+            "portfolio_construction_quality_20d",
+            "portfolio_risk_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "max_drawdown_after_hold",
@@ -10379,6 +10969,10 @@
           "learning_objective": "calibrate regret penalty when scenario argues against exit",
           "prediction_target": "hold_exit_quality_20d",
           "evaluation_metric": "regret_after_exit",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_construction_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "regret_after_exit",
@@ -10435,6 +11029,10 @@
           "learning_objective": "learn scenario agreement hurdle for adding exposure",
           "prediction_target": "add_decision_quality_20d",
           "evaluation_metric": "incremental_alpha_after_add_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_construction_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "incremental_alpha_after_add_20d",
@@ -10491,6 +11089,10 @@
           "learning_objective": "calibrate hurdle for overriding base decision with scenario stress",
           "prediction_target": "override_quality_20d",
           "evaluation_metric": "override_realized_risk",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_construction_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "override_realized_risk",
@@ -10547,6 +11149,10 @@
           "learning_objective": "learn how portfolio stress should affect final construction",
           "prediction_target": "portfolio_construction_quality_20d",
           "evaluation_metric": "stress_adjusted_alpha_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_construction_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "stress_adjusted_alpha_20d",
@@ -10603,6 +11209,10 @@
           "learning_objective": "learn target-current drift tolerance before rebalance",
           "prediction_target": "portfolio_rebalance_quality_20d",
           "evaluation_metric": "turnover_adjusted_alpha_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_construction_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "turnover_adjusted_alpha_20d",
@@ -10652,6 +11262,10 @@
           "learning_objective": "calibrate when CIO must refresh stale thesis before continuing hold",
           "prediction_target": "thesis_quality_20d",
           "evaluation_metric": "stale_thesis_review_alpha_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_construction_quality_20d"
+          ],
           "horizon": "20d",
           "rollback_condition": {
             "metric": "stale_thesis_review_alpha_20d",

@@ -92,6 +92,7 @@ export interface DomainKnobCard {
   learning_objective: string;
   prediction_target: string;
   evaluation_metric: string;
+  secondary_metrics: string[];
   horizon: string;
   rollback_condition: {
     metric: string;
@@ -862,6 +863,12 @@ export function validateDomainKnobCatalogArtifact(
       if (!Object.hasOwn(artifact.evaluation_metrics, card.rollback_condition.metric)) {
         reasons.push(`domain_catalog_card_rollback_metric_unregistered:${card.id}`);
       }
+      for (const metricId of card.secondary_metrics) {
+        if (!Object.hasOwn(artifact.evaluation_metrics, metricId)) {
+          reasons.push(`domain_catalog_card_secondary_metric_unregistered:${card.id}:${metricId}`);
+        }
+      }
+      reasons.push(...validateCardMetricCompatibility(card, artifact.evaluation_metrics));
     }
   }
   for (const agent of artifact.agents) {
@@ -936,6 +943,12 @@ function validateCard(
   if (!(card.rollback_condition.metric in EVALUATION_METRIC_REGISTRY)) {
     reasons.push(`domain_card_rollback_metric_unregistered:${card.id}`);
   }
+  for (const metricId of card.secondary_metrics) {
+    if (!(metricId in EVALUATION_METRIC_REGISTRY)) {
+      reasons.push(`domain_card_secondary_metric_unregistered:${card.id}:${metricId}`);
+    }
+  }
+  reasons.push(...validateCardMetricCompatibility(card, EVALUATION_METRIC_REGISTRY));
   reasons.push(...validateCardSourceBinding(card));
   for (const source of card.runtime_input_sources) {
     if (!(source in RUNTIME_SOURCE_REGISTRY)) {
@@ -1039,6 +1052,41 @@ function validateCardSourceBinding(card: DomainKnobCard): string[] {
     card.runtime_input_sources.includes("candidate_target_state")
   ) {
     reasons.push(`domain_card_cio_self_loop_source:${card.id}:candidate_target_state`);
+  }
+  return reasons;
+}
+
+function validateCardMetricCompatibility(
+  card: DomainKnobCard,
+  registry: Record<string, EvaluationMetricRegistryEntry>,
+): string[] {
+  const reasons: string[] = [];
+  const evaluationMetric = registry[card.evaluation_metric];
+  if (evaluationMetric && evaluationMetric.window !== card.horizon) {
+    reasons.push(
+      `domain_card_metric_window_mismatch:${card.id}:${card.evaluation_metric}:${evaluationMetric.window}:expected:${card.horizon}`,
+    );
+  }
+  const rollbackMetric = registry[card.rollback_condition.metric];
+  if (rollbackMetric) {
+    if (rollbackMetric.window !== card.horizon) {
+      reasons.push(
+        `domain_card_rollback_metric_window_mismatch:${card.id}:${card.rollback_condition.metric}:${rollbackMetric.window}:expected:${card.horizon}`,
+      );
+    }
+    if (rollbackMetric.unit !== card.rollback_condition.unit) {
+      reasons.push(
+        `domain_card_rollback_metric_unit_mismatch:${card.id}:${card.rollback_condition.metric}:${rollbackMetric.unit}:expected:${card.rollback_condition.unit}`,
+      );
+    }
+  }
+  for (const metricId of card.secondary_metrics) {
+    const secondaryMetric = registry[metricId];
+    if (secondaryMetric && secondaryMetric.window !== card.horizon) {
+      reasons.push(
+        `domain_card_secondary_metric_window_mismatch:${card.id}:${metricId}:${secondaryMetric.window}:expected:${card.horizon}`,
+      );
+    }
   }
   return reasons;
 }
@@ -1179,10 +1227,15 @@ function buildCard(spec: RuntimeAgentSpec, seed: DomainSeed): DomainKnobCard {
       PREDICTION_TARGET_BY_ID[id] ??
       `${spec.promptIrAgentId}.${id}.${seed.horizon ?? horizonForSpec(spec)}`,
     evaluation_metric: metricId,
+    secondary_metrics: secondaryMetricsForCard(
+      spec,
+      metricId,
+      seed.horizon ?? horizonForSpec(spec),
+    ),
     horizon: seed.horizon ?? horizonForSpec(spec),
     rollback_condition: {
       metric: metricId,
-      worse_by: metricId === "execution_quality_5d" ? 5 : 0.02,
+      worse_by: EVALUATION_METRIC_REGISTRY[metricId]?.unit === "bps" ? 5 : 0.02,
       unit: EVALUATION_METRIC_REGISTRY[metricId]?.unit ?? "ratio",
     },
     enforcement,
@@ -1596,6 +1649,34 @@ function metricForSpec(spec: RuntimeAgentSpec): string {
   return "portfolio_construction_quality_20d";
 }
 
+function secondaryMetricsForCard(
+  spec: RuntimeAgentSpec,
+  primaryMetricId: string,
+  horizon: string,
+): string[] {
+  const candidates = [
+    primaryMetricId,
+    metricForSpec(spec),
+    horizon === "5d" ? "confidence_calibration_error" : null,
+    horizon === "5d" ? "fallback_rate" : null,
+    horizon === "5d" ? "missing_rate" : null,
+    horizon === "20d" ? "max_drawdown_after_hold" : null,
+    horizon === "20d" ? "portfolio_risk_quality_20d" : null,
+    horizon === "60d" ? "style_pick_alpha_60d" : null,
+  ];
+  const seen = new Set<string>([primaryMetricId]);
+  const result: string[] = [];
+  for (const metricId of candidates) {
+    if (!metricId || seen.has(metricId)) continue;
+    const metricEntry = EVALUATION_METRIC_REGISTRY[metricId];
+    if (metricEntry?.window !== horizon) continue;
+    seen.add(metricId);
+    result.push(metricId);
+    if (result.length >= 2) break;
+  }
+  return result;
+}
+
 function horizonForSpec(spec: RuntimeAgentSpec): string {
   if (spec.layer === "macro") return "5d";
   if (spec.layer === "superinvestor") return "60d";
@@ -1658,6 +1739,7 @@ function canonicalDomainCard(card: DomainKnobCard): DomainKnobCard {
     learning_objective: card.learning_objective,
     prediction_target: card.prediction_target,
     evaluation_metric: card.evaluation_metric,
+    secondary_metrics: [...card.secondary_metrics].sort(),
     horizon: card.horizon,
     rollback_condition: card.rollback_condition,
     enforcement: card.enforcement,
