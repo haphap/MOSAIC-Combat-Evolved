@@ -141,7 +141,9 @@ The acceptance evidence is the final JSON:
 - `position_decision` semantics are enforced: `ADD` maps to positive-delta
   `BUY`, `REDUCE` trims an existing holding, `EXIT` maps to zero-weight `SELL`,
   and `HOLD` maps to an existing held position.
-- active `max_single_name_weight` or stop-loss overrides require both
+- active `max_single_name_weight` overrides require both `override_reason` and
+  the `cro_risk_override` risk flag.
+- stop-loss-breached `HOLD` overrides require explicit counterevidence plus
   `override_reason` and the `cro_risk_override` risk flag.
 - stop-loss-breached `HOLD` actions are normalized with a
   `stop_loss_breached` risk flag so audit/TUI warning counts do not depend on
@@ -323,8 +325,8 @@ Required warning labels must remain literal:
 Do not promote a mutation when any of these are true:
 
 - a current position is missing from CIO output;
-- a stop-loss-breached holding remains `HOLD` unless it carries both override
-  rationale and the `cro_risk_override` risk flag;
+- a stop-loss-breached holding remains `HOLD` unless it carries explicit
+  counterevidence, override rationale, and the `cro_risk_override` risk flag;
 - an active `max_single_name_weight` runtime card is breached unless the action
   carries both override rationale and the `cro_risk_override` risk flag;
 - a stale-thesis holding lacks a `stale_thesis` risk flag and explicit review

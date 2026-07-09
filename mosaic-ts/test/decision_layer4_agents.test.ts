@@ -563,6 +563,27 @@ describe("CIO position validator", () => {
     ).toThrow(/CRO risk override/);
   });
 
+  it("rejects stop-loss breached HOLD without counterevidence", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "HOLD",
+            target_weight: 0.2,
+            holding_period: "3M",
+            override_reason: "policy catalyst remains live through next review window",
+            risk_flags: ["cro_risk_override"],
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([
+          { ...heldPosition, unrealized_pnl_pct: -0.12, holding_days: 25 },
+        ]),
+      }),
+    ).toThrow(/counterevidence/);
+  });
+
   it("uses upstream CRO-owned active risk knob values for CIO validation", () => {
     expect(() =>
       validateCioPositionActions({
@@ -849,6 +870,7 @@ describe("CIO position validator", () => {
           target_weight: 0.2,
           holding_period: "3M",
           override_reason: "policy catalyst remains live through next review window",
+          position_decision_reason: "fresh channel checks contradict a forced exit",
           risk_flags: ["cro_risk_override"],
           dissent_notes: "",
         },
@@ -863,7 +885,7 @@ describe("CIO position validator", () => {
         ticker: "600519.SH",
         decision: "HOLD",
         target_weight: 0.2,
-        reason: "stale thesis review required",
+        reason: "fresh channel checks contradict a forced exit",
         thesis_status: "intact",
         risk_flags: ["cro_risk_override", "stop_loss_breached", "stale_thesis"],
         confidence: 0.61,

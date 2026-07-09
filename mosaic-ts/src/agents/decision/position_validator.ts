@@ -79,6 +79,7 @@ export function validateCioPositionActions(opts: {
   assertSectorConcentration(actions, maxSectorWeight);
   for (const position of currentPositions.positions) {
     const action = actions.find((item) => item.ticker === position.ticker);
+    const rawAction = output.portfolio_actions.find((item) => item.ticker === position.ticker);
     if (
       position.unrealized_pnl_pct <= stopLossPct &&
       action &&
@@ -97,6 +98,16 @@ export function validateCioPositionActions(opts: {
     ) {
       throw new PositionActionValidationError(
         `${position.ticker}: stop_loss breached but HOLD lacks CRO risk override`,
+      );
+    }
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action &&
+      action.action === "HOLD" &&
+      !hasStopLossCounterevidence(rawAction)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks counterevidence`,
       );
     }
   }
@@ -147,6 +158,12 @@ function hasMirofishInfluence(output: CioOutput): boolean {
 
 function hasCroRiskOverride(action: PortfolioAction): boolean {
   return (action.risk_flags ?? []).includes("cro_risk_override");
+}
+
+function hasStopLossCounterevidence(action: PortfolioAction | undefined): boolean {
+  return Boolean(
+    nonEmptyText(action?.position_decision_reason) ?? nonEmptyText(action?.dissent_notes),
+  );
 }
 
 function assertMirofishInfluencedPositionChangesHaveDissent(

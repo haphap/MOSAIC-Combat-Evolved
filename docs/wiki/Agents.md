@@ -39,8 +39,9 @@ RKE report context remains a shadow-only research prior. CIO validation rejects
 portfolio actions whose declared influence is only RKE prior and/or MiroFish
 simulation context.
 The L4 position validator also requires `override_reason` plus the
-`cro_risk_override` risk flag when a CIO action overrides an active stop-loss or
-`max_single_name_weight` guard.
+`cro_risk_override` risk flag when a CIO action overrides an active
+`max_single_name_weight` guard. Stop-loss-breached `HOLD` actions additionally
+need explicit counterevidence in the decision reason or dissent notes.
 
 ## Prompts
 
