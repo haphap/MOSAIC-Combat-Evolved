@@ -362,12 +362,12 @@ describe("knob mutation validation", () => {
   });
 
   it("rejects integer patches outside range or step", () => {
-    const cioSpec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
-    expect(cioSpec).toBeDefined();
-    if (!cioSpec) return;
-    const knobs = buildRuntimeResearchKnobs(cioSpec);
+    const execSpec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "autonomous_execution");
+    expect(execSpec).toBeDefined();
+    if (!execSpec) return;
+    const knobs = buildRuntimeResearchKnobs(execSpec);
     const target = knobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/target_count_max/value"),
+      item.path.endsWith("/learnable_parameters/max_order_split_count/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
@@ -376,20 +376,20 @@ describe("knob mutation validation", () => {
       validateKnobMutation(
         knobs,
         knobMutation({
-          prediction_target: "decision.cio.target_count_max.20d",
-          evaluation_metric: "portfolio_construction_quality_20d",
-          horizon: "20d",
+          prediction_target: "execution_quality_5d",
+          evaluation_metric: "turnover_adjusted_slippage",
+          horizon: "5d",
           rollback_condition: {
-            metric: "portfolio_construction_quality_20d",
-            worse_by: 0.02,
+            metric: "turnover_adjusted_slippage",
+            worse_by: 0.001,
             unit: "ratio",
           },
           knob_patches: [
             {
               path: target.path,
-              old_value: 15,
+              old_value: 5,
               new_value: 31,
-              rationale: "Too many targets should be rejected.",
+              rationale: "Too many order splits should be rejected.",
               expected_effect: "No effect.",
             },
           ],
@@ -745,57 +745,61 @@ describe("knob mutation validation", () => {
   });
 
   it("renormalizes catalog-governed domain weight groups", () => {
-    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "semiconductor");
     expect(spec).toBeDefined();
     if (!spec) return;
     const registry = buildDomainKnobValueRegistry(spec, "cohort_default");
     const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
     const target = knobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/sector_signal_weight/value"),
+      item.path.endsWith("/learnable_parameters/design_weight/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
 
     const mutation = knobMutation({
-      prediction_target: "decision.cio.sector_signal_weight.20d",
-      evaluation_metric: "portfolio_construction_quality_20d",
+      prediction_target: "sector.semiconductor.design_weight.20d",
+      evaluation_metric: "sector_rank_correlation_20d",
       horizon: "20d",
       rollback_condition: {
-        metric: "portfolio_construction_quality_20d",
+        metric: "sector_rank_correlation_20d",
         worse_by: 0.02,
         unit: "ratio",
       },
       knob_patches: [
         {
           path: target.path,
-          old_value: 0.35,
-          new_value: 0.45,
-          rationale: "Sector signal recently explained more construction quality.",
-          expected_effect: "Increase sector signal share and renormalize peer weights.",
+          old_value: 0.18,
+          new_value: 0.28,
+          rationale: "Design names recently explained more sector rank quality.",
+          expected_effect: "Increase design share and renormalize peer weights.",
         },
       ],
     });
     const projected = applyKnobPatchesToProjection(knobs, mutation);
     const persisted = applyKnobPatchesToDomainKnobRegistry(registry, knobs, mutation);
     const projectedTotal =
-      Number(projected.thresholds.macro_signal_weight) +
-      Number(projected.thresholds.sector_signal_weight) +
-      Number(projected.thresholds.superinvestor_signal_weight) +
-      Number(projected.thresholds.cro_risk_weight);
+      Number(projected.thresholds.design_weight) +
+      Number(projected.thresholds.equipment_weight) +
+      Number(projected.thresholds.foundry_weight) +
+      Number(projected.thresholds.packaging_weight) +
+      Number(projected.thresholds.materials_weight) +
+      Number(projected.thresholds.ai_compute_weight);
     const persistedTotal = Object.entries(persisted.registry.values_by_path)
       .filter(([path]) =>
         [
-          "macro_signal_weight",
-          "sector_signal_weight",
-          "superinvestor_signal_weight",
-          "cro_risk_weight",
+          "design_weight",
+          "equipment_weight",
+          "foundry_weight",
+          "packaging_weight",
+          "materials_weight",
+          "ai_compute_weight",
         ].some((id) => path.endsWith(`/learnable_parameters/${id}/value`)),
       )
       .reduce((sum, [, value]) => sum + Number(value), 0);
 
     expect(projectedTotal).toBeCloseTo(1, 10);
     expect(persistedTotal).toBeCloseTo(1, 10);
-    expect(projected.thresholds.sector_signal_weight).toBeCloseTo(0.45 / 1.1, 10);
+    expect(projected.thresholds.design_weight).toBeCloseTo(0.28 / 1.1, 10);
   });
 
   it("rejects domain knob patches that break cross-field invariants", () => {
@@ -804,7 +808,7 @@ describe("knob mutation validation", () => {
     if (!spec) return;
     const knobs = buildRuntimeResearchKnobs(spec);
     const target = knobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/target_count_min/value"),
+      item.path.endsWith("/learnable_parameters/min_confidence_to_hold/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
@@ -813,26 +817,26 @@ describe("knob mutation validation", () => {
       validateKnobMutation(
         knobs,
         knobMutation({
-          prediction_target: "decision.cio.target_count_min.20d",
-          evaluation_metric: "portfolio_construction_quality_20d",
+          prediction_target: "hold_exit_quality_20d",
+          evaluation_metric: "max_drawdown_after_hold",
           horizon: "20d",
           rollback_condition: {
-            metric: "portfolio_construction_quality_20d",
+            metric: "max_drawdown_after_hold",
             worse_by: 0.02,
             unit: "ratio",
           },
           knob_patches: [
             {
               path: target.path,
-              old_value: 8,
-              new_value: 18,
-              rationale: "Too high minimum target count.",
-              expected_effect: "Should be rejected because max target count remains 15.",
+              old_value: 0.5,
+              new_value: 0.7,
+              rationale: "Hold threshold cannot exceed the add threshold.",
+              expected_effect: "Should be rejected because min_confidence_to_add remains 0.65.",
             },
           ],
         }),
       ).reasons,
-    ).toContain("domain_cross_field_violation:cio_target_count_min_gt_max");
+    ).toContain("domain_cross_field_violation:cio_min_hold_gt_add");
   });
 
   it("repairs stale cross-field registry values when rebuilding domain registries", () => {
@@ -840,22 +844,22 @@ describe("knob mutation validation", () => {
     expect(spec).toBeDefined();
     if (!spec) return;
     const existing = buildDomainKnobValueRegistry(spec, "cohort_default");
-    const exitPath = Object.keys(existing.values_by_path).find((path) =>
-      path.endsWith("/learnable_parameters/exit_threshold/value"),
+    const addPath = Object.keys(existing.values_by_path).find((path) =>
+      path.endsWith("/learnable_parameters/min_confidence_to_add/value"),
     );
-    const holdPath = Object.keys(existing.values_by_path).find((path) =>
-      path.endsWith("/learnable_parameters/hold_hurdle/value"),
+    const holdConfidencePath = Object.keys(existing.values_by_path).find((path) =>
+      path.endsWith("/learnable_parameters/min_confidence_to_hold/value"),
     );
-    expect(exitPath).toBeDefined();
-    expect(holdPath).toBeDefined();
-    if (!exitPath || !holdPath) return;
-    existing.values_by_path[exitPath] = 0.6;
-    existing.values_by_path[holdPath] = 0.58;
+    expect(addPath).toBeDefined();
+    expect(holdConfidencePath).toBeDefined();
+    if (!addPath || !holdConfidencePath) return;
+    existing.values_by_path[addPath] = 0.55;
+    existing.values_by_path[holdConfidencePath] = 0.7;
 
     const repaired = buildDomainKnobValueRegistry(spec, "cohort_default", { existing });
 
-    expect(repaired.values_by_path[exitPath]).toBe(0.35);
-    expect(repaired.values_by_path[holdPath]).toBe(0.58);
+    expect(repaired.values_by_path[addPath]).toBe(0.65);
+    expect(repaired.values_by_path[holdConfidencePath]).toBe(0.5);
   });
 
   it("rejects domain knob mutations with the wrong evaluation metric", () => {

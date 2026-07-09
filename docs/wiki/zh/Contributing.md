@@ -29,6 +29,9 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
   `lookbacks`、`thresholds`、`tie_breaks`、`evidence_weights` 和
   `confidence_caps`;bucket assignment 是显式 catalog 行为,所以按季度计数的历史窗口
   也是 `lookbacks`,即使没有 `_days` 后缀。
+- Decision-layer domain mutation target 必须保持在 PR3 owner list 内。额外的 CIO
+  组合构建 knob 或 read-only 风险/情景默认值,先补 card、metric policy 和测试,
+  才能进入 `mutation_targets`。
 - `conflicting_evidence` confidence cap 在 direction-adapter registry 可用前
   由 prompt check fail-closed。不要只靠 prose conflict rule 把这个 trigger 加进
   production knobs。

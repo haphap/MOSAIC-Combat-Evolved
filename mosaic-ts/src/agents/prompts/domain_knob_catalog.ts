@@ -528,8 +528,6 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "take_profit_review_pct",
     "max_single_name_weight",
     "max_sector_weight",
-    "correlation_stress_threshold",
-    "liquidity_discount",
     "mirofish_tail_scenario_weight",
     "mirofish_drawdown_penalty",
     "mirofish_max_tail_loss_to_hold",
@@ -544,12 +542,10 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "upstream_disagreement_filter",
   ]),
   autonomous_execution: seeds([
-    "execution_urgency_threshold",
     "min_delta_trade_weight",
     "slippage_cap",
     "liquidity_floor",
     "max_order_split_count",
-    "cio_cro_conflict_threshold",
     "mirofish_path_sizing_weight",
     "mirofish_max_size_adjustment",
     "mirofish_turnover_penalty",
@@ -560,19 +556,6 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "rebalance_drift_pct",
     "min_confidence_to_add",
     "min_confidence_to_hold",
-    "target_count_min",
-    "target_count_max",
-    "max_target_position_weight",
-    "max_new_buy_weight",
-    "new_buy_hurdle",
-    "hold_hurdle",
-    "trim_threshold",
-    "exit_threshold",
-    "macro_signal_weight",
-    "sector_signal_weight",
-    "superinvestor_signal_weight",
-    "cro_risk_weight",
-    "cross_layer_conflict_cap",
     "mirofish_portfolio_stress_weight",
     "mirofish_exit_regret_penalty",
     "mirofish_min_scenario_agreement_to_add",
@@ -1041,6 +1024,11 @@ export function validateCrossFieldInvariants(
     const raw = knobs.thresholds[id] ?? knobs.lookbacks[id];
     return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
   };
+  const minAdd = value("min_confidence_to_add");
+  const minHold = value("min_confidence_to_hold");
+  if (minAdd !== null && minHold !== null && minHold > minAdd) {
+    reasons.push("domain_cross_field_violation:cio_min_hold_gt_add");
+  }
   const targetMin = value("target_count_min");
   const targetMax = value("target_count_max");
   if (targetMin !== null && targetMax !== null && targetMin > targetMax) {
@@ -1537,6 +1525,9 @@ function weightGroupForId(agent: string, id: string): string | null {
 }
 
 function crossFieldGroupForId(agent: string, id: string): string | null {
+  if (agent === "cio" && ["min_confidence_to_add", "min_confidence_to_hold"].includes(id)) {
+    return "cio_confidence_hurdles";
+  }
   if (
     agent === "cio" &&
     [

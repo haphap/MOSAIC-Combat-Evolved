@@ -357,47 +357,41 @@ describe("checkResearchKnobsPrompts", () => {
     expect(cioKnobs.mutation_targets.map((target) => target.path).join("\n")).not.toContain(
       ".primary.001",
     );
-    expect(domainKnobCardsForSpec(cioSpec).map((card) => card.id)).toEqual(
-      expect.arrayContaining([
-        "stale_thesis_days",
-        "rebalance_drift_pct",
-        "min_confidence_to_add",
-        "min_confidence_to_hold",
-        "mirofish_portfolio_stress_weight",
-        "mirofish_exit_regret_penalty",
-        "mirofish_min_scenario_agreement_to_add",
-        "mirofish_override_hurdle",
-      ]),
-    );
+    expect(domainKnobCardsForSpec(cioSpec).map((card) => card.id)).toEqual([
+      "stale_thesis_days",
+      "rebalance_drift_pct",
+      "min_confidence_to_add",
+      "min_confidence_to_hold",
+      "mirofish_portfolio_stress_weight",
+      "mirofish_exit_regret_penalty",
+      "mirofish_min_scenario_agreement_to_add",
+      "mirofish_override_hurdle",
+    ]);
     const croSpec = RUNTIME_AGENT_SPECS.find((spec) => spec.agent === "cro");
     const execSpec = RUNTIME_AGENT_SPECS.find((spec) => spec.agent === "autonomous_execution");
     expect(croSpec).toBeDefined();
     expect(execSpec).toBeDefined();
     if (!croSpec || !execSpec) return;
-    expect(domainKnobCardsForSpec(croSpec).map((card) => card.id)).toEqual(
-      expect.arrayContaining([
-        "stop_loss_pct",
-        "take_profit_review_pct",
-        "max_single_name_weight",
-        "max_sector_weight",
-        "mirofish_tail_scenario_weight",
-        "mirofish_drawdown_penalty",
-        "mirofish_max_tail_loss_to_hold",
-        "mirofish_tail_risk_veto_threshold",
-      ]),
-    );
-    expect(domainKnobCardsForSpec(execSpec).map((card) => card.id)).toEqual(
-      expect.arrayContaining([
-        "min_delta_trade_weight",
-        "slippage_cap",
-        "liquidity_floor",
-        "max_order_split_count",
-        "mirofish_path_sizing_weight",
-        "mirofish_max_size_adjustment",
-        "mirofish_turnover_penalty",
-        "mirofish_liquidity_stress_haircut",
-      ]),
-    );
+    expect(domainKnobCardsForSpec(croSpec).map((card) => card.id)).toEqual([
+      "stop_loss_pct",
+      "take_profit_review_pct",
+      "max_single_name_weight",
+      "max_sector_weight",
+      "mirofish_tail_scenario_weight",
+      "mirofish_drawdown_penalty",
+      "mirofish_max_tail_loss_to_hold",
+      "mirofish_tail_risk_veto_threshold",
+    ]);
+    expect(domainKnobCardsForSpec(execSpec).map((card) => card.id)).toEqual([
+      "min_delta_trade_weight",
+      "slippage_cap",
+      "liquidity_floor",
+      "max_order_split_count",
+      "mirofish_path_sizing_weight",
+      "mirofish_max_size_adjustment",
+      "mirofish_turnover_penalty",
+      "mirofish_liquidity_stress_haircut",
+    ]);
     const semiconductorSpec = RUNTIME_AGENT_SPECS.find((spec) => spec.agent === "semiconductor");
     expect(semiconductorSpec).toBeDefined();
     if (!semiconductorSpec) return;
@@ -461,7 +455,7 @@ describe("checkResearchKnobsPrompts", () => {
       schema.properties.agents.items.properties.cards.items.properties.projection_bucket,
     ).toEqual({ enum: [...PROJECTION_BUCKETS] });
     expect(new Set(cardPaths).size).toBe(cardPaths.length);
-    expect(cards.length).toBeGreaterThan(170);
+    expect(cards.length).toBeGreaterThan(168);
     for (const agent of artifact.agents) {
       expect(agent.card_count).toBe(agent.cards.length);
       expect(agent.cards.length).toBeGreaterThanOrEqual(agent.min_mutable_domain_knobs);

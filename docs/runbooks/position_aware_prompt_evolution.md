@@ -100,6 +100,12 @@ Acceptance checks:
 - bucket assignment is explicit catalog behavior, not a suffix convention:
   quarter-count history windows such as `financial_statement_quarters`,
   `inventory_cycle_quarters`, and `capex_cycle_quarters` are `lookbacks`;
+- decision-layer domain cards are locked to the PR3 owner lists: CIO has the
+  four position-review cards plus four MiroFish portfolio-stress cards, CRO has
+  the four risk cards plus four MiroFish tail-risk cards, and autonomous
+  execution has the four execution cards plus four MiroFish path-sizing cards;
+  broader portfolio-construction defaults remain read-only/backlog until they
+  get their own card, metric, and tests;
 - catalog schema validation rejects incomplete executable cards: in-run
   tool-derived dependencies must declare their scope source fields, numeric
   targets must carry bounds/step, and `enforcement: code` cards must declare

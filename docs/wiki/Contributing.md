@@ -30,6 +30,10 @@ Notes:
   `confidence_caps`; bucket assignment is explicit catalog behavior, so
   quarter-count history windows are `lookbacks` even though they do not use a
   `_days` suffix.
+- Decision-layer domain mutation targets must stay on the PR3 owner lists.
+  Extra CIO portfolio-construction knobs or read-only risk/scenario defaults
+  need their own card, metric policy, and tests before they enter
+  `mutation_targets`.
 - `conflicting_evidence` confidence caps are fail-closed in prompt checks until
   a direction-adapter registry exists. Do not add that trigger to production
   knobs as a prose-only conflict rule.

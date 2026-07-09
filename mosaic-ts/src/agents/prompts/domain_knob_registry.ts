@@ -355,9 +355,10 @@ function repairDomainRegistryGroupDefaults(
       for (const card of members) valuesByPath[card.path] = card.default;
     }
   }
-  if (hasCioCrossFieldViolation(cards, valuesByPath)) {
+  const crossFieldViolations = cioCrossFieldViolations(cards, valuesByPath);
+  if (crossFieldViolations.length > 0) {
     for (const card of cards.filter(
-      (card) => card.cross_field_group === "cio_portfolio_construction",
+      (card) => card.cross_field_group && crossFieldViolations.includes(card.cross_field_group),
     )) {
       valuesByPath[card.path] = card.default;
     }
@@ -388,9 +389,9 @@ function validateDomainRegistryCrossFields(
   cards: ReadonlyArray<DomainKnobCard>,
   registry: DomainKnobValueRegistry,
 ): string[] {
-  return hasCioCrossFieldViolation(cards, registry.values_by_path)
-    ? ["domain_registry_cross_field_violation:cio_portfolio_construction"]
-    : [];
+  return cioCrossFieldViolations(cards, registry.values_by_path).map(
+    (group) => `domain_registry_cross_field_violation:${group}`,
+  );
 }
 
 function renormalizeDomainRegistryWeightGroups(
@@ -422,10 +423,11 @@ function renormalizeDomainRegistryWeightGroups(
   }
 }
 
-function hasCioCrossFieldViolation(
+function cioCrossFieldViolations(
   cards: ReadonlyArray<DomainKnobCard>,
   valuesByPath: Record<string, unknown>,
-): boolean {
+): string[] {
+  const violations: string[] = [];
   const byId = new Map(cards.map((card) => [card.id, card]));
   const value = (id: string): number | null => {
     const card = byId.get(id);
@@ -433,6 +435,11 @@ function hasCioCrossFieldViolation(
     const raw = valuesByPath[card.path];
     return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
   };
+  const minAdd = value("min_confidence_to_add");
+  const minHold = value("min_confidence_to_hold");
+  if (minAdd !== null && minHold !== null && minHold > minAdd) {
+    violations.push("cio_confidence_hurdles");
+  }
   const targetMin = value("target_count_min");
   const targetMax = value("target_count_max");
   const exit = value("exit_threshold");
@@ -441,15 +448,18 @@ function hasCioCrossFieldViolation(
   const add = value("new_buy_hurdle");
   const maxNew = value("max_new_buy_weight");
   const maxTarget = value("max_target_position_weight");
-  return Boolean(
+  if (
     (targetMin !== null && targetMax !== null && targetMin > targetMax) ||
-      (exit !== null &&
-        trim !== null &&
-        hold !== null &&
-        add !== null &&
-        !(exit <= trim && trim <= hold && hold <= add)) ||
-      (maxNew !== null && maxTarget !== null && maxNew > maxTarget),
-  );
+    (exit !== null &&
+      trim !== null &&
+      hold !== null &&
+      add !== null &&
+      !(exit <= trim && trim <= hold && hold <= add)) ||
+    (maxNew !== null && maxTarget !== null && maxNew > maxTarget)
+  ) {
+    violations.push("cio_portfolio_construction");
+  }
+  return violations;
 }
 
 function groupCards(

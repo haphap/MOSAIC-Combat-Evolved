@@ -256,7 +256,7 @@ research-knobs:
     expect(disabled.consumptionSnapshot.disabled_knobs.length).toBeGreaterThan(0);
     expect(
       JSON.parse(disabled.visibleContract.split("\n\n")[1] ?? "{}").thresholds,
-    ).not.toHaveProperty("target_count_max");
+    ).not.toHaveProperty("min_confidence_to_add");
 
     const active = buildResearchKnobsSnapshot({
       agent: "cio",
@@ -274,7 +274,7 @@ research-knobs:
     });
 
     expect(active.consumptionSnapshot.disabled_knobs).toHaveLength(0);
-    expect(active.visibleContract).toContain('"target_count_max"');
+    expect(active.visibleContract).toContain('"min_confidence_to_add"');
     expect(active.visibleContract).toContain('"active_knobs"');
   });
 
