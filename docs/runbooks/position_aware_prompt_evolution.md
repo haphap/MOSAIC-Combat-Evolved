@@ -138,6 +138,8 @@ The acceptance evidence is the final JSON:
 - `position_decision` semantics are enforced: `ADD` maps to positive-delta
   `BUY`, `REDUCE` trims an existing holding, `EXIT` maps to zero-weight `SELL`,
   and `HOLD` maps to an existing held position.
+- active `max_single_name_weight` or stop-loss overrides require both
+  `override_reason` and the `cro_risk_override` risk flag.
 - fixtures may include `sector`; it is required when testing an active
   `max_sector_weight` runtime card.
 
@@ -314,7 +316,10 @@ Required warning labels must remain literal:
 Do not promote a mutation when any of these are true:
 
 - a current position is missing from CIO output;
-- a stop-loss-breached holding remains `HOLD` without override rationale;
+- a stop-loss-breached holding remains `HOLD` unless it carries both override
+  rationale and the `cro_risk_override` risk flag;
+- an active `max_single_name_weight` runtime card is breached unless the action
+  carries both override rationale and the `cro_risk_override` risk flag;
 - a stale-thesis holding lacks a `stale_thesis` risk flag and explicit review
   reason;
 - a `position_decision` contradicts its action or target/current weight

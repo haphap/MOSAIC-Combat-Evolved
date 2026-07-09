@@ -64,9 +64,15 @@ export function validateCioPositionActions(opts: {
   }
   assertPositionDecisionSemantics(actions, currentPositions);
   for (const action of actions) {
-    if (action.target_weight > maxSingleNameWeight && !action.override_reason) {
+    if (action.target_weight <= maxSingleNameWeight) continue;
+    if (!nonEmptyText(action.override_reason)) {
       throw new PositionActionValidationError(
         `${action.ticker}: target_weight exceeds max_single_name_weight without override_reason`,
+      );
+    }
+    if (!hasCroRiskOverride(action)) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: target_weight exceeds max_single_name_weight without CRO risk override`,
       );
     }
   }
@@ -77,10 +83,20 @@ export function validateCioPositionActions(opts: {
       position.unrealized_pnl_pct <= stopLossPct &&
       action &&
       action.action === "HOLD" &&
-      !action.override_reason
+      !nonEmptyText(action.override_reason)
     ) {
       throw new PositionActionValidationError(
         `${position.ticker}: stop_loss breached but HOLD lacks override_reason`,
+      );
+    }
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action &&
+      action.action === "HOLD" &&
+      !hasCroRiskOverride(action)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks CRO risk override`,
       );
     }
   }
@@ -127,6 +143,10 @@ function isPriorOrSimulationInfluenceId(id: string): boolean {
 
 function hasMirofishInfluence(output: CioOutput): boolean {
   return (output.declared_knob_influence_ids ?? []).some((id) => id.startsWith("mirofish_"));
+}
+
+function hasCroRiskOverride(action: PortfolioAction): boolean {
+  return (action.risk_flags ?? []).includes("cro_risk_override");
 }
 
 function assertMirofishInfluencedPositionChangesHaveDissent(

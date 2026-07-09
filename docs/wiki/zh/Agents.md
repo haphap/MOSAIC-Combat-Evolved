@@ -37,6 +37,9 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 
 RKE report context 仍是 shadow-only research prior。若 portfolio action 声明的
 影响来源只有 RKE prior 和/或 MiroFish simulation context,CIO 校验会拒绝。
+当 CIO action 覆盖已激活的 stop-loss 或 `max_single_name_weight` guard 时,L4
+position validator 还要求同时提供 `override_reason` 和 `cro_risk_override`
+risk flag。
 
 ## 提示词
 

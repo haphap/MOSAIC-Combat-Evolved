@@ -543,6 +543,26 @@ describe("CIO position validator", () => {
     ).toThrow(/stop_loss breached/);
   });
 
+  it("rejects stop-loss breached HOLD without CRO risk override", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "HOLD",
+            target_weight: 0.2,
+            holding_period: "3M",
+            override_reason: "policy catalyst remains live through next review window",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([
+          { ...heldPosition, unrealized_pnl_pct: -0.12, holding_days: 25 },
+        ]),
+      }),
+    ).toThrow(/CRO risk override/);
+  });
+
   it("uses upstream CRO-owned active risk knob values for CIO validation", () => {
     expect(() =>
       validateCioPositionActions({
@@ -561,6 +581,45 @@ describe("CIO position validator", () => {
         sharedPolicyValues: { stop_loss_pct: -0.05 },
       }),
     ).toThrow(/stop_loss breached/);
+  });
+
+  it("rejects max single-name breaches without CRO risk override", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "688981.SH",
+            action: "BUY",
+            target_weight: 0.3,
+            holding_period: "3M",
+            override_reason: "temporary high-conviction thesis window",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([]),
+        sharedPolicyValues: { max_single_name_weight: 0.25 },
+      }),
+    ).toThrow(/CRO risk override/);
+  });
+
+  it("allows max single-name breaches with rationale and CRO risk override", () => {
+    const result = validateCioPositionActions({
+      output: cioOutput([
+        {
+          ticker: "688981.SH",
+          action: "BUY",
+          target_weight: 0.3,
+          holding_period: "3M",
+          override_reason: "temporary high-conviction thesis window",
+          risk_flags: ["cro_risk_override"],
+          dissent_notes: "",
+        },
+      ]),
+      currentPositions: loadedPositions([]),
+      sharedPolicyValues: { max_single_name_weight: 0.25 },
+    });
+
+    expect(result.output.portfolio_actions[0]?.risk_flags).toEqual(["cro_risk_override"]);
   });
 
   it("rejects sector concentration breaches when max_sector_weight is active", () => {
@@ -790,6 +849,7 @@ describe("CIO position validator", () => {
           target_weight: 0.2,
           holding_period: "3M",
           override_reason: "policy catalyst remains live through next review window",
+          risk_flags: ["cro_risk_override"],
           dissent_notes: "",
         },
       ]),
@@ -805,7 +865,7 @@ describe("CIO position validator", () => {
         target_weight: 0.2,
         reason: "stale thesis review required",
         thesis_status: "intact",
-        risk_flags: ["stale_thesis"],
+        risk_flags: ["cro_risk_override", "stale_thesis"],
         confidence: 0.61,
       },
     ]);

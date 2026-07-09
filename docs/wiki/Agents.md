@@ -38,6 +38,9 @@ When `config.mirofish.inject_context` is true, the L4 **CRO**, **autonomous_exec
 RKE report context remains a shadow-only research prior. CIO validation rejects
 portfolio actions whose declared influence is only RKE prior and/or MiroFish
 simulation context.
+The L4 position validator also requires `override_reason` plus the
+`cro_risk_override` risk flag when a CIO action overrides an active stop-loss or
+`max_single_name_weight` guard.
 
 ## Prompts
 
