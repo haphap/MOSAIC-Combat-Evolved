@@ -109,6 +109,9 @@ Acceptance checks:
 - source binding is coverage-level specific: `direct_tool` and `derived_proxy`
   cards must carry matching `evidence_dependencies`, while `runtime_state`
   cards must declare runtime input sources;
+- CIO pre-decision cards must not declare `candidate_target_state`; that source
+  is only available after the CIO proposal and is reserved for CRO/execution
+  validation and downstream cards;
 - catalog schema validation rejects incomplete executable cards: in-run
   tool-derived dependencies must declare their scope source fields, numeric
   targets must carry bounds/step, and `enforcement: code` cards must declare

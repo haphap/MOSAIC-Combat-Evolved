@@ -1034,6 +1034,12 @@ function validateCardSourceBinding(card: DomainKnobCard): string[] {
   if (card.coverage_level === "runtime_state" && card.runtime_input_sources.length === 0) {
     reasons.push(`domain_card_runtime_source_missing:${card.id}`);
   }
+  if (
+    card.owner_agent === "decision.cio" &&
+    card.runtime_input_sources.includes("candidate_target_state")
+  ) {
+    reasons.push(`domain_card_cio_self_loop_source:${card.id}:candidate_target_state`);
+  }
   return reasons;
 }
 

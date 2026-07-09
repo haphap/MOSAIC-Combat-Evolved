@@ -505,6 +505,23 @@ describe("checkResearchKnobsPrompts", () => {
     expect(validateDomainKnobCatalogArtifact(missingRuntimeSource)).toContain(
       "domain_card_runtime_source_missing:stop_loss_pct",
     );
+
+    const selfLoopSource = structuredClone(artifact);
+    const cioCard = selfLoopSource.agents
+      .find((agent) => agent.agent === "cio")
+      ?.cards.find((card) => card.id === "min_confidence_to_add");
+    expect(cioCard).toBeDefined();
+    if (!cioCard) return;
+    cioCard.runtime_input_sources = [...cioCard.runtime_input_sources, "candidate_target_state"];
+    cioCard.runtime_input_source_policies.candidate_target_state = {
+      missing: "disable_card",
+      stale: "disable_card",
+      source_error: "disable_card",
+      empty_confirmed: "invalid",
+    };
+    expect(validateDomainKnobCatalogArtifact(selfLoopSource)).toContain(
+      "domain_card_cio_self_loop_source:min_confidence_to_add:candidate_target_state",
+    );
   });
 
   it("requires private domain knob value registries and checks projections against them", async () => {

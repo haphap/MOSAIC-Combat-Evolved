@@ -37,6 +37,8 @@ Notes:
 - Domain source bindings are coverage-specific: `direct_tool` and
   `derived_proxy` cards need matching evidence dependencies; `runtime_state`
   cards need runtime input sources.
+- CIO pre-decision cards must not consume `candidate_target_state`; only
+  CRO/execution or downstream validation can depend on CIO's same-run proposal.
 - `conflicting_evidence` confidence caps are fail-closed in prompt checks until
   a direction-adapter registry exists. Do not add that trigger to production
   knobs as a prose-only conflict rule.
