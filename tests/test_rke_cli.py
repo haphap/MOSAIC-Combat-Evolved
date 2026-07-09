@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 from mosaic.rke import (
     TushareResearchReportRefreshResult,
@@ -16,12 +17,17 @@ from mosaic.rke.promotion_gate import (
     PromotionGateCriterion,
 )
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from mosaic.rke.review_progress import (
+    ManualReviewGateProgress,
+    ManualReviewProgressReport,
+)
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 from mosaic.rke.tushare_reports import (
     P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
     fetch_tushare_research_reports,
     refresh_tushare_research_report_registry,
 )
+from mosaic.rke.workflows import RkeRefreshResult
 
 
 GOLD_MANUAL_FIELDS = (
@@ -92,6 +98,44 @@ def _redaction_source_text_count(root: Path) -> int:
     return int(payload["source_text_count"])
 
 
+def _stub_cli_review_action_context(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mosaic.rke.cli._current_review_action_command_overrides",
+        lambda root, review_kind: {},
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli._current_review_action_context_parts",
+        lambda root, review_kind: ({}, {}, {}),
+    )
+
+    def fake_public_context(root, review_kind):
+        if review_kind != "gold_set":
+            return {}
+        return {
+            "batch_overview": {
+                "current_batch_path": "registry/review_batches/gold_set_reviewed.jsonl"
+            },
+            "current_batch_pending_rows": 0,
+        }
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli._current_review_action_public_context",
+        fake_public_context,
+    )
+
+
+def _stub_master_plan_status_deep_actions(monkeypatch) -> None:
+    _stub_cli_review_action_context(monkeypatch)
+    monkeypatch.setattr(
+        "mosaic.rke.cli.build_schema_validation_report",
+        lambda root: SimpleNamespace(records=()),
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli._schema_status_next_actions",
+        lambda records, **kwargs: [],
+    )
+
+
 def test_rke_cli_validate_required_success(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 
@@ -147,7 +191,8 @@ def test_rke_cli_manifest_writes_file(tmp_path: Path, capsys):
     assert artifact_paths.isdisjoint(PRIVATE_LOCAL_REGISTRY_FILES)
 
 
-def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
+def test_rke_cli_master_plan_status_writes_coverage(monkeypatch, tmp_path: Path, capsys):
+    _stub_master_plan_status_deep_actions(monkeypatch)
     _copy_registry(tmp_path)
     shutil.copytree(Path("docs"), tmp_path / "docs")
     shutil.copytree(Path("schemas"), tmp_path / "schemas")
@@ -172,8 +217,9 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
 
 
 def test_rke_cli_master_plan_status_no_write_preserves_artifacts(
-    tmp_path: Path, capsys
+    monkeypatch, tmp_path: Path, capsys
 ):
+    _stub_master_plan_status_deep_actions(monkeypatch)
     _copy_registry(tmp_path)
     shutil.copytree(Path("docs"), tmp_path / "docs")
     shutil.copytree(Path("schemas"), tmp_path / "schemas")
@@ -243,7 +289,7 @@ def test_rke_cli_audit_view_reports_malformed_jsonl_rows(tmp_path: Path, capsys)
     )
 
 
-def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
+def test_rke_cli_refresh_preserves_reviews(monkeypatch, tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_review = (
         tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -269,6 +315,14 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
         for row in rows
     }
 
+    captured: dict[str, object] = {}
+
+    def fake_refresh(root, *, preserve_review_templates):
+        captured["root"] = Path(root)
+        captured["preserve_review_templates"] = preserve_review_templates
+        return RkeRefreshResult(root=str(root), outputs={}, manifest_valid=True)
+
+    monkeypatch.setattr("mosaic.rke.cli.run_full_rke_refresh", fake_refresh)
     code = main(("refresh", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
     refreshed_rows = [json.loads(line) for line in gold_review.read_text(encoding="utf-8").splitlines()]
@@ -279,6 +333,10 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
 
     assert code == 0
     assert output["manifest_valid"] is True
+    assert captured == {
+        "root": tmp_path,
+        "preserve_review_templates": True,
+    }
     assert refreshed_manual[edited_claim_id] == original_manual[edited_claim_id]
     assert all(
         manual_fields == original_manual[claim_id]
@@ -607,59 +665,69 @@ def test_rke_cli_backfill_gold_review_from_prior_human_review(
 
 
 def test_rke_cli_review_progress_surfaces_gold_backfill_commands(
-    tmp_path: Path, capsys
+    monkeypatch, tmp_path: Path, capsys
 ):
-    _copy_registry(tmp_path)
-    template_path = (
-        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    backfill_dry_run = (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke backfill-gold-review --root . "
+        "--input registry/review_batches/gold_set_reviewed.jsonl"
     )
-    template_rows = _load_jsonl(template_path)
-    for row in template_rows:
-        if row.get("proposed_claim_text") and row.get(
-            "proposed_cause_variables"
-        ) and row.get("proposed_target_variables"):
-            row.update(
-                {
-                    "manual_claim_text": "Manual reviewed claim.",
-                    "claim_correct": True,
-                    "source_span_supports_claim": True,
-                    "direction_correct": True,
-                    "target_correct": False,
-                    "horizon_correct": True,
-                    "variable_mapping_correct": False,
-                    "unsupported_field_false_grounded": False,
-                    "reviewer": "hap",
-                    "review_date": "2026-06-15",
-                }
-            )
-    _write_jsonl(template_path, template_rows)
-    prepare_code = main(
-        (
-            "prepare-gold-review",
-            "--root",
-            str(tmp_path),
-            "--reviewed-failures",
-            "--gold-batch-size",
-            "1",
-            "--force",
-        )
+    progress = ManualReviewProgressReport(
+        report_id="test",
+        ready_for_promotion_dry_run=False,
+        gates=(
+            ManualReviewGateProgress(
+                review_kind="gold_set",
+                input_path="registry/review_batches/gold_set_full_reviewed.jsonl",
+                input_exists=False,
+                target_rows=1,
+                input_rows=0,
+                complete_rows=0,
+                pending_rows=1,
+                simulation_accepted=False,
+                ready_for_promotion=False,
+                blockers=("gold_set: 0/1 ready",),
+                prepare_command="",
+                dry_run_command="",
+                apply_command="",
+                next_batch_commands={
+                    "backfill_dry_run": backfill_dry_run,
+                    "backfill_write": f"{backfill_dry_run} --write",
+                    "dry_run": (
+                        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-gold-review "
+                        "--root . --input registry/review_batches/gold_set_reviewed.jsonl "
+                        "--dry-run"
+                    ),
+                },
+                current_batch_status={
+                    "path": "registry/review_batches/gold_set_reviewed.jsonl",
+                    "exists": True,
+                    "rows": 1,
+                    "complete_rows": 0,
+                    "pending_rows": 1,
+                    "malformed_rows": 0,
+                    "target_status": {
+                        "exists": True,
+                        "review_input_rows": 1,
+                        "aligned": True,
+                    },
+                    "evidence_status": {
+                        "exists": True,
+                        "rows": 1,
+                        "review_input_rows": 1,
+                        "covered_review_rows": 1,
+                        "same_order": True,
+                        "aligned": True,
+                    },
+                    "backfill_status": {"write_command_available": True},
+                },
+            ),
+        ),
+        blockers=("gold_set: 0/1 ready",),
     )
-    prepare_output = json.loads(capsys.readouterr().out)
-    assert prepare_code == 0
-    assert prepare_output["rows"] == 1
-    evidence_code = main(
-        (
-            "write-gold-review-evidence",
-            "--root",
-            str(tmp_path),
-            "--review-input",
-            "registry/review_batches/gold_set_reviewed.jsonl",
-        )
+    monkeypatch.setattr(
+        "mosaic.rke.cli.build_manual_review_progress",
+        lambda root: progress,
     )
-    evidence_output = json.loads(capsys.readouterr().out)
-    assert evidence_code == 0
-    assert evidence_output["rows"] == 1
-    assert evidence_output["blockers"] == 0
 
     code = main(
         (
@@ -685,7 +753,17 @@ def test_rke_cli_review_progress_surfaces_gold_backfill_commands(
     assert "--write" in commands["backfill_write"]
 
 
-def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, capsys):
+def test_rke_cli_prepare_lockbox_review_protects_existing_file(
+    monkeypatch, tmp_path: Path, capsys
+):
+    monkeypatch.setattr(
+        "mosaic.rke.operator_handoff.lockbox_upstream_review_blockers",
+        lambda root: (
+            "gold_set gate must be ready before opening lockbox review",
+            "footprint_review gate must be ready before opening lockbox review",
+            "source_license gate must be ready before opening lockbox review",
+        ),
+    )
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/lockbox_reviewed.json"
     if reviewed_path.exists():
@@ -975,7 +1053,8 @@ def test_rke_cli_source_text_status_reports_malformed_jsonl_rows(
     assert any("must contain valid JSON" in blocker for blocker in output["blockers"])
 
 
-def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
+def test_rke_cli_promotion_status_writes_report(monkeypatch, tmp_path: Path, capsys):
+    _stub_cli_review_action_context(monkeypatch)
     _copy_registry(tmp_path)
 
     code = main(("promotion-status", "--root", str(tmp_path)))
@@ -1020,8 +1099,10 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
 
 
 def test_promotion_status_next_actions_includes_lockbox_when_pg09_fails(
+    monkeypatch,
     tmp_path: Path,
 ):
+    _stub_cli_review_action_context(monkeypatch)
     _copy_registry(tmp_path)
     result = ProductionPromotionGateReport(
         report_id="test",
@@ -1077,7 +1158,10 @@ def test_promotion_status_next_actions_includes_lockbox_when_pg09_fails(
     ]
 
 
-def test_rke_cli_promotion_status_no_write_preserves_report(tmp_path: Path, capsys):
+def test_rke_cli_promotion_status_no_write_preserves_report(
+    monkeypatch, tmp_path: Path, capsys
+):
+    _stub_cli_review_action_context(monkeypatch)
     _copy_registry(tmp_path)
     main(("promotion-status", "--root", str(tmp_path)))
     capsys.readouterr()

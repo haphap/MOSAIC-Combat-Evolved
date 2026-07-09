@@ -57,6 +57,17 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     )
 
 
+def _stub_manual_review_import_downstream(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mosaic.rke.manual_review_import._write_gold_downstream",
+        lambda root: {},
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.manual_review_import._write_license_downstream",
+        lambda root: {},
+    )
+
+
 def _reset_gold_review_rows(path: Path) -> None:
     rows = _load_jsonl(path)
     for row in rows:
@@ -148,13 +159,17 @@ def _license_import_rows(root: Path) -> list[dict]:
     ]
 
 
-def test_apply_gold_set_review_import_passes_c02_when_all_rows_reviewed(tmp_path: Path):
+def test_apply_gold_set_review_import_passes_c02_when_all_rows_reviewed(
+    monkeypatch, tmp_path: Path
+):
+    _stub_manual_review_import_downstream(monkeypatch)
     _copy_registry(tmp_path)
     import_path = tmp_path / "gold_import.jsonl"
     gold_rows = _gold_import_rows(tmp_path)
     _write_jsonl(import_path, gold_rows)
 
     report = apply_gold_set_review_import(tmp_path, import_path)
+    write_gold_set_review_summary(tmp_path)
     summary = summarize_gold_set_review(tmp_path)
     audit = audit_master_plan_completion(tmp_path)
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
@@ -436,13 +451,17 @@ def test_apply_gold_set_review_import_reports_malformed_jsonl_target_rows(tmp_pa
     )
 
 
-def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
+def test_apply_license_review_import_passes_c11_and_source_production_gate(
+    monkeypatch, tmp_path: Path
+):
+    _stub_manual_review_import_downstream(monkeypatch)
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
     license_rows = _license_import_rows(tmp_path)
     _write_jsonl(import_path, license_rows)
 
     report = apply_source_license_review_import(tmp_path, import_path)
+    write_source_license_review_summary(tmp_path)
     summary = summarize_source_license_review(tmp_path)
     source_validation = build_source_registry_validation_report(tmp_path)
     audit = audit_master_plan_completion(tmp_path)
@@ -719,7 +738,8 @@ def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path:
     assert not summary.review_complete
 
 
-def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
+def test_cli_apply_review_import_commands(monkeypatch, tmp_path: Path, capsys):
+    _stub_manual_review_import_downstream(monkeypatch)
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
     license_import = tmp_path / "license_import.jsonl"

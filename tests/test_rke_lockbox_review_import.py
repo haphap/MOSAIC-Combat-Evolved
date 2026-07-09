@@ -10,7 +10,9 @@ from mosaic.rke import (
     apply_source_license_review_import,
     build_lockbox_review_import_template,
     build_production_promotion_gate_report,
+    write_gold_set_review_summary,
     write_manual_review_batches,
+    write_source_license_review_summary,
 )
 from mosaic.rke.cli import main
 from mosaic.rke.manual_review_import import (
@@ -66,6 +68,28 @@ def _write_json(path: Path, row: dict) -> None:
     path.write_text(
         json.dumps(row, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+    )
+
+
+def _stub_lockbox_downstream(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mosaic.rke.lockbox_review_import._write_lockbox_downstream",
+        lambda root: {
+            "production_promotion_gate": (
+                "registry/promotion/rke_production_promotion_gate.json"
+            )
+        },
+    )
+
+
+def _stub_manual_review_import_downstream(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mosaic.rke.manual_review_import._write_gold_downstream",
+        lambda root: {},
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.manual_review_import._write_license_downstream",
+        lambda root: {},
     )
 
 
@@ -144,8 +168,10 @@ def test_apply_lockbox_review_import_dry_run_does_not_modify_target(tmp_path: Pa
 
 
 def test_apply_lockbox_review_import_records_failed_review_without_promotion(
+    monkeypatch,
     tmp_path: Path,
 ):
+    _stub_lockbox_downstream(monkeypatch)
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_failed.json"
     failed = {
@@ -250,7 +276,11 @@ def test_apply_lockbox_review_import_rejects_invalid_json_target(tmp_path: Path)
     ).exists()
 
 
-def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Path):
+def test_lockbox_review_import_allows_production_after_manual_gates(
+    monkeypatch, tmp_path: Path
+):
+    _stub_lockbox_downstream(monkeypatch)
+    _stub_manual_review_import_downstream(monkeypatch)
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
     license_import = tmp_path / "license_import.jsonl"
@@ -261,6 +291,8 @@ def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Pa
 
     apply_gold_set_review_import(tmp_path, gold_import)
     apply_source_license_review_import(tmp_path, license_import)
+    write_gold_set_review_summary(tmp_path)
+    write_source_license_review_summary(tmp_path)
     lockbox_report = apply_lockbox_review_import(tmp_path, lockbox_import)
     promotion = build_production_promotion_gate_report(tmp_path)
 
@@ -270,7 +302,10 @@ def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Pa
     assert promotion.next_state == "production"
 
 
-def test_apply_lockbox_review_import_rejects_reopening_existing_lockbox(tmp_path: Path):
+def test_apply_lockbox_review_import_rejects_reopening_existing_lockbox(
+    monkeypatch, tmp_path: Path
+):
+    _stub_lockbox_downstream(monkeypatch)
     _copy_registry(tmp_path)
     first_import = tmp_path / "lockbox_review_first.json"
     second_import = tmp_path / "lockbox_review_second.json"
@@ -288,7 +323,8 @@ def test_apply_lockbox_review_import_rejects_reopening_existing_lockbox(tmp_path
     assert "lockbox target has already been opened" in second_report.rejected_reasons
 
 
-def test_cli_apply_lockbox_review_import(tmp_path: Path, capsys):
+def test_cli_apply_lockbox_review_import(monkeypatch, tmp_path: Path, capsys):
+    _stub_lockbox_downstream(monkeypatch)
     _copy_registry(tmp_path)
     target = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
     original = target.read_text(encoding="utf-8")

@@ -38,8 +38,16 @@ rtk uv run python scripts/check_prompt_leaks.py
 For full RKE pytest, use `.mosaic/tmp` as `--basetemp`. Several RKE tests copy
 the registry tree and can produce large temporary directories.
 
-If `pytest tests/ -q` looks stuck locally, first check local private registry
-size:
+If `pytest tests/ -q` looks stuck locally, profile the slow tests before
+changing code:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m pytest tests/ -q --durations=80 --durations-min=0.1 \
+  --basetemp .mosaic/tmp/pytest-rke-full-profile
+```
+
+Also check local private registry size:
 
 ```bash
 du -sh registry
@@ -47,13 +55,21 @@ du -ah registry/report_intelligence | sort -hr | head
 ```
 
 On a checkout with ignored private `registry/report_intelligence/` artifacts,
-`tests/test_rke_cli.py::test_rke_cli_master_plan_status_*` is usually the slow
-section because those tests copy the full registry into `tmp_path`. In this
-operator checkout, the largest local private file was
-`registry/report_intelligence/analytical_footprint_reviewed.jsonl`, and the two
-master-plan status tests measured about 46s and 92s. CI runs on the public
-checkout and is much smaller; for local iteration prefer the targeted commands
-above or the CI-style per-file RKE split instead of a monolithic
+RKE CLI tests can become the slow section when they copy the full registry or
+call deep refresh/review-progress builders. The July 2026 local profile found
+`tests/test_rke_cli.py` taking 11m22s, led by
+`test_rke_cli_refresh_preserves_reviews` at 274s and several
+master-plan/promotion/review-progress cases at 22-89s. Those CLI contract tests
+now stub the deep builders they are not asserting; `tests/test_rke_cli.py` should
+complete in about 10s locally, with no single test above 1s. The same pass found
+slow accepted-import downstream rewrites in
+`tests/test_rke_lockbox_review_import.py` and
+`tests/test_rke_manual_review_import.py`; those tests now stub the downstream
+report bundle they are not asserting and should complete in single-digit
+seconds. `tests/test_rke_operator_handoff.py` still exercises the real manual
+review progress builder and remains the main residual local hotspot at about 22s
+per deep handoff case. If a full local run is still slow, prefer the targeted
+commands above or the CI-style per-file RKE split instead of a monolithic
 `pytest tests/ -q`.
 
 ## Prompt IR And Domain Knob Catalog
