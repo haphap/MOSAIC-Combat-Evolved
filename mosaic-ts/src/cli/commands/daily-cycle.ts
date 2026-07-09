@@ -532,8 +532,10 @@ function normalizeFixturePosition(value: unknown, index: number): CurrentPositio
   }
   const record = value as Record<string, unknown>;
   const ticker = requiredString(record.ticker, `current_positions[${index}].ticker`);
+  const sector = optionalString(record.sector);
   return {
     ticker,
+    ...(sector ? { sector } : {}),
     current_weight: requiredFiniteNumber(
       record.current_weight,
       `current_positions[${index}].current_weight`,

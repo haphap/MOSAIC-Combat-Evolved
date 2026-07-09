@@ -41,6 +41,7 @@ export function validateCioPositionActions(opts: {
     "max_single_name_weight",
     1,
   );
+  const maxSectorWeight = thresholdNumber(knobSnapshot, sharedPolicyValues, "max_sector_weight", 1);
   const staleThesisDays = thresholdNumber(
     knobSnapshot,
     sharedPolicyValues,
@@ -62,6 +63,7 @@ export function validateCioPositionActions(opts: {
       );
     }
   }
+  assertSectorConcentration(actions, maxSectorWeight);
   for (const position of currentPositions.positions) {
     const action = actions.find((item) => item.ticker === position.ticker);
     if (
@@ -130,6 +132,7 @@ function normalizeAction(
   staleThesisDays: number,
 ): PortfolioAction {
   const position = currentPositions.positions.find((item) => item.ticker === action.ticker);
+  const sector = nonEmptyText(action.sector) ?? nonEmptyText(position?.sector);
   const currentWeight = action.current_weight ?? position?.current_weight;
   const deltaWeight =
     action.delta_weight ??
@@ -146,6 +149,7 @@ function normalizeAction(
     `${action.action} target weight`;
   return {
     ...action,
+    ...(sector ? { sector } : {}),
     ...(positionDecision ? { position_decision: positionDecision } : {}),
     ...(currentWeight !== undefined ? { current_weight: currentWeight } : {}),
     ...(deltaWeight !== undefined ? { delta_weight: deltaWeight } : {}),
@@ -153,6 +157,31 @@ function normalizeAction(
     risk_flags: riskFlags,
     position_decision_reason: positionDecisionReason,
   };
+}
+
+function assertSectorConcentration(
+  actions: ReadonlyArray<PortfolioAction>,
+  maxSectorWeight: number,
+): void {
+  if (maxSectorWeight >= 1) return;
+  const totals = new Map<string, number>();
+  for (const action of actions) {
+    if (action.target_weight <= 0) continue;
+    const sector = nonEmptyText(action.sector);
+    if (!sector) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: max_sector_weight active but sector is missing`,
+      );
+    }
+    totals.set(sector, (totals.get(sector) ?? 0) + action.target_weight);
+  }
+  for (const [sector, total] of totals.entries()) {
+    if (total > maxSectorWeight + 1e-9) {
+      throw new PositionActionValidationError(
+        `${sector}: target_weight ${total.toFixed(3)} exceeds max_sector_weight ${maxSectorWeight}`,
+      );
+    }
+  }
 }
 
 function inferPositionDecision(

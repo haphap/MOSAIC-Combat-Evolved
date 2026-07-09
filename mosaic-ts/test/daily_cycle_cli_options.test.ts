@@ -7,6 +7,7 @@ import { loadCurrentPositionsFixture } from "../src/cli/commands/daily-cycle.js"
 function fixturePosition(ticker = "600519.SH") {
   return {
     ticker,
+    sector: ticker === "600519.SH" ? "consumer" : "semiconductor",
     current_weight: 0.08,
     cost_basis: 1500,
     market_price: 1700,
@@ -28,6 +29,7 @@ describe("daily-cycle current-position fixture options", () => {
     expect(snapshot?.snapshot_status).toBe("loaded");
     expect(snapshot?.position_source).toBe("cli_fixture");
     expect(snapshot?.positions[0]?.ticker).toBe("600519.SH");
+    expect(snapshot?.positions[0]?.sector).toBe("consumer");
     expect(snapshot?.position_snapshot_hash).toMatch(/^sha256:/);
   });
 

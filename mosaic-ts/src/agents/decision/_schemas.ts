@@ -193,6 +193,7 @@ export const CioSchema = z
         z.object({
           ticker: z.string().min(1),
           action: z.enum(["BUY", "SELL", "HOLD", "REDUCE"]),
+          sector: z.string().min(1).optional(),
           position_decision: z.enum(["HOLD", "ADD", "REDUCE", "EXIT"]).optional(),
           current_weight: z.number().min(0).max(1).optional(),
           target_weight: z

@@ -19,7 +19,7 @@ pnpm dev daily-cycle --cohort cohort_default --fake-llm
 ```
 选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`。跑全部 25 agents,CIO 写出 `portfolio_actions`(落库 `recommendations` 表)。
 
-current-position fixture 文件可以是 JSON 数组,也可以是包含 `current_positions` 的对象;每行必须包含 ticker、当前权重、成本、市场价格、未实现盈亏、持有天数、建仓日期、来源 agent、entry thesis id 和最近复盘日期。
+current-position fixture 文件可以是 JSON 数组,也可以是包含 `current_positions` 的对象;每行必须包含 ticker、当前权重、成本、市场价格、未实现盈亏、持有天数、建仓日期、来源 agent、entry thesis id 和最近复盘日期。`sector` 可选,但用于测试 `max_sector_weight` 时必须提供。
 
 Prompt 来源:默认使用 `MOSAIC-Combat-Evolved/prompts/mosaic` 内置 prompts。在 `.env` 中设置 `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` 后,后续 agent 运行会优先使用 private prompt repo;也可以用 `daily-cycle --prompts-repo <path>` / `--prompts-root <path>` 对单次运行覆盖。
 

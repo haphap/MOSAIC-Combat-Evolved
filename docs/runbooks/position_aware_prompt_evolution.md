@@ -101,6 +101,7 @@ For a current-position smoke, pass the private prompt root and a local fixture:
   "current_positions": [
     {
       "ticker": "600519.SH",
+      "sector": "consumer",
       "current_weight": 0.08,
       "cost_basis": 1500,
       "market_price": 1700,
@@ -132,6 +133,8 @@ The acceptance evidence is the final JSON:
 - `position_audit.positions_reviewed` covers every loaded position.
 - `portfolio_actions[*]` include `current_weight`, `target_weight`,
   `delta_weight`, `position_decision`, `thesis_status`, and `risk_flags`.
+- fixtures may include `sector`; it is required when testing an active
+  `max_sector_weight` runtime card.
 
 ## MiroFish Portfolio Stress Fixture
 
@@ -306,6 +309,8 @@ Do not promote a mutation when any of these are true:
 - a stop-loss-breached holding remains `HOLD` without override rationale;
 - a stale-thesis holding lacks a `stale_thesis` risk flag and explicit review
   reason;
+- an active `max_sector_weight` runtime card is breached, or an action lacks
+  sector exposure while that card is active;
 - MiroFish is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or `EXIT`;
 - MiroFish context is missing `as_of_date` or has an `as_of_date` later than the
   run date;

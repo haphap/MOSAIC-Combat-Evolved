@@ -309,6 +309,7 @@ export interface AutoExecOutput extends KnobInfluenceDeclaration {
 export interface PortfolioAction {
   ticker: string;
   action: "BUY" | "SELL" | "HOLD" | "REDUCE";
+  sector?: string | undefined;
   position_decision?: "HOLD" | "ADD" | "REDUCE" | "EXIT" | undefined;
   current_weight?: number | undefined;
   /** Target portfolio weight in [0, 1]. */
@@ -332,6 +333,7 @@ export interface CioOutput extends KnobInfluenceDeclaration {
 
 export interface CurrentPosition {
   ticker: string;
+  sector?: string | undefined;
   current_weight: number;
   cost_basis: number;
   market_price: number;

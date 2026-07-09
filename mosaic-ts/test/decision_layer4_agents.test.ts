@@ -235,6 +235,7 @@ describe("schemas reject malformations", () => {
         {
           ticker: "600519.SH",
           action: "HOLD",
+          sector: "consumer",
           position_decision: "HOLD",
           current_weight: 0.2,
           target_weight: 0.2,
@@ -250,6 +251,7 @@ describe("schemas reject malformations", () => {
       confidence: 0.5,
     });
     const action = parsed.portfolio_actions[0];
+    expect(action?.sector).toBe("consumer");
     expect(action?.override_reason).toContain("policy catalyst");
     expect(action?.risk_flags).toEqual(["stop_loss_breached"]);
   });
@@ -559,6 +561,52 @@ describe("CIO position validator", () => {
         sharedPolicyValues: { stop_loss_pct: -0.05 },
       }),
     ).toThrow(/stop_loss breached/);
+  });
+
+  it("rejects sector concentration breaches when max_sector_weight is active", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "688981.SH",
+            action: "HOLD",
+            target_weight: 0.18,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+          {
+            ticker: "300750.SZ",
+            action: "HOLD",
+            target_weight: 0.1,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([
+          { ...heldPosition, ticker: "688981.SH", sector: "semiconductor", current_weight: 0.18 },
+          { ...heldPosition, ticker: "300750.SZ", sector: "semiconductor", current_weight: 0.1 },
+        ]),
+        sharedPolicyValues: { max_sector_weight: 0.25 },
+      }),
+    ).toThrow(/max_sector_weight/);
+  });
+
+  it("requires sector exposure when max_sector_weight is active", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "688981.SH",
+            action: "BUY",
+            target_weight: 0.1,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([]),
+        sharedPolicyValues: { max_sector_weight: 0.25 },
+      }),
+    ).toThrow(/sector is missing/);
   });
 
   it("rejects MiroFish-only portfolio actions", () => {
