@@ -112,7 +112,8 @@ Acceptance checks:
 - card metric closure includes `evaluation_metric`, `rollback_condition.metric`,
   and `secondary_metrics`; every referenced metric must exist in the evaluation
   registry and use the card horizon, and rollback units must match the metric
-  unit;
+  unit; metric registry entries must carry rollback-usable
+  `value_convention`, `direction`, `baseline`, PIT, and exclusion policy fields;
 - CIO pre-decision cards must not declare `candidate_target_state`; that source
   is only available after the CIO proposal and is reserved for CRO/execution
   validation and downstream cards;

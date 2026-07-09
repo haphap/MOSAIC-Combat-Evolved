@@ -537,6 +537,23 @@ describe("checkResearchKnobsPrompts", () => {
       "domain_card_cio_self_loop_source:min_confidence_to_add:candidate_target_state",
     );
 
+    const incompleteMetric = structuredClone(artifact);
+    const metric = incompleteMetric.evaluation_metrics.sector_rank_correlation_20d as unknown as
+      | Record<string, unknown>
+      | undefined;
+    expect(metric).toBeDefined();
+    if (!metric) return;
+    delete metric.value_convention;
+    delete metric.baseline;
+    metric.pit_required = false;
+    expect(validateDomainKnobCatalogArtifact(incompleteMetric)).toEqual(
+      expect.arrayContaining([
+        "domain_catalog_metric_value_convention_missing:sector_rank_correlation_20d",
+        "domain_catalog_metric_baseline_missing:sector_rank_correlation_20d",
+        "domain_catalog_metric_pit_not_required:sector_rank_correlation_20d",
+      ]),
+    );
+
     const missingSecondaryMetric = structuredClone(artifact);
     const secondaryCard = missingSecondaryMetric.agents
       .find((agent) => agent.agent === "semiconductor")

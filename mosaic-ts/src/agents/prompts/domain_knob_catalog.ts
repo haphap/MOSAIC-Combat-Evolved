@@ -810,6 +810,9 @@ export function validateDomainKnobCatalogArtifact(
   if (expectedMetrics.join(",") !== actualMetrics.join(",")) {
     reasons.push("domain_catalog_evaluation_metric_registry_mismatch");
   }
+  for (const [metricId, metricEntry] of Object.entries(artifact.evaluation_metrics)) {
+    reasons.push(...validateEvaluationMetricEntry(metricId, metricEntry));
+  }
   const agentsById = new Map(artifact.agents.map((agent) => [agent.agent, agent]));
   const seenPaths = new Set<string>();
   for (const spec of specs) {
@@ -1087,6 +1090,41 @@ function validateCardMetricCompatibility(
         `domain_card_secondary_metric_window_mismatch:${card.id}:${metricId}:${secondaryMetric.window}:expected:${card.horizon}`,
       );
     }
+  }
+  return reasons;
+}
+
+function validateEvaluationMetricEntry(
+  metricId: string,
+  metricEntry: EvaluationMetricRegistryEntry,
+): string[] {
+  const reasons: string[] = [];
+  if (metricEntry.id !== metricId) {
+    reasons.push(`domain_catalog_metric_id_mismatch:${metricId}:${metricEntry.id}`);
+  }
+  if (!metricEntry.value_convention) {
+    reasons.push(`domain_catalog_metric_value_convention_missing:${metricId}`);
+  }
+  if (!metricEntry.direction) {
+    reasons.push(`domain_catalog_metric_direction_missing:${metricId}`);
+  }
+  if (!metricEntry.baseline) {
+    reasons.push(`domain_catalog_metric_baseline_missing:${metricId}`);
+  }
+  if (!metricEntry.aggregation) {
+    reasons.push(`domain_catalog_metric_aggregation_missing:${metricId}`);
+  }
+  if (!metricEntry.window) {
+    reasons.push(`domain_catalog_metric_window_missing:${metricId}`);
+  }
+  if (!Number.isInteger(metricEntry.min_sample_size) || metricEntry.min_sample_size < 1) {
+    reasons.push(`domain_catalog_metric_min_sample_size_invalid:${metricId}`);
+  }
+  if (metricEntry.pit_required !== true) {
+    reasons.push(`domain_catalog_metric_pit_not_required:${metricId}`);
+  }
+  if (!Array.isArray(metricEntry.exclusion_rules) || metricEntry.exclusion_rules.length === 0) {
+    reasons.push(`domain_catalog_metric_exclusion_rules_missing:${metricId}`);
   }
   return reasons;
 }

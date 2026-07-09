@@ -37,7 +37,9 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
   input source。
 - Domain card metric 必须闭包到 evaluation metric registry:
   `evaluation_metric`、`rollback_condition.metric` 和 `secondary_metrics`
-  都要已注册、horizon 兼容,且 rollback unit 要匹配 metric unit。
+  都要已注册、horizon 兼容,且 rollback unit 要匹配 metric unit。Registry entry
+  还必须包含可用于 rollback 的 direction、value convention、baseline、PIT 和
+  exclusion policy 字段。
 - CIO pre-decision card 不得消费 `candidate_target_state`;这个 source 只能由
   CRO/execution 或下游 validator 依赖 CIO 本轮 proposal 时使用。
 - `conflicting_evidence` confidence cap 在 direction-adapter registry 可用前
