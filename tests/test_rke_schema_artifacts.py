@@ -6757,6 +6757,160 @@ def test_prompt_ir_runtime_contract_schema_requires_output_fields(tmp_path: Path
     assert any(".output_schema_fields: required" in failure for failure in record.failures)
 
 
+def _domain_knob_catalog_fixture() -> dict:
+    dependency_id = "sector.semiconductor.inventory_cycle_quarters.primary"
+    return {
+        "schema_version": "domain_knob_catalog_v1",
+        "catalog_version": "domain_knob_catalog_v1",
+        "runtime_agent_count": 1,
+        "runtime_sources": {},
+        "evaluation_metrics": {
+            "sector_rank_correlation_20d": {
+                "id": "sector_rank_correlation_20d",
+                "unit": "ratio",
+                "value_convention": "signed_return",
+                "direction": "higher_is_better",
+                "aggregation": "mean",
+                "window": "20d",
+                "baseline": "previous_knob_snapshot",
+                "min_sample_size": 30,
+                "pit_required": True,
+                "exclusion_rules": ["missing_required_evidence_dependency"],
+            }
+        },
+        "agents": [
+            {
+                "layer": "sector",
+                "agent": "semiconductor",
+                "prompt_ir_agent": "sector.semiconductor",
+                "min_mutable_domain_knobs": 1,
+                "card_count": 1,
+                "cards": [
+                    {
+                        "id": "inventory_cycle_quarters",
+                        "owner_agent": "sector.semiconductor",
+                        "consumer_agents": ["sector.semiconductor"],
+                        "projection_bucket": "lookbacks",
+                        "path": (
+                            "/rule_packs/sector.semiconductor.runtime.v1/rules/"
+                            "sector.semiconductor.soft.001/learnable_parameters/"
+                            "inventory_cycle_quarters/value"
+                        ),
+                        "type": "integer",
+                        "default": 4,
+                        "min": 2,
+                        "max": 8,
+                        "step": 1,
+                        "coverage_level": "direct_tool",
+                        "runtime_input_sources": [],
+                        "runtime_input_source_policies": {},
+                        "evidence_dependencies": [
+                            {
+                                "dependency_id": dependency_id,
+                                "evidence_key": "balance_sheet",
+                                "tool": "get_balance_sheet",
+                                "metric_ids": ["inventory_to_revenue"],
+                                "freshness": "latest_reported_quarter_pit",
+                                "required_for_prediction": True,
+                                "dependency_type": "direct_tool",
+                                "scope_resolution": "pre_run",
+                                "scope_schema": {"ticker": "required"},
+                                "min_scope_coverage": 0.8,
+                            }
+                        ],
+                        "evidence_dependency_policies": {
+                            dependency_id: {
+                                "missing": "exclude_sample_and_cap_if_required",
+                                "stale": "exclude_sample_and_cap_if_required",
+                                "fallback": "exclude_sample_and_cap_if_required",
+                                "tool_failed": "exclude_sample_and_cap_if_required",
+                                "partial_loaded": "exclude_sample_only",
+                                "loaded": "allow",
+                            }
+                        },
+                        "learning_objective": "calibrate inventory cycle lookback",
+                        "prediction_target": "sector.semiconductor.inventory_cycle_quarters.20d",
+                        "evaluation_metric": "sector_rank_correlation_20d",
+                        "horizon": "20d",
+                        "rollback_condition": {
+                            "metric": "sector_rank_correlation_20d",
+                            "worse_by": 0.02,
+                            "unit": "ratio",
+                        },
+                        "enforcement": "advisory",
+                        "category": "domain",
+                        "cross_field_group": None,
+                        "weight_group": None,
+                        "normalization": "none",
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _write_domain_knob_catalog_fixture(tmp_path: Path, catalog: dict) -> SchemaValidationRecord:
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/domain_knob_catalog_v1.schema.json",
+        schema_dir / "domain_knob_catalog_v1.schema.json",
+    )
+    (artifact_dir / "domain_knob_catalog_v1.json").write_text(
+        json.dumps(catalog, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/domain_knob_catalog_v1.schema.json",
+        artifact_path="registry/prompt_checks/domain_knob_catalog_v1.json",
+        artifact_kind="json",
+    )
+
+
+def test_domain_knob_catalog_schema_accepts_valid_catalog(tmp_path: Path):
+    record = _write_domain_knob_catalog_fixture(tmp_path, _domain_knob_catalog_fixture())
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_domain_knob_catalog_schema_requires_in_run_scope_fields(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    dependency = catalog["agents"][0]["cards"][0]["evidence_dependencies"][0]
+    dependency["scope_resolution"] = "in_run_tool_derived"
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any("scope_source_tool: required" in failure for failure in record.failures)
+    assert any("empty_scope_behavior: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_catalog_schema_requires_code_enforcement_fields(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    card = catalog["agents"][0]["cards"][0]
+    card["enforcement"] = "code"
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any("runtime_validator: required" in failure for failure in record.failures)
+    assert any("audit_field: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_catalog_schema_requires_numeric_bounds(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    del catalog["agents"][0]["cards"][0]["step"]
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any(".step: required" in failure for failure in record.failures)
+
+
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):
     schema_dir = tmp_path / "schemas"
     artifact_dir = tmp_path / "registry/sources"

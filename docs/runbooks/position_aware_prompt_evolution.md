@@ -76,6 +76,10 @@ rtk env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
 Acceptance checks:
 
 - exported catalog validates against `schemas/domain_knob_catalog_v1.schema.json`;
+- catalog schema validation rejects incomplete executable cards: in-run
+  tool-derived dependencies must declare their scope source fields, numeric
+  targets must carry bounds/step, and `enforcement: code` cards must declare
+  their runtime validator and audit field;
 - Prompt IR contracts keep runtime tool, metric, current-data, and RKE-prior
   guardrails aligned with the TypeScript runtime registry;
 - private zh/en prompts have exactly one canonical `research-knobs` fence for

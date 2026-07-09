@@ -61,6 +61,7 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 - `init-private-repo` creates the sparse private prompt repo. `--seed-baseline` is migration-only and creates broad override shadowing.
 - `audit-versions` prints metadata only: ids, hashes, repo id, status, metrics, and branches. It does not show prompt content.
 - `verify-release` checks the pinned release tuple (`code_commit_hash`, `prompt_repo_id`, `prompt_commit_hash`, `prompt_sha256`), recomputes the prompt SHA at the commit, and runs the tool compatibility gate.
+- `prompts export-domain-knob-catalog` renders the executable domain-card catalog and validates schema conditions for in-run dependency scopes, numeric bounds, and code-enforced validator/audit fields.
 - Before release, also run `pnpm prompt:drift -- --base-ref origin/main` or the scheduled drift check in the private operator environment.
 - `gc-worktrees` removes stale managed worktrees under `data/worktrees` for the project and/or private prompt repo.
 - Private prompt repos must use a private remote with least-privilege access and encrypted backup or encrypted-at-rest storage.

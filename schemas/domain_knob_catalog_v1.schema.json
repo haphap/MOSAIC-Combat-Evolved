@@ -106,7 +106,7 @@
             "minLength": 1
           },
           "unit": {
-            "enum": ["ratio", "bps", "count"]
+            "enum": ["ratio", "bps", "count", "score", "currency", "registered_custom_unit"]
           },
           "value_convention": {
             "enum": [
@@ -285,8 +285,13 @@
                   "additionalProperties": {
                     "type": "object",
                     "additionalProperties": {
-                      "type": "string",
-                      "minLength": 1
+                      "enum": [
+                        "disable_card",
+                        "disable_card_and_cap_if_required",
+                        "allow",
+                        "exclude_sample_only",
+                        "invalid"
+                      ]
                     }
                   }
                 },
@@ -369,7 +374,28 @@
                       "empty_scope_behavior": {
                         "enum": ["allow_empty", "exclude_sample", "invalid"]
                       }
-                    }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "scope_resolution": {
+                              "const": "in_run_tool_derived"
+                            }
+                          },
+                          "required": ["scope_resolution"]
+                        },
+                        "then": {
+                          "required": [
+                            "scope_source_tool",
+                            "scope_source_evidence_key",
+                            "max_scope_count",
+                            "min_scope_count",
+                            "empty_scope_behavior"
+                          ]
+                        }
+                      }
+                    ]
                   }
                 },
                 "evidence_dependency_policies": {
@@ -377,8 +403,14 @@
                   "additionalProperties": {
                     "type": "object",
                     "additionalProperties": {
-                      "type": "string",
-                      "minLength": 1
+                      "enum": [
+                        "allow",
+                        "exclude_sample_only",
+                        "exclude_sample_and_cap_if_required",
+                        "mark_unsupported_influence",
+                        "reject_output",
+                        "invalid"
+                      ]
                     }
                   }
                 },
@@ -412,7 +444,7 @@
                       "minimum": 0
                     },
                     "unit": {
-                      "enum": ["ratio", "bps", "count"]
+                      "enum": ["ratio", "bps", "count", "score", "currency", "registered_custom_unit"]
                     }
                   }
                 },
@@ -437,7 +469,82 @@
                 "normalization": {
                   "enum": ["none", "sum_to_one"]
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "enum": ["number", "integer"]
+                      }
+                    },
+                    "required": ["type"]
+                  },
+                  "then": {
+                    "required": ["min", "max", "step"]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "const": "enum"
+                      }
+                    },
+                    "required": ["type"]
+                  },
+                  "then": {
+                    "required": ["allowed_values"]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "coverage_level": {
+                        "enum": ["direct_tool", "derived_proxy"]
+                      }
+                    },
+                    "required": ["coverage_level"]
+                  },
+                  "then": {
+                    "properties": {
+                      "evidence_dependencies": {
+                        "minItems": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "coverage_level": {
+                        "const": "runtime_state"
+                      }
+                    },
+                    "required": ["coverage_level"]
+                  },
+                  "then": {
+                    "properties": {
+                      "runtime_input_sources": {
+                        "minItems": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "enforcement": {
+                        "const": "code"
+                      }
+                    },
+                    "required": ["enforcement"]
+                  },
+                  "then": {
+                    "required": ["runtime_validator", "audit_field"]
+                  }
+                }
+              ]
             }
           }
         }

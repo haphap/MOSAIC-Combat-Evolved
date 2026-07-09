@@ -38,7 +38,7 @@ export interface RuntimeSourceRegistryEntry {
 
 export interface EvaluationMetricRegistryEntry {
   id: string;
-  unit: "ratio" | "bps" | "count";
+  unit: "ratio" | "bps" | "count" | "score" | "currency" | "registered_custom_unit";
   value_convention:
     | "signed_return"
     | "nonnegative_loss_magnitude"

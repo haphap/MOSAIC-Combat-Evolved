@@ -156,7 +156,7 @@ export const RollbackConditionSchema = z
   .object({
     metric: z.string().min(1),
     worse_by: z.number(),
-    unit: z.enum(["ratio", "bps", "count"]),
+    unit: z.enum(["ratio", "bps", "count", "score", "currency", "registered_custom_unit"]),
   })
   .strict();
 
