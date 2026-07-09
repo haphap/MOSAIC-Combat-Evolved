@@ -35,6 +35,9 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 
 当 `config.mirofish.inject_context` 为真时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。默认关闭。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。autonomous_execution 节点还会在输出进入 CIO 前,对已激活的最小交易 delta、滑点上限和流动性下限 execution cards 做运行时校验。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext` 和 L4 validators。
 
+RKE report context 仍是 shadow-only research prior。若 portfolio action 声明的
+影响来源只有 RKE prior 和/或 MiroFish simulation context,CIO 校验会拒绝。
+
 ## 提示词
 
 提示词双语,按 cohort 版本化于 `prompts/mosaic/` —— `cohort_default` 加 7 个 regime cohort(`cohort_bull_2007`、`cohort_crisis_2008`、`cohort_bull_2016`、`cohort_crisis_covid`、`cohort_recovery_2020`、`cohort_euphoria_2021`、`cohort_rate_tightening`)。Autoresearch 在 git 分支上演化它们(见[自我改进](Self-Improvement.md))。

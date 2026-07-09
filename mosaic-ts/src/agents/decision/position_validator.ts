@@ -34,6 +34,11 @@ export function validateCioPositionActions(opts: {
       "MiroFish-only influence cannot emit portfolio_actions without current data support",
     );
   }
+  if (isPriorOrSimulationOnlyAction(output) && output.portfolio_actions.length > 0) {
+    throw new PositionActionValidationError(
+      "RKE/MiroFish prior-only influence cannot emit portfolio_actions without current data support",
+    );
+  }
   const stopLossPct = thresholdNumber(knobSnapshot, sharedPolicyValues, "stop_loss_pct", -0.08);
   const maxSingleNameWeight = thresholdNumber(
     knobSnapshot,
@@ -100,6 +105,23 @@ export function validateCioPositionActions(opts: {
 function isMirofishOnlyAction(output: CioOutput): boolean {
   const declared = output.declared_knob_influence_ids ?? [];
   return declared.length > 0 && declared.every((id) => id.startsWith("mirofish_"));
+}
+
+function isPriorOrSimulationOnlyAction(output: CioOutput): boolean {
+  const declared = output.declared_knob_influence_ids ?? [];
+  return declared.length > 0 && declared.every(isPriorOrSimulationInfluenceId);
+}
+
+function isPriorOrSimulationInfluenceId(id: string): boolean {
+  const normalized = id.toLowerCase();
+  return (
+    normalized.startsWith("mirofish_") ||
+    normalized === "rke_prior" ||
+    normalized === "research_prior" ||
+    normalized === "get_rke_research_context" ||
+    normalized.startsWith("rke_prior_") ||
+    normalized.startsWith("research_prior_")
+  );
 }
 
 function hasMirofishInfluence(output: CioOutput): boolean {

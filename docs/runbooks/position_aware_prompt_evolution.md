@@ -316,6 +316,8 @@ Do not promote a mutation when any of these are true:
   semantics;
 - an active `max_sector_weight` runtime card is breached, or an action lacks
   sector exposure while that card is active;
+- RKE report prior is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or
+  `EXIT`;
 - MiroFish is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or `EXIT`;
 - MiroFish context is missing `as_of_date` or has an `as_of_date` later than the
   run date;

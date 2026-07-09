@@ -35,6 +35,10 @@ The six industry agents share a common core of 8 tools — `get_industry_policy`
 
 When `config.mirofish.inject_context` is true, the L4 **CRO**, **autonomous_execution**, and **CIO** prompts share one appended MiroFish forward-looking section for the run (latest scenario context, with a "simulation only" disclaimer, context hash, and `as_of_date` anti-lookahead bound). Off by default. MiroFish remains simulation-only: it cannot replace current account or market evidence, and MiroFish-influenced position changes must pass the L4 position validator. The autonomous execution node also enforces active execution cards for minimum trade delta, slippage cap, and liquidity floor before its output reaches CIO. See `maybeAppendMirofishContext` and the L4 validators in `decision/_factory.ts`.
 
+RKE report context remains a shadow-only research prior. CIO validation rejects
+portfolio actions whose declared influence is only RKE prior and/or MiroFish
+simulation context.
+
 ## Prompts
 
 Prompts are bilingual and versioned per cohort under `prompts/mosaic/` — `cohort_default` plus the 7 regime cohorts (`cohort_bull_2007`, `cohort_crisis_2008`, `cohort_bull_2016`, `cohort_crisis_covid`, `cohort_recovery_2020`, `cohort_euphoria_2021`, `cohort_rate_tightening`). Autoresearch evolves these on git branches (see [Self-Improvement](Self-Improvement.md)).

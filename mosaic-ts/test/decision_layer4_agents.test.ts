@@ -699,6 +699,46 @@ describe("CIO position validator", () => {
     ).toThrow(/MiroFish-only/);
   });
 
+  it("rejects RKE prior-only portfolio actions", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: {
+          ...cioOutput([
+            {
+              ticker: "688981.SH",
+              action: "BUY",
+              target_weight: 0.1,
+              holding_period: "3M",
+              dissent_notes: "ranked report prior looked favorable",
+            },
+          ]),
+          declared_knob_influence_ids: ["rke_prior"],
+        },
+        currentPositions: loadedPositions([]),
+      }),
+    ).toThrow(/RKE\/MiroFish prior-only/);
+  });
+
+  it("rejects mixed prior and simulation-only portfolio actions", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: {
+          ...cioOutput([
+            {
+              ticker: "688981.SH",
+              action: "BUY",
+              target_weight: 0.1,
+              holding_period: "3M",
+              dissent_notes: "report prior and scenario agreed",
+            },
+          ]),
+          declared_knob_influence_ids: ["rke_prior", "mirofish_portfolio_stress_weight"],
+        },
+        currentPositions: loadedPositions([]),
+      }),
+    ).toThrow(/RKE\/MiroFish prior-only/);
+  });
+
   it("rejects MiroFish-influenced current-position changes without dissent notes", () => {
     expect(() =>
       validateCioPositionActions({
