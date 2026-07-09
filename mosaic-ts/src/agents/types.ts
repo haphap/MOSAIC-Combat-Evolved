@@ -373,6 +373,7 @@ export interface PositionAudit {
   snapshot_status: CurrentPositionsSnapshot["snapshot_status"];
   position_source: CurrentPositionsSnapshot["position_source"];
   source_error_code: string | null;
+  tool_status_summary?: Record<string, string> | undefined;
   positions_loaded: number;
   positions_reviewed: number;
   positions_unreviewed: number;

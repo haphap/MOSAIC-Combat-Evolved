@@ -131,6 +131,8 @@ The acceptance evidence is the final JSON:
 - `current_positions.snapshot_status` is `loaded` or `empty_confirmed`.
 - `position_audit.positions_loaded` matches the fixture.
 - `position_audit.positions_reviewed` covers every loaded position.
+- `position_audit.tool_status_summary` records the position source and market
+  price evidence status.
 - `portfolio_actions[*]` include `current_weight`, `target_weight`,
   `delta_weight`, `position_decision`, `thesis_status`, and `risk_flags`.
 - `position_decision` semantics are enforced: `ADD` maps to positive-delta

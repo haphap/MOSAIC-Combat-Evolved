@@ -21,6 +21,7 @@ import type { BaseMessage } from "@langchain/core/messages";
 import { AIMessage } from "@langchain/core/messages";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { buildPositionAuditToolStatusSummary } from "../../agents/helpers/position_audit.js";
 import {
   formatDurationMs,
   parseAgentTimeoutSeconds,
@@ -590,6 +591,7 @@ function positionAuditFromSnapshot(snapshot: CurrentPositionsSnapshot): Position
     snapshot_status: snapshot.snapshot_status,
     position_source: snapshot.position_source,
     source_error_code: snapshot.source_error_code,
+    tool_status_summary: buildPositionAuditToolStatusSummary(snapshot),
     positions_loaded: snapshot.positions.length,
     positions_reviewed: 0,
     positions_unreviewed: snapshot.positions.length,

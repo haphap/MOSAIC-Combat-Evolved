@@ -21,6 +21,7 @@
  */
 
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
+import { buildPositionAuditToolStatusSummary } from "./helpers/position_audit.js";
 import type {
   CurrentPositionsSnapshot,
   Layer4Outputs,
@@ -91,6 +92,7 @@ export function emptyPositionAudit(): PositionAudit {
     snapshot_status: snapshot.snapshot_status,
     position_source: snapshot.position_source,
     source_error_code: snapshot.source_error_code,
+    tool_status_summary: buildPositionAuditToolStatusSummary(snapshot),
     positions_loaded: 0,
     positions_reviewed: 0,
     positions_unreviewed: 0,

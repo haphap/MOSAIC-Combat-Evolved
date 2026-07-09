@@ -140,6 +140,10 @@ describe("state reducers", () => {
       expect(positions.snapshot_status).toBe("empty_confirmed");
       expect(positions.positions).toEqual([]);
       expect(audit.position_snapshot_hash).toBe(positions.position_snapshot_hash);
+      expect(audit.tool_status_summary).toEqual({
+        current_positions: "empty_confirmed",
+        market_prices: "empty_scope",
+      });
       expect(audit.positions_loaded).toBe(0);
       expect(audit.positions_reviewed).toBe(0);
     });

@@ -1,3 +1,4 @@
+import { buildPositionAuditToolStatusSummary } from "../helpers/position_audit.js";
 import type { ResearchKnobsSnapshot } from "../helpers/research_knobs.js";
 import type {
   CioOutput,
@@ -403,6 +404,7 @@ function buildPositionAudit(opts: {
     snapshot_status: opts.currentPositions.snapshot_status,
     position_source: opts.currentPositions.position_source,
     source_error_code: opts.currentPositions.source_error_code,
+    tool_status_summary: buildPositionAuditToolStatusSummary(opts.currentPositions),
     positions_loaded: opts.currentPositions.positions.length,
     positions_reviewed: reviewed.size,
     positions_unreviewed: opts.currentPositions.positions.filter(

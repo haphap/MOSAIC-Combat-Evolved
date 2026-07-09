@@ -834,6 +834,10 @@ describe("CIO position validator", () => {
     expect(action?.position_decision).toBe("ADD");
     expect(result.position_audit.positions_loaded).toBe(1);
     expect(result.position_audit.positions_reviewed).toBe(1);
+    expect(result.position_audit.tool_status_summary).toMatchObject({
+      "cli.current_positions_fixture": "loaded",
+      market_prices: "loaded",
+    });
     expect(result.position_audit.add_count).toBe(1);
     expect(result.position_audit.target_current_drift_count).toBe(1);
   });
