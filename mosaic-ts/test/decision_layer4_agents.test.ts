@@ -865,7 +865,7 @@ describe("CIO position validator", () => {
         target_weight: 0.2,
         reason: "stale thesis review required",
         thesis_status: "intact",
-        risk_flags: ["cro_risk_override", "stale_thesis"],
+        risk_flags: ["cro_risk_override", "stop_loss_breached", "stale_thesis"],
         confidence: 0.61,
       },
     ]);

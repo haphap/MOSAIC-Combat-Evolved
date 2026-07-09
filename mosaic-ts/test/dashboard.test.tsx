@@ -17,7 +17,11 @@ function fakeApi() {
           target_weight_pct: 15,
           delta_weight_pct: 13.9,
           thesis_status: "intact",
-          risk_flags_json: JSON.stringify(["target_current_drift"]),
+          risk_flags_json: JSON.stringify([
+            "target_current_drift",
+            "stop_loss_breached",
+            "stale_thesis",
+          ]),
           declared_knob_influence_ids_json: JSON.stringify(["mirofish_portfolio_stress_weight"]),
           declared_influence_rationale: "scenario stress tempered add size",
           verified_knob_audit_json: JSON.stringify({
@@ -221,6 +225,8 @@ describe("Dashboard", () => {
     expect(lastFrame()).toContain("positions loaded 1 reviewed 1/1");
     expect(lastFrame()).toContain("UNREVIEWED_POSITION");
     expect(lastFrame()).toContain("POSITION_DATA_STALE");
+    expect(lastFrame()).toContain("STOP_LOSS_OVERRIDE");
+    expect(lastFrame()).toContain("STALE_THESIS");
     expect(lastFrame()).toContain("TARGET_CURRENT_DRIFT");
     expect(lastFrame()).toContain("ADD");
     expect(lastFrame()).toContain("intact");

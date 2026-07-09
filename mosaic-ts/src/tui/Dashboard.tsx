@@ -206,7 +206,9 @@ function TodayTab({
     today.actions.filter((action) => action.position_decision != null).length,
   );
   const loaded = Math.max(positions.length, persistedLoaded);
-  const staleCount = rows.filter((row) => row.thesisStatus === "expired").length;
+  const staleCount = rows.filter(
+    (row) => row.riskFlags.includes("stale_thesis") || row.thesisStatus === "expired",
+  ).length;
   const agentAuditSummary = formatDecisionAgentAudits(today.actions);
   const stopLossOverrideCount = rows.filter(
     (row) =>

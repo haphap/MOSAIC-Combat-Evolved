@@ -140,6 +140,9 @@ The acceptance evidence is the final JSON:
   and `HOLD` maps to an existing held position.
 - active `max_single_name_weight` or stop-loss overrides require both
   `override_reason` and the `cro_risk_override` risk flag.
+- stop-loss-breached `HOLD` actions are normalized with a
+  `stop_loss_breached` risk flag so audit/TUI warning counts do not depend on
+  prompt prose.
 - fixtures may include `sector`; it is required when testing an active
   `max_sector_weight` runtime card.
 
@@ -264,7 +267,8 @@ rtk pnpm --dir mosaic-ts dev dashboard --cohort cohort_default
 Operator review surfaces:
 
 - Today tab: `positions loaded`, `reviewed`, stale thesis count, stop-loss
-  override count, target-current drift count, and explicit warnings.
+  override count, target-current drift count, and explicit warnings. The stale
+  count reads the `stale_thesis` risk flag as well as expired thesis status.
 - Today tab action rows: `current%`, `target%`, `delta%`, `position_decision`,
   `thesis_status`, risk flags, fired caps, declared knob influence ids, and
   dissent, override, or review notes.

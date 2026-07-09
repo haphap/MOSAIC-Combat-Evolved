@@ -55,7 +55,7 @@ export function validateCioPositionActions(opts: {
     20,
   );
   const actions = output.portfolio_actions.map((action) =>
-    normalizeAction(action, currentPositions, staleThesisDays),
+    normalizeAction(action, currentPositions, staleThesisDays, stopLossPct),
   );
   assertMirofishInfluencedPositionChangesHaveDissent(output, actions, currentPositions);
   const reviews = positionReviewsFromActions(actions, currentPositions, output.confidence);
@@ -174,6 +174,7 @@ function normalizeAction(
   action: PortfolioAction,
   currentPositions: CurrentPositionsSnapshot,
   staleThesisDays: number,
+  stopLossPct: number,
 ): PortfolioAction {
   const position = currentPositions.positions.find((item) => item.ticker === action.ticker);
   const sector = nonEmptyText(action.sector) ?? nonEmptyText(position?.sector);
@@ -183,8 +184,15 @@ function normalizeAction(
     (currentWeight === undefined ? undefined : action.target_weight - currentWeight);
   const positionDecision = action.position_decision ?? inferPositionDecision(action, currentWeight);
   const staleThesis = position ? position.holding_days > staleThesisDays : false;
+  const stopLossBreached = position
+    ? position.unrealized_pnl_pct <= stopLossPct && action.action === "HOLD"
+    : false;
   const riskFlags = [
-    ...new Set([...(action.risk_flags ?? []), ...(staleThesis ? ["stale_thesis"] : [])]),
+    ...new Set([
+      ...(action.risk_flags ?? []),
+      ...(stopLossBreached ? ["stop_loss_breached"] : []),
+      ...(staleThesis ? ["stale_thesis"] : []),
+    ]),
   ];
   const positionDecisionReason =
     nonEmptyText(action.position_decision_reason) ??
