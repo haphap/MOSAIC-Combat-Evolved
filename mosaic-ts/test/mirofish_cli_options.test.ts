@@ -66,11 +66,37 @@ describe("mirofish CLI portfolio input options", () => {
     }
   });
 
+  it("accepts inline portfolio fixture objects and lets explicit exposure flags override", async () => {
+    const inputs = await loadMirofishPortfolioInputs({
+      currentPositionsJson: JSON.stringify({
+        current_positions: [
+          {
+            ticker: "600519.SH",
+            market_price: 1700,
+            current_weight: 0.08,
+          },
+        ],
+        sector_exposure: { consumer: 0.08 },
+        theme_exposure: { premium_consumption: 0.08 },
+      }),
+      sectorExposureJson: JSON.stringify({ override_sector: 0.12 }),
+    });
+
+    expect(inputs.current_positions?.[0]?.ticker).toBe("600519.SH");
+    expect(inputs.sector_exposure).toEqual({ override_sector: 0.12 });
+    expect(inputs.theme_exposure).toEqual({ premium_consumption: 0.08 });
+  });
+
   it("rejects malformed fixture values before calling the bridge", async () => {
     await expect(
       loadMirofishPortfolioInputs({
         currentPositionsJson: JSON.stringify([{ ticker: "600519.SH", market_price: "1700" }]),
       }),
-    ).rejects.toThrow(/market_price must be a finite number/);
+    ).rejects.toThrow(/market_price must be a positive number/);
+    await expect(
+      loadMirofishPortfolioInputs({
+        currentPositionsJson: JSON.stringify([{ ticker: "600519.SH", current_weight: 0.08 }]),
+      }),
+    ).rejects.toThrow(/market_price must be a positive number/);
   });
 });

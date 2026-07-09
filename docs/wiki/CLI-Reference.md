@@ -92,7 +92,7 @@ pnpm dev mirofish history
 Subcommands: `generate`, `train`, `history`.
 - `generate`: `--days <n>`, `--seed <n>`, `--print`, `--reflexive`, `--swarm`, `--engine <name>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--sector-exposure-json <json>`, `--theme-exposure-json <json>`.
 - `train`: `--days`, `--seed`, `--agents <list>`, `--dry-run`, `--fake-llm`, `--reflexive`, `--engine <name>`, `--swarm`, `--scorer <name>`, `--path-aware`, the same portfolio-stress fixture flags, and LLM flags.
-Portfolio-stress files may be either a JSON position array or an object with `current_positions`, `sector_exposure`, and `theme_exposure`; inline JSON flags override file values.
+Portfolio-stress files and `--current-positions-json` may be either a JSON position array or an object with `current_positions`, `sector_exposure`, and `theme_exposure`; explicit exposure flags override file or inline fixture values. Each position must include a positive `market_price` or `current_price`.
 
 ## Backtest
 

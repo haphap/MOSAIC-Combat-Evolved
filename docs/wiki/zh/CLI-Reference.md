@@ -91,7 +91,7 @@ pnpm dev mirofish history
 子命令:`generate`、`train`、`history`。
 - `generate`:`--days <n>`、`--seed <n>`、`--print`、`--reflexive`、`--swarm`、`--engine <name>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--sector-exposure-json <json>`、`--theme-exposure-json <json>`。
 - `train`:`--days`、`--seed`、`--agents <list>`、`--dry-run`、`--fake-llm`、`--reflexive`、`--engine <name>`、`--swarm`、`--scorer <name>`、`--path-aware`、同样的 portfolio-stress fixture 参数、LLM 选项。
-portfolio-stress 文件可以是 JSON 持仓数组,也可以是包含 `current_positions`、`sector_exposure`、`theme_exposure` 的对象;inline JSON 参数会覆盖文件值。
+portfolio-stress 文件和 `--current-positions-json` 都可以是 JSON 持仓数组,也可以是包含 `current_positions`、`sector_exposure`、`theme_exposure` 的对象;显式 exposure 参数会覆盖文件或 inline fixture 值。每个持仓必须带正数 `market_price` 或 `current_price`。
 
 ## 回测
 

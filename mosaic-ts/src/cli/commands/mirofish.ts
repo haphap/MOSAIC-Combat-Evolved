@@ -84,7 +84,7 @@ export function registerMirofish(program: Command): void {
     .option("--max-rounds <n>", "Cap OASIS sim rounds (oasis engine only; server default 5)")
     .option(
       "--current-positions-json <json>",
-      "JSON array of current positions for portfolio stress scenarios",
+      "JSON array of current positions, or object with current_positions and exposures",
     )
     .option(
       "--current-positions-file <path>",
@@ -144,7 +144,7 @@ export function registerMirofish(program: Command): void {
     .option("--path-aware", "Shorthand for --scorer path_aware (score the equity curve)")
     .option(
       "--current-positions-json <json>",
-      "JSON array of current positions for portfolio stress scenarios",
+      "JSON array of current positions, or object with current_positions and exposures",
     )
     .option(
       "--current-positions-file <path>",
@@ -277,16 +277,12 @@ export async function loadMirofishPortfolioInputs(
         opts.currentPositionsFile,
       )
     : {};
+  const fromInline = opts.currentPositionsJson
+    ? parsePortfolioInputPayload(opts.currentPositionsJson, "--current-positions-json")
+    : {};
   return {
     ...fromFile,
-    ...(opts.currentPositionsJson
-      ? {
-          current_positions: parseCurrentPositionsJson(
-            opts.currentPositionsJson,
-            "--current-positions-json",
-          ),
-        }
-      : {}),
+    ...fromInline,
     ...(opts.sectorExposureJson
       ? {
           sector_exposure: parseExposureMap(opts.sectorExposureJson, "--sector-exposure-json"),
@@ -330,10 +326,6 @@ function parsePortfolioInputPayload(text: string, label: string): MirofishPortfo
   };
 }
 
-function parseCurrentPositionsJson(text: string, label: string): MirofishCurrentPositionInput[] {
-  return normalizeCurrentPositions(parseJson(text, label), label);
-}
-
 function parseExposureMap(text: string, label: string): Record<string, number> {
   return normalizeExposureMap(parseJson(text, label), label);
 }
@@ -349,10 +341,13 @@ function normalizeCurrentPosition(value: unknown, label: string): MirofishCurren
   if (typeof ticker !== "string" || !ticker.trim()) {
     throw new Error(`${label}.ticker must be a non-empty string`);
   }
+  if (value.market_price === undefined && value.current_price === undefined) {
+    throw new Error(`${label}.market_price must be a positive number`);
+  }
   return {
     ticker: ticker.trim(),
-    ...optionalFiniteNumberField(value, "market_price", label),
-    ...optionalFiniteNumberField(value, "current_price", label),
+    ...optionalPositiveNumberField(value, "market_price", label),
+    ...optionalPositiveNumberField(value, "current_price", label),
     ...optionalFiniteNumberField(value, "current_weight", label),
     ...optionalFiniteNumberField(value, "cost_basis", label),
     ...optionalFiniteNumberField(value, "holding_days", label),
@@ -361,6 +356,19 @@ function normalizeCurrentPosition(value: unknown, label: string): MirofishCurren
       ? { entry_thesis: value.entry_thesis.trim() }
       : {}),
   };
+}
+
+function optionalPositiveNumberField(
+  value: Record<string, unknown>,
+  key: "market_price" | "current_price",
+  label: string,
+): Record<string, number> {
+  const raw = value[key];
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    throw new Error(`${label}.${key} must be a positive number`);
+  }
+  return { [key]: raw };
 }
 
 function optionalFiniteNumberField(

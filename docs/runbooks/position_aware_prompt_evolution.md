@@ -157,6 +157,11 @@ The acceptance evidence is the final JSON:
 scenario stress can be computed for existing holdings. The fixture file may be a
 JSON array of positions or an object with `current_positions`, `sector_exposure`,
 and `theme_exposure`. Inline JSON flags override file values.
+`--current-positions-json` accepts the same array or object shape as the file
+fixture, so operators can pass a complete one-off portfolio stress fixture
+without creating a local file.
+Each MiroFish current position must include a positive `market_price` or
+`current_price`; the bridge uses that value as the scenario path start price.
 
 Example `.mosaic/tmp/mirofish-positions.json`:
 
@@ -166,9 +171,13 @@ Example `.mosaic/tmp/mirofish-positions.json`:
     {
       "ticker": "600519.SH",
       "name": "Kweichow Moutai",
+      "market_price": 1700,
       "current_weight": 0.08,
+      "cost_basis": 1500,
+      "holding_days": 42,
+      "unrealized_pnl_pct": 0.12,
       "sector": "consumer",
-      "thesis": "premium consumption compounder"
+      "entry_thesis": "premium consumption compounder"
     }
   ],
   "sector_exposure": { "consumer": 0.08 },
