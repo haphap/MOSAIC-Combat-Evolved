@@ -355,6 +355,34 @@ research-knobs:
     expect(visible.thresholds).not.toHaveProperty("rebalance_drift_pct");
   });
 
+  it("rejects declared influence ids for disabled runtime-source cards", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const snapshot = buildResearchKnobsSnapshot({
+      agent: "cio",
+      cohort: "cohort_default",
+      knobs: buildRuntimeResearchKnobs(spec),
+      runtimeSourceStatuses: [
+        { source_id: "current_position_snapshot", scope: "account:paper", status: "loaded" },
+        { source_id: "current_market_data", scope: "ticker:600519.SH", status: "loaded" },
+        { source_id: "previous_target_state", scope: "account:paper", status: "empty_confirmed" },
+        { source_id: "upstream_agent_outputs", scope: "agent:macro", status: "loaded" },
+        { source_id: "position_thesis_state", scope: "ticker:600519.SH", status: "loaded" },
+        { source_id: "position_review_state", scope: "account:paper", status: "loaded" },
+        { source_id: "mirofish_context", scope: "context:test", status: "loaded" },
+      ],
+    });
+
+    expect(() =>
+      applyResearchKnobCaps(
+        { confidence: 0.8, declared_knob_influence_ids: ["rebalance_drift_pct"] },
+        snapshot,
+        { toolStatuses: [] },
+      ),
+    ).toThrow(/disabled_knob_influence_declared:rebalance_drift_pct/);
+  });
+
   it("keeps direct-tool domain knobs active before post-run evidence dependency checks", () => {
     const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
     expect(spec).toBeDefined();

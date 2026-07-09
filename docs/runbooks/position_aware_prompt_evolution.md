@@ -125,6 +125,9 @@ Acceptance checks:
   against the agent output schema before returning it; the validation view omits
   the runtime-owned top-level `verified_knob_audit`, but the returned envelope
   must preserve that audit;
+- agent outputs must not declare influence from disabled domain cards. The
+  postprocessor rejects disabled card ids instead of treating them as merely
+  unsupported audit entries;
 - private zh/en prompts have exactly one canonical `research-knobs` fence for
   enabled agents;
 - historical runtime-source aliases are rejected in production catalog files.

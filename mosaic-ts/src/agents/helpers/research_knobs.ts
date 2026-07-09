@@ -499,6 +499,10 @@ export function applyResearchKnobCaps<T>(
   const evidenceDependencyStatuses =
     context.evidenceDependencyStatuses ??
     deriveEvidenceDependencyStatuses(snapshot.knobs, context.toolStatuses);
+  const disabledInfluenceIds = disabledKnobInfluenceIds(cappedOutput, snapshot.consumptionSnapshot);
+  if (disabledInfluenceIds.length > 0) {
+    throw new Error(`disabled_knob_influence_declared:${disabledInfluenceIds.join(",")}`);
+  }
   const unsupported = unsupportedKnobInfluenceIds(
     cappedOutput,
     snapshot.consumptionSnapshot,
@@ -894,6 +898,14 @@ function readDeclaredKnobInfluenceIds(output: unknown): string[] {
   const raw = (output as Record<string, unknown>).declared_knob_influence_ids;
   if (!Array.isArray(raw)) return [];
   return raw.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function disabledKnobInfluenceIds(
+  output: unknown,
+  consumptionSnapshot: KnobConsumptionSnapshot,
+): string[] {
+  const disabledIds = new Set(consumptionSnapshot.disabled_knobs.map((knob) => knob.card_id));
+  return readDeclaredKnobInfluenceIds(output).filter((id) => disabledIds.has(id));
 }
 
 function evidenceDependencyUnsupported(
