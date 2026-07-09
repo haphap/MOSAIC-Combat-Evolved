@@ -245,6 +245,9 @@ Acceptance checks:
 
 - the 10-day replay test carries day N target positions into day N+1.
 - `holding_days` increments.
+- active replay positions carry realized PnL and residual-drift fields, and
+  exited positions are recorded under `closed_positions` with exit reason and
+  realized PnL.
 - exits remove positions from the replay snapshot.
 - new target weights are not interpreted as repeated buys.
 

@@ -338,11 +338,23 @@ export interface CurrentPosition {
   cost_basis: number;
   market_price: number;
   unrealized_pnl_pct: number;
+  realized_pnl_pct?: number | undefined;
+  residual_drift_pct?: number | undefined;
   holding_days: number;
   entry_date: string;
   source_agent: string;
   entry_thesis_id: string;
   last_review_date: string;
+}
+
+export interface ClosedPosition {
+  ticker: string;
+  exit_date: string;
+  exit_reason: string;
+  realized_pnl_pct: number;
+  residual_drift_pct: number;
+  entry_thesis_id: string;
+  holding_days: number;
 }
 
 export interface CurrentPositionsSnapshot {
@@ -356,6 +368,7 @@ export interface CurrentPositionsSnapshot {
   source_error_code: string | null;
   position_snapshot_hash?: string | undefined;
   positions: CurrentPosition[];
+  closed_positions?: ClosedPosition[] | undefined;
 }
 
 export interface PositionReview {

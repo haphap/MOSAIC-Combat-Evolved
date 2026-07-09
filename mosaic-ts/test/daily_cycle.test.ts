@@ -94,7 +94,62 @@ describe("backtest position carry-over", () => {
     expect(day1.snapshot_status).toBe("loaded");
     expect(day1.position_source).toBe("backtest_replay");
     expect(day1.positions[0]?.current_weight).toBe(0.08);
+    expect(day1.positions[0]?.realized_pnl_pct).toBe(0);
+    expect(day1.positions[0]?.residual_drift_pct).toBe(0);
     expect(day2.positions[0]?.holding_days).toBe(1);
+  });
+
+  it("records replay exit metadata when a target exits a position", () => {
+    const previous: CurrentPositionsSnapshot = {
+      snapshot_status: "loaded",
+      position_source: "backtest_replay",
+      source_error_code: null,
+      position_snapshot_hash: "sha256:prev",
+      positions: [
+        {
+          ticker: "600519.SH",
+          current_weight: 0.08,
+          cost_basis: 100,
+          market_price: 112,
+          unrealized_pnl_pct: 0.12,
+          holding_days: 7,
+          entry_date: "2024-06-17",
+          source_agent: "cio",
+          entry_thesis_id: "backtest:600519.SH:2024-06-17",
+          last_review_date: "2024-06-23",
+        },
+      ],
+    };
+
+    const next = applyBacktestPortfolioActionsToPositions(
+      previous,
+      [
+        {
+          ticker: "600519.SH",
+          action: "SELL",
+          position_decision: "EXIT",
+          position_decision_reason: "exit stale thesis",
+          target_weight: 0,
+          holding_period: "1M",
+          dissent_notes: "",
+        },
+      ],
+      "2024-06-24",
+    );
+
+    expect(next.snapshot_status).toBe("empty_confirmed");
+    expect(next.positions).toEqual([]);
+    expect(next.closed_positions).toEqual([
+      {
+        ticker: "600519.SH",
+        exit_date: "2024-06-24",
+        exit_reason: "exit stale thesis",
+        realized_pnl_pct: 0.12,
+        residual_drift_pct: 0,
+        entry_thesis_id: "backtest:600519.SH:2024-06-17",
+        holding_days: 7,
+      },
+    ]);
   });
 
   it("carries target positions across a 10-day replay loop", () => {

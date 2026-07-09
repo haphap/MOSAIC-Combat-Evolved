@@ -95,6 +95,7 @@ portfolio-stress 文件可以是 JSON 持仓数组,也可以是包含 `current_p
 pnpm dev backtest --cohort cohort_default
 ```
 选项:`--cohort`、`--prompt-commit-hash <hash>`、`--fake-llm`、LLM 选项、`--veto-threshold <num>`、`--initial-cash <amount>`、`--benchmark <ticker>`、`--force-refill`、`--log-every <n>`、`--out <path>`。另有 `backtest-fill` 做缓存填充阶段。
+stage-1 carry-over 会用上一日 target weights 重建 `current_positions`,并记录 holding days、entry thesis id、realized/unrealized PnL、residual drift 和 closed-position exit reason。
 
 > `--out` 写指标 JSON。完整 ATLAS 同构产物(`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`)由 `backtest.run_historical` **RPC** 在传入 `results_dir` 时产出(见[桥 RPC](Bridge-RPC.md));尚未做成 `backtest` CLI 标志。
 

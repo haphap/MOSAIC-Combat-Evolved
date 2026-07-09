@@ -21,7 +21,7 @@ import {
   emptyCurrentPositions,
   emptyPositionAudit,
 } from "../agents/state.js";
-import type { CurrentPositionsSnapshot, PortfolioAction } from "../agents/types.js";
+import type { ClosedPosition, CurrentPositionsSnapshot, PortfolioAction } from "../agents/types.js";
 import type { BridgeApi } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 
@@ -108,6 +108,27 @@ export function applyBacktestPortfolioActionsToPositions(
   const previousByTicker = new Map(
     previous.positions.map((position) => [position.ticker, position]),
   );
+  const closedPositions: ClosedPosition[] = [
+    ...(previous.closed_positions ?? []),
+    ...actions
+      .filter((action) => action.target_weight <= 0 || action.action === "SELL")
+      .flatMap((action) => {
+        const prior = previousByTicker.get(action.ticker);
+        if (!prior) return [];
+        return [
+          {
+            ticker: action.ticker,
+            exit_date: asOfDate,
+            exit_reason:
+              action.position_decision_reason || action.dissent_notes || `${action.action} target`,
+            realized_pnl_pct: prior.unrealized_pnl_pct,
+            residual_drift_pct: 0,
+            entry_thesis_id: prior.entry_thesis_id,
+            holding_days: prior.holding_days,
+          },
+        ];
+      }),
+  ];
   const positions = actions
     .filter((action) => action.target_weight > 0 && action.action !== "SELL")
     .map((action) => {
@@ -118,6 +139,8 @@ export function applyBacktestPortfolioActionsToPositions(
         cost_basis: prior?.cost_basis ?? 1,
         market_price: prior?.market_price ?? 1,
         unrealized_pnl_pct: prior?.unrealized_pnl_pct ?? 0,
+        realized_pnl_pct: prior?.realized_pnl_pct ?? 0,
+        residual_drift_pct: 0,
         holding_days: prior ? prior.holding_days + 1 : 0,
         entry_date: prior?.entry_date ?? asOfDate,
         source_agent: prior?.source_agent ?? "cio",
@@ -129,29 +152,38 @@ export function applyBacktestPortfolioActionsToPositions(
     return {
       ...emptyCurrentPositions(),
       position_source: "backtest_replay",
-      position_snapshot_hash: backtestPositionHash(asOfDate, []),
+      position_snapshot_hash: backtestPositionHash(asOfDate, [], closedPositions),
+      ...(closedPositions.length > 0 ? { closed_positions: closedPositions } : {}),
     };
   }
   return {
     snapshot_status: "loaded",
     position_source: "backtest_replay",
     source_error_code: null,
-    position_snapshot_hash: backtestPositionHash(asOfDate, positions),
+    position_snapshot_hash: backtestPositionHash(asOfDate, positions, closedPositions),
     positions,
+    ...(closedPositions.length > 0 ? { closed_positions: closedPositions } : {}),
   };
 }
 
 function backtestPositionHash(
   asOfDate: string,
   positions: ReadonlyArray<CurrentPositionsSnapshot["positions"][number]>,
+  closedPositions: ReadonlyArray<ClosedPosition> = [],
 ): string {
-  const payload = JSON.stringify(
-    positions.map((position) => ({
+  const payload = JSON.stringify({
+    closed_positions: closedPositions.map((position) => ({
+      ticker: position.ticker,
+      exit_date: position.exit_date,
+      realized_pnl_pct: position.realized_pnl_pct,
+    })),
+    positions: positions.map((position) => ({
       ticker: position.ticker,
       current_weight: position.current_weight,
       holding_days: position.holding_days,
+      residual_drift_pct: position.residual_drift_pct ?? 0,
     })),
-  );
+  });
   return `sha256:${createHash("sha256").update(`${asOfDate}:${payload}`).digest("hex")}`;
 }
 
