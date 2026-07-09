@@ -1,4 +1,10 @@
 import { type ResearchKnobs, renderResearchKnobsFence } from "../helpers/research_knobs.js";
+import { domainKnobCardsForSpec } from "./domain_knob_catalog.js";
+import {
+  applyDomainKnobValueToProjection,
+  type DomainKnobValueRegistry,
+  domainKnobValueForCard,
+} from "./domain_knob_registry.js";
 import type { RuntimeAgentSpec } from "./runtime_agent_spec.js";
 
 const FENCE_RE = /```research-knobs\s*\n[\s\S]*?```/g;
@@ -17,13 +23,18 @@ const MUST_NOT_COVER_BY_LAYER = {
   decision: ["source_data_extraction", "report_outcome_labeling"],
 } as const;
 
-export function buildRuntimeResearchKnobs(spec: RuntimeAgentSpec): ResearchKnobs {
+export function buildRuntimeResearchKnobs(
+  spec: RuntimeAgentSpec,
+  opts: { domainRegistry?: DomainKnobValueRegistry | null } = {},
+): ResearchKnobs {
   const rulePackId = `${spec.layer}.${spec.agent}.runtime.v1`;
-  const ruleId = `${spec.layer}.${spec.agent}.primary.001`;
+  const ruleId = canonicalRuntimeRuleId(spec);
   const nonRkeTools = spec.requiredTools.filter((tool) => tool !== "get_rke_research_context");
   const evidenceRegistry: ResearchKnobs["evidence_registry"] = {};
   const evidenceWeights: ResearchKnobs["evidence_weights"] = {};
   const mutationTargets: ResearchKnobs["mutation_targets"] = [];
+  const lookbacks: ResearchKnobs["lookbacks"] = {};
+  const thresholds: ResearchKnobs["thresholds"] = {};
 
   const weightedKeys =
     nonRkeTools.length > 0
@@ -67,6 +78,27 @@ export function buildRuntimeResearchKnobs(spec: RuntimeAgentSpec): ResearchKnobs
     });
   }
 
+  if (spec.layer === "decision") {
+    evidenceRegistry.current_position_snapshot = {
+      source: "daily_cycle_state",
+      metric: "current_position_snapshot",
+      current_data: true,
+      primary: true,
+    };
+    evidenceRegistry.current_market_data = {
+      source: "daily_cycle_state",
+      metric: "current_market_data",
+      current_data: true,
+      primary: true,
+    };
+    evidenceRegistry.mirofish_context = {
+      source: "daily_cycle_state",
+      metric: "mirofish_context",
+      current_data: false,
+      primary: false,
+    };
+  }
+
   if (spec.requiredTools.includes("get_rke_research_context")) {
     evidenceRegistry.rke_prior = {
       tool: "get_rke_research_context",
@@ -92,8 +124,26 @@ export function buildRuntimeResearchKnobs(spec: RuntimeAgentSpec): ResearchKnobs
     step: 0.05,
   });
 
+  const domainCards = domainKnobCardsForSpec(spec);
+  for (const card of domainCards) {
+    if (card.coverage_level === "gap_pending_tool") continue;
+    applyDomainKnobValueToProjection(
+      { lookbacks, thresholds },
+      card,
+      domainKnobValueForCard(card, opts.domainRegistry),
+    );
+    mutationTargets.push({
+      path: card.path,
+      type: card.type,
+      ...(card.min !== undefined ? { min: card.min } : {}),
+      ...(card.max !== undefined ? { max: card.max } : {}),
+      ...(card.step !== undefined ? { step: card.step } : {}),
+      ...(card.allowed_values !== undefined ? { allowed_values: card.allowed_values } : {}),
+    });
+  }
+
   const requiredEvidence = Object.entries(evidenceRegistry)
-    .filter(([, entry]) => entry.current_data && entry.primary && entry.tool)
+    .filter(([, entry]) => entry.current_data && entry.primary && (entry.tool || entry.source))
     .map(([key]) => key);
 
   return {
@@ -111,11 +161,12 @@ export function buildRuntimeResearchKnobs(spec: RuntimeAgentSpec): ResearchKnobs
         horizon: HORIZON_BY_LAYER[spec.layer],
         allowed_outputs: ["negative", "neutral", "positive"],
       },
+      ...domainPredictionTargets(domainCards),
     ],
     evidence_registry: evidenceRegistry,
     evidence_weights: evidenceWeights,
-    lookbacks: {},
-    thresholds: {},
+    lookbacks,
+    thresholds,
     confidence_caps: {
       missing_current_data: {
         cap: 0.55,
@@ -134,10 +185,105 @@ export function buildRuntimeResearchKnobs(spec: RuntimeAgentSpec): ResearchKnobs
     mutation_targets: mutationTargets,
     projection_metadata: {
       source: "runtime_agent_spec_projection",
+      domain_knob_catalog: {
+        authority: "domain_knob_catalog_v1",
+        card_count: domainCards.length,
+        domain_mutation_target_count: domainCards.filter(
+          (card) => card.coverage_level !== "gap_pending_tool",
+        ).length,
+        cards: domainCards
+          .filter((card) => card.coverage_level !== "gap_pending_tool")
+          .map((card) => ({
+            id: card.id,
+            path: card.path,
+            projection_bucket: card.projection_bucket,
+            runtime_input_sources: card.runtime_input_sources,
+            runtime_input_source_policies: card.runtime_input_source_policies,
+            evidence_dependencies: card.evidence_dependencies,
+            evidence_dependency_policies: card.evidence_dependency_policies,
+            evaluation_metric: card.evaluation_metric,
+            learning_objective: card.learning_objective,
+            enforcement: card.enforcement,
+            cross_field_group: card.cross_field_group,
+            weight_group: card.weight_group,
+            normalization: card.normalization,
+            ...(card.runtime_validator ? { runtime_validator: card.runtime_validator } : {}),
+            ...(card.audit_field ? { audit_field: card.audit_field } : {}),
+          })),
+        weight_groups: domainWeightGroupMetadata(domainCards),
+        cross_field_groups: domainCrossFieldGroupMetadata(domainCards),
+        runtime_sources: [
+          ...new Set(domainCards.flatMap((card) => card.runtime_input_sources)),
+        ].sort(),
+        evaluation_metrics: [...new Set(domainCards.map((card) => card.evaluation_metric))].sort(),
+      },
       prompt_ir_agent_id: spec.promptIrAgentId,
       rke_prior_shadow_only: true,
     },
   };
+}
+
+function domainWeightGroupMetadata(
+  cards: ReturnType<typeof domainKnobCardsForSpec>,
+): Record<string, unknown> {
+  const groups = new Map<string, typeof cards>();
+  for (const card of cards) {
+    if (!card.weight_group) continue;
+    const members = groups.get(card.weight_group) ?? [];
+    members.push(card);
+    groups.set(card.weight_group, members);
+  }
+  return Object.fromEntries(
+    [...groups.entries()].map(([group, members]) => [
+      group,
+      {
+        normalization: "sum_to_one",
+        projection_bucket: members[0]?.projection_bucket ?? "thresholds",
+        members: members.map((card) => card.id),
+      },
+    ]),
+  );
+}
+
+function domainCrossFieldGroupMetadata(
+  cards: ReturnType<typeof domainKnobCardsForSpec>,
+): Record<string, unknown> {
+  const groups = new Map<string, typeof cards>();
+  for (const card of cards) {
+    if (!card.cross_field_group) continue;
+    const members = groups.get(card.cross_field_group) ?? [];
+    members.push(card);
+    groups.set(card.cross_field_group, members);
+  }
+  return Object.fromEntries(
+    [...groups.entries()].map(([group, members]) => [
+      group,
+      { members: members.map((card) => card.id) },
+    ]),
+  );
+}
+
+function domainPredictionTargets(
+  cards: ReturnType<typeof domainKnobCardsForSpec>,
+): ResearchKnobs["prediction_targets"] {
+  const seen = new Set<string>();
+  const targets: ResearchKnobs["prediction_targets"] = [];
+  for (const card of cards) {
+    if (seen.has(card.prediction_target)) continue;
+    seen.add(card.prediction_target);
+    targets.push({
+      id: card.prediction_target,
+      target_variable: card.id,
+      horizon: card.horizon,
+      allowed_outputs: ["worse", "neutral", "better"],
+    });
+  }
+  return targets;
+}
+
+function canonicalRuntimeRuleId(spec: RuntimeAgentSpec): string {
+  const kind = spec.layer === "decision" ? (spec.agent === "cro" ? "risk" : "policy") : "soft";
+  return `${spec.layer}.${spec.agent}.${kind}.001`;
 }
 
 export function upsertResearchKnobsFence(text: string, knobs: ResearchKnobs): string {

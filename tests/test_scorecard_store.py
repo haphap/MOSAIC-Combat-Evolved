@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -98,17 +99,56 @@ def _sample_state(date: str = "2024-06-24", cohort: str = "cohort_default") -> d
             },
         },
         "layer4_outputs": {
-            "cro": None,
+            "cro": {
+                "agent": "cro",
+                "rejected_picks": [],
+                "correlated_risks": [],
+                "black_swan_scenarios": [],
+                "confidence": 0.5,
+                "declared_knob_influence_ids": ["stop_loss_pct"],
+                "verified_knob_audit": {
+                    "knob_snapshot_hash": "sha256:cro",
+                    "fired_cap_ids": ["missing_current_data"],
+                    "unsupported_knob_influence_ids": [],
+                    "sample_exclusion_reason": "missing_current_data",
+                },
+            },
             "alpha_discovery": None,
-            "autonomous_execution": None,
+            "autonomous_execution": {
+                "agent": "autonomous_execution",
+                "trades": [],
+                "confidence": 0.4,
+                "declared_knob_influence_ids": ["mirofish_path_sizing_weight"],
+                "verified_knob_audit": {
+                    "knob_snapshot_hash": "sha256:exec",
+                    "fired_cap_ids": [],
+                    "unsupported_knob_influence_ids": [],
+                    "sample_exclusion_reason": None,
+                },
+            },
             "cio": {
                 "agent": "cio",
+                "declared_knob_influence_ids": ["mirofish_portfolio_stress_weight"],
+                "declared_influence_rationale": "scenario stress tempered add size",
+                "verified_knob_audit": {
+                    "knob_snapshot_hash": "sha256:cio",
+                    "fired_cap_ids": ["fallback_primary_tool"],
+                    "unsupported_knob_influence_ids": [],
+                    "sample_exclusion_reason": None,
+                },
                 "portfolio_actions": [
                     {
                         "ticker": "688981.SH",
                         "action": "BUY",
+                        "position_decision": "ADD",
+                        "current_weight": 0.25,
                         "target_weight": 0.4,
+                        "delta_weight": 0.15,
                         "holding_period": "6M",
+                        "position_decision_reason": "raise intact thesis",
+                        "override_reason": "CRO allowed add after current data review",
+                        "thesis_status": "intact",
+                        "risk_flags": ["target_current_drift"],
                         "dissent_notes": "",
                     },
                     {
@@ -180,6 +220,25 @@ class TestExpandState:
         first = next(r for r in cio_rows if r["ticker"] == "688981.SH")
         assert first["action"] == "BUY"
         assert first["target_weight_pct"] == pytest.approx(40.0)
+        assert first["current_weight_pct"] == pytest.approx(25.0)
+        assert first["delta_weight_pct"] == pytest.approx(15.0)
+        assert first["position_decision"] == "ADD"
+        assert first["position_decision_reason"] == "raise intact thesis"
+        assert first["override_reason"] == "CRO allowed add after current data review"
+        assert first["thesis_status"] == "intact"
+        assert first["risk_flags_json"] == '["target_current_drift"]'
+        assert json.loads(first["declared_knob_influence_ids_json"]) == [
+            "mirofish_portfolio_stress_weight"
+        ]
+        assert first["declared_influence_rationale"] == "scenario stress tempered add size"
+        assert json.loads(first["verified_knob_audit_json"])["fired_cap_ids"] == [
+            "fallback_primary_tool"
+        ]
+        audits = json.loads(first["decision_agent_audits_json"])
+        assert audits["cro"]["fired_cap_ids"] == ["missing_current_data"]
+        assert audits["autonomous_execution"]["declared_knob_influence_ids"] == [
+            "mirofish_path_sizing_weight"
+        ]
         # §14 R-A2: CIO has no per-pick conviction → stored as None (not the
         # target_weight proxy), so it isn't falsely comparable to L2/L3.
         assert first["conviction"] is None
@@ -305,6 +364,27 @@ class TestScorecardStore:
         assert row["forward_return_5d"] == pytest.approx(0.05)
         assert row["alpha_5d"] == pytest.approx(0.02)
         assert row["scored_at"] == "2024-07-01"
+
+    def test_latest_cio_actions_includes_position_review_fields(self, store: ScorecardStore):
+        store.append_from_state(_sample_state())
+        latest = store.get_latest_cio_actions("cohort_default")
+        row = next(action for action in latest["actions"] if action["ticker"] == "688981.SH")
+        assert row["current_weight_pct"] == pytest.approx(25.0)
+        assert row["delta_weight_pct"] == pytest.approx(15.0)
+        assert row["position_decision"] == "ADD"
+        assert row["position_decision_reason"] == "raise intact thesis"
+        assert row["override_reason"] == "CRO allowed add after current data review"
+        assert row["thesis_status"] == "intact"
+        assert row["risk_flags_json"] == '["target_current_drift"]'
+        assert json.loads(row["declared_knob_influence_ids_json"]) == [
+            "mirofish_portfolio_stress_weight"
+        ]
+        assert json.loads(row["verified_knob_audit_json"])["fired_cap_ids"] == [
+            "fallback_primary_tool"
+        ]
+        assert json.loads(row["decision_agent_audits_json"])["cio"]["knob_snapshot_hash"] == (
+            "sha256:cio"
+        )
 
     def test_list_pending_filters_scored_and_date(self, store: ScorecardStore):
         store.append_from_state(_sample_state(date="2024-06-24"))

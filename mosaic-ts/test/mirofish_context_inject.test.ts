@@ -7,10 +7,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildAutonomousExecutionNode } from "../src/agents/decision/autonomous_execution.js";
 import { buildCioNode } from "../src/agents/decision/cio.js";
+import { buildCroNode } from "../src/agents/decision/cro.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
-import type { CioOutput } from "../src/agents/types.js";
+import type { AutoExecOutput, CioOutput, CroOutput } from "../src/agents/types.js";
 import type { BridgeApi, MirofishContext, MosaicConfig } from "../src/bridge/types.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 import { formatMirofishContext } from "../src/mirofish/context.js";
@@ -20,10 +22,23 @@ const FULL: MirofishContext = {
   regime: "RISK_OFF",
   narrative: "急跌回调",
   csi300_return: -0.12,
+  scenario_count: 5,
+  horizon_days: 30,
+  as_of_date: "2024-06-30",
+  context_hash: "sha256:test_context",
+  generator_version: "mirofish_context_v1",
   hct_ticker: "000300.SH",
   hct_direction: "SHORT",
   hct_csi300_return: -0.35,
   tail_summary: "Crash: CSI300 -35.0% (p=5%)",
+  position_stress: [
+    {
+      ticker: "600519.SH",
+      tail_loss: -0.12,
+      scenario_agreement: 0.8,
+      suggested_action: "REDUCE",
+    },
+  ],
   engine: "swarm",
   date: "2026-05-30",
 };
@@ -35,6 +50,11 @@ describe("formatMirofishContext", () => {
     expect(out).toContain("RISK_OFF");
     expect(out).toContain("000300.SH SHORT");
     expect(out).toContain("Crash");
+    expect(out).toContain("600519.SH tail=-12.0% agree=80.0% action=REDUCE");
+    expect(out).toContain(
+      "scenarios=5 horizon_days=30 as_of_date=2024-06-30 context_hash=sha256:test_context",
+    );
+    expect(out).toContain("generator_version=mirofish_context_v1");
     expect(out).toContain("仅供参考"); // disclaimer always present
   });
 
@@ -73,17 +93,26 @@ describe("CIO MiroFish context injection (opt-in)", () => {
   let promptDir: string;
 
   class ScriptedLlm {
-    captured: BaseMessage[] = [];
+    captured: BaseMessage[][] = [];
     response = new AIMessage("analysis text");
-    structuredResponse: CioOutput = { agent: "cio", portfolio_actions: [], confidence: 0.3 };
+    structuredResponses: Array<CroOutput | AutoExecOutput | CioOutput> = [
+      { agent: "cio", portfolio_actions: [], confidence: 0.3 },
+    ];
     bindTools(): ScriptedLlm {
       return this;
     }
     withStructuredOutput(): { invoke: (i: unknown) => Promise<unknown> } {
-      return { invoke: async () => this.structuredResponse };
+      return {
+        invoke: async () =>
+          this.structuredResponses.shift() ?? {
+            agent: "cio",
+            portfolio_actions: [],
+            confidence: 0.3,
+          },
+      };
     }
     async invoke(messages: BaseMessage[]): Promise<AIMessage> {
-      this.captured = messages;
+      this.captured.push(messages);
       return this.response;
     }
   }
@@ -124,6 +153,8 @@ describe("CIO MiroFish context injection (opt-in)", () => {
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-mfctx-"));
     const dir = join(promptDir, "cohort_default", "decision");
     mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "cro.zh.md"), "FAKE-CRO", "utf-8");
+    writeFileSync(join(dir, "autonomous_execution.zh.md"), "FAKE-AUTO", "utf-8");
     writeFileSync(join(dir, "cio.zh.md"), "FAKE-CIO", "utf-8");
     clearPromptCache();
   });
@@ -133,8 +164,15 @@ describe("CIO MiroFish context injection (opt-in)", () => {
   });
 
   function humanText(llm: ScriptedLlm): string {
-    const human = llm.captured[1];
+    const human = llm.captured.at(-1)?.[1];
     return typeof human?.content === "string" ? human.content : JSON.stringify(human?.content);
+  }
+
+  function allHumanText(llm: ScriptedLlm): string[] {
+    return llm.captured.map((messages) => {
+      const human = messages[1];
+      return typeof human?.content === "string" ? human.content : JSON.stringify(human?.content);
+    });
   }
 
   it("does NOT inject when toggle is off (default)", async () => {
@@ -185,5 +223,92 @@ describe("CIO MiroFish context injection (opt-in)", () => {
     const node = buildCioNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     await node(state());
     expect(humanText(llm)).not.toContain("前瞻情景参考");
+  });
+
+  it("toggle on but missing as_of_date disables context injection", async () => {
+    const llm = new ScriptedLlm();
+    const handle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fake",
+    } as LlmHandle;
+    const { as_of_date: _asOfDate, ...withoutAsOf } = FULL;
+    const api = fakeApi(withoutAsOf as MirofishContext);
+    const logs: string[] = [];
+    const config = { ...baseConfig(), mirofish: { inject_context: true } } as MosaicConfig;
+    const node = buildCioNode({
+      llmHandle: handle,
+      api,
+      config,
+      promptsRoot: promptDir,
+      onLog: (msg) => logs.push(msg),
+    });
+    await node(state());
+    expect(humanText(llm)).not.toContain("前瞻情景参考");
+    expect(logs.join("\n")).toContain("mirofish context disabled: missing as_of_date");
+  });
+
+  it("toggle on but future as_of_date disables context injection", async () => {
+    const llm = new ScriptedLlm();
+    const handle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fake",
+    } as LlmHandle;
+    const api = fakeApi({ ...FULL, as_of_date: "2024-07-01" });
+    const logs: string[] = [];
+    const config = { ...baseConfig(), mirofish: { inject_context: true } } as MosaicConfig;
+    const node = buildCioNode({
+      llmHandle: handle,
+      api,
+      config,
+      promptsRoot: promptDir,
+      onLog: (msg) => logs.push(msg),
+    });
+    await node(state());
+    expect(humanText(llm)).not.toContain("前瞻情景参考");
+    expect(logs.join("\n")).toContain("mirofish context disabled: as_of_date 2024-07-01");
+  });
+
+  it("shares one context lookup and context_hash across CRO, execution, and CIO", async () => {
+    const llm = new ScriptedLlm();
+    llm.structuredResponses = [
+      {
+        agent: "cro",
+        rejected_picks: [],
+        correlated_risks: [],
+        black_swan_scenarios: [],
+        confidence: 0.3,
+      },
+      { agent: "autonomous_execution", trades: [], confidence: 0.3 },
+      { agent: "cio", portfolio_actions: [], confidence: 0.3 },
+    ];
+    const handle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fake",
+    } as LlmHandle;
+    const api = {
+      mirofishGetContext: vi
+        .fn()
+        .mockResolvedValueOnce({ context: FULL })
+        .mockResolvedValueOnce({
+          context: { ...FULL, context_hash: "sha256:unexpected_second_context" },
+        }),
+    } as unknown as BridgeApi;
+    const config = { ...baseConfig(), mirofish: { inject_context: true } } as MosaicConfig;
+    const deps = { llmHandle: handle, api, config, promptsRoot: promptDir };
+
+    await buildCroNode(deps)(state());
+    await buildAutonomousExecutionNode(deps)(state());
+    await buildCioNode(deps)(state());
+
+    expect(api.mirofishGetContext).toHaveBeenCalledOnce();
+    const renderedContexts = allHumanText(llm);
+    expect(renderedContexts).toHaveLength(3);
+    expect(
+      renderedContexts.every((text) => text.includes("context_hash=sha256:test_context")),
+    ).toBe(true);
+    expect(renderedContexts.join("\n")).not.toContain("unexpected_second_context");
   });
 });

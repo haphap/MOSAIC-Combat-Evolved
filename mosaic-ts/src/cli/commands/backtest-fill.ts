@@ -28,6 +28,7 @@ import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 import {
+  applyBacktestPortfolioActionsToPositions,
   buildFakeLlmHandle,
   enumerateTradingDays,
   makeInitialState,
@@ -194,11 +195,13 @@ export function registerBacktestFill(program: Command): void {
         let totalActions = 0;
         const errors: Array<{ date: string; err: string }> = [];
         const succeededDates: string[] = [];
+        let currentPositions = makeInitialState(cohort, opts.start).current_positions;
 
         for (const tradeDate of daysToRun) {
           const tStart = Date.now();
           try {
             const initialState: DailyCycleStateType = makeInitialState(cohort, tradeDate);
+            initialState.current_positions = currentPositions;
             const final = (await graph.invoke(initialState)) as DailyCycleStateType;
 
             const actions = (final.portfolio_actions ?? []).map((a) => ({
@@ -210,6 +213,11 @@ export function registerBacktestFill(program: Command): void {
             })) satisfies BacktestActionInput[];
 
             await api.backtestAppendActions(runId, tradeDate, actions);
+            currentPositions = applyBacktestPortfolioActionsToPositions(
+              currentPositions,
+              final.portfolio_actions ?? [],
+              tradeDate,
+            );
             totalActions += actions.length;
             succeededDates.push(tradeDate);
           } catch (err) {

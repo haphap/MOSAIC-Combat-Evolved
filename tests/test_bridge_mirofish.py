@@ -53,6 +53,69 @@ class TestMirofishHandlers(unittest.TestCase):
         self.assertEqual(len(out["scenarios"]), 5)
         self.assertEqual(out["scenarios"][0]["scenario_type"], "base")
 
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
+    def test_generate_scenarios_accepts_current_positions(self):
+        out = _mf.mirofish_generate_scenarios({
+            "seed": 42,
+            "scenarios": ["base"],
+            "current_positions": [
+                {
+                    "ticker": "600519.SH",
+                    "market_price": 1680.0,
+                    "current_weight": 0.08,
+                    "cost_basis": 1500.0,
+                    "holding_days": 42,
+                    "unrealized_pnl_pct": 0.12,
+                    "entry_thesis": "premium moat thesis",
+                },
+                {
+                    "ticker": "300750.SZ",
+                    "current_price": 190.0,
+                    "current_weight": 0.05,
+                    "holding_days": 12,
+                },
+            ],
+            "sector_exposure": {"consumer": 0.08, "battery": 0.05},
+            "theme_exposure": {"premium_consumption": 0.08, "ev_supply_chain": 0.05},
+        })
+        scenario = out["scenarios"][0]
+        self.assertIn("600519.SH", scenario["price_paths"])
+        self.assertIn("300750.SZ", scenario["price_paths"])
+        self.assertEqual(scenario["price_paths"]["600519.SH"]["start_price"], 1680.0)
+        self.assertEqual(scenario["price_paths"]["300750.SZ"]["start_price"], 190.0)
+        self.assertEqual(
+            scenario["portfolio_context"]["current_position_tickers"],
+            ["300750.SZ", "600519.SH"],
+        )
+        positions = {
+            position["ticker"]: position
+            for position in scenario["portfolio_context"]["current_positions"]
+        }
+        self.assertEqual(positions["600519.SH"]["cost_basis"], 1500.0)
+        self.assertEqual(positions["600519.SH"]["holding_days"], 42)
+        self.assertEqual(positions["600519.SH"]["unrealized_pnl_pct"], 0.12)
+        self.assertEqual(positions["600519.SH"]["entry_thesis"], "premium moat thesis")
+        self.assertEqual(
+            scenario["portfolio_context"]["sector_exposure"],
+            {"battery": 0.05, "consumer": 0.08},
+        )
+        self.assertEqual(
+            scenario["portfolio_context"]["theme_exposure"],
+            {"ev_supply_chain": 0.05, "premium_consumption": 0.08},
+        )
+
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
+    def test_generate_scenarios_accepts_exposure_without_positions(self):
+        out = _mf.mirofish_generate_scenarios({
+            "seed": 42,
+            "scenarios": ["base"],
+            "sector_exposure": {"financials": 0.12},
+            "theme_exposure": {"high_dividend": 0.08},
+        })
+        scenario = out["scenarios"][0]
+        self.assertEqual(scenario["portfolio_context"]["sector_exposure"], {"financials": 0.12})
+        self.assertEqual(scenario["portfolio_context"]["theme_exposure"], {"high_dividend": 0.08})
+
     def test_generate_rejects_bad_scenarios_param(self):
         with self.assertRaises(RpcError):
             _mf.mirofish_generate_scenarios({"scenarios": "bull"})
@@ -121,9 +184,15 @@ class TestMirofishHandlers(unittest.TestCase):
         ]
         out = _mf.mirofish_save_context({"scenarios": scenarios, "date": "2026-05-30"})
         self.assertEqual(out["date"], "2026-05-30")
+        self.assertEqual(out["context"]["scenario_count"], 2)
+        self.assertEqual(out["context"]["as_of_date"], "2026-05-30")
+        self.assertTrue(out["context"]["context_hash"].startswith("sha256:"))
+        self.assertEqual(out["context"]["generator_version"], "mirofish_context_v1")
         self.assertEqual(out["context"]["hct_direction"], "SHORT")
         got = _mf.mirofish_get_context({})["context"]
         self.assertEqual(got["date"], "2026-05-30")
+        self.assertEqual(got["as_of_date"], "2026-05-30")
+        self.assertTrue(got["context_hash"].startswith("sha256:"))
         self.assertEqual(got["regime"], "NEUTRAL")
 
     def test_get_context_null_when_empty(self):

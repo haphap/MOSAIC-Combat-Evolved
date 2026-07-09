@@ -54,6 +54,17 @@ const CONFIDENCE = z
     "Self-rated certainty. Phase 0/1 sector tools incomplete — cap ≤ 0.5 until Phase 4 ETF tools land.",
   );
 
+const KNOB_INFLUENCE_FIELDS = {
+  declared_knob_influence_ids: z
+    .array(z.string().min(1))
+    .optional()
+    .describe("Visible domain knob card ids explicitly used in this conclusion."),
+  declared_influence_rationale: z
+    .string()
+    .optional()
+    .describe("Optional short rationale for declared knob influence ids."),
+};
+
 /** Common shape factory for the 6 standard sector agents. */
 function buildStandardSectorSchema<L extends string>(literal: L) {
   return z
@@ -71,6 +82,7 @@ function buildStandardSectorSchema<L extends string>(literal: L) {
         .describe("[-1, 1] aggregate sector tilt; +1 = max bullish."),
       key_drivers: KEY_DRIVERS,
       confidence: CONFIDENCE,
+      ...KNOB_INFLUENCE_FIELDS,
     })
     .describe(
       `Layer-2 sector pick output for ${literal}. Picks must reference tickers from ` +
@@ -135,6 +147,7 @@ export const RelationshipMapperSchema = z
       .describe("Cross-sector contagion concerns inferred from shared exposures."),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Layer-2 cross-sector relationship mapper. Supply-chain + ownership data is " +

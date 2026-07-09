@@ -33,7 +33,7 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 
 ### MiroFish 上下文注入(opt-in)
 
-当 `config.mirofish.inject_context` 为真时,**CIO** 提示词会被追加一段 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明 + `as_of_date` 防前视边界)。默认关闭。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext`。
+当 `config.mirofish.inject_context` 为真时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。默认关闭。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext`。
 
 ## 提示词
 

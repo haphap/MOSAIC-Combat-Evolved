@@ -22,6 +22,11 @@
 
 // ============================================================ Layer 1: Macro
 
+export interface KnobInfluenceDeclaration {
+  declared_knob_influence_ids?: string[] | undefined;
+  declared_influence_rationale?: string | undefined;
+}
+
 /** Plan §5.1 — central_bank, geopolitical, china, dollar, yield_curve,
  *  commodities, volatility, emerging_markets, news_sentiment, institutional_flow.
  *
@@ -29,7 +34,7 @@
  *  but consumers usually narrow by agent ID. The aggregator only reads the
  *  shared `confidence` + `key_drivers` fields.
  */
-export interface MacroAgentOutputBase {
+export interface MacroAgentOutputBase extends KnobInfluenceDeclaration {
   /** Agent ID, e.g. "central_bank". Useful for debugging when payloads are
    *  passed around without their map key. */
   agent: string;
@@ -158,7 +163,7 @@ export interface SectorPick {
   conviction: number;
 }
 
-export interface SectorAgentOutputBase {
+export interface SectorAgentOutputBase extends KnobInfluenceDeclaration {
   agent: string;
   longs: SectorPick[];
   shorts: SectorPick[];
@@ -169,7 +174,7 @@ export interface SectorAgentOutputBase {
   confidence: number;
 }
 
-export interface RelationshipMapperOutput {
+export interface RelationshipMapperOutput extends KnobInfluenceDeclaration {
   agent: "relationship_mapper";
   supply_chains: Array<{ name: string; tickers: string[]; risk: string }>;
   ownership_clusters: Array<{ cluster_id: string; tickers: string[] }>;
@@ -233,7 +238,7 @@ export interface SuperinvestorPick {
   holding_period: "1W" | "1M" | "3M" | "6M" | "1Y" | "5Y+";
 }
 
-export interface SuperinvestorOutput {
+export interface SuperinvestorOutput extends KnobInfluenceDeclaration {
   agent: "druckenmiller" | "munger" | "burry" | "ackman";
   picks: SuperinvestorPick[];
   /** Why these 3-5 names + macro/sector regime fit. */
@@ -260,7 +265,7 @@ export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
 
 /** Plan §5.4 — cro, alpha_discovery, autonomous_execution, cio. */
 
-export interface CroOutput {
+export interface CroOutput extends KnobInfluenceDeclaration {
   agent: "cro";
   rejected_picks: Array<{ ticker: string; reason: string }>;
   correlated_risks: string[];
@@ -269,14 +274,14 @@ export interface CroOutput {
   confidence: number;
 }
 
-export interface AlphaDiscoveryOutput {
+export interface AlphaDiscoveryOutput extends KnobInfluenceDeclaration {
   agent: "alpha_discovery";
   novel_picks: Array<{ ticker: string; why_missed_by_others: string }>;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
 }
 
-export interface AutoExecOutput {
+export interface AutoExecOutput extends KnobInfluenceDeclaration {
   agent: "autonomous_execution";
   trades: Array<{
     ticker: string;
@@ -291,18 +296,78 @@ export interface AutoExecOutput {
 export interface PortfolioAction {
   ticker: string;
   action: "BUY" | "SELL" | "HOLD" | "REDUCE";
+  position_decision?: "HOLD" | "ADD" | "REDUCE" | "EXIT" | undefined;
+  current_weight?: number | undefined;
   /** Target portfolio weight in [0, 1]. */
   target_weight: number;
+  delta_weight?: number | undefined;
   holding_period: SuperinvestorPick["holding_period"];
+  position_decision_reason?: string | undefined;
+  override_reason?: string | undefined;
+  thesis_status?: "intact" | "weakened" | "broken" | "expired" | undefined;
+  risk_flags?: string[] | undefined;
   /** CIO note explaining dissent against another agent's call, if any. */
   dissent_notes: string;
 }
 
-export interface CioOutput {
+export interface CioOutput extends KnobInfluenceDeclaration {
   agent: "cio";
   portfolio_actions: PortfolioAction[];
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
+}
+
+export interface CurrentPosition {
+  ticker: string;
+  current_weight: number;
+  cost_basis: number;
+  market_price: number;
+  unrealized_pnl_pct: number;
+  holding_days: number;
+  entry_date: string;
+  source_agent: string;
+  entry_thesis_id: string;
+  last_review_date: string;
+}
+
+export interface CurrentPositionsSnapshot {
+  snapshot_status: "loaded" | "empty_confirmed" | "missing";
+  position_source:
+    | "paper_account"
+    | "backtest_replay"
+    | "cli_fixture"
+    | "empty_confirmed"
+    | "unknown";
+  source_error_code: string | null;
+  position_snapshot_hash?: string | undefined;
+  positions: CurrentPosition[];
+}
+
+export interface PositionReview {
+  ticker: string;
+  decision: "HOLD" | "ADD" | "REDUCE" | "EXIT";
+  target_weight: number;
+  reason: string;
+  thesis_status: "intact" | "weakened" | "broken" | "expired";
+  risk_flags: string[];
+  confidence: number;
+}
+
+export interface PositionAudit {
+  position_snapshot_hash: string | null;
+  snapshot_status: CurrentPositionsSnapshot["snapshot_status"];
+  position_source: CurrentPositionsSnapshot["position_source"];
+  source_error_code: string | null;
+  positions_loaded: number;
+  positions_reviewed: number;
+  positions_unreviewed: number;
+  hold_count: number;
+  add_count: number;
+  reduce_count: number;
+  exit_count: number;
+  stale_thesis_count: number;
+  stop_loss_override_count: number;
+  target_current_drift_count: number;
 }
 
 export interface Layer4Outputs {
@@ -342,6 +407,9 @@ export interface DailyCycleResult {
   layer2_consensus: SectorConsensus | null;
   layer3_outputs: Record<string, SuperinvestorOutput>;
   layer4_outputs: Layer4Outputs;
+  current_positions: CurrentPositionsSnapshot;
+  position_reviews: PositionReview[];
+  position_audit: PositionAudit;
   /** The CIO's final allocation, surfaced for convenience. */
   portfolio_actions: PortfolioAction[];
   llm_calls: LlmCallRecord[];

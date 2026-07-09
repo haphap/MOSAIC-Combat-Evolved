@@ -113,6 +113,11 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     ("schemas/production_patch.schema.json", "registry/patches/central_bank_paper_trading_patch.json", "json"),
+    (
+        "schemas/domain_knob_catalog_v1.schema.json",
+        "registry/prompt_checks/domain_knob_catalog_v1.json",
+        "json",
+    ),
 )
 
 

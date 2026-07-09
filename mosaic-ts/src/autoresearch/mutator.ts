@@ -28,11 +28,29 @@ import {
   canonicalResearchKnobs,
   parseResearchKnobsPrompt,
   type ResearchKnobs,
+  renderResearchKnobsFence,
   replaceResearchKnobsFence,
 } from "../agents/helpers/research_knobs.js";
 import { bindStructured } from "../agents/helpers/structured_output.js";
 import { ALL_MACRO_AGENTS } from "../agents/macro/_aggregator.js";
+import {
+  domainKnobCardFromPath,
+  domainKnobCardsForSpec,
+  domainKnobDescriptorFromPath,
+  EVALUATION_METRIC_REGISTRY,
+  validateCrossFieldInvariants,
+  validateWeightGroupInvariants,
+} from "../agents/prompts/domain_knob_catalog.js";
+import {
+  applyKnobPatchesToDomainKnobRegistry as applyDomainKnobRegistryPatches,
+  type DomainKnobRegistryPatchResult,
+  type DomainKnobValueRegistry,
+  readDomainKnobValueRegistryFile,
+  writeDomainKnobValueRegistryFile,
+} from "../agents/prompts/domain_knob_registry.js";
 import { loadPrompt } from "../agents/prompts/loader.js";
+import { buildRuntimeResearchKnobs } from "../agents/prompts/research_knobs_projection.js";
+import { RUNTIME_AGENT_SPEC_BY_AGENT } from "../agents/prompts/runtime_agent_spec.js";
 import type { BridgeApi } from "../bridge/types.js";
 
 /** Layer-1 macro agents use their own skill metric (no recommendation alpha). */
@@ -134,9 +152,19 @@ export const KnobPatchSchema = z.object({
   expected_effect: z.string().min(1),
 });
 
+export const RollbackConditionSchema = z
+  .object({
+    metric: z.string().min(1),
+    worse_by: z.number(),
+    unit: z.enum(["ratio", "bps", "count"]),
+  })
+  .strict();
+
 export const KnobMutationSchema = z.object({
   prediction_target: z.string().min(1),
   evaluation_metric: z.string().min(1),
+  horizon: z.string().min(1),
+  rollback_condition: RollbackConditionSchema,
   knob_patches: z.array(KnobPatchSchema).min(1),
   renormalization: z.array(z.unknown()).default([]),
   risk: z.string().min(1),
@@ -158,6 +186,8 @@ export interface KnobMutationMetadata {
   cohort: string;
   prediction_target: string;
   evaluation_metric: string;
+  horizon: string;
+  rollback_condition: z.infer<typeof RollbackConditionSchema>;
   base_knobs_sha256: string;
   new_knobs_sha256: string;
   changed_paths: string[];
@@ -166,6 +196,68 @@ export interface KnobMutationMetadata {
   decision: "dry_run" | "applied" | "rejected";
   expected_effect: string;
   risk: string;
+}
+
+export interface KnobTargetRegistryEntry {
+  path: string;
+  category: "generic" | "domain";
+  type: ResearchKnobs["mutation_targets"][number]["type"];
+  min?: number;
+  max?: number;
+  step?: number;
+  allowed_values?: unknown[];
+  write_back_source: "prompt_ir_governance_registry" | "domain_knob_value_registry";
+  evaluation_metrics: string[];
+  horizons: string[];
+  rollback_metrics: string[];
+  domain_card_id?: string;
+  domain_card_path?: string;
+}
+
+interface ResolvedKnobTargetRegistryEntry {
+  target: ResearchKnobs["mutation_targets"][number];
+  category: "generic" | "domain";
+  domainCard?: NonNullable<ReturnType<typeof domainKnobCardFromPath>>;
+  allowedEvaluationMetrics: ReadonlySet<string>;
+  allowedHorizons: ReadonlySet<string>;
+  allowedRollbackMetrics: ReadonlySet<string>;
+}
+
+export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistryEntry[] {
+  const genericPolicy = genericTargetPolicy(knobs);
+  return knobs.mutation_targets.map((target) => {
+    const domainCard = domainKnobCardFromPath(target.path);
+    if (domainCard) {
+      return {
+        path: target.path,
+        category: "domain",
+        type: target.type,
+        ...(target.min !== undefined ? { min: target.min } : {}),
+        ...(target.max !== undefined ? { max: target.max } : {}),
+        ...(target.step !== undefined ? { step: target.step } : {}),
+        ...(target.allowed_values !== undefined ? { allowed_values: target.allowed_values } : {}),
+        write_back_source: "domain_knob_value_registry",
+        evaluation_metrics: [domainCard.evaluation_metric],
+        horizons: [domainCard.horizon],
+        rollback_metrics: [domainCard.rollback_condition.metric],
+        domain_card_id: domainCard.id,
+        domain_card_path: domainCard.path,
+      };
+    }
+    return {
+      path: target.path,
+      category: "generic",
+      type: target.type,
+      ...(target.min !== undefined ? { min: target.min } : {}),
+      ...(target.max !== undefined ? { max: target.max } : {}),
+      ...(target.step !== undefined ? { step: target.step } : {}),
+      ...(target.allowed_values !== undefined ? { allowed_values: target.allowed_values } : {}),
+      write_back_source: "prompt_ir_governance_registry",
+      evaluation_metrics: [...genericPolicy.metrics].sort(),
+      horizons: [...genericPolicy.horizons].sort(),
+      rollback_metrics: [...genericPolicy.metrics].sort(),
+    };
+  });
 }
 
 export function validateKnobMutation(
@@ -182,7 +274,38 @@ export function validateKnobMutation(
     reasons.push("prediction_target is not declared in research knobs");
   }
   for (const patch of mutation.knob_patches) {
-    reasons.push(...validateKnobPatch(knobs, patch));
+    const targetEntry = lookupKnobTargetRegistryEntry(knobs, patch.path, reasons);
+    if (!targetEntry) continue;
+    reasons.push(...validateKnobPatch(knobs, patch, targetEntry.target));
+    const domainCard = targetEntry.domainCard;
+    if (domainCard && mutation.evaluation_metric !== domainCard.evaluation_metric) {
+      reasons.push(
+        `${patch.path}: evaluation_metric ${mutation.evaluation_metric} does not match domain card ${domainCard.evaluation_metric}`,
+      );
+    }
+    if (domainCard && mutation.prediction_target !== domainCard.prediction_target) {
+      reasons.push(
+        `${patch.path}: prediction_target ${mutation.prediction_target} does not match domain card ${domainCard.prediction_target}`,
+      );
+    }
+    if (domainCard && mutation.horizon !== domainCard.horizon) {
+      reasons.push(
+        `${patch.path}: horizon ${mutation.horizon} does not match domain card ${domainCard.horizon}`,
+      );
+    }
+    if (domainCard && mutation.rollback_condition.metric !== domainCard.rollback_condition.metric) {
+      reasons.push(
+        `${patch.path}: rollback_condition.metric ${mutation.rollback_condition.metric} does not match domain card ${domainCard.rollback_condition.metric}`,
+      );
+    }
+    if (domainCard && mutation.rollback_condition.unit !== domainCard.rollback_condition.unit) {
+      reasons.push(
+        `${patch.path}: rollback_condition.unit ${mutation.rollback_condition.unit} does not match domain card ${domainCard.rollback_condition.unit}`,
+      );
+    }
+    if (!domainCard) {
+      reasons.push(...validateGenericEvaluationPolicy(targetEntry, mutation, patch.path));
+    }
   }
   const finalByPath = new Map<string, unknown>();
   for (const patch of mutation.knob_patches) finalByPath.set(patch.path, patch.new_value);
@@ -190,6 +313,9 @@ export function validateKnobMutation(
     mutation.knob_patches.every((patch) => Object.is(patch.old_value, finalByPath.get(patch.path)))
   ) {
     reasons.push("knob mutation is a no-op");
+  }
+  if (reasons.length === 0) {
+    reasons.push(...validateProjectedMutationInvariants(knobs, mutation));
   }
   return { accepted: reasons.length === 0, reasons };
 }
@@ -203,14 +329,28 @@ export function applyKnobPatchesToProjection(
   if (!validation.accepted) {
     throw new PromptInvariantError(validation.reasons.join("; "));
   }
+  const next = applyKnobPatchesToProjectionUnchecked(knobs, parsed);
+  const invariantReasons = validateProjectionInvariants(next);
+  if (invariantReasons.length > 0) {
+    throw new PromptInvariantError(invariantReasons.join("; "));
+  }
+  return next;
+}
+
+function applyKnobPatchesToProjectionUnchecked(
+  knobs: ResearchKnobs,
+  parsed: KnobMutation,
+): ResearchKnobs {
   const next = structuredClone(knobs) as ResearchKnobs;
   let evidenceWeightsChanged = false;
+  const changedDomainCards: string[] = [];
   for (const patch of parsed.knob_patches) {
     const capMatch = patch.path.match(/\/confidence_policy\/([^/]+)\/cap$/);
     const evidenceKey = evidenceKeyFromLearnableWeightPath(patch.path);
-    if (!capMatch?.[1] && !evidenceKey) {
+    const domainKnob = domainKnobDescriptorFromPath(patch.path);
+    if (!capMatch?.[1] && !evidenceKey && !domainKnob) {
       throw new PromptInvariantError(
-        `${patch.path}: projection apply supports confidence caps and evidence-channel learnable parameters only`,
+        `${patch.path}: projection apply supports confidence caps, evidence-channel learnable parameters, and domain knobs only`,
       );
     }
     if (capMatch?.[1]) {
@@ -224,6 +364,15 @@ export function applyKnobPatchesToProjection(
       cap.cap = patch.new_value;
       continue;
     }
+    if (domainKnob) {
+      if (domainKnob.projection_bucket === "lookbacks") {
+        next.lookbacks[domainKnob.id] = patch.new_value;
+      } else {
+        next.thresholds[domainKnob.id] = patch.new_value;
+      }
+      changedDomainCards.push(patch.path);
+      continue;
+    }
     if (evidenceKey && !(evidenceKey in next.evidence_registry)) {
       throw new PromptInvariantError(`${patch.path}: evidence key not found in registry`);
     }
@@ -232,6 +381,7 @@ export function applyKnobPatchesToProjection(
   if (evidenceWeightsChanged) {
     next.evidence_weights = renormalizedEvidenceWeights(next, parsed);
   }
+  renormalizeDomainWeightGroups(next, changedDomainCards);
   return next;
 }
 
@@ -309,6 +459,44 @@ export async function applyKnobPatchesToGovernanceRegistryFile(opts: {
   return { ...applied, registry_path: opts.registryPath };
 }
 
+export function applyKnobPatchesToDomainKnobRegistry(
+  registry: DomainKnobValueRegistry,
+  knobs: ResearchKnobs,
+  candidate: unknown,
+  opts: { mutationId?: string | null } = {},
+): DomainKnobRegistryPatchResult {
+  const parsed = KnobMutationSchema.parse(candidate);
+  const validation = validateKnobMutation(knobs, parsed);
+  if (!validation.accepted) {
+    throw new PromptInvariantError(validation.reasons.join("; "));
+  }
+  try {
+    return applyDomainKnobRegistryPatches(registry, knobs, parsed, opts);
+  } catch (err) {
+    throw new PromptInvariantError((err as Error).message);
+  }
+}
+
+export async function applyKnobPatchesToDomainKnobRegistryFile(opts: {
+  registryPath: string;
+  knobs: ResearchKnobs;
+  mutation: unknown;
+  mutationId?: string | null;
+}): Promise<DomainKnobRegistryPatchResult & { registry_path: string }> {
+  const registry = await readDomainKnobValueRegistryFile(opts.registryPath);
+  if (!registry) {
+    throw new PromptInvariantError(`${opts.registryPath}: domain knob registry not found`);
+  }
+  const applied = applyKnobPatchesToDomainKnobRegistry(
+    registry,
+    opts.knobs,
+    opts.mutation,
+    opts.mutationId === undefined ? {} : { mutationId: opts.mutationId },
+  );
+  await writeDomainKnobValueRegistryFile(opts.registryPath, applied.registry);
+  return { ...applied, registry_path: opts.registryPath };
+}
+
 export function buildKnobMutationMetadata(opts: {
   mutationId: string;
   agent: string;
@@ -328,6 +516,8 @@ export function buildKnobMutationMetadata(opts: {
     cohort: opts.cohort,
     prediction_target: opts.mutation.prediction_target,
     evaluation_metric: opts.mutation.evaluation_metric,
+    horizon: opts.mutation.horizon,
+    rollback_condition: opts.mutation.rollback_condition,
     base_knobs_sha256: hashKnobs(opts.baseKnobs),
     new_knobs_sha256: hashKnobs(opts.newKnobs),
     changed_paths: changedPaths,
@@ -362,15 +552,154 @@ function normalize(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-function validateKnobPatch(knobs: ResearchKnobs, patch: KnobPatch): string[] {
+function lookupKnobTargetRegistryEntry(
+  knobs: ResearchKnobs,
+  path: string,
+  reasons: string[],
+): ResolvedKnobTargetRegistryEntry | null {
+  if (path.includes("*")) {
+    reasons.push(`${path}: patch path must be concrete`);
+    return null;
+  }
+  if (path.startsWith("/research_weighting/source_profiles/")) {
+    reasons.push("evidence weight patch must not target report-source reliability paths");
+    return null;
+  }
+  const registry = buildKnobTargetRegistry(knobs);
+  const matches = registry.filter((item) => pathMatches(item.path, path));
+  if (matches.length === 0) {
+    reasons.push(`${path}: not declared in KnobTargetRegistry`);
+    return null;
+  }
+  if (matches.length > 1) {
+    reasons.push(`${path}: matched multiple KnobTargetRegistry entries`);
+    return null;
+  }
+  const entry = matches[0] as KnobTargetRegistryEntry;
+  const target = knobs.mutation_targets.find((item) => item.path === entry.path);
+  if (!target) {
+    reasons.push(`${path}: KnobTargetRegistry entry has no mutation target`);
+    return null;
+  }
+  const domainCard = entry.category === "domain" ? domainKnobCardFromPath(path) : null;
+  if (domainCard) {
+    return {
+      target,
+      category: "domain",
+      domainCard,
+      allowedEvaluationMetrics: new Set([domainCard.evaluation_metric]),
+      allowedHorizons: new Set([domainCard.horizon]),
+      allowedRollbackMetrics: new Set([domainCard.rollback_condition.metric]),
+    };
+  }
+  return {
+    target,
+    category: "generic",
+    allowedEvaluationMetrics: new Set(entry.evaluation_metrics),
+    allowedHorizons: new Set(entry.horizons),
+    allowedRollbackMetrics: new Set(entry.rollback_metrics),
+  };
+}
+
+function genericTargetPolicy(knobs: ResearchKnobs): {
+  metrics: ReadonlySet<string>;
+  horizons: ReadonlySet<string>;
+} {
+  const metrics = new Set([
+    "confidence_calibration_error",
+    "fallback_rate",
+    "missing_rate",
+    "hit_rate_5d",
+  ]);
+  const layerMetric = defaultMetricForKnobs(knobs);
+  if (layerMetric) metrics.add(layerMetric);
+  const horizons = new Set(
+    [...metrics]
+      .map((metric) => EVALUATION_METRIC_REGISTRY[metric]?.window)
+      .filter((window): window is string => typeof window === "string" && window.length > 0),
+  );
+  return { metrics, horizons };
+}
+
+function defaultMetricForKnobs(knobs: ResearchKnobs): string | null {
+  if (knobs.layer === "macro") return "macro_signal_accuracy_5d";
+  if (knobs.layer === "sector") return "sector_rank_correlation_20d";
+  if (knobs.layer === "superinvestor") return "style_pick_alpha_60d";
+  if (knobs.agent === "decision.cro") return "portfolio_risk_quality_20d";
+  if (knobs.agent === "decision.autonomous_execution") return "execution_quality_5d";
+  if (knobs.agent === "decision.alpha_discovery") return "alpha_discovery_quality_20d";
+  if (knobs.layer === "decision") return "portfolio_construction_quality_20d";
+  return null;
+}
+
+function validateGenericEvaluationPolicy(
+  target: ResolvedKnobTargetRegistryEntry,
+  mutation: KnobMutation,
+  path: string,
+): string[] {
+  const reasons: string[] = [];
+  if (!target.allowedEvaluationMetrics.has(mutation.evaluation_metric)) {
+    reasons.push(
+      `${path}: evaluation_metric ${mutation.evaluation_metric} is not allowed for generic target`,
+    );
+  }
+  const metric = EVALUATION_METRIC_REGISTRY[mutation.evaluation_metric];
+  if (!metric) {
+    reasons.push(`evaluation_metric ${mutation.evaluation_metric} is not registered`);
+  } else {
+    if (mutation.horizon !== metric.window) {
+      reasons.push(`${path}: horizon ${mutation.horizon} is not allowed for generic target`);
+    }
+    if (mutation.rollback_condition.unit !== metric.unit) {
+      reasons.push(
+        `${path}: rollback_condition.unit ${mutation.rollback_condition.unit} does not match metric ${metric.unit}`,
+      );
+    }
+  }
+  if (!target.allowedRollbackMetrics.has(mutation.rollback_condition.metric)) {
+    reasons.push(
+      `${path}: rollback_condition.metric ${mutation.rollback_condition.metric} is not allowed for generic target`,
+    );
+  }
+  if (!(mutation.rollback_condition.metric in EVALUATION_METRIC_REGISTRY)) {
+    reasons.push(
+      `rollback_condition.metric ${mutation.rollback_condition.metric} is not registered`,
+    );
+  }
+  return reasons;
+}
+
+function validateProjectedMutationInvariants(
+  knobs: ResearchKnobs,
+  mutation: KnobMutation,
+): string[] {
+  let next: ResearchKnobs;
+  try {
+    next = applyKnobPatchesToProjectionUnchecked(knobs, mutation);
+  } catch (err) {
+    return [(err as Error).message];
+  }
+  return validateProjectionInvariants(next);
+}
+
+function validateProjectionInvariants(knobs: ResearchKnobs): string[] {
+  const agent = knobs.agent.split(".").at(-1);
+  const spec = agent ? RUNTIME_AGENT_SPEC_BY_AGENT.get(agent) : undefined;
+  if (!spec) return [];
+  return [
+    ...validateCrossFieldInvariants(spec, knobs),
+    ...validateWeightGroupInvariants(spec, knobs),
+  ];
+}
+
+function validateKnobPatch(
+  knobs: ResearchKnobs,
+  patch: KnobPatch,
+  target: ResearchKnobs["mutation_targets"][number],
+): string[] {
   const reasons: string[] = [];
   if (patch.path.startsWith("/research_weighting/source_profiles/")) {
     reasons.push("evidence weight patch must not target report-source reliability paths");
-  }
-  const target = knobs.mutation_targets.find((item) => pathMatches(item.path, patch.path));
-  if (!target) {
-    reasons.push(`${patch.path}: not declared in mutation_targets`);
-    return reasons;
   }
   const current = currentProjectionValue(knobs, patch.path);
   if (current !== undefined && !Object.is(current, patch.old_value)) {
@@ -396,6 +725,11 @@ function pathMatches(pattern: string, path: string): boolean {
 function currentProjectionValue(knobs: ResearchKnobs, path: string): unknown {
   const capMatch = path.match(/\/confidence_policy\/([^/]+)\/cap$/);
   if (capMatch?.[1]) return knobs.confidence_caps[capMatch[1]]?.cap;
+  const domainKnob = domainKnobDescriptorFromPath(path);
+  if (domainKnob?.projection_bucket === "lookbacks") return knobs.lookbacks[domainKnob.id];
+  if (domainKnob?.projection_bucket === "thresholds") return knobs.thresholds[domainKnob.id];
+  const evidenceKey = evidenceKeyFromLearnableWeightPath(path);
+  if (evidenceKey) return knobs.evidence_weights[evidenceKey];
   return undefined;
 }
 
@@ -435,6 +769,45 @@ function renormalizedEvidenceWeights(
   );
 }
 
+function renormalizeDomainWeightGroups(knobs: ResearchKnobs, changedPaths: string[]): void {
+  const changedCards = changedPaths
+    .map((path) => domainKnobCardFromPath(path))
+    .filter(
+      (card): card is NonNullable<ReturnType<typeof domainKnobCardFromPath>> =>
+        card !== null && card.normalization === "sum_to_one" && Boolean(card.weight_group),
+    );
+  const groups = new Set(changedCards.map((card) => `${card.owner_agent}:${card.weight_group}`));
+  if (groups.size === 0) return;
+  const agent = knobs.agent.split(".").at(-1);
+  const spec = agent ? RUNTIME_AGENT_SPEC_BY_AGENT.get(agent) : undefined;
+  if (!spec) return;
+  for (const group of groups) {
+    const groupName = group.split(":").at(1);
+    if (!groupName) continue;
+    const members = domainKnobCardsForSpec(spec).filter(
+      (card) => card.weight_group === groupName && card.normalization === "sum_to_one",
+    );
+    const total = members.reduce(
+      (sum, card) => sum + Math.max(0, readDomainProjectionNumber(knobs, card.id)),
+      0,
+    );
+    if (total <= 0) continue;
+    for (const card of members) {
+      const normalized = Math.max(0, readDomainProjectionNumber(knobs, card.id)) / total;
+      if (card.projection_bucket === "lookbacks") {
+        knobs.lookbacks[card.id] = normalized;
+      } else {
+        knobs.thresholds[card.id] = normalized;
+      }
+    }
+  }
+}
+
+function readDomainProjectionNumber(knobs: ResearchKnobs, id: string): number {
+  const value = knobs.thresholds[id] ?? knobs.lookbacks[id];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 function validatePatchValue(
   target: ResearchKnobs["mutation_targets"][number],
   value: unknown,
@@ -453,7 +826,17 @@ function validatePatchValue(
       }
     }
   } else if (target.type === "integer") {
-    if (!Number.isInteger(value)) return [`${target.path}: new_value must be integer`];
+    if (typeof value !== "number" || !Number.isInteger(value)) {
+      return [`${target.path}: new_value must be integer`];
+    }
+    if (target.min !== undefined && value < target.min) reasons.push(`${target.path}: below min`);
+    if (target.max !== undefined && value > target.max) reasons.push(`${target.path}: above max`);
+    if (target.step !== undefined && target.min !== undefined) {
+      const steps = (value - target.min) / target.step;
+      if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+        reasons.push(`${target.path}: value is not aligned to step`);
+      }
+    }
   } else if (target.type === "boolean") {
     if (typeof value !== "boolean") return [`${target.path}: new_value must be boolean`];
   } else if (target.type === "enum") {
@@ -662,6 +1045,42 @@ function cannedMutation(zh: string, en: string): Mutation {
 }
 
 function cannedKnobMutation(knobs: ResearchKnobs): KnobMutation {
+  const domainTarget = knobs.mutation_targets.find((item) =>
+    [
+      "/learnable_parameters/stop_loss_pct/value",
+      "/learnable_parameters/mirofish_override_hurdle/value",
+    ].some((suffix) => item.path.endsWith(suffix)),
+  );
+  const domainCard = domainTarget ? domainKnobCardFromPath(domainTarget.path) : null;
+  if (domainTarget && domainCard) {
+    const oldValue = currentProjectionValue(knobs, domainTarget.path);
+    if (typeof oldValue !== "number") {
+      throw new PromptInvariantError(`${domainTarget.path}: current domain knob value is missing`);
+    }
+    const step = domainTarget.step ?? 0.05;
+    const min = domainTarget.min ?? 0;
+    const max = domainTarget.max ?? 1;
+    const lower = Number((oldValue - step).toFixed(10));
+    const upper = Number((oldValue + step).toFixed(10));
+    const newValue = lower >= min ? lower : upper <= max ? upper : oldValue;
+    return {
+      prediction_target: domainCard.prediction_target,
+      evaluation_metric: domainCard.evaluation_metric,
+      horizon: domainCard.horizon,
+      rollback_condition: domainCard.rollback_condition,
+      knob_patches: [
+        {
+          path: domainTarget.path,
+          old_value: oldValue,
+          new_value: newValue,
+          rationale: "Fake-LLM position-aware domain knob mutation for smoke coverage.",
+          expected_effect: "Exercise position-aware or MiroFish parameter evolution metadata.",
+        },
+      ],
+      renormalization: [],
+      risk: "May alter position review behavior until enough post-run samples accumulate.",
+    };
+  }
   const target = knobs.mutation_targets.find((item) =>
     item.path.includes("/confidence_policy/missing_current_data/cap"),
   );
@@ -681,9 +1100,15 @@ function cannedKnobMutation(knobs: ResearchKnobs): KnobMutation {
   return {
     prediction_target: knobs.prediction_targets[0]?.id ?? "primary",
     evaluation_metric: "confidence_calibration_error",
+    horizon: EVALUATION_METRIC_REGISTRY.confidence_calibration_error?.window ?? "5d",
+    rollback_condition: {
+      metric: "confidence_calibration_error",
+      worse_by: 0.03,
+      unit: "ratio",
+    },
     knob_patches: [
       {
-        path: target.path,
+        path: concreteMutationPath(knobs, target.path),
         old_value: oldValue,
         new_value: newValue,
         rationale: "Fake-LLM parameter-level mutation for research-knobs smoke coverage.",
@@ -692,6 +1117,47 @@ function cannedKnobMutation(knobs: ResearchKnobs): KnobMutation {
     ],
     renormalization: [],
     risk: "May understate confidence if missing-data status is noisy.",
+  };
+}
+
+function concreteMutationPath(knobs: ResearchKnobs, path: string): string {
+  if (!path.includes("*")) return path;
+  const agent = knobs.agent.split(".").at(-1) ?? knobs.agent;
+  const kind = knobs.layer === "decision" ? (agent === "cro" ? "risk" : "policy") : "soft";
+  return path
+    .replace("/rule_packs/*/", `/rule_packs/${knobs.agent}.runtime.v1/`)
+    .replace("/rules/*/", `/rules/${knobs.layer}.${agent}.${kind}.001/`);
+}
+
+const RESEARCH_KNOBS_FENCE_RE = /```research-knobs\s*\n[\s\S]*?```/g;
+
+function researchKnobsFenceCount(prompt: string): number {
+  return [...prompt.matchAll(RESEARCH_KNOBS_FENCE_RE)].length;
+}
+
+function bootstrapResearchKnobsPrompts(
+  agent: string,
+  zhPrompt: string,
+  enPrompt: string,
+): { zhPrompt: string; enPrompt: string } {
+  const zhCount = researchKnobsFenceCount(zhPrompt);
+  const enCount = researchKnobsFenceCount(enPrompt);
+  if (zhCount === 1 && enCount === 1) {
+    return { zhPrompt, enPrompt };
+  }
+  if (zhCount !== 0 || enCount !== 0) {
+    throw new Error(
+      `expected zh/en prompts to have matching research-knobs fences, found zh=${zhCount} en=${enCount}`,
+    );
+  }
+  const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(agent);
+  if (!spec) {
+    throw new Error(`cannot bootstrap research-knobs for unknown runtime agent: ${agent}`);
+  }
+  const fence = renderResearchKnobsFence(buildRuntimeResearchKnobs(spec));
+  return {
+    zhPrompt: `${zhPrompt.replace(/\s+$/, "")}\n\n${fence}\n`,
+    enPrompt: `${enPrompt.replace(/\s+$/, "")}\n\n${fence}\n`,
   };
 }
 
@@ -704,10 +1170,13 @@ export async function mutateResearchKnobs(
 ): Promise<ResearchKnobPromptMutation> {
   const { cohort, agent, deps, since, promptsRoot, fakeLlm } = opts;
   const rootOpt = promptsRoot !== undefined ? { promptsRoot } : {};
-  const [zhPrompt, enPrompt] = await Promise.all([
+  let [zhPrompt, enPrompt] = await Promise.all([
     loadPrompt({ agent, cohort, language: "zh", noCache: true, ...rootOpt }),
     loadPrompt({ agent, cohort, language: "en", noCache: true, ...rootOpt }),
   ]);
+  const prompts = bootstrapResearchKnobsPrompts(agent, zhPrompt, enPrompt);
+  zhPrompt = prompts.zhPrompt;
+  enPrompt = prompts.enPrompt;
   const zh = parseResearchKnobsPrompt(zhPrompt);
   const en = parseResearchKnobsPrompt(enPrompt);
   assertResearchKnobsParity(zh.knobs, en.knobs);
@@ -726,7 +1195,7 @@ export async function mutateResearchKnobs(
         [
           "You propose parameter-level research-knob mutations only.",
           "Return KnobMutationSchema JSON. Do not rewrite prompt prose.",
-          "Use only paths declared in mutation_targets. Include old_value, new_value, rationale, expected_effect, risk.",
+          "Use only paths declared in mutation_targets. Include horizon, rollback_condition, old_value, new_value, rationale, expected_effect, risk.",
           "Choose an evaluation_metric tied to prediction quality, calibration, fallback rate, missing rate, rank correlation, or drawdown avoidance.",
         ].join("\n"),
       ),

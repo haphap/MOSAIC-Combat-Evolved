@@ -14,6 +14,7 @@
  * unit-tested in test/{macro,sector,superinvestor,decision,daily_cycle}*.
  */
 
+import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseMessage } from "@langchain/core/messages";
@@ -27,9 +28,21 @@ import {
 } from "../../agents/helpers/runtime.js";
 import { formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
-import type { DailyCycleStateType } from "../../agents/state.js";
-import type { PortfolioAction } from "../../agents/types.js";
-import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
+import { type DailyCycleStateType, emptyCurrentPositions } from "../../agents/state.js";
+import type {
+  CurrentPositionsSnapshot,
+  PortfolioAction,
+  PositionAudit,
+} from "../../agents/types.js";
+import {
+  BridgeApi,
+  BridgeClient,
+  type PaperAccount,
+  type PaperOrderResult,
+  type PaperPosition,
+  type PaperSuggestion,
+  RpcError,
+} from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
@@ -48,6 +61,16 @@ interface DailyCycleOptions {
   out?: string;
   vetoThreshold?: string;
   agentTimeoutSeconds?: string;
+  paperPositions?: boolean;
+  paperExecuteDeltas?: boolean;
+}
+
+export interface PaperDeltaExecution {
+  ticker: string;
+  target_weight: number;
+  suggested_order: PaperSuggestion | null;
+  submitted_order: PaperOrderResult | null;
+  skipped_reason?: string;
 }
 
 export function registerDailyCycle(program: Command): void {
@@ -73,6 +96,11 @@ export function registerDailyCycle(program: Command): void {
     .option(
       "--agent-timeout-seconds <seconds>",
       "Per-agent wall-clock timeout in seconds (default 300; 0/off disables)",
+    )
+    .option("--paper-positions", "Seed current_positions from the active paper account")
+    .option(
+      "--paper-execute-deltas",
+      "Submit paper orders after the run using paper.suggest_order_from_signal target-current deltas",
     )
     .action(async (opts: DailyCycleOptions) => {
       const client = new BridgeClient();
@@ -111,6 +139,9 @@ export function registerDailyCycle(program: Command): void {
         const onAgentLog = (msg: string) => {
           console.log(pc.dim(`  ${redactSensitiveText(msg)}`));
         };
+        const currentPositions = opts.paperPositions
+          ? await loadPaperCurrentPositions(api)
+          : emptyCurrentPositions();
 
         const graph = buildDailyCycleGraph({
           llmHandle,
@@ -141,6 +172,9 @@ export function registerDailyCycle(program: Command): void {
             autonomous_execution: null,
             cio: null,
           },
+          current_positions: currentPositions,
+          position_reviews: [],
+          position_audit: positionAuditFromSnapshot(currentPositions),
           portfolio_actions: [],
           replay_triggered: false,
           llm_calls: [],
@@ -153,6 +187,27 @@ export function registerDailyCycle(program: Command): void {
         const t0 = Date.now();
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        if (opts.paperExecuteDeltas) {
+          const execution = await submitPaperTargetDeltaOrders(api, final.portfolio_actions, {
+            analysisId: final.trace_id,
+            tradeDate: final.as_of_date,
+          });
+          console.log(pc.cyan("\n=== paper execution deltas ==="));
+          for (const row of execution) {
+            if (!row.suggested_order) {
+              console.log(
+                pc.dim(
+                  `  ${row.ticker} target=${(row.target_weight * 100).toFixed(2)}% ${row.skipped_reason ?? "no delta order"}`,
+                ),
+              );
+            } else {
+              console.log(
+                `  ${row.suggested_order.side} ${row.suggested_order.quantity} ${row.ticker} ` +
+                  `target=${(row.target_weight * 100).toFixed(2)}%`,
+              );
+            }
+          }
+        }
         try {
           const capture = await captureDailyCycleRkeFootprints(api, final);
           if (capture) {
@@ -283,9 +338,29 @@ function printCycleSummary(state: DailyCycleStateType, elapsed: string): void {
   }
 
   console.log(pc.cyan("\n=== portfolio_actions (final) ==="));
+  printPositionAudit(state);
   printPortfolioTable(state.portfolio_actions);
 
   console.log(pc.dim(`\ntotal=${state.llm_calls.length} llm calls, elapsed=${elapsed}s`));
+}
+
+function printPositionAudit(state: DailyCycleStateType): void {
+  const audit = state.position_audit;
+  console.log(
+    pc.dim(
+      `positions=${audit.snapshot_status}/${audit.position_source} loaded=${audit.positions_loaded} ` +
+        `reviewed=${audit.positions_reviewed} unreviewed=${audit.positions_unreviewed}`,
+    ),
+  );
+  const warnings: string[] = [];
+  if (audit.positions_unreviewed > 0) warnings.push("UNREVIEWED_POSITION");
+  if (audit.snapshot_status === "missing") warnings.push("MISSING_POSITION_SNAPSHOT");
+  if (audit.stale_thesis_count > 0) warnings.push("STALE_THESIS");
+  if (audit.stop_loss_override_count > 0) warnings.push("STOP_LOSS_OVERRIDE");
+  if (audit.target_current_drift_count > 0) warnings.push("TARGET_CURRENT_DRIFT");
+  if (warnings.length > 0) {
+    console.log(pc.yellow(`  warnings=${warnings.join(",")}`));
+  }
 }
 
 function printPortfolioTable(actions: PortfolioAction[]): void {
@@ -295,18 +370,159 @@ function printPortfolioTable(actions: PortfolioAction[]): void {
   }
   const totalWeight = actions.reduce((s, a) => s + a.target_weight, 0);
   console.log(
-    `  ${pad("ticker", 12)} ${pad("action", 7)} ${pad("weight", 8)} ${pad("hp", 5)} dissent`,
+    `  ${pad("ticker", 12)} ${pad("action", 7)} ${pad("pos", 7)} ${pad("cur", 7)} ` +
+      `${pad("target", 7)} ${pad("delta", 7)} ${pad("thesis", 8)} dissent`,
   );
   for (const a of actions) {
     console.log(
-      `  ${pad(a.ticker, 12)} ${pad(a.action, 7)} ${pad(a.target_weight.toFixed(2), 8)} ` +
-        `${pad(a.holding_period, 5)} ${a.dissent_notes || ""}`,
+      `  ${pad(a.ticker, 12)} ${pad(a.action, 7)} ${pad(a.position_decision ?? "-", 7)} ` +
+        `${pad(formatWeight(a.current_weight), 7)} ${pad(a.target_weight.toFixed(2), 7)} ` +
+        `${pad(formatWeight(a.delta_weight), 7)} ${pad(a.thesis_status ?? "-", 8)} ` +
+        `${a.dissent_notes || ""}`,
     );
   }
   console.log(pc.dim(`  total_weight = ${totalWeight.toFixed(2)}`));
 }
 
+function formatWeight(value: number | undefined): string {
+  return value === undefined ? "-" : value.toFixed(2);
+}
+
 // pad() imported from ../_format.js (§14 R-T2: shared CJK + ANSI-aware).
+
+async function loadPaperCurrentPositions(api: BridgeApi): Promise<CurrentPositionsSnapshot> {
+  try {
+    const [account, positions] = await Promise.all([
+      api.paperGetAccount(),
+      api.paperGetPositions(),
+    ]);
+    if (positions.length === 0) {
+      return {
+        ...emptyCurrentPositions(),
+        position_source: "paper_account",
+        position_snapshot_hash: paperPositionHash(account, positions),
+      };
+    }
+    const totalAssets =
+      account.total_assets > 0
+        ? account.total_assets
+        : positions.reduce((sum, position) => sum + position.market_value, 0);
+    return {
+      snapshot_status: "loaded",
+      position_source: "paper_account",
+      source_error_code: null,
+      position_snapshot_hash: paperPositionHash(account, positions),
+      positions: positions.map((position) => ({
+        ticker: position.ticker,
+        current_weight: totalAssets > 0 ? position.market_value / totalAssets : 0,
+        cost_basis: position.avg_cost,
+        market_price: position.current_price,
+        unrealized_pnl_pct: position.pnl_pct / 100,
+        holding_days: 0,
+        entry_date: position.updated_at.slice(0, 10),
+        source_agent: "paper_account",
+        entry_thesis_id: `paper:${position.ticker}`,
+        last_review_date: position.updated_at.slice(0, 10),
+      })),
+    };
+  } catch (err) {
+    return {
+      snapshot_status: "missing",
+      position_source: "paper_account",
+      source_error_code: `paper_positions_unavailable:${(err as Error).message.slice(0, 80)}`,
+      position_snapshot_hash: undefined,
+      positions: [],
+    };
+  }
+}
+
+function paperPositionHash(account: PaperAccount, positions: ReadonlyArray<PaperPosition>): string {
+  const payload = JSON.stringify({
+    total_assets: account.total_assets,
+    positions: positions.map((position) => ({
+      ticker: position.ticker,
+      quantity: position.quantity,
+      market_value: position.market_value,
+      updated_at: position.updated_at,
+    })),
+  });
+  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+function positionAuditFromSnapshot(snapshot: CurrentPositionsSnapshot): PositionAudit {
+  return {
+    position_snapshot_hash: snapshot.position_snapshot_hash ?? null,
+    snapshot_status: snapshot.snapshot_status,
+    position_source: snapshot.position_source,
+    source_error_code: snapshot.source_error_code,
+    positions_loaded: snapshot.positions.length,
+    positions_reviewed: 0,
+    positions_unreviewed: snapshot.positions.length,
+    hold_count: 0,
+    add_count: 0,
+    reduce_count: 0,
+    exit_count: 0,
+    stale_thesis_count: 0,
+    stop_loss_override_count: 0,
+    target_current_drift_count: 0,
+  };
+}
+
+export async function submitPaperTargetDeltaOrders(
+  api: Pick<BridgeApi, "paperSuggestOrderFromSignal" | "paperBuy" | "paperSell">,
+  actions: ReadonlyArray<PortfolioAction>,
+  opts: { userId?: string; dbPath?: string; analysisId?: string; tradeDate?: string } = {},
+): Promise<PaperDeltaExecution[]> {
+  const results: PaperDeltaExecution[] = [];
+  for (const action of actions) {
+    const targetWeightPct = action.target_weight * 100;
+    const signalState = {
+      backtest_signal: {
+        ticker: action.ticker,
+        decision_date: opts.tradeDate ?? new Date().toISOString().slice(0, 10),
+        source: "daily_cycle_position_target",
+        source_section: "portfolio_actions",
+        rating: action.action,
+        target_weight_pct: targetWeightPct,
+        target_weight_min_pct: targetWeightPct,
+        target_weight_max_pct: targetWeightPct,
+        weight_source: "target_portfolio_weight",
+      },
+    };
+    const suggested = await api.paperSuggestOrderFromSignal({
+      ticker: action.ticker,
+      state: signalState,
+      ...(opts.userId ? { user_id: opts.userId } : {}),
+      ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
+    });
+    if (!suggested) {
+      results.push({
+        ticker: action.ticker,
+        target_weight: action.target_weight,
+        suggested_order: null,
+        submitted_order: null,
+        skipped_reason: "already_at_target_or_below_lot_size",
+      });
+      continue;
+    }
+    const orderParams = {
+      ticker: suggested.ticker,
+      quantity: suggested.quantity,
+      ...(opts.userId ? { user_id: opts.userId } : {}),
+      ...(opts.analysisId ? { analysis_id: opts.analysisId } : {}),
+      ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
+    };
+    const submitted =
+      suggested.side === "buy" ? await api.paperBuy(orderParams) : await api.paperSell(orderParams);
+    results.push({
+      ticker: action.ticker,
+      target_weight: action.target_weight,
+      suggested_order: suggested,
+      submitted_order: submitted,
+    });
+  }
+  return results;
+}
 
 // ---------------------------------------------------------------------------
 // Fake LLM for --fake-llm mode

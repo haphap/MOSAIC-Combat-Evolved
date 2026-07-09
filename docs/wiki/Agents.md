@@ -33,7 +33,7 @@ The six industry agents share a common core of 8 tools — `get_industry_policy`
 
 ### MiroFish context injection (opt-in)
 
-When `config.mirofish.inject_context` is true, the **CIO** prompt gets an appended MiroFish forward-looking section (latest scenario context, with a "simulation only" disclaimer and an `as_of_date` anti-lookahead bound). Off by default. See `maybeAppendMirofishContext` in `decision/_factory.ts`.
+When `config.mirofish.inject_context` is true, the L4 **CRO**, **autonomous_execution**, and **CIO** prompts share one appended MiroFish forward-looking section for the run (latest scenario context, with a "simulation only" disclaimer, context hash, and `as_of_date` anti-lookahead bound). Off by default. MiroFish remains simulation-only: it cannot replace current account or market evidence, and MiroFish-influenced position changes must pass the L4 position validator. See `maybeAppendMirofishContext` in `decision/_factory.ts`.
 
 ## Prompts
 

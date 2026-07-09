@@ -10,6 +10,7 @@ MOSAIC 的自我改进栈有四部分:**Autoresearch**(提示词进化)、**PRIS
 - **`constraints.py`** —— `check_cooldown`(每 agent 24h)、`check_monthly_cap`(≤100/cohort/月)、`check_keep_lockout`(keep 后 3 天)。
 - **`evaluator.py`** —— 在评估窗口(默认 5 交易日)上算 ΔSharpe。
 - **`decider.py`** —— `delta_sharpe ≥ keep_threshold_delta_sharpe`(默认 0.1)则 keep。
+- **`knob_patch` 模式** —— 修改 Prompt IR / domain-knob 路径,包括持仓感知和 MiroFish 卡片,不改写提示词正文。
 
 分支命名:`cohort/{name}/auto/{agent}/{YYYY-MM-DD}`。
 
@@ -45,7 +46,7 @@ CLI:`prism list|train|status|compare`。
 
 - **engine**(`config.mirofish.engine`):`montecarlo`(默认 —— i.i.d. 相关路径 + 可选反身性核)或 `swarm`(主体间交互)。swarm 为 opt-in。
 - **scorer**(`config.mirofish.scorer`):`terminal`(默认 —— 方向 × 累计收益)或 `path_aware`(回撤惩罚的权益曲线;`mirofish train` 上的 `--path-aware` 简写)。
-- **inject_context**(`config.mirofish.inject_context`,默认关):把最新情景上下文追加到 CIO 提示词(见[智能体](Agents.md))。
+- **inject_context**(`config.mirofish.inject_context`,默认关):把同一份 simulation-only 情景上下文追加到本轮第 4 层 CRO、autonomous execution 和 CIO 提示词(见[智能体](Agents.md))。
 - OASIS 适配器可经 HTTP 驱动真实外部 MiroFish 引擎(`MOSAIC_MIROFISH_URL`)。
 
 CLI:`mirofish generate|train|history`;RPC 在 `mirofish.*`。

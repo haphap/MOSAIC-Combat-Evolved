@@ -13,7 +13,7 @@ Runtime config is a single object (`MosaicConfig` in `mosaic-ts/src/bridge/types
 | `active_cohort` | active cohort key (default `euphoria_2021`) |
 | `cohorts` | 7 cohorts × {start, end} (see [Self-Improvement](Self-Improvement.md)) |
 | `autoresearch` | cooldown / lockout / keep-threshold / monthly cap / eval horizon + opt-in `git` push |
-| `mirofish` | `engine` / `scorer` / `inject_context` (all opt-in; defaults montecarlo / terminal / off) |
+| `mirofish` | `engine` / `scorer` / `inject_context` (all opt-in; defaults montecarlo / terminal / off; injection is shared by L4 CRO, autonomous execution, and CIO) |
 | `data_vendors`, `tool_vendors` | per-category vendor selection |
 | `agent_data_cache` | SQLite exact-call cache for routed agent tool data; entries are retained until TTL refresh, max-entry eviction, cleanup, or clear (`enabled` default true; `db_path` optional; `read_ttl_seconds` default 86400; `max_entries` default 50000; `skip_empty_results` default true) |
 

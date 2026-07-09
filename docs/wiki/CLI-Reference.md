@@ -36,10 +36,11 @@ pnpm dev darwinian --cohort cohort_default
 
 ```bash
 pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
+pnpm dev autoresearch trigger --cohort cohort_default --agent cio --dry-run --fake-llm --mutation-mode knob_patch --eval-days 5
 pnpm dev autoresearch log --cohort crisis_2008
 ```
 Subcommands: `trigger`, `evaluate`, `log`, `branches`, `revert`.
-`trigger` options include `--cohort`, `--agent`, `--max <n>`, `--dry-run`, `--fake-llm`, `--eval-days <n>`, `--llm-provider/--model/--base-url`.
+`trigger` options include `--cohort`, `--agent`, `--max <n>`, `--dry-run`, `--fake-llm`, `--mutation-mode <auto|knob_patch|prompt_rewrite>`, `--eval-days <n>`, `--llm-provider/--model/--base-url`. `knob_patch` mode mutates Prompt IR/domain-knob paths, including position and MiroFish cards, without rewriting prompt prose.
 
 ## Prompt Operations
 
@@ -78,11 +79,13 @@ Subcommands: `run`, `weights`, `regime`, `history`. Options: `--date <date>`, `-
 ```bash
 pnpm dev mirofish generate --swarm --seed 7      # generate scenarios
 pnpm dev mirofish train --path-aware             # forward-train; --path-aware = drawdown-penalized scorer
+pnpm dev mirofish train --current-positions-file .mosaic/tmp/mirofish-positions.json --fake-llm --dry-run
 pnpm dev mirofish history
 ```
 Subcommands: `generate`, `train`, `history`.
-- `generate`: `--days <n>`, `--seed <n>`, `--print`, `--reflexive`, `--swarm`, `--engine <name>`.
-- `train`: `--days`, `--seed`, `--agents <list>`, `--dry-run`, `--fake-llm`, `--reflexive`, `--engine <name>`, `--swarm`, `--scorer <name>`, `--path-aware`, LLM flags.
+- `generate`: `--days <n>`, `--seed <n>`, `--print`, `--reflexive`, `--swarm`, `--engine <name>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--sector-exposure-json <json>`, `--theme-exposure-json <json>`.
+- `train`: `--days`, `--seed`, `--agents <list>`, `--dry-run`, `--fake-llm`, `--reflexive`, `--engine <name>`, `--swarm`, `--scorer <name>`, `--path-aware`, the same portfolio-stress fixture flags, and LLM flags.
+Portfolio-stress files may be either a JSON position array or an object with `current_positions`, `sector_exposure`, and `theme_exposure`; inline JSON flags override file values.
 
 ## Backtest
 

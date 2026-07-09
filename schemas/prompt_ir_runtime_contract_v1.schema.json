@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt IR Runtime Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "agent_id",
+    "layer",
+    "cohort",
+    "prompt_version",
+    "role_contract",
+    "required_tools",
+    "fallback_tools",
+    "research_rule_pack_refs",
+    "confidence_policy_ref",
+    "rule_aggregation_policy_ref",
+    "output_schema_ref",
+    "output_schema_fields",
+    "progress_event_schema_ref",
+    "handoff_schema_ref",
+    "evolution_targets",
+    "guardrails",
+    "shared_contract_refs",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "prompt_ir_runtime_contract_v1"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^(macro|sector|superinvestor|decision)\\.[a-z][a-z0-9_]*$"
+    },
+    "layer": {
+      "enum": ["macro", "sector", "superinvestor", "decision"]
+    },
+    "cohort": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["responsibility", "may_decide", "must_not_decide"],
+      "properties": {
+        "responsibility": {
+          "type": "string",
+          "minLength": 1
+        },
+        "may_decide": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "must_not_decide": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "required_tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "freshness_max_days",
+          "required",
+          "metric_ids",
+          "metric_candidate_ids",
+          "analysis_recipe_ids",
+          "pit_required_for_backtest",
+          "fallback_confidence_cap",
+          "lineage"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "freshness_max_days": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "metric_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "metric_candidate_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "analysis_recipe_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "pit_required_for_backtest": {
+            "type": "boolean"
+          },
+          "fallback_confidence_cap": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "lineage": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "fallback_tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "confidence_cap"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "confidence_cap": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "research_rule_pack_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "confidence_policy_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rule_aggregation_policy_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output_schema_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output_schema_fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "progress_event_schema_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "handoff_schema_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evolution_targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_paths", "forbidden_paths"],
+      "properties": {
+        "allowed_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "forbidden_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "guardrails": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "shared_contract_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "promotion_state",
+        "production_allowed",
+        "manual_gold_set_required",
+        "source_license_review_required",
+        "lockbox_required"
+      ],
+      "properties": {
+        "promotion_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "production_allowed": {
+          "type": "boolean"
+        },
+        "manual_gold_set_required": {
+          "type": "boolean"
+        },
+        "source_license_review_required": {
+          "type": "boolean"
+        },
+        "lockbox_required": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

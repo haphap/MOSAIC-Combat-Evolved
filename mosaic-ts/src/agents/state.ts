@@ -22,10 +22,13 @@
 
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
 import type {
+  CurrentPositionsSnapshot,
   Layer4Outputs,
   LlmCallRecord,
   MacroAgentOutput,
   PortfolioAction,
+  PositionAudit,
+  PositionReview,
   RegimeSignal,
   SectorAgentOutput,
   SectorConsensus,
@@ -69,6 +72,40 @@ export function emptyLayer4(): Layer4Outputs {
     autonomous_execution: null,
     cio: null,
   };
+}
+
+export function emptyCurrentPositions(): CurrentPositionsSnapshot {
+  return {
+    snapshot_status: "empty_confirmed",
+    position_source: "empty_confirmed",
+    source_error_code: null,
+    position_snapshot_hash: nullHash("empty_positions"),
+    positions: [],
+  };
+}
+
+export function emptyPositionAudit(): PositionAudit {
+  const snapshot = emptyCurrentPositions();
+  return {
+    position_snapshot_hash: snapshot.position_snapshot_hash ?? null,
+    snapshot_status: snapshot.snapshot_status,
+    position_source: snapshot.position_source,
+    source_error_code: snapshot.source_error_code,
+    positions_loaded: 0,
+    positions_reviewed: 0,
+    positions_unreviewed: 0,
+    hold_count: 0,
+    add_count: 0,
+    reduce_count: 0,
+    exit_count: 0,
+    stale_thesis_count: 0,
+    stop_loss_override_count: 0,
+    target_current_drift_count: 0,
+  };
+}
+
+function nullHash(label: string): string {
+  return `sha256:${label}`;
 }
 
 // ============================================================ Annotation root
@@ -141,6 +178,20 @@ export const DailyCycleState = Annotation.Root({
   layer4_outputs: Annotation<Layer4Outputs, Partial<Layer4Outputs>>({
     reducer: layer4Reducer,
     default: emptyLayer4,
+  }),
+
+  // ----- Position-aware daily loop state (Plan §12). -----
+  current_positions: Annotation<CurrentPositionsSnapshot>({
+    reducer: replaceReducer,
+    default: emptyCurrentPositions,
+  }),
+  position_reviews: Annotation<PositionReview[]>({
+    reducer: replaceReducer,
+    default: () => [],
+  }),
+  position_audit: Annotation<PositionAudit>({
+    reducer: replaceReducer,
+    default: emptyPositionAudit,
   }),
 
   // ----- Final action surface (CIO output, mirrored for downstream readers). -----

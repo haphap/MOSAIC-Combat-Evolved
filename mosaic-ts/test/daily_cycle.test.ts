@@ -17,7 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage, type SystemMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type {
@@ -30,6 +30,7 @@ import type {
   CommoditiesOutput,
   ConsumerOutput,
   CroOutput,
+  CurrentPositionsSnapshot,
   DollarOutput,
   EmergingMarketsOutput,
   EnergyOutput,
@@ -38,6 +39,7 @@ import type {
   IndustrialsOutput,
   InstitutionalFlowOutput,
   NewsSentimentOutput,
+  PortfolioAction,
   RegimeSignal,
   RelationshipMapperOutput,
   SemiconductorOutput,
@@ -47,6 +49,8 @@ import type {
 } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { applyBacktestPortfolioActionsToPositions } from "../src/cli/_backtest_helpers.js";
+import { submitPaperTargetDeltaOrders } from "../src/cli/commands/daily-cycle.js";
 import {
   buildDailyCycleGraph,
   checkCroVeto,
@@ -62,6 +66,135 @@ const TOOL_SCHEMA: JsonSchemaObject = {
   properties: { x: { type: "string" } },
   required: ["x"],
 };
+
+describe("backtest position carry-over", () => {
+  it("turns day N target weights into day N+1 current_positions", () => {
+    const actions: PortfolioAction[] = [
+      {
+        ticker: "600519.SH",
+        action: "BUY",
+        target_weight: 0.08,
+        holding_period: "6M",
+        dissent_notes: "",
+      },
+    ];
+    const day1 = applyBacktestPortfolioActionsToPositions(
+      {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty",
+        positions: [],
+      },
+      actions,
+      "2024-06-24",
+    );
+    const day2 = applyBacktestPortfolioActionsToPositions(day1, actions, "2024-06-25");
+
+    expect(day1.snapshot_status).toBe("loaded");
+    expect(day1.position_source).toBe("backtest_replay");
+    expect(day1.positions[0]?.current_weight).toBe(0.08);
+    expect(day2.positions[0]?.holding_days).toBe(1);
+  });
+
+  it("carries target positions across a 10-day replay loop", () => {
+    const actions: PortfolioAction[] = [
+      {
+        ticker: "600519.SH",
+        action: "BUY",
+        target_weight: 0.08,
+        holding_period: "6M",
+        dissent_notes: "",
+      },
+      {
+        ticker: "688981.SH",
+        action: "BUY",
+        target_weight: 0.06,
+        holding_period: "3M",
+        dissent_notes: "",
+      },
+    ];
+    let positions: CurrentPositionsSnapshot = {
+      snapshot_status: "empty_confirmed" as const,
+      position_source: "empty_confirmed" as const,
+      source_error_code: null,
+      position_snapshot_hash: "sha256:empty",
+      positions: [],
+    };
+
+    for (let day = 0; day < 10; day++) {
+      positions = applyBacktestPortfolioActionsToPositions(
+        positions,
+        actions,
+        `2024-06-${String(24 + day).padStart(2, "0")}`,
+      );
+    }
+
+    expect(positions.snapshot_status).toBe("loaded");
+    expect(positions.positions.map((position) => position.ticker).sort()).toEqual([
+      "600519.SH",
+      "688981.SH",
+    ]);
+    expect(positions.positions[0]?.holding_days).toBe(9);
+  });
+});
+
+describe("paper target-delta execution", () => {
+  it("delegates sizing to paper.suggest_order_from_signal so orders are target-current deltas", async () => {
+    const api = {
+      paperSuggestOrderFromSignal: vi.fn().mockResolvedValue({
+        ticker: "600519.SH",
+        side: "buy",
+        quantity: 100,
+        price: 1000,
+        target_weight_pct: 8,
+        rating: "BUY",
+      }),
+      paperBuy: vi.fn().mockResolvedValue({
+        ticker: "600519.SH",
+        side: "buy",
+        quantity: 100,
+        price: 1000,
+        amount: 100000,
+        commission: 30,
+      }),
+      paperSell: vi.fn(),
+    };
+
+    const result = await submitPaperTargetDeltaOrders(
+      api as unknown as Parameters<typeof submitPaperTargetDeltaOrders>[0],
+      [
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          current_weight: 0.05,
+          target_weight: 0.08,
+          delta_weight: 0.03,
+          holding_period: "6M",
+          dissent_notes: "",
+        },
+      ],
+      { analysisId: "trace-1", tradeDate: "2024-06-24" },
+    );
+
+    expect(api.paperSuggestOrderFromSignal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ticker: "600519.SH",
+        state: expect.objectContaining({
+          backtest_signal: expect.objectContaining({
+            target_weight_pct: 8,
+            weight_source: "target_portfolio_weight",
+          }),
+        }),
+      }),
+    );
+    expect(api.paperBuy).toHaveBeenCalledWith(
+      expect.objectContaining({ ticker: "600519.SH", quantity: 100, analysis_id: "trace-1" }),
+    );
+    expect(api.paperSell).not.toHaveBeenCalled();
+    expect(result[0]?.suggested_order?.quantity).toBe(100);
+  });
+});
 
 const FAKE_TOOLS: ToolMetadata[] = [
   "get_rke_research_context",
@@ -147,6 +280,30 @@ function emptyState(): DailyCycleStateType {
       alpha_discovery: null,
       autonomous_execution: null,
       cio: null,
+    },
+    current_positions: {
+      snapshot_status: "empty_confirmed",
+      position_source: "empty_confirmed",
+      source_error_code: null,
+      position_snapshot_hash: "sha256:empty_positions",
+      positions: [],
+    },
+    position_reviews: [],
+    position_audit: {
+      position_snapshot_hash: "sha256:empty_positions",
+      snapshot_status: "empty_confirmed",
+      position_source: "empty_confirmed",
+      source_error_code: null,
+      positions_loaded: 0,
+      positions_reviewed: 0,
+      positions_unreviewed: 0,
+      hold_count: 0,
+      add_count: 0,
+      reduce_count: 0,
+      exit_count: 0,
+      stale_thesis_count: 0,
+      stop_loss_override_count: 0,
+      target_current_drift_count: 0,
     },
     portfolio_actions: [],
     replay_triggered: false,

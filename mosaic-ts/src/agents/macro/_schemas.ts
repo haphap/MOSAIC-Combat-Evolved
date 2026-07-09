@@ -43,6 +43,17 @@ const CONFIDENCE = z
       "conclusive data; drop to ≤ 0.5 if any tool failed or returned thin data.",
   );
 
+const KNOB_INFLUENCE_FIELDS = {
+  declared_knob_influence_ids: z
+    .array(z.string().min(1))
+    .optional()
+    .describe("Visible domain knob card ids explicitly used in this conclusion."),
+  declared_influence_rationale: z
+    .string()
+    .optional()
+    .describe("Optional short rationale for declared knob influence ids."),
+};
+
 const STRING_LIST_1_8 = (label: string) => z.array(z.string().min(1)).min(1).max(8).describe(label);
 
 // ---------------------------------------------------------------------------
@@ -76,6 +87,7 @@ export const CentralBankSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Central-bank stance read for one daily-cycle date. Required: dual-bank (PBOC + Fed) " +
@@ -115,6 +127,7 @@ export const ChinaSchema = z
     ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "China-domestic policy stance read for one daily-cycle date. Required: " +
@@ -157,6 +170,7 @@ export const GeopoliticalSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Geopolitical risk read with focus on Sino-US frictions + adjacent zones. " +
@@ -198,6 +212,7 @@ export const DollarSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Dollar / RMB triangulation read. Required: cite DXY level change in BPS + " +
@@ -239,6 +254,7 @@ export const YieldCurveSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "CN yield-curve regime + CN-US 10Y spread read. Required: cite specific BPS values " +
@@ -284,6 +300,7 @@ export const CommoditiesSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Commodities regime read split into oil / metals / ag / China-demand axes. " +
@@ -324,6 +341,7 @@ export const VolatilitySchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Volatility regime classifier. Required: cite VIX absolute level + week-over-week change.",
@@ -364,6 +382,7 @@ export const EmergingMarketsSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Emerging-markets / HK-A read. Triangulate via cross-market ETF prices + " +
@@ -405,6 +424,7 @@ export const NewsSentimentSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Retail-sentiment read built from news, Caixin sentiment, and gov.cn policy documents. The " +
@@ -448,6 +468,7 @@ export const InstitutionalFlowSchema = z
       .describe("Sectors net bought (positive) or sold (negative) over the window, in CNY mil."),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Institutional flow read from main-funds money-flow + 龙虎榜. Required: surface concrete " +

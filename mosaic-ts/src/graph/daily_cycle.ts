@@ -166,6 +166,9 @@ function invokeSubgraph(
       layer2_consensus: result.layer2_consensus,
       layer3_outputs: result.layer3_outputs,
       layer4_outputs: result.layer4_outputs,
+      current_positions: result.current_positions,
+      position_reviews: result.position_reviews,
+      position_audit: result.position_audit,
       portfolio_actions: result.portfolio_actions,
       // Caller-supplied extra channels (e.g. replay_triggered on the replay node).
       ...extra,

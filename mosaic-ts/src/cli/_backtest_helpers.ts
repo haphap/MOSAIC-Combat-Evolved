@@ -13,9 +13,15 @@
  * can return it without any ``as any`` casts (review #5).
  */
 
+import { createHash } from "node:crypto";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { AIMessage } from "@langchain/core/messages";
-import type { DailyCycleStateType } from "../agents/state.js";
+import {
+  type DailyCycleStateType,
+  emptyCurrentPositions,
+  emptyPositionAudit,
+} from "../agents/state.js";
+import type { CurrentPositionsSnapshot, PortfolioAction } from "../agents/types.js";
 import type { BridgeApi } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 
@@ -85,10 +91,68 @@ export function makeInitialState(cohort: string, asOfDate: string): DailyCycleSt
       autonomous_execution: null,
       cio: null,
     },
+    current_positions: emptyCurrentPositions(),
+    position_reviews: [],
+    position_audit: emptyPositionAudit(),
     portfolio_actions: [],
     replay_triggered: false,
     llm_calls: [],
   };
+}
+
+export function applyBacktestPortfolioActionsToPositions(
+  previous: CurrentPositionsSnapshot,
+  actions: ReadonlyArray<PortfolioAction>,
+  asOfDate: string,
+): CurrentPositionsSnapshot {
+  const previousByTicker = new Map(
+    previous.positions.map((position) => [position.ticker, position]),
+  );
+  const positions = actions
+    .filter((action) => action.target_weight > 0 && action.action !== "SELL")
+    .map((action) => {
+      const prior = previousByTicker.get(action.ticker);
+      return {
+        ticker: action.ticker,
+        current_weight: action.target_weight,
+        cost_basis: prior?.cost_basis ?? 1,
+        market_price: prior?.market_price ?? 1,
+        unrealized_pnl_pct: prior?.unrealized_pnl_pct ?? 0,
+        holding_days: prior ? prior.holding_days + 1 : 0,
+        entry_date: prior?.entry_date ?? asOfDate,
+        source_agent: prior?.source_agent ?? "cio",
+        entry_thesis_id: prior?.entry_thesis_id ?? `backtest:${action.ticker}:${asOfDate}`,
+        last_review_date: asOfDate,
+      };
+    });
+  if (positions.length === 0) {
+    return {
+      ...emptyCurrentPositions(),
+      position_source: "backtest_replay",
+      position_snapshot_hash: backtestPositionHash(asOfDate, []),
+    };
+  }
+  return {
+    snapshot_status: "loaded",
+    position_source: "backtest_replay",
+    source_error_code: null,
+    position_snapshot_hash: backtestPositionHash(asOfDate, positions),
+    positions,
+  };
+}
+
+function backtestPositionHash(
+  asOfDate: string,
+  positions: ReadonlyArray<CurrentPositionsSnapshot["positions"][number]>,
+): string {
+  const payload = JSON.stringify(
+    positions.map((position) => ({
+      ticker: position.ticker,
+      current_weight: position.current_weight,
+      holding_days: position.holding_days,
+    })),
+  );
+  return `sha256:${createHash("sha256").update(`${asOfDate}:${payload}`).digest("hex")}`;
 }
 
 /**

@@ -187,6 +187,28 @@ def backtest_list_runs(params: dict[str, Any]) -> dict[str, Any]:
     return {"runs": runs}
 
 
+@method("backtest.action_summary")
+def backtest_action_summary(params: dict[str, Any]) -> dict[str, Any]:
+    """Return cheap stage-1 action diagnostics for a run.
+
+    This intentionally avoids qlib/stage-2 replay. Metrics that require market
+    outcomes are reported by ``metric_availability`` as unavailable.
+    """
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise RpcError(INVALID_PARAMS, "'run_id' must be a positive integer")
+    store = _store()
+    try:
+        run = store.get_backtest_run(run_id)
+        if run is None:
+            raise RpcError(BACKTEST_ERROR, f"backtest run {run_id} not found")
+        return store.summarize_backtest_actions(run_id)
+    except RpcError:
+        raise
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
 # --------------------------------------------------------- R-A3: failed-day tracking
 
 

@@ -30,6 +30,7 @@ import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import {
+  applyBacktestPortfolioActionsToPositions,
   buildFakeLlmHandle,
   enumerateTradingDays,
   makeInitialState,
@@ -211,9 +212,11 @@ async function fillStage1(
 
   let completed = 0;
   let totalActions = 0;
+  let currentPositions = makeInitialState(cohort, opts.start).current_positions;
   for (const tradeDate of tradeDays) {
     const tStart = Date.now();
     const initialState = makeInitialState(cohort, tradeDate);
+    initialState.current_positions = currentPositions;
     const final = (await graph.invoke(initialState)) as DailyCycleStateType;
     const actions = (final.portfolio_actions ?? []).map((a) => ({
       ticker: a.ticker,
@@ -223,6 +226,11 @@ async function fillStage1(
       ...(a.dissent_notes ? { dissent_notes: a.dissent_notes } : {}),
     })) satisfies BacktestActionInput[];
     await api.backtestAppendActions(runId, tradeDate, actions);
+    currentPositions = applyBacktestPortfolioActionsToPositions(
+      currentPositions,
+      final.portfolio_actions ?? [],
+      tradeDate,
+    );
     totalActions += actions.length;
     completed += 1;
     const elapsed = ((Date.now() - tStart) / 1000).toFixed(1);

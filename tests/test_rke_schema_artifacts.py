@@ -41,6 +41,9 @@ REQUIRED_SCHEMA_FILES = {
     "validation_experiment_v2.schema.json",
     "production_patch.schema.json",
     "research_knobs_v1.schema.json",
+    "prompt_ir_runtime_contract_v1.schema.json",
+    "domain_knob_catalog_v1.schema.json",
+    "domain_knob_values_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
     "report_intelligence_feature_flags.schema.json",
@@ -6612,6 +6615,146 @@ def test_schema_validation_enforces_numeric_minimum(tmp_path: Path):
 
     assert not record.accepted
     assert any("below minimum" in failure for failure in record.failures)
+
+
+def test_prompt_ir_runtime_contract_schema_accepts_runtime_contract(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_ir"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_ir_runtime_contract_v1.schema.json",
+        schema_dir / "prompt_ir_runtime_contract_v1.schema.json",
+    )
+    (artifact_dir / "macro.central_bank.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_ir_runtime_contract_v1",
+                "agent_id": "macro.central_bank",
+                "layer": "macro",
+                "cohort": "cohort_default",
+                "prompt_version": "0.4.0-research-knobs",
+                "role_contract": {
+                    "responsibility": "Generate central-bank research output.",
+                    "may_decide": ["stance"],
+                    "must_not_decide": ["final_portfolio_sizing"],
+                },
+                "required_tools": [
+                    {
+                        "name": "get_pboc_ops",
+                        "freshness_max_days": 1,
+                        "required": True,
+                        "metric_ids": ["pboc_ops_current"],
+                        "metric_candidate_ids": [],
+                        "analysis_recipe_ids": [],
+                        "pit_required_for_backtest": True,
+                        "fallback_confidence_cap": 0.6,
+                        "lineage": {},
+                    }
+                ],
+                "fallback_tools": [
+                    {
+                        "name": "get_pboc_ops:fallback",
+                        "confidence_cap": 0.6,
+                    }
+                ],
+                "research_rule_pack_refs": ["macro.central_bank.runtime.v1"],
+                "confidence_policy_ref": "confidence_policy.v1",
+                "rule_aggregation_policy_ref": "rule_aggregation_policy.v1",
+                "output_schema_ref": "agent_output_schema.macro.central_bank.v1",
+                "output_schema_fields": ["stance", "confidence"],
+                "progress_event_schema_ref": "progress_event.v1",
+                "handoff_schema_ref": "downstream_handoff.v1",
+                "evolution_targets": {
+                    "allowed_paths": ["/rule_packs/*/rules/*/learnable_parameters/*/value"],
+                    "forbidden_paths": ["/output_schema_ref"],
+                },
+                "guardrails": ["research_reports_are_prior_not_signal"],
+                "shared_contract_refs": ["research_knobs_v1"],
+                "status": {
+                    "promotion_state": "paper_trading",
+                    "production_allowed": False,
+                    "manual_gold_set_required": True,
+                    "source_license_review_required": True,
+                    "lockbox_required": True,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_ir_runtime_contract_v1.schema.json",
+        artifact_path="registry/prompt_ir/macro.central_bank.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_prompt_ir_runtime_contract_schema_requires_output_fields(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_ir"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_ir_runtime_contract_v1.schema.json",
+        schema_dir / "prompt_ir_runtime_contract_v1.schema.json",
+    )
+    (artifact_dir / "macro.central_bank.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_ir_runtime_contract_v1",
+                "agent_id": "macro.central_bank",
+                "layer": "macro",
+                "cohort": "cohort_default",
+                "prompt_version": "0.4.0-research-knobs",
+                "role_contract": {
+                    "responsibility": "Generate central-bank research output.",
+                    "may_decide": ["stance"],
+                    "must_not_decide": ["final_portfolio_sizing"],
+                },
+                "required_tools": [],
+                "fallback_tools": [],
+                "research_rule_pack_refs": ["macro.central_bank.runtime.v1"],
+                "confidence_policy_ref": "confidence_policy.v1",
+                "rule_aggregation_policy_ref": "rule_aggregation_policy.v1",
+                "output_schema_ref": "agent_output_schema.macro.central_bank.v1",
+                "progress_event_schema_ref": "progress_event.v1",
+                "handoff_schema_ref": "downstream_handoff.v1",
+                "evolution_targets": {
+                    "allowed_paths": ["/rule_packs/*/rules/*/learnable_parameters/*/value"],
+                    "forbidden_paths": ["/output_schema_ref"],
+                },
+                "guardrails": ["research_reports_are_prior_not_signal"],
+                "shared_contract_refs": ["research_knobs_v1"],
+                "status": {
+                    "promotion_state": "paper_trading",
+                    "production_allowed": False,
+                    "manual_gold_set_required": True,
+                    "source_license_review_required": True,
+                    "lockbox_required": True,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_ir_runtime_contract_v1.schema.json",
+        artifact_path="registry/prompt_ir/macro.central_bank.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(".output_schema_fields: required" in failure for failure in record.failures)
 
 
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):

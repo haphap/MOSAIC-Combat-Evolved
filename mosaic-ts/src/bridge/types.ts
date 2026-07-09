@@ -116,8 +116,8 @@ export interface MosaicConfig {
   };
 
   // ----- MiroFish (Plan §11.8 / 7M) -----
-  /** Forward-simulation toggles. ``inject_context`` (default false) appends the
-   *  latest MiroFish scenario context to the CIO prompt (7M Step 2). */
+  /** Forward-simulation toggles. ``inject_context`` (default false) appends one
+   *  shared simulation-only MiroFish context to CRO, execution, and CIO. */
   mirofish?: {
     engine?: string;
     scorer?: string;
@@ -243,6 +243,21 @@ export interface BacktestRunInfo {
   last_trade_date?: string | null;
 }
 
+export interface BacktestActionSummary {
+  run_id: number;
+  action_count: number;
+  trade_day_count: number;
+  first_trade_date: string | null;
+  last_trade_date: string | null;
+  ticker_count: number;
+  turnover_proxy: number;
+  max_observed_holding_days: number;
+  stale_thesis_proxy_count: number;
+  action_counts: Record<string, number>;
+  holding_period_counts: Record<string, number>;
+  metric_availability: Record<string, string>;
+}
+
 /** Returned by ``backtest.run_historical``. Mirrors
  *  ``mosaic.backtest.qlib_runner.BacktestMetrics`` (Phase 3.5D dataclass). */
 export interface BacktestMetricsResult {
@@ -325,6 +340,18 @@ export interface CioAction {
   ticker: string;
   action: string;
   target_weight_pct: number | null;
+  current_weight_pct?: number | null;
+  delta_weight_pct?: number | null;
+  position_decision?: "HOLD" | "ADD" | "REDUCE" | "EXIT" | null;
+  position_decision_reason?: string | null;
+  override_reason?: string | null;
+  thesis_status?: "intact" | "weakened" | "broken" | "expired" | null;
+  risk_flags_json?: string | null;
+  declared_knob_influence_ids_json?: string | null;
+  declared_influence_rationale?: string | null;
+  verified_knob_audit_json?: string | null;
+  decision_agent_audits_json?: string | null;
+  dissent_notes?: string | null;
   rationale_snapshot: string | null;
   forward_return_5d: number | null;
   scored_at: string | null;
@@ -1355,6 +1382,21 @@ export interface MirofishScenario {
   price_paths: Record<string, MirofishPricePath>;
   events: Array<{ day: number; date: string; event: string; impact: string }>;
   final_state: { regime: string; narrative: string; csi300_return: number };
+  portfolio_context?: {
+    current_position_tickers?: string[];
+    position_count?: number;
+    sector_exposure?: Record<string, number>;
+    theme_exposure?: Record<string, number>;
+    current_positions?: Array<{
+      ticker: string;
+      market_price?: number;
+      current_weight?: number;
+      cost_basis?: number;
+      holding_days?: number;
+      unrealized_pnl_pct?: number;
+      entry_thesis?: string;
+    }>;
+  };
 }
 
 export interface MirofishRecommendation {
@@ -1362,6 +1404,31 @@ export interface MirofishRecommendation {
   tickers: string[];
   conviction: number;
   reasoning?: string;
+  position_reviews?:
+    | Array<{
+        ticker: string;
+        decision: "HOLD" | "ADD" | "REDUCE" | "EXIT";
+        target_weight?: number | undefined;
+        current_weight?: number | undefined;
+        reason?: string | undefined;
+      }>
+    | undefined;
+  new_entries?:
+    | Array<{
+        ticker: string;
+        target_weight?: number | undefined;
+        reason?: string | undefined;
+      }>
+    | undefined;
+  portfolio_actions?:
+    | Array<{
+        ticker: string;
+        action: "BUY" | "SELL" | "HOLD" | "REDUCE";
+        target_weight?: number | undefined;
+        current_weight?: number | undefined;
+        delta_weight?: number | undefined;
+      }>
+    | undefined;
 }
 
 export interface MirofishHistoryEntry {
@@ -1379,6 +1446,11 @@ export interface MirofishHistoryEntry {
  *  ``hct_direction`` / ``tail_summary`` may be null (see derive_context). */
 export interface MirofishContext {
   n_scenarios: number;
+  scenario_count?: number;
+  horizon_days?: number;
+  as_of_date?: string;
+  context_hash?: string;
+  generator_version?: string;
   regime: string | null;
   narrative: string | null;
   csi300_return: number;
@@ -1386,6 +1458,14 @@ export interface MirofishContext {
   hct_direction: "LONG" | "SHORT" | null;
   hct_csi300_return: number;
   tail_summary: string | null;
+  position_stress?:
+    | Array<{
+        ticker: string;
+        tail_loss?: number | undefined;
+        scenario_agreement?: number | undefined;
+        suggested_action?: "HOLD" | "ADD" | "REDUCE" | "EXIT" | undefined;
+      }>
+    | undefined;
   engine: string;
   date?: string;
   created_at?: string;
@@ -1579,6 +1659,10 @@ export class BridgeApi {
     since?: string;
   }): Promise<{ runs: BacktestRunInfo[] }> {
     return this.client.call<{ runs: BacktestRunInfo[] }>("backtest.list_runs", opts ?? {});
+  }
+
+  backtestActionSummary(runId: number): Promise<BacktestActionSummary> {
+    return this.client.call<BacktestActionSummary>("backtest.action_summary", { run_id: runId });
   }
 
   // R-A3: stage-1 failed-day tracking.
@@ -2254,6 +2338,18 @@ export class BridgeApi {
     seed?: number;
     scenarios?: string[];
     start_prices?: Record<string, number>;
+    current_positions?: Array<{
+      ticker: string;
+      market_price?: number;
+      current_price?: number;
+      current_weight?: number;
+      cost_basis?: number;
+      unrealized_pnl_pct?: number;
+      holding_days?: number;
+      entry_thesis?: string;
+    }>;
+    sector_exposure?: Record<string, number>;
+    theme_exposure?: Record<string, number>;
     reflexivity?: boolean;
     engine?: "montecarlo" | "swarm" | "oasis";
     /** Cap OASIS sim rounds (oasis engine only; positive int, server default 5). */

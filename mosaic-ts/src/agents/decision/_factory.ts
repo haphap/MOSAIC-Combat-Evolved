@@ -20,15 +20,22 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
-import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
+import {
+  type BridgeApi,
+  type MirofishContext,
+  type MosaicConfig,
+  pickBridgeTools,
+} from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { formatMirofishContext } from "../../mirofish/context.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
   applyResearchKnobCaps,
+  formatResearchKnobAuditFields,
   isResearchKnobsEnabled,
   type ResearchKnobsSnapshot,
+  type RuntimeSourceStatus,
   type ToolStatus,
 } from "../helpers/research_knobs.js";
 import {
@@ -43,9 +50,14 @@ import {
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
 import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
-import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
+import {
+  type DailyCycleStateType,
+  type DailyCycleStateUpdate,
+  emptyCurrentPositions,
+} from "../state.js";
 import type {
   AlphaDiscoveryOutput,
   AutoExecOutput,
@@ -55,6 +67,7 @@ import type {
   LlmCallRecord,
   PortfolioAction,
 } from "../types.js";
+import { validateCioPositionActions } from "./position_validator.js";
 
 /** Union of the 4 Layer-4 outputs handled by this factory. */
 export type Layer4AgentOutput = CroOutput | AlphaDiscoveryOutput | AutoExecOutput | CioOutput;
@@ -88,9 +101,16 @@ export interface LayerFourAgentDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  /** Per-run cache so CRO, execution, and CIO consume the same MiroFish context. */
+  mirofishContextCache?: Map<string, Promise<MirofishContextLoadResult>>;
 }
 
 export type LayerFourAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
+
+interface MirofishContextLoadResult {
+  context: MirofishContext | null;
+  status: RuntimeSourceStatus | null;
+}
 
 export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
@@ -113,14 +133,20 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           const cohort = state.active_cohort || "cohort_default";
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L4", spec.agentId, ["prepare"]));
+          const mirofish = await maybeLoadMirofishContext(spec, deps, state);
 
           // Phase 0: load prompt.
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let systemPrompt: string;
           if (isResearchKnobsEnabled(spec.agentId)) {
+            const runtimeSourceStatuses = [
+              ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId),
+              ...(mirofish.status ? [mirofish.status] : []),
+            ];
             const loaded = await loadPromptWithKnobs({
               agent: spec.agentId,
               cohort,
+              runtimeSourceStatuses,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
             knobSnapshot = loaded.snapshot;
@@ -141,8 +167,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             spec,
             rkeAugmentedContext,
             deps,
-            state,
             language,
+            mirofish.context,
           );
           const requiredTools = spec.requiredTools ?? [];
           let analysisText = "";
@@ -229,19 +255,15 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               `tool_executions=${toolExecutions}`,
               ...formatTokenMetricFields(promptTokens, completionTokens, llmElapsedMs),
               `source=${extractor.structured ? "structured" : "fallback"}`,
-              ...(capped
-                ? [
-                    `pre_cap_confidence=${capped.audit.pre_cap_confidence ?? "null"}`,
-                    `post_cap_confidence=${capped.audit.post_cap_confidence ?? "null"}`,
-                    `fired_caps=${capped.audit.fired_cap_ids.join(",") || "none"}`,
-                    `knob_snapshot=${capped.audit.knob_snapshot_hash}`,
-                  ]
-                : []),
+              ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
           );
 
-          return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle));
+          return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle), {
+            state,
+            knobSnapshot,
+          });
         },
         timeoutMs,
         `L4 ${spec.agentId}`,
@@ -255,7 +277,10 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             summarizeAgentOutput(output),
           ]),
         );
-        return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle));
+        return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle), {
+          state: null,
+          knobSnapshot: null,
+        });
       }
       onLog(
         formatAgentEvent("error", "L4", spec.agentId, [
@@ -306,23 +331,141 @@ function hasToolApi(api: BridgeApi | undefined): api is BridgeApi {
   return typeof api?.toolsList === "function" && typeof api.toolsCall === "function";
 }
 
-/** 7M Step 2: opt-in injection of the latest MiroFish scenario context into the
- *  CIO prompt. Off unless ``config.mirofish.inject_context`` is true; only the
- *  cio agent (final synthesis) gets it; no-op when no context or no api. */
-async function maybeAppendMirofishContext<TOutput extends Layer4AgentOutput>(
+function shouldLoadMirofishContext<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
-  userContext: string,
+  deps: LayerFourAgentDeps,
+): boolean {
+  return (
+    ["cro", "autonomous_execution", "cio"].includes(spec.agentId) &&
+    Boolean(deps.api) &&
+    Boolean(deps.config.mirofish?.inject_context)
+  );
+}
+
+async function maybeLoadMirofishContext<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
   deps: LayerFourAgentDeps,
   state: DailyCycleStateType,
-  language: LoaderLanguage,
-): Promise<string> {
-  if (spec.agentId !== "cio" || !deps.api || !deps.config.mirofish?.inject_context) {
-    return userContext;
+): Promise<MirofishContextLoadResult> {
+  if (!shouldLoadMirofishContext(spec, deps) || !deps.api) {
+    return { context: null, status: null };
+  }
+  const cache = getMirofishContextCache(deps);
+  const cacheKey = mirofishContextCacheKey(state);
+  const existing = cache.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
+  const loadPromise = fetchMirofishContext(deps, state);
+  cache.set(cacheKey, loadPromise);
+  return loadPromise;
+}
+
+function getMirofishContextCache(
+  deps: LayerFourAgentDeps,
+): Map<string, Promise<MirofishContextLoadResult>> {
+  deps.mirofishContextCache ??= new Map();
+  return deps.mirofishContextCache;
+}
+
+function mirofishContextCacheKey(state: DailyCycleStateType): string {
+  const asOf = state.as_of_date || "latest";
+  const runId = state.trace_id || "current_run";
+  const positionHash = state.current_positions?.position_snapshot_hash || "positions:unknown";
+  return `as_of:${asOf}|run:${runId}|positions:${positionHash}`;
+}
+
+async function fetchMirofishContext(
+  deps: LayerFourAgentDeps,
+  state: DailyCycleStateType,
+): Promise<MirofishContextLoadResult> {
+  if (!deps.api) {
+    return { context: null, status: null };
   }
   try {
     const { context } = await deps.api.mirofishGetContext(
       state.as_of_date ? { as_of_date: state.as_of_date } : {},
     );
+    if (!context) {
+      return {
+        context: null,
+        status: {
+          source_id: "mirofish_context",
+          scope: "context:latest",
+          status: "missing",
+          ...(state.as_of_date ? { as_of: state.as_of_date } : {}),
+          error_code: "mirofish_context_missing",
+        },
+      };
+    }
+    if (!context.as_of_date) {
+      deps.onLog?.("mirofish context disabled: missing as_of_date");
+      return {
+        context: null,
+        status: {
+          source_id: "mirofish_context",
+          scope: "context:latest",
+          status: "source_error",
+          ...(state.as_of_date ? { as_of: state.as_of_date } : {}),
+          error_code: "mirofish_context_missing_as_of_date",
+        },
+      };
+    }
+    if (state.as_of_date && context.as_of_date > state.as_of_date) {
+      deps.onLog?.(
+        `mirofish context disabled: as_of_date ${context.as_of_date} exceeds run date ${state.as_of_date}`,
+      );
+      return {
+        context: null,
+        status: {
+          source_id: "mirofish_context",
+          scope: `context:${context.context_hash ?? context.as_of_date}`,
+          status: "source_error",
+          as_of: context.as_of_date,
+          error_code: "mirofish_context_lookahead",
+        },
+      };
+    }
+    const contextHash = context.context_hash ?? context.created_at ?? context.date ?? "latest";
+    return {
+      context,
+      status: {
+        source_id: "mirofish_context",
+        scope: `context:${contextHash}`,
+        status: "loaded",
+        as_of: context.as_of_date,
+        snapshot_hash: contextHash.startsWith("sha256:") ? contextHash : `sha256:${contextHash}`,
+      },
+    };
+  } catch (err) {
+    deps.onLog?.(`mirofish context lookup failed: ${(err as Error).message}`);
+    return {
+      context: null,
+      status: {
+        source_id: "mirofish_context",
+        scope: "context:latest",
+        status: "source_error",
+        ...(state.as_of_date ? { as_of: state.as_of_date } : {}),
+        error_code: "mirofish_context_source_error",
+      },
+    };
+  }
+}
+
+/** Opt-in injection of the latest MiroFish scenario context into L4 consumers.
+ *  MiroFish remains simulation-only; it never replaces current-account or
+ *  current-market evidence in the action validator. */
+async function maybeAppendMirofishContext<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+  userContext: string,
+  deps: LayerFourAgentDeps,
+  language: LoaderLanguage,
+  context: MirofishContext | null,
+): Promise<string> {
+  if (!shouldLoadMirofishContext(spec, deps)) {
+    return userContext;
+  }
+  try {
     const section = formatMirofishContext(context, language);
     return section ? `${userContext}\n${section}` : userContext;
   } catch (err) {
@@ -361,6 +504,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
   output: TOutput,
   llmCall: LlmCallRecord,
+  opts: { state: DailyCycleStateType | null; knobSnapshot: ResearchKnobsSnapshot | null },
 ): DailyCycleStateUpdate {
   // Per-agent state update. cio additionally mirrors portfolio_actions to
   // the top-level field so Phase 3 scorecard / TUI consumers don't have
@@ -371,8 +515,43 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   };
   if (spec.stateUpdateField === "cio") {
     const cioOut = output as unknown as CioOutput;
-    (baseUpdate as { portfolio_actions: PortfolioAction[] }).portfolio_actions =
-      cioOut.portfolio_actions;
+    const validated = opts.state
+      ? validateCioPositionActions({
+          output: cioOut,
+          currentPositions: opts.state.current_positions ?? emptyCurrentPositions(),
+          knobSnapshot: opts.knobSnapshot,
+          sharedPolicyValues: activeKnobValuesFromUpstreamDecisionAgents(opts.state.layer4_outputs),
+        })
+      : null;
+    if (validated) {
+      baseUpdate.layer4_outputs = { cio: validated.output };
+      (baseUpdate as { position_reviews: typeof validated.position_reviews }).position_reviews =
+        validated.position_reviews;
+      (baseUpdate as { position_audit: typeof validated.position_audit }).position_audit =
+        validated.position_audit;
+    }
+    (baseUpdate as { portfolio_actions: PortfolioAction[] }).portfolio_actions = (
+      validated?.output ?? cioOut
+    ).portfolio_actions;
   }
   return baseUpdate;
+}
+
+function activeKnobValuesFromUpstreamDecisionAgents(
+  outputs: Layer4Outputs,
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const output of [outputs.cro, outputs.alpha_discovery, outputs.autonomous_execution]) {
+    const audit = (output as { verified_knob_audit?: unknown } | null)?.verified_knob_audit;
+    if (audit === null || typeof audit !== "object" || Array.isArray(audit)) continue;
+    const activeKnobs = (audit as { active_knobs?: unknown }).active_knobs;
+    if (!Array.isArray(activeKnobs)) continue;
+    for (const item of activeKnobs) {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) continue;
+      const cardId = (item as { card_id?: unknown }).card_id;
+      if (typeof cardId !== "string") continue;
+      values[cardId] = (item as { value?: unknown }).value;
+    }
+  }
+  return values;
 }

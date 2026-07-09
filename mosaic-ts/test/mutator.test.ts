@@ -2,11 +2,19 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ResearchKnobs } from "../src/agents/helpers/research_knobs.js";
+import {
+  parseResearchKnobsPrompt,
+  type ResearchKnobs,
+} from "../src/agents/helpers/research_knobs.js";
+import { buildDomainKnobValueRegistry } from "../src/agents/prompts/domain_knob_registry.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
+import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
+import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 import type { KnobPatch } from "../src/autoresearch/mutator.js";
 import {
   appendKnobMutationMetadataLog,
+  applyKnobPatchesToDomainKnobRegistry,
+  applyKnobPatchesToDomainKnobRegistryFile,
   applyKnobPatchesToGovernanceRegistry,
   applyKnobPatchesToGovernanceRegistryFile,
   applyKnobPatchesToProjection,
@@ -14,6 +22,7 @@ import {
   assertPromptInvariants,
   assertPromptPairInvariants,
   buildKnobMutationMetadata,
+  buildKnobTargetRegistry,
   type KnobMutation,
   MAX_LENGTH_DELTA,
   mutate,
@@ -161,6 +170,12 @@ function knobMutation(overrides: Partial<KnobMutation> = {}): KnobMutation {
   return {
     prediction_target: "policy_stance_1w",
     evaluation_metric: "confidence_calibration_error",
+    horizon: "5d",
+    rollback_condition: {
+      metric: "confidence_calibration_error",
+      worse_by: 0.03,
+      unit: "ratio",
+    },
     knob_patches: [
       {
         path: "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/confidence_policy/missing_current_data/cap",
@@ -341,6 +356,43 @@ describe("knob mutation validation", () => {
     );
   });
 
+  it("rejects integer patches outside range or step", () => {
+    const cioSpec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    expect(cioSpec).toBeDefined();
+    if (!cioSpec) return;
+    const knobs = buildRuntimeResearchKnobs(cioSpec);
+    const target = knobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/target_count_max/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    expect(
+      validateKnobMutation(
+        knobs,
+        knobMutation({
+          prediction_target: "decision.cio.target_count_max.20d",
+          evaluation_metric: "portfolio_construction_quality_20d",
+          horizon: "20d",
+          rollback_condition: {
+            metric: "portfolio_construction_quality_20d",
+            worse_by: 0.02,
+            unit: "ratio",
+          },
+          knob_patches: [
+            {
+              path: target.path,
+              old_value: 15,
+              new_value: 31,
+              rationale: "Too many targets should be rejected.",
+              expected_effect: "No effect.",
+            },
+          ],
+        }),
+      ).reasons,
+    ).toContain(`${target.path}: above max`);
+  });
+
   it("rejects evidence weight patches against report-source reliability paths", () => {
     const knobs = knobsFixture();
     const mutation = knobMutation({
@@ -360,6 +412,73 @@ describe("knob mutation validation", () => {
     );
   });
 
+  it("checks evidence-channel old_value against the current projection", () => {
+    const knobs = knobsFixture();
+    const mutation = knobMutation({
+      knob_patches: [
+        {
+          path: "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value",
+          old_value: 0.5,
+          new_value: 0.65,
+          rationale: "Stale channel write.",
+          expected_effect: "Should be rejected before registry write.",
+        },
+      ],
+    });
+
+    expect(validateKnobMutation(knobs, mutation).reasons).toContain(
+      "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value: old_value does not match current knobs",
+    );
+  });
+
+  it("rejects generic targets with unsupported evaluation metrics", () => {
+    const knobs = knobsFixture();
+
+    expect(
+      validateKnobMutation(
+        knobs,
+        knobMutation({
+          evaluation_metric: "portfolio_construction_quality_20d",
+          rollback_condition: {
+            metric: "portfolio_construction_quality_20d",
+            worse_by: 0.02,
+            unit: "ratio",
+          },
+        }),
+      ).reasons.join("\n"),
+    ).toContain("evaluation_metric portfolio_construction_quality_20d is not allowed");
+  });
+
+  it("builds a unified knob target registry with write-back sources", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const knobs = buildRuntimeResearchKnobs(spec);
+    const registry = buildKnobTargetRegistry(knobs);
+
+    expect(registry).toHaveLength(knobs.mutation_targets.length);
+    expect(registry).toContainEqual(
+      expect.objectContaining({
+        path: expect.stringContaining("/confidence_policy/missing_current_data/cap"),
+        category: "generic",
+        write_back_source: "prompt_ir_governance_registry",
+        evaluation_metrics: expect.arrayContaining(["confidence_calibration_error"]),
+      }),
+    );
+    expect(registry).toContainEqual(
+      expect.objectContaining({
+        path: expect.stringContaining("/learnable_parameters/pboc_fed_policy_weight/value"),
+        category: "domain",
+        write_back_source: "domain_knob_value_registry",
+        domain_card_id: "pboc_fed_policy_weight",
+        evaluation_metrics: ["macro_signal_accuracy_5d"],
+      }),
+    );
+    for (const target of knobs.mutation_targets) {
+      expect(registry.filter((entry) => entry.path === target.path)).toHaveLength(1);
+    }
+  });
+
   it("applies concrete learnable-parameter patches to a governance registry payload", () => {
     const knobs = knobsFixture();
     const registry = {
@@ -369,7 +488,7 @@ describe("knob mutation validation", () => {
             "macro.central_bank.soft.001": {
               learnable_parameters: {
                 pboc_liquidity_weight: {
-                  value: 0.5,
+                  value: 1,
                 },
               },
             },
@@ -381,7 +500,7 @@ describe("knob mutation validation", () => {
       knob_patches: [
         {
           path: "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value",
-          old_value: 0.5,
+          old_value: 1,
           new_value: 0.65,
           rationale: "PBOC channel has calibrated better in the latest window.",
           expected_effect: "Increase PBOC evidence-channel allocation raw value.",
@@ -405,7 +524,7 @@ describe("knob mutation validation", () => {
     expect(
       registry.rule_packs["macro.central_bank.liquidity.v1"].rules["macro.central_bank.soft.001"]
         .learnable_parameters.pboc_liquidity_weight.value,
-    ).toBe(0.5);
+    ).toBe(1);
     expect(result.changed_paths).toEqual([
       "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value",
     ]);
@@ -465,6 +584,379 @@ describe("knob mutation validation", () => {
     expect(knobs.evidence_weights.pboc_liquidity).toBe(0.5);
   });
 
+  it("applies catalog-governed domain knob patches to projection buckets", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const knobs = buildRuntimeResearchKnobs(spec);
+    const target = knobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    const next = applyKnobPatchesToProjection(
+      knobs,
+      knobMutation({
+        prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+        evaluation_metric: "macro_signal_accuracy_5d",
+        horizon: "5d",
+        rollback_condition: {
+          metric: "macro_signal_accuracy_5d",
+          worse_by: 0.02,
+          unit: "ratio",
+        },
+        knob_patches: [
+          {
+            path: target.path,
+            old_value: 0.2,
+            new_value: 0.35,
+            rationale: "PBOC/Fed policy split has become more predictive.",
+            expected_effect: "Increase the policy-divergence domain threshold weight.",
+          },
+        ],
+      }),
+    );
+
+    expect(next.thresholds.pboc_fed_policy_weight).toBe(0.35);
+    expect(knobs.thresholds.pboc_fed_policy_weight).toBe(0.2);
+  });
+
+  it("writes catalog-governed domain knob patches through the value registry", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const registry = buildDomainKnobValueRegistry(spec, "cohort_default");
+    const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
+    const target = knobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    const result = applyKnobPatchesToDomainKnobRegistry(
+      registry,
+      knobs,
+      knobMutation({
+        prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+        evaluation_metric: "macro_signal_accuracy_5d",
+        horizon: "5d",
+        rollback_condition: {
+          metric: "macro_signal_accuracy_5d",
+          worse_by: 0.02,
+          unit: "ratio",
+        },
+        knob_patches: [
+          {
+            path: target.path,
+            old_value: 0.2,
+            new_value: 0.35,
+            rationale: "PBOC/Fed policy split has become more predictive.",
+            expected_effect: "Persist the domain value before projection regeneration.",
+          },
+        ],
+      }),
+      { mutationId: "KM-domain-1" },
+    );
+    const regenerated = buildRuntimeResearchKnobs(spec, { domainRegistry: result.registry });
+
+    expect(result.changed_paths).toEqual([target.path]);
+    expect(result.registry.values_by_path[target.path]).toBe(0.35);
+    expect(result.registry.last_mutation_id).toBe("KM-domain-1");
+    expect(regenerated.thresholds.pboc_fed_policy_weight).toBe(0.35);
+    expect(registry.values_by_path[target.path]).toBe(0.2);
+  });
+
+  it("renormalizes catalog-governed domain weight groups", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const registry = buildDomainKnobValueRegistry(spec, "cohort_default");
+    const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
+    const target = knobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/sector_signal_weight/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    const mutation = knobMutation({
+      prediction_target: "decision.cio.sector_signal_weight.20d",
+      evaluation_metric: "portfolio_construction_quality_20d",
+      horizon: "20d",
+      rollback_condition: {
+        metric: "portfolio_construction_quality_20d",
+        worse_by: 0.02,
+        unit: "ratio",
+      },
+      knob_patches: [
+        {
+          path: target.path,
+          old_value: 0.35,
+          new_value: 0.45,
+          rationale: "Sector signal recently explained more construction quality.",
+          expected_effect: "Increase sector signal share and renormalize peer weights.",
+        },
+      ],
+    });
+    const projected = applyKnobPatchesToProjection(knobs, mutation);
+    const persisted = applyKnobPatchesToDomainKnobRegistry(registry, knobs, mutation);
+    const projectedTotal =
+      Number(projected.thresholds.macro_signal_weight) +
+      Number(projected.thresholds.sector_signal_weight) +
+      Number(projected.thresholds.superinvestor_signal_weight) +
+      Number(projected.thresholds.cro_risk_weight);
+    const persistedTotal = Object.entries(persisted.registry.values_by_path)
+      .filter(([path]) =>
+        [
+          "macro_signal_weight",
+          "sector_signal_weight",
+          "superinvestor_signal_weight",
+          "cro_risk_weight",
+        ].some((id) => path.endsWith(`/learnable_parameters/${id}/value`)),
+      )
+      .reduce((sum, [, value]) => sum + Number(value), 0);
+
+    expect(projectedTotal).toBeCloseTo(1, 10);
+    expect(persistedTotal).toBeCloseTo(1, 10);
+    expect(projected.thresholds.sector_signal_weight).toBeCloseTo(0.45 / 1.1, 10);
+  });
+
+  it("rejects domain knob patches that break cross-field invariants", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const knobs = buildRuntimeResearchKnobs(spec);
+    const target = knobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/target_count_min/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    expect(
+      validateKnobMutation(
+        knobs,
+        knobMutation({
+          prediction_target: "decision.cio.target_count_min.20d",
+          evaluation_metric: "portfolio_construction_quality_20d",
+          horizon: "20d",
+          rollback_condition: {
+            metric: "portfolio_construction_quality_20d",
+            worse_by: 0.02,
+            unit: "ratio",
+          },
+          knob_patches: [
+            {
+              path: target.path,
+              old_value: 8,
+              new_value: 18,
+              rationale: "Too high minimum target count.",
+              expected_effect: "Should be rejected because max target count remains 15.",
+            },
+          ],
+        }),
+      ).reasons,
+    ).toContain("domain_cross_field_violation:cio_target_count_min_gt_max");
+  });
+
+  it("repairs stale cross-field registry values when rebuilding domain registries", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const existing = buildDomainKnobValueRegistry(spec, "cohort_default");
+    const exitPath = Object.keys(existing.values_by_path).find((path) =>
+      path.endsWith("/learnable_parameters/exit_threshold/value"),
+    );
+    const holdPath = Object.keys(existing.values_by_path).find((path) =>
+      path.endsWith("/learnable_parameters/hold_hurdle/value"),
+    );
+    expect(exitPath).toBeDefined();
+    expect(holdPath).toBeDefined();
+    if (!exitPath || !holdPath) return;
+    existing.values_by_path[exitPath] = 0.6;
+    existing.values_by_path[holdPath] = 0.58;
+
+    const repaired = buildDomainKnobValueRegistry(spec, "cohort_default", { existing });
+
+    expect(repaired.values_by_path[exitPath]).toBe(0.35);
+    expect(repaired.values_by_path[holdPath]).toBe(0.58);
+  });
+
+  it("rejects domain knob mutations with the wrong evaluation metric", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const knobs = buildRuntimeResearchKnobs(spec);
+    const target = knobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    expect(
+      validateKnobMutation(
+        knobs,
+        knobMutation({
+          prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+          evaluation_metric: "confidence_calibration_error",
+          knob_patches: [
+            {
+              path: target.path,
+              old_value: 0.2,
+              new_value: 0.35,
+              rationale: "Wrong metric for this domain card.",
+              expected_effect: "Should be rejected.",
+            },
+          ],
+        }),
+      ).reasons.join("\n"),
+    ).toContain("does not match domain card macro_signal_accuracy_5d");
+  });
+
+  it("accepts position-aware and MiroFish domain knob metrics", () => {
+    const croSpec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cro");
+    const cioSpec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    expect(croSpec).toBeDefined();
+    expect(cioSpec).toBeDefined();
+    if (!croSpec || !cioSpec) return;
+    const croKnobs = buildRuntimeResearchKnobs(croSpec);
+    const cioKnobs = buildRuntimeResearchKnobs(cioSpec);
+    const stopLoss = croKnobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/stop_loss_pct/value"),
+    );
+    const mirofishOverride = cioKnobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/mirofish_override_hurdle/value"),
+    );
+    expect(stopLoss).toBeDefined();
+    expect(mirofishOverride).toBeDefined();
+    if (!stopLoss || !mirofishOverride) return;
+
+    expect(
+      validateKnobMutation(
+        croKnobs,
+        knobMutation({
+          prediction_target: "hold_exit_quality_20d",
+          evaluation_metric: "max_drawdown_after_hold",
+          horizon: "20d",
+          knob_patches: [
+            {
+              path: stopLoss.path,
+              old_value: -0.08,
+              new_value: -0.06,
+              rationale: "Stop-loss overrides have carried too much drawdown.",
+              expected_effect: "Trigger review earlier on losing current positions.",
+            },
+          ],
+          rollback_condition: {
+            metric: "max_drawdown_after_hold",
+            worse_by: 0.02,
+            unit: "ratio",
+          },
+        }),
+      ).accepted,
+    ).toBe(true);
+    expect(
+      validateKnobMutation(
+        cioKnobs,
+        knobMutation({
+          prediction_target: "override_quality_20d",
+          evaluation_metric: "override_realized_risk",
+          horizon: "20d",
+          knob_patches: [
+            {
+              path: mirofishOverride.path,
+              old_value: 0.75,
+              new_value: 0.8,
+              rationale: "Scenario-only overrides should require stronger agreement.",
+              expected_effect: "Reduce realized risk from MiroFish-influenced overrides.",
+            },
+          ],
+          rollback_condition: {
+            metric: "override_realized_risk",
+            worse_by: 0.02,
+            unit: "ratio",
+          },
+        }),
+      ).accepted,
+    ).toBe(true);
+  });
+
+  it("writes domain knob registry files transactionally after validation", async () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const dir = mkdtempSync(join(tmpdir(), "mosaic-domain-knob-registry-"));
+    try {
+      const registryPath = join(dir, "central_bank.json");
+      const registry = buildDomainKnobValueRegistry(spec, "cohort_default");
+      writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+      const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
+      const target = knobs.mutation_targets.find((item) =>
+        item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+      );
+      expect(target).toBeDefined();
+      if (!target) return;
+
+      await applyKnobPatchesToDomainKnobRegistryFile({
+        registryPath,
+        knobs,
+        mutation: knobMutation({
+          prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+          evaluation_metric: "macro_signal_accuracy_5d",
+          horizon: "5d",
+          rollback_condition: {
+            metric: "macro_signal_accuracy_5d",
+            worse_by: 0.02,
+            unit: "ratio",
+          },
+          knob_patches: [
+            {
+              path: target.path,
+              old_value: 0.2,
+              new_value: 0.35,
+              rationale: "Persist domain knob registry update.",
+              expected_effect: "Regenerated projection reads the updated domain registry value.",
+            },
+          ],
+        }),
+        mutationId: "KM-domain-file",
+      });
+
+      expect(JSON.parse(readFileSync(registryPath, "utf-8")).values_by_path[target.path]).toBe(
+        0.35,
+      );
+      await expect(
+        applyKnobPatchesToDomainKnobRegistryFile({
+          registryPath,
+          knobs,
+          mutation: knobMutation({
+            prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+            evaluation_metric: "macro_signal_accuracy_5d",
+            horizon: "5d",
+            rollback_condition: {
+              metric: "macro_signal_accuracy_5d",
+              worse_by: 0.02,
+              unit: "ratio",
+            },
+            knob_patches: [
+              {
+                path: target.path,
+                old_value: 0.2,
+                new_value: 0.4,
+                rationale: "Stale domain write.",
+                expected_effect: "Should be rejected.",
+              },
+            ],
+          }),
+        }),
+      ).rejects.toThrow(/old_value does not match domain knob registry/);
+      expect(JSON.parse(readFileSync(registryPath, "utf-8")).values_by_path[target.path]).toBe(
+        0.35,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects governance registry writes when old_value is stale", () => {
     const knobs = knobsFixture();
     const registry = {
@@ -486,7 +978,7 @@ describe("knob mutation validation", () => {
       knob_patches: [
         {
           path: "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value",
-          old_value: 0.5,
+          old_value: 1,
           new_value: 0.65,
           rationale: "Stale mutation.",
           expected_effect: "Should be rejected.",
@@ -512,7 +1004,7 @@ describe("knob mutation validation", () => {
                 rules: {
                   "macro.central_bank.soft.001": {
                     learnable_parameters: {
-                      pboc_liquidity_weight: { value: 0.5 },
+                      pboc_liquidity_weight: { value: 1 },
                     },
                   },
                 },
@@ -532,7 +1024,7 @@ describe("knob mutation validation", () => {
           knob_patches: [
             {
               path: "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value",
-              old_value: 0.5,
+              old_value: 1,
               new_value: 0.65,
               rationale: "Increase PBOC raw evidence weight.",
               expected_effect: "Raise normalized PBOC evidence channel after projection.",
@@ -555,7 +1047,7 @@ describe("knob mutation validation", () => {
             knob_patches: [
               {
                 path: "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value",
-                old_value: 0.5,
+                old_value: 1,
                 new_value: 0.7,
                 rationale: "Stale update.",
                 expected_effect: "Should be rejected.",
@@ -636,6 +1128,15 @@ function makeKnobsRoot(): FakeRoot {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "volatility.zh.md"), knobsFencePrompt("# zh body"), "utf-8");
   writeFileSync(join(dir, "volatility.en.md"), knobsFencePrompt("# en body"), "utf-8");
+  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+function makeLegacyDecisionRoot(): FakeRoot {
+  const root = mkdtempSync(join(tmpdir(), "mosaic-legacy-knob-mutator-test-"));
+  const dir = join(root, "cohort_default", "decision");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "cio.zh.md"), "# zh legacy cio body\n", "utf-8");
+  writeFileSync(join(dir, "cio.en.md"), "# en legacy cio body\n", "utf-8");
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -751,5 +1252,27 @@ describe("mutate", () => {
     expect(m.en_prompt).toContain("# en body");
     expect(m.zh_prompt).toContain("cap: 0.5");
     expect(m.en_prompt).toContain("cap: 0.5");
+  });
+
+  it("bootstraps legacy prompts before a fake-llm domain knob patch", async () => {
+    fake.cleanup();
+    fake = makeLegacyDecisionRoot();
+
+    const m = await mutateResearchKnobs({
+      cohort: "cohort_default",
+      agent: "cio",
+      promptsRoot: fake.root,
+      fakeLlm: true,
+      deps: { llm: llmReturning({}) as never, api: fakeApi() },
+    });
+
+    const patchPath = m.knob_mutation.knob_patches[0]?.path ?? "";
+    expect(m.modification_summary).toContain("knob patch:");
+    expect(patchPath.endsWith("/learnable_parameters/mirofish_override_hurdle/value")).toBe(true);
+    expect(m.zh_prompt.match(/```research-knobs/g)).toHaveLength(1);
+    expect(m.en_prompt.match(/```research-knobs/g)).toHaveLength(1);
+    expect(m.zh_prompt).toContain("mirofish_override_hurdle");
+    expect(m.en_prompt).toContain("mirofish_override_hurdle");
+    expect(parseResearchKnobsPrompt(m.zh_prompt).knobs.agent).toBe("decision.cio");
   });
 });

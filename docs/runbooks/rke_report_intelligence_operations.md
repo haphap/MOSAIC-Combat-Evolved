@@ -337,16 +337,36 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
 - Auth header: `Authorization: Bearer genesis-local`.
 - HF snapshot:
   `/models/models--nvidia--Qwen3.6-27B-NVFP4/snapshots/0893e1606ff3d5f97a441f405d5fc541a6bdf404`.
-- Runtime envelope from `sndr launch --dry-run`: `--tensor-parallel-size 1`,
-  `--gpu-memory-utilization 0.9`, `--max-model-len 120000`,
-  `--max-num-seqs 1`, `--max-num-batched-tokens 4096`, `--dtype bfloat16`,
-  `--kv-cache-dtype auto`,
+- Current runtime envelope from `sndr launch --dry-run --skip-autodetect`
+  after the 2026-07-08 benchmark update: `--tensor-parallel-size 1`,
+  `--gpu-memory-utilization 0.85`, `--max-model-len 130000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 2048`, `--dtype bfloat16`,
+  `--kv-cache-dtype turboquant_4bit_nc`,
   `--speculative-config '{"method": "mtp", "num_speculative_tokens": 3}'`,
   `--enable-chunked-prefill`, `--disable-custom-all-reduce`,
   `--language-model-only`, `--trust-remote-code`, and
   `--enable-auto-tool-choice`.
 - This service shares port `8000` with the 35B NVFP4 sndr service. Run only one
   of them at a time.
+
+Current 2026-07-08 sndr direct-launch presets:
+
+- `nvidia-qwen3.6-35b-a3b-nvfp4-5090`: keep at `max_model_len=140000`,
+  `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
+  MTP K=3. The 140K fixed benchmark completed; 150K was not promoted because
+  the observed headroom was thin.
+- `nvidia-qwen3.6-27b-nvfp4-5090`: use `max_model_len=130000`,
+  `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
+  MTP K=3. The 140K run completed, but 130K was materially faster and left more
+  VRAM headroom.
+- `local-qwen3.6-27b-heretic-int4-5090`: use `max_model_len=140000`,
+  `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
+  MTP K=3. The 130K run did not materially improve speed over 140K, so the
+  larger validated context is preferred.
+- These are local sndr preset/profile updates under `/home/hap/.sndr`. Do not
+  commit sndr files into this repository. Benchmark evidence files under
+  `.mosaic/rke/all_agent_evolution/fixed_episode_benchmark/` are private
+  generated evidence and must not be committed.
 
 2026-07-06 27B fixed-benchmark k8v4/MTP probe:
 
@@ -543,6 +563,67 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
   Remaining failures are mostly external tool/data-source issues, especially
   AkShare/stdout pollution and realized-volatility fetch errors, not vLLM
   context failures.
+
+2026-07-08 TurboQuant 4bit NC fixed-benchmark retest:
+
+- Common test envelope: one vLLM at a time, local model snapshots only,
+  MTP enabled at K=3, `--kv-cache-dtype turboquant_4bit_nc`,
+  `--max-num-batched-tokens 2048`, benchmark `--max-tokens 2048`,
+  `MOSAIC_AGENT_TIMEOUT_SECONDS=600`, `MOSAIC_BRIDGE_TIMEOUT_MS=300000`, and
+  no tool-output truncation (`MOSAIC_AGENT_TOOL_OUTPUT_MAX_CHARS=off`).
+- The benchmark used a temporary clean prompt repo snapshot derived from the
+  current private prompt working tree so prompt provenance preflight could run
+  without committing private prompt changes. Do not treat that temporary repo as
+  a public artifact.
+- `bench-35b-nvfp4-tq4nc-140k-bt2048-mt2048-mosaic-20260708-r1`: NVIDIA 35B
+  A3B NVFP4, `max_model_len=140000`, MTP K=3. Result: output coverage `25/25`,
+  content success `25/25`, structured `25`, fallback `0`, tool calls `192`,
+  tool cache hits `22`, tool failures `3`, prompt tokens `1407160`,
+  completion tokens `39096`, observed completion speed `156.8451 tok/s`, and
+  full agent elapsed `344600 ms`.
+- `bench-27b-nvfp4-tq4nc-140k-bt2048-mt2048-mosaic-20260708-r1`: NVIDIA 27B
+  NVFP4, `max_model_len=140000`, MTP K=3. Result: output coverage `25/25`,
+  content success `25/25`, structured `25`, fallback `0`, tool calls `193`,
+  tool cache hits `14`, tool failures `2`, prompt tokens `1365993`,
+  completion tokens `31700`, observed completion speed `32.1618 tok/s`, and
+  full agent elapsed `1160700 ms`. The run completed but was tight: the service
+  reached about `31.7 GiB` used on a `32 GiB` 5090 D, and `L2:biotech` took
+  `308000 ms` with `215841` prompt tokens.
+- `bench-27b-nvfp4-tq4nc-130k-bt2048-mt2048-mosaic-20260708-r1`: NVIDIA 27B
+  NVFP4, `max_model_len=130000`, MTP K=3. Result: output coverage `25/25`,
+  content success `25/25`, structured `25`, fallback `0`, tool calls `170`,
+  tool cache hits `9`, tool failures `1`, prompt tokens `1263304`,
+  completion tokens `31887`, observed completion speed `38.6253 tok/s`, and
+  full agent elapsed `944400 ms`. This is the promoted direct-launch envelope
+  for the NVIDIA 27B preset because it is faster and has more headroom than the
+  140K run.
+- `bench-27b-heretic-int4-tq4nc-140k-bt2048-mt2048-mosaic-20260708-r1`: local
+  Heretic AutoRound INT4 27B, `max_model_len=140000`, MTP K=3. Result: output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  tool calls `160`, tool cache hits `23`, tool failures `2`, prompt tokens
+  `998019`, completion tokens `44156`, observed completion speed
+  `66.8837 tok/s`, and full agent elapsed `793500 ms`.
+- `bench-27b-heretic-int4-tq4nc-130k-bt2048-mt2048-mosaic-20260708-r1`: local
+  Heretic AutoRound INT4 27B, `max_model_len=130000`, MTP K=3. Result: output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  tool calls `159`, tool cache hits `27`, tool failures `2`, prompt tokens
+  `1041317`, completion tokens `42981`, observed completion speed
+  `65.2116 tok/s`, and full agent elapsed `773400 ms`. Since the 130K run did
+  not materially improve throughput over 140K, keep Heretic at 140K.
+- Current read after TurboQuant 4bit NC retest: 35B NVFP4 remains fastest and
+  should stay at 140K; NVIDIA 27B NVFP4 should use the conservative 130K
+  profile; Heretic INT4 should use the 140K profile. NVIDIA 27B is slower than
+  Heretic on this workload because the NVFP4 path on the current 5090 D/vLLM
+  pin uses a weight-only Marlin FP4 path and because the NVIDIA 27B run took
+  heavier L2/L3 evidence paths. Heretic is faster but still has a quality risk:
+  some `munger`, `burry`, and `ackman` superinvestor outputs were very short,
+  so do not infer quality superiority from throughput alone.
+- MTP was not disabled in these runs. Launches preserved
+  `--speculative-config '{"method": "mtp", "num_speculative_tokens": 3}'`, and
+  vLLM logs included the expected speculative-decoding warnings.
+- Observed failures in these runs were external tool/data-source failures
+  (`AkShare` SSL/remote disconnects and occasional `Tushare` remote disconnects)
+  rather than vLLM CUDA/OOM failures.
 
 Single-owner startup flow:
 

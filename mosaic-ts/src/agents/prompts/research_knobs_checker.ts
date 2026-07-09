@@ -1,16 +1,42 @@
 import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { researchKnobsEnabledAgents } from "../helpers/research_knobs.js";
+import {
+  canonicalResearchKnobs,
+  type ResearchKnobs,
+  researchKnobsEnabledAgents,
+} from "../helpers/research_knobs.js";
 import {
   AGENTS_BY_LAYER,
   ALL_AGENTS,
   LAYER_BY_AGENT,
-  normalizePromptsRoot,
   type Layer,
+  normalizePromptsRoot,
 } from "./cohorts.js";
+import {
+  registeredMetricIdsForTool,
+  validateCrossFieldInvariants,
+  validateDomainKnobClosure,
+  validateWeightGroupInvariants,
+} from "./domain_knob_catalog.js";
+import {
+  type DomainKnobValueRegistry,
+  domainKnobValueRegistryPath,
+  readDomainKnobValueRegistryFile,
+  validateDomainKnobValueRegistry,
+} from "./domain_knob_registry.js";
 import { loadPromptWithKnobs } from "./loader.js";
-import { RUNTIME_AGENT_SPEC_BY_AGENT, RUNTIME_AGENT_SPECS } from "./runtime_agent_spec.js";
+import {
+  promptIrPathForSpec,
+  readPromptIrContractFile,
+  validatePromptIrContractForSpec,
+} from "./prompt_ir_registry.js";
+import { buildRuntimeResearchKnobs } from "./research_knobs_projection.js";
+import {
+  RUNTIME_AGENT_SPEC_BY_AGENT,
+  RUNTIME_AGENT_SPECS,
+  type RuntimeAgentSpec,
+} from "./runtime_agent_spec.js";
 
 export interface ResearchKnobsCheckRow {
   agent: string;
@@ -79,7 +105,17 @@ export async function checkResearchKnobsPrompts(opts: {
         ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
         noCache: true,
       });
-      const semanticReasons = validateLoadedKnobsAgainstRuntimeSpec(loaded.snapshot.knobs, spec);
+      const registry = await loadDomainKnobRegistryForCheck(opts, spec);
+      const promptIr = await loadPromptIrForCheck(opts, spec);
+      const semanticReasons = [
+        ...registry.reasons,
+        ...promptIr.reasons,
+        ...validatePromptBodiesAgainstRuntimeSpec(loaded.bodies, spec, loaded.snapshot.knobs),
+        ...validateLoadedKnobsAgainstRuntimeSpec(loaded.snapshot.knobs, spec, {
+          cohort: opts.cohort,
+          domainRegistry: registry.registry,
+        }),
+      ];
       if (semanticReasons.length > 0) {
         rows.push({
           agent,
@@ -167,23 +203,49 @@ async function collectOrphanPromptRows(opts: {
   return rows;
 }
 
+function validatePromptBodiesAgainstRuntimeSpec(
+  bodies: { zh: string; en: string },
+  spec: RuntimeAgentSpec,
+  knobs: ResearchKnobs,
+): string[] {
+  const combined = `${bodies.zh}\n${bodies.en}`;
+  const reasons: string[] = [];
+  for (const tool of spec.requiredTools) {
+    if (!combined.includes(tool)) {
+      reasons.push(`required_tool_missing_from_prompt_body:${tool}`);
+    }
+  }
+  for (const field of spec.fieldNames) {
+    if (!combined.includes(field)) {
+      reasons.push(`output_schema_field_missing_from_prompt_body:${field}`);
+    }
+  }
+  if (hasPostRunDomainDependencies(knobs)) {
+    for (const field of ["declared_knob_influence_ids", "declared_influence_rationale"]) {
+      if (!combined.includes(field)) {
+        reasons.push(`knob_influence_field_missing_from_prompt_body:${field}`);
+      }
+    }
+  }
+  return reasons;
+}
+
+function hasPostRunDomainDependencies(knobs: ResearchKnobs): boolean {
+  const metadata = knobs.projection_metadata?.domain_knob_catalog;
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const cards = (metadata as Record<string, unknown>).cards;
+  if (!Array.isArray(cards)) return false;
+  return cards.some((card) => {
+    if (card === null || typeof card !== "object" || Array.isArray(card)) return false;
+    const dependencies = (card as Record<string, unknown>).evidence_dependencies;
+    return Array.isArray(dependencies) && dependencies.length > 0;
+  });
+}
+
 function validateLoadedKnobsAgainstRuntimeSpec(
-  knobs: {
-    agent: string;
-    layer: Layer;
-    evidence_registry: Record<
-      string,
-      { tool?: string | undefined; source?: string | undefined; metric: string }
-    >;
-    evidence_weights: Record<string, number>;
-    mutation_targets: ReadonlyArray<{ path: string }>;
-  },
-  spec: {
-    agent: string;
-    layer: Layer;
-    promptIrAgentId: string;
-    requiredTools: ReadonlyArray<string>;
-  },
+  knobs: ResearchKnobs,
+  spec: RuntimeAgentSpec,
+  opts: { cohort: string; domainRegistry?: DomainKnobValueRegistry | null },
 ): string[] {
   const reasons: string[] = [];
   if (knobs.agent !== spec.promptIrAgentId) {
@@ -199,6 +261,9 @@ function validateLoadedKnobsAgainstRuntimeSpec(
     }
     if (entry.tool && !allowedTools.has(entry.tool)) {
       reasons.push(`evidence_tool_not_allowed:${key}:${entry.tool}`);
+    }
+    if (entry.tool && !registeredMetricIdsForTool(entry.tool).has(entry.metric)) {
+      reasons.push(`evidence_metric_not_registered:${key}:${entry.metric}`);
     }
     if (entry.source && !["daily_cycle_state", "upstream_agent_outputs"].includes(entry.source)) {
       reasons.push(`evidence_source_not_allowed:${key}:${entry.source}`);
@@ -216,9 +281,28 @@ function validateLoadedKnobsAgainstRuntimeSpec(
   if (rkePriorWeight !== undefined && rkePriorWeight !== 0) {
     reasons.push("rke_prior_weight_nonzero_without_promotion_gate");
   }
+  if (opts.domainRegistry) {
+    reasons.push(...validateDomainKnobValueRegistry(spec, opts.domainRegistry, opts.cohort));
+  }
+  reasons.push(...validateDomainKnobClosure(spec, knobs, { domainRegistry: opts.domainRegistry }));
+  reasons.push(...validateCrossFieldInvariants(spec, knobs));
+  reasons.push(...validateWeightGroupInvariants(spec, knobs));
+  const expected = buildRuntimeResearchKnobs(spec, { domainRegistry: opts.domainRegistry ?? null });
+  const actualProjection = JSON.stringify(canonicalResearchKnobs(knobs));
+  const expectedProjection = JSON.stringify(canonicalResearchKnobs(expected));
+  if (actualProjection !== expectedProjection) {
+    reasons.push("research_knobs_projection_stale_or_not_canonical");
+  }
   for (const target of knobs.mutation_targets) {
+    if (target.path.includes("*")) {
+      reasons.push(`mutation_target_not_concrete:${target.path}`);
+    }
     if (!target.path.startsWith("/rule_packs/")) {
       reasons.push(`mutation_target_not_rule_pack:${target.path}`);
+    }
+    const ruleId = ruleIdFromTargetPath(target.path);
+    if (ruleId && !isCanonicalRuleId(ruleId)) {
+      reasons.push(`mutation_target_noncanonical_rule_id:${ruleId}`);
     }
     if (target.path.startsWith("/research_weighting/source_profiles/")) {
       reasons.push(`mutation_target_report_source_reliability:${target.path}`);
@@ -228,4 +312,60 @@ function validateLoadedKnobsAgainstRuntimeSpec(
     }
   }
   return reasons;
+}
+
+async function loadDomainKnobRegistryForCheck(
+  opts: {
+    cohort: string;
+    privatePromptsRoot?: string;
+  },
+  spec: RuntimeAgentSpec,
+): Promise<{ registry: DomainKnobValueRegistry | null; reasons: string[] }> {
+  if (!opts.privatePromptsRoot) return { registry: null, reasons: [] };
+  const path = domainKnobValueRegistryPath({
+    privatePromptsRoot: opts.privatePromptsRoot,
+    cohort: opts.cohort,
+    agent: spec.agent,
+  });
+  const registry = await readDomainKnobValueRegistryFile(path);
+  if (!registry) {
+    return { registry: null, reasons: [`domain_registry_missing:${path}`] };
+  }
+  return { registry, reasons: [] };
+}
+
+async function loadPromptIrForCheck(
+  opts: {
+    cohort: string;
+    privatePromptsRoot?: string;
+  },
+  spec: RuntimeAgentSpec,
+): Promise<{ reasons: string[] }> {
+  if (!opts.privatePromptsRoot) return { reasons: [] };
+  const path = promptIrPathForSpec({
+    privatePromptsRoot: opts.privatePromptsRoot,
+    spec,
+  });
+  const contract = await readPromptIrContractFile(path);
+  if (!contract) {
+    return { reasons: [`prompt_ir_missing:${path}`] };
+  }
+  return { reasons: validatePromptIrContractForSpec(contract, spec, opts.cohort) };
+}
+
+function ruleIdFromTargetPath(path: string): string | null {
+  const match = path.match(/^\/rule_packs\/[^/]+\/rules\/([^/]+)\//);
+  return match?.[1] ?? null;
+}
+
+function isCanonicalRuleId(ruleId: string): boolean {
+  const parts = ruleId.split(".");
+  if (parts.length !== 4) return false;
+  const [layer, agent, kind, serial] = parts;
+  return (
+    ["macro", "sector", "superinvestor", "decision"].includes(layer ?? "") &&
+    /^[a-z][a-z0-9_]*$/.test(agent ?? "") &&
+    ["soft", "hard", "guard", "prior", "policy", "risk"].includes(kind ?? "") &&
+    /^\d{3}$/.test(serial ?? "")
+  );
 }

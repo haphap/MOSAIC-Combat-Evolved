@@ -3,7 +3,9 @@ import {
   appendReducer,
   type DailyCycleState,
   dictMergeReducer,
+  emptyCurrentPositions,
   emptyLayer4,
+  emptyPositionAudit,
   layer4Reducer,
   replaceReducer,
 } from "../src/agents/state.js";
@@ -130,6 +132,18 @@ describe("state reducers", () => {
       });
     });
   });
+
+  describe("position defaults", () => {
+    it("returns empty confirmed positions and matching audit defaults", () => {
+      const positions = emptyCurrentPositions();
+      const audit = emptyPositionAudit();
+      expect(positions.snapshot_status).toBe("empty_confirmed");
+      expect(positions.positions).toEqual([]);
+      expect(audit.position_snapshot_hash).toBe(positions.position_snapshot_hash);
+      expect(audit.positions_loaded).toBe(0);
+      expect(audit.positions_reviewed).toBe(0);
+    });
+  });
 });
 
 describe("DailyCycleState integration via reducer composition", () => {
@@ -160,7 +174,7 @@ describe("DailyCycleState integration via reducer composition", () => {
     expect(Object.keys(after)).toEqual(["central_bank", "china"]);
   });
 
-  it("Annotation root carries our 14 channels (sanity check)", () => {
+  it("Annotation root carries our 20 channels (sanity check)", () => {
     // Spot-check that the named channels exist on the Annotation root.
     // We do NOT poke at internal reducer/default APIs (private LangGraph shape);
     // instead we rely on the named-export reducer tests above + the typecheck
@@ -181,10 +195,14 @@ describe("DailyCycleState integration via reducer composition", () => {
       "layer2_consensus",
       "layer3_outputs",
       "layer4_outputs",
+      "current_positions",
+      "position_reviews",
+      "position_audit",
       "portfolio_actions",
+      "replay_triggered",
       "llm_calls",
     ];
-    expect(channels).toHaveLength(16);
+    expect(channels).toHaveLength(20);
   });
 
   it("layer-4 partial update via the canonical reducer chain", () => {

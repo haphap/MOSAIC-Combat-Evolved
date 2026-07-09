@@ -16,6 +16,17 @@ const KEY_DRIVERS_OPTIONAL_NOTE = "key_drivers may be omitted on Layer 4 (synthe
 
 const HOLDING_PERIOD = z.enum(["1W", "1M", "3M", "6M", "1Y", "5Y+"]);
 
+const KNOB_INFLUENCE_FIELDS = {
+  declared_knob_influence_ids: z
+    .array(z.string().min(1))
+    .optional()
+    .describe("Visible domain knob card ids explicitly used in this conclusion."),
+  declared_influence_rationale: z
+    .string()
+    .optional()
+    .describe("Optional short rationale for declared knob influence ids."),
+};
+
 // ---------------------------------------------------------------------------
 // 1. cro
 // ---------------------------------------------------------------------------
@@ -54,6 +65,7 @@ export const CroSchema = z
       .max(5)
       .describe("Tail-risk scenarios that would invalidate the current picks."),
     confidence: z.number().min(0).max(1),
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Layer-4 chief risk officer adversarial review. Reads L1+L2+L3 fully and " +
@@ -94,6 +106,7 @@ export const AlphaDiscoverySchema = z
       .max(10)
       .describe("Cross-cutting picks the 4 superinvestors collectively missed."),
     confidence: z.number().min(0).max(1),
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Layer-4 alpha discovery — finds picks that fall between superinvestor philosophies. " +
@@ -125,6 +138,7 @@ export const AutonomousExecutionSchema = z
       .max(20)
       .describe("Per-ticker trade decisions; HOLD picks at zero size also fine."),
     confidence: z.number().min(0).max(1),
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Layer-4 autonomous execution. Translates L3 picks + cro / alpha into concrete trade actions. " +
@@ -145,12 +159,19 @@ export const CioSchema = z
         z.object({
           ticker: z.string().min(1),
           action: z.enum(["BUY", "SELL", "HOLD", "REDUCE"]),
+          position_decision: z.enum(["HOLD", "ADD", "REDUCE", "EXIT"]).optional(),
+          current_weight: z.number().min(0).max(1).optional(),
           target_weight: z
             .number()
             .min(0)
             .max(1)
             .describe("[0, 1] target portfolio weight after this action."),
+          delta_weight: z.number().min(-1).max(1).optional(),
           holding_period: HOLDING_PERIOD,
+          position_decision_reason: z.string().optional(),
+          override_reason: z.string().optional(),
+          thesis_status: z.enum(["intact", "weakened", "broken", "expired"]).optional(),
+          risk_flags: z.array(z.string().min(1)).optional(),
           dissent_notes: z
             .string()
             .describe(
@@ -161,6 +182,7 @@ export const CioSchema = z
       )
       .max(15),
     confidence: z.number().min(0).max(1),
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Layer-4 CIO final decision. portfolio_actions weights should sum to 1.0 ± 0.05 unless " +

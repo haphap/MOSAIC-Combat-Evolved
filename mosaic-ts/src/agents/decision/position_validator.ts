@@ -1,0 +1,264 @@
+import type { ResearchKnobsSnapshot } from "../helpers/research_knobs.js";
+import type {
+  CioOutput,
+  CurrentPositionsSnapshot,
+  PortfolioAction,
+  PositionAudit,
+  PositionReview,
+} from "../types.js";
+
+export interface PositionValidationResult {
+  output: CioOutput;
+  position_reviews: PositionReview[];
+  position_audit: PositionAudit;
+}
+
+export class PositionActionValidationError extends Error {
+  override readonly name = "PositionActionValidationError";
+}
+
+export function validateCioPositionActions(opts: {
+  output: CioOutput;
+  currentPositions: CurrentPositionsSnapshot;
+  knobSnapshot?: ResearchKnobsSnapshot | null;
+  sharedPolicyValues?: Readonly<Record<string, unknown>>;
+}): PositionValidationResult {
+  const { output, currentPositions, knobSnapshot, sharedPolicyValues } = opts;
+  if (currentPositions.snapshot_status === "missing" && output.portfolio_actions.length > 0) {
+    throw new PositionActionValidationError(
+      "current_positions snapshot is missing; CIO cannot emit portfolio_actions",
+    );
+  }
+  if (isMirofishOnlyAction(output) && output.portfolio_actions.length > 0) {
+    throw new PositionActionValidationError(
+      "MiroFish-only influence cannot emit portfolio_actions without current data support",
+    );
+  }
+  const actions = output.portfolio_actions.map((action) =>
+    normalizeAction(action, currentPositions),
+  );
+  assertMirofishInfluencedPositionChangesHaveDissent(output, actions, currentPositions);
+  const reviews = positionReviewsFromActions(actions, currentPositions, output.confidence);
+  if (currentPositions.snapshot_status === "loaded") {
+    assertEveryCurrentPositionReviewed(currentPositions, actions, reviews);
+  }
+  const stopLossPct = thresholdNumber(knobSnapshot, sharedPolicyValues, "stop_loss_pct", -0.08);
+  const maxSingleNameWeight = thresholdNumber(
+    knobSnapshot,
+    sharedPolicyValues,
+    "max_single_name_weight",
+    1,
+  );
+  const staleThesisDays = thresholdNumber(
+    knobSnapshot,
+    sharedPolicyValues,
+    "stale_thesis_days",
+    20,
+  );
+  for (const action of actions) {
+    if (action.target_weight > maxSingleNameWeight && !action.override_reason) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: target_weight exceeds max_single_name_weight without override_reason`,
+      );
+    }
+  }
+  for (const position of currentPositions.positions) {
+    const action = actions.find((item) => item.ticker === position.ticker);
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action &&
+      action.action === "HOLD" &&
+      !action.override_reason
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks override_reason`,
+      );
+    }
+  }
+  const totalWeight = actions.reduce((sum, action) => sum + action.target_weight, 0);
+  if (totalWeight > 1.05) {
+    throw new PositionActionValidationError(
+      `portfolio_actions target_weight sum ${totalWeight.toFixed(3)} exceeds 1.05`,
+    );
+  }
+  return {
+    output: { ...output, portfolio_actions: actions },
+    position_reviews: reviews,
+    position_audit: buildPositionAudit({
+      currentPositions,
+      reviews,
+      actions,
+      stopLossPct,
+      staleThesisDays,
+    }),
+  };
+}
+
+function isMirofishOnlyAction(output: CioOutput): boolean {
+  const declared = output.declared_knob_influence_ids ?? [];
+  return declared.length > 0 && declared.every((id) => id.startsWith("mirofish_"));
+}
+
+function hasMirofishInfluence(output: CioOutput): boolean {
+  return (output.declared_knob_influence_ids ?? []).some((id) => id.startsWith("mirofish_"));
+}
+
+function assertMirofishInfluencedPositionChangesHaveDissent(
+  output: CioOutput,
+  actions: ReadonlyArray<PortfolioAction>,
+  currentPositions: CurrentPositionsSnapshot,
+): void {
+  if (!hasMirofishInfluence(output)) return;
+  const currentTickers = new Set(currentPositions.positions.map((position) => position.ticker));
+  for (const action of actions) {
+    if (!currentTickers.has(action.ticker)) continue;
+    const decision = action.position_decision;
+    if (
+      (decision === "ADD" || decision === "REDUCE" || decision === "EXIT") &&
+      !nonEmptyText(action.dissent_notes)
+    ) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: MiroFish-influenced position change requires dissent_notes`,
+      );
+    }
+  }
+}
+
+function normalizeAction(
+  action: PortfolioAction,
+  currentPositions: CurrentPositionsSnapshot,
+): PortfolioAction {
+  const position = currentPositions.positions.find((item) => item.ticker === action.ticker);
+  const currentWeight = action.current_weight ?? position?.current_weight;
+  const deltaWeight =
+    action.delta_weight ??
+    (currentWeight === undefined ? undefined : action.target_weight - currentWeight);
+  const positionDecision = action.position_decision ?? inferPositionDecision(action, currentWeight);
+  const positionDecisionReason =
+    nonEmptyText(action.position_decision_reason) ??
+    nonEmptyText(action.dissent_notes) ??
+    `${action.action} target weight`;
+  return {
+    ...action,
+    ...(positionDecision ? { position_decision: positionDecision } : {}),
+    ...(currentWeight !== undefined ? { current_weight: currentWeight } : {}),
+    ...(deltaWeight !== undefined ? { delta_weight: deltaWeight } : {}),
+    thesis_status: action.thesis_status ?? "intact",
+    risk_flags: action.risk_flags ?? [],
+    position_decision_reason: positionDecisionReason,
+  };
+}
+
+function inferPositionDecision(
+  action: PortfolioAction,
+  currentWeight: number | undefined,
+): PortfolioAction["position_decision"] {
+  if (action.action === "SELL" || action.target_weight === 0) return "EXIT";
+  if (action.action === "REDUCE") return "REDUCE";
+  if (
+    action.action === "BUY" &&
+    currentWeight !== undefined &&
+    action.target_weight > currentWeight
+  ) {
+    return "ADD";
+  }
+  if (action.action === "BUY") return "ADD";
+  return "HOLD";
+}
+
+function positionReviewsFromActions(
+  actions: ReadonlyArray<PortfolioAction>,
+  currentPositions: CurrentPositionsSnapshot,
+  confidence: number,
+): PositionReview[] {
+  const currentTickers = new Set(currentPositions.positions.map((position) => position.ticker));
+  return actions
+    .filter((action) => currentTickers.has(action.ticker))
+    .map((action) => ({
+      ticker: action.ticker,
+      decision: action.position_decision ?? "HOLD",
+      target_weight: action.target_weight,
+      reason:
+        nonEmptyText(action.position_decision_reason) ??
+        nonEmptyText(action.dissent_notes) ??
+        "position reviewed",
+      thesis_status: action.thesis_status ?? "intact",
+      risk_flags: action.risk_flags ?? [],
+      confidence,
+    }));
+}
+
+function nonEmptyText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function assertEveryCurrentPositionReviewed(
+  currentPositions: CurrentPositionsSnapshot,
+  actions: ReadonlyArray<PortfolioAction>,
+  reviews: ReadonlyArray<PositionReview>,
+): void {
+  const covered = new Set([
+    ...actions.map((action) => action.ticker),
+    ...reviews.map((review) => review.ticker),
+  ]);
+  const missing = currentPositions.positions
+    .map((position) => position.ticker)
+    .filter((ticker) => !covered.has(ticker));
+  if (missing.length > 0) {
+    throw new PositionActionValidationError(
+      `current_positions missing from portfolio_actions/position_reviews: ${missing.join(",")}`,
+    );
+  }
+}
+
+function thresholdNumber(
+  snapshot: ResearchKnobsSnapshot | null | undefined,
+  sharedPolicyValues: Readonly<Record<string, unknown>> | undefined,
+  key: string,
+  fallback: number,
+): number {
+  const value =
+    snapshot?.knobs.thresholds[key] ?? snapshot?.knobs.lookbacks[key] ?? sharedPolicyValues?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function buildPositionAudit(opts: {
+  currentPositions: CurrentPositionsSnapshot;
+  reviews: ReadonlyArray<PositionReview>;
+  actions: ReadonlyArray<PortfolioAction>;
+  stopLossPct: number;
+  staleThesisDays: number;
+}): PositionAudit {
+  const reviewed = new Set(opts.reviews.map((review) => review.ticker));
+  const stopLossOverrideCount = opts.currentPositions.positions.filter((position) => {
+    const action = opts.actions.find((item) => item.ticker === position.ticker);
+    return (
+      position.unrealized_pnl_pct <= opts.stopLossPct &&
+      action?.action === "HOLD" &&
+      Boolean(action.override_reason)
+    );
+  }).length;
+  return {
+    position_snapshot_hash: opts.currentPositions.position_snapshot_hash ?? null,
+    snapshot_status: opts.currentPositions.snapshot_status,
+    position_source: opts.currentPositions.position_source,
+    source_error_code: opts.currentPositions.source_error_code,
+    positions_loaded: opts.currentPositions.positions.length,
+    positions_reviewed: reviewed.size,
+    positions_unreviewed: opts.currentPositions.positions.filter(
+      (position) => !reviewed.has(position.ticker),
+    ).length,
+    hold_count: opts.reviews.filter((review) => review.decision === "HOLD").length,
+    add_count: opts.reviews.filter((review) => review.decision === "ADD").length,
+    reduce_count: opts.reviews.filter((review) => review.decision === "REDUCE").length,
+    exit_count: opts.reviews.filter((review) => review.decision === "EXIT").length,
+    stale_thesis_count: opts.currentPositions.positions.filter(
+      (position) => position.holding_days > opts.staleThesisDays,
+    ).length,
+    stop_loss_override_count: stopLossOverrideCount,
+    target_current_drift_count: opts.actions.filter(
+      (action) => Math.abs(action.delta_weight ?? 0) > 0.01,
+    ).length,
+  };
+}

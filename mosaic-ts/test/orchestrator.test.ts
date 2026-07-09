@@ -91,6 +91,12 @@ describe("runAutoresearchCycle", () => {
       knob_mutation: {
         prediction_target: "policy_stance_1w",
         evaluation_metric: "confidence_calibration_error",
+        horizon: "5d",
+        rollback_condition: {
+          metric: "confidence_calibration_error",
+          worse_by: 0.03,
+          unit: "ratio",
+        },
         knob_patches: [
           {
             path: "/rule_packs/x/rules/y/confidence_policy/missing_current_data/cap",

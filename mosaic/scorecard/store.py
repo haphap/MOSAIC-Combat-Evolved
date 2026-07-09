@@ -49,6 +49,18 @@ CREATE TABLE IF NOT EXISTS recommendations (
     action TEXT NOT NULL,                       -- BUY/SELL/HOLD/REDUCE/LONG/SHORT
     conviction REAL,                            -- [0, 1]
     target_weight_pct REAL,                     -- [0, 100]
+    current_weight_pct REAL,                    -- CIO only: current portfolio weight [0, 100]
+    delta_weight_pct REAL,                      -- CIO only: target-current [percentage points]
+    position_decision TEXT,                     -- CIO only: HOLD/ADD/REDUCE/EXIT
+    position_decision_reason TEXT,
+    override_reason TEXT,
+    thesis_status TEXT,                         -- CIO only: intact/weakened/broken/expired
+    risk_flags_json TEXT,                       -- JSON array of CIO position risk flags
+    declared_knob_influence_ids_json TEXT,      -- JSON array from LLM declaration
+    declared_influence_rationale TEXT,
+    verified_knob_audit_json TEXT,              -- runtime-owned cap/dependency audit
+    decision_agent_audits_json TEXT,            -- compact CRO/execution/CIO audit summary
+    dissent_notes TEXT,
     rationale_snapshot TEXT,
     replay_triggered INTEGER NOT NULL DEFAULT 0,  -- 1 = produced by a CRO-veto replay cycle (R-A1)
     forward_return_5d REAL,                     -- NULL until scored
@@ -435,6 +447,9 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     # ── Layer 4 cio only (other L4 agents don't carry tickers per se) ────
     layer4 = state.get("layer4_outputs") or {}
     cio = layer4.get("cio") if isinstance(layer4, dict) else None
+    decision_agent_audits_json = (
+        _decision_agent_audits_json(layer4) if isinstance(layer4, dict) else None
+    )
     if isinstance(cio, dict):
         for action_obj in cio.get("portfolio_actions", []) or []:
             ticker = action_obj.get("ticker")
@@ -458,6 +473,22 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
                     # §11.5 decision #10.)
                     "conviction": None,
                     "target_weight_pct": target_weight * 100.0,
+                    "current_weight_pct": _maybe_pct(action_obj.get("current_weight")),
+                    "delta_weight_pct": _maybe_pct(action_obj.get("delta_weight")),
+                    "position_decision": action_obj.get("position_decision"),
+                    "position_decision_reason": action_obj.get("position_decision_reason"),
+                    "override_reason": action_obj.get("override_reason"),
+                    "thesis_status": action_obj.get("thesis_status"),
+                    "risk_flags_json": _json_list_or_none(action_obj.get("risk_flags")),
+                    "declared_knob_influence_ids_json": _json_list_or_none(
+                        cio.get("declared_knob_influence_ids")
+                    ),
+                    "declared_influence_rationale": cio.get("declared_influence_rationale"),
+                    "verified_knob_audit_json": _json_object_or_none(
+                        cio.get("verified_knob_audit")
+                    ),
+                    "decision_agent_audits_json": decision_agent_audits_json,
+                    "dissent_notes": action_obj.get("dissent_notes"),
                     "rationale_snapshot": _truncate(
                         action_obj.get("dissent_notes") or action_obj.get("thesis"),
                         200,
@@ -467,8 +498,71 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
 
     for row in rows:
         row["replay_triggered"] = replay_flag
+        for key in (
+            "current_weight_pct",
+            "delta_weight_pct",
+            "position_decision",
+            "position_decision_reason",
+            "override_reason",
+            "thesis_status",
+            "risk_flags_json",
+            "declared_knob_influence_ids_json",
+            "declared_influence_rationale",
+            "verified_knob_audit_json",
+            "decision_agent_audits_json",
+            "dissent_notes",
+        ):
+            row.setdefault(key, None)
 
     return rows
+
+
+def _maybe_pct(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value) * 100.0
+
+
+def _json_list_or_none(value: Any) -> str | None:
+    if not isinstance(value, list):
+        return None
+    return json.dumps([str(item) for item in value], ensure_ascii=False)
+
+
+def _json_object_or_none(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _decision_agent_audits_json(layer4: dict[str, Any]) -> str | None:
+    rows: dict[str, dict[str, Any]] = {}
+    for agent in ("cro", "autonomous_execution", "cio"):
+        output = layer4.get(agent)
+        if not isinstance(output, dict):
+            continue
+        row: dict[str, Any] = {}
+        declared = output.get("declared_knob_influence_ids")
+        if isinstance(declared, list):
+            row["declared_knob_influence_ids"] = [str(item) for item in declared]
+        rationale = output.get("declared_influence_rationale")
+        if isinstance(rationale, str) and rationale:
+            row["declared_influence_rationale"] = rationale
+        audit = output.get("verified_knob_audit")
+        if isinstance(audit, dict):
+            for key in (
+                "knob_snapshot_hash",
+                "fired_cap_ids",
+                "unsupported_knob_influence_ids",
+                "sample_exclusion_reason",
+            ):
+                if key in audit:
+                    row[key] = audit[key]
+        if row:
+            rows[agent] = row
+    if not rows:
+        return None
+    return json.dumps(rows, ensure_ascii=False, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -671,6 +765,21 @@ class ScorecardStore:
                     "ALTER TABLE recommendations "
                     "ADD COLUMN replay_triggered INTEGER NOT NULL DEFAULT 0"
                 )
+            for column, ddl in (
+                ("current_weight_pct", "REAL"),
+                ("delta_weight_pct", "REAL"),
+                ("position_decision", "TEXT"),
+                ("position_decision_reason", "TEXT"),
+                ("override_reason", "TEXT"),
+                ("thesis_status", "TEXT"),
+                ("risk_flags_json", "TEXT"),
+                ("declared_knob_influence_ids_json", "TEXT"),
+                ("declared_influence_rationale", "TEXT"),
+                ("verified_knob_audit_json", "TEXT"),
+                ("decision_agent_audits_json", "TEXT"),
+                ("dissent_notes", "TEXT"),
+            ):
+                self._ensure_column(conn, "recommendations", column, ddl)
             self._ensure_column(conn, "prompt_versions", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_base_commit_hash", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_sha256", "TEXT")
@@ -730,15 +839,37 @@ class ScorecardStore:
                 """
                 INSERT INTO recommendations (
                     cohort, agent, ticker, date, action, conviction,
-                    target_weight_pct, rationale_snapshot, replay_triggered
+                    target_weight_pct, current_weight_pct, delta_weight_pct,
+                    position_decision, position_decision_reason, override_reason,
+                    thesis_status, risk_flags_json, declared_knob_influence_ids_json,
+                    declared_influence_rationale, verified_knob_audit_json,
+                    decision_agent_audits_json, dissent_notes, rationale_snapshot,
+                    replay_triggered
                 ) VALUES (
                     :cohort, :agent, :ticker, :date, :action, :conviction,
-                    :target_weight_pct, :rationale_snapshot, :replay_triggered
+                    :target_weight_pct, :current_weight_pct, :delta_weight_pct,
+                    :position_decision, :position_decision_reason, :override_reason,
+                    :thesis_status, :risk_flags_json, :declared_knob_influence_ids_json,
+                    :declared_influence_rationale, :verified_knob_audit_json,
+                    :decision_agent_audits_json, :dissent_notes, :rationale_snapshot,
+                    :replay_triggered
                 )
                 ON CONFLICT(cohort, agent, ticker, date) DO UPDATE SET
                     action = excluded.action,
                     conviction = excluded.conviction,
                     target_weight_pct = excluded.target_weight_pct,
+                    current_weight_pct = excluded.current_weight_pct,
+                    delta_weight_pct = excluded.delta_weight_pct,
+                    position_decision = excluded.position_decision,
+                    position_decision_reason = excluded.position_decision_reason,
+                    override_reason = excluded.override_reason,
+                    thesis_status = excluded.thesis_status,
+                    risk_flags_json = excluded.risk_flags_json,
+                    declared_knob_influence_ids_json = excluded.declared_knob_influence_ids_json,
+                    declared_influence_rationale = excluded.declared_influence_rationale,
+                    verified_knob_audit_json = excluded.verified_knob_audit_json,
+                    decision_agent_audits_json = excluded.decision_agent_audits_json,
+                    dissent_notes = excluded.dissent_notes,
                     rationale_snapshot = excluded.rationale_snapshot,
                     replay_triggered = excluded.replay_triggered
                 """,
@@ -1314,7 +1445,11 @@ class ScorecardStore:
                 return {"cohort": cohort, "date": None, "actions": []}
             cur = conn.execute(
                 "SELECT ticker, action, target_weight_pct, rationale_snapshot, "
-                "       forward_return_5d, scored_at "
+                "       forward_return_5d, scored_at, current_weight_pct, delta_weight_pct, "
+                "       position_decision, position_decision_reason, override_reason, "
+                "       thesis_status, risk_flags_json, declared_knob_influence_ids_json, "
+                "       declared_influence_rationale, verified_knob_audit_json, "
+                "       decision_agent_audits_json, dissent_notes "
                 "FROM recommendations WHERE cohort = ? AND agent = 'cio' AND date = ? "
                 "ORDER BY target_weight_pct DESC, ticker",
                 (cohort, latest),
@@ -1657,6 +1792,62 @@ class ScorecardStore:
         sql += " ORDER BY trade_date, ticker"
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def summarize_backtest_actions(self, run_id: int) -> dict[str, Any]:
+        """Aggregate cached stage-1 backtest actions without invoking qlib.
+
+        This powers operator/TUI carry-over diagnostics. Performance metrics
+        that require stage-2 market replay are reported as unavailable rather
+        than inferred from cached target weights.
+        """
+        actions = self.get_backtest_actions(run_id)
+        dates = sorted({row["trade_date"] for row in actions})
+        action_counts: dict[str, int] = {}
+        holding_period_counts: dict[str, int] = {}
+        by_ticker: dict[str, list[dict[str, Any]]] = {}
+        for row in actions:
+            action = str(row["action"])
+            action_counts[action] = action_counts.get(action, 0) + 1
+            holding_period = row.get("holding_period") or "unspecified"
+            holding_period_counts[holding_period] = holding_period_counts.get(holding_period, 0) + 1
+            by_ticker.setdefault(str(row["ticker"]), []).append(row)
+
+        turnover_proxy = 0.0
+        max_observed_holding_days = 0
+        stale_thesis_proxy_count = 0
+        for rows in by_ticker.values():
+            rows.sort(key=lambda row: row["trade_date"])
+            previous = 0.0
+            seen_dates: set[str] = set()
+            for row in rows:
+                target = float(row["target_weight"])
+                turnover_proxy += abs(target - previous)
+                previous = target
+                seen_dates.add(str(row["trade_date"]))
+            max_observed_holding_days = max(max_observed_holding_days, max(len(seen_dates) - 1, 0))
+            if max(len(seen_dates) - 1, 0) >= 20:
+                stale_thesis_proxy_count += 1
+
+        return {
+            "run_id": run_id,
+            "action_count": len(actions),
+            "trade_day_count": len(dates),
+            "first_trade_date": dates[0] if dates else None,
+            "last_trade_date": dates[-1] if dates else None,
+            "ticker_count": len(by_ticker),
+            "turnover_proxy": round(turnover_proxy, 6),
+            "max_observed_holding_days": max_observed_holding_days,
+            "stale_thesis_proxy_count": stale_thesis_proxy_count,
+            "action_counts": action_counts,
+            "holding_period_counts": holding_period_counts,
+            "metric_availability": {
+                "turnover": "stage1_proxy_from_target_weight_changes",
+                "holding_days": "stage1_observed_trade_day_count",
+                "exit_after_hold_alpha": "requires_stage2_scored_positions",
+                "reduce_opportunity_cost": "requires_stage2_scored_positions",
+                "stop_loss_avoided_drawdown": "requires_stage2_scored_positions",
+            },
+        }
 
     # ── backtest_failed_days (R-A3) ──────────────────────────────────────
 

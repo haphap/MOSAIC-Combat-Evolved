@@ -23,6 +23,9 @@ export const REQUIRED_TOOLS = [
   "get_etf_holdings",
   "get_stock_data",
   "get_indicators",
+  "get_income_statement",
+  "get_balance_sheet",
+  "get_cashflow",
   "get_industry_moneyflow",
 ] as const;
 

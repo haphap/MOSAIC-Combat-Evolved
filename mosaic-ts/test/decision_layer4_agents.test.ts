@@ -29,12 +29,17 @@ import {
 } from "../src/agents/decision/autonomous_execution.js";
 import { buildCioNode, cioSpec, fallbackCio, renderCio } from "../src/agents/decision/cio.js";
 import { buildCroNode, croSpec, fallbackCro, renderCro } from "../src/agents/decision/cro.js";
+import {
+  PositionActionValidationError,
+  validateCioPositionActions,
+} from "../src/agents/decision/position_validator.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
 import type {
   CioOutput,
   CroOutput,
+  CurrentPositionsSnapshot,
   Layer4Outputs,
   PortfolioAction,
   RegimeSignal,
@@ -216,6 +221,32 @@ describe("schemas reject malformations", () => {
     ).not.toThrow();
   });
 
+  it("cio preserves position-aware review fields", () => {
+    const parsed = cioSpec.schema.parse({
+      agent: "cio",
+      portfolio_actions: [
+        {
+          ticker: "600519.SH",
+          action: "HOLD",
+          position_decision: "HOLD",
+          current_weight: 0.2,
+          target_weight: 0.2,
+          delta_weight: 0,
+          holding_period: "1Y",
+          position_decision_reason: "thesis intact after review",
+          override_reason: "stop loss overridden by fresh policy catalyst",
+          thesis_status: "weakened",
+          risk_flags: ["stop_loss_breached"],
+          dissent_notes: "",
+        },
+      ],
+      confidence: 0.5,
+    });
+    const action = parsed.portfolio_actions[0];
+    expect(action?.override_reason).toContain("policy catalyst");
+    expect(action?.risk_flags).toEqual(["stop_loss_breached"]);
+  });
+
   it("cio rejects holding_period outside enum", () => {
     expect(() =>
       cioSpec.schema.parse({
@@ -253,9 +284,303 @@ const baseState = (): DailyCycleStateType => ({
   layer2_consensus: null,
   layer3_outputs: {},
   layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+  current_positions: {
+    snapshot_status: "empty_confirmed",
+    position_source: "empty_confirmed",
+    source_error_code: null,
+    position_snapshot_hash: "sha256:empty_positions",
+    positions: [],
+  },
+  position_reviews: [],
+  position_audit: {
+    position_snapshot_hash: "sha256:empty_positions",
+    snapshot_status: "empty_confirmed",
+    position_source: "empty_confirmed",
+    source_error_code: null,
+    positions_loaded: 0,
+    positions_reviewed: 0,
+    positions_unreviewed: 0,
+    hold_count: 0,
+    add_count: 0,
+    reduce_count: 0,
+    exit_count: 0,
+    stale_thesis_count: 0,
+    stop_loss_override_count: 0,
+    target_current_drift_count: 0,
+  },
   portfolio_actions: [],
   replay_triggered: false,
   llm_calls: [],
+});
+
+function loadedPositions(
+  positions: CurrentPositionsSnapshot["positions"],
+): CurrentPositionsSnapshot {
+  return {
+    snapshot_status: "loaded",
+    position_source: "cli_fixture",
+    source_error_code: null,
+    position_snapshot_hash: "sha256:test_positions",
+    positions,
+  };
+}
+
+function cioOutput(portfolio_actions: PortfolioAction[]): CioOutput {
+  return {
+    agent: "cio",
+    portfolio_actions,
+    confidence: 0.61,
+  };
+}
+
+const heldPosition = {
+  ticker: "600519.SH",
+  current_weight: 0.2,
+  cost_basis: 100,
+  market_price: 108,
+  unrealized_pnl_pct: 0.08,
+  holding_days: 12,
+  entry_date: "2024-06-01",
+  source_agent: "munger",
+  entry_thesis_id: "thesis-600519",
+  last_review_date: "2024-06-20",
+};
+
+describe("CIO position validator", () => {
+  it("rejects a loaded current position missing from CIO actions", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "688981.SH",
+            action: "BUY",
+            target_weight: 0.1,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([heldPosition]),
+      }),
+    ).toThrow(PositionActionValidationError);
+  });
+
+  it("rejects stop-loss breached HOLD without an override", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "HOLD",
+            target_weight: 0.2,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([
+          { ...heldPosition, unrealized_pnl_pct: -0.12, holding_days: 25 },
+        ]),
+      }),
+    ).toThrow(/stop_loss breached/);
+  });
+
+  it("uses upstream CRO-owned active risk knob values for CIO validation", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "HOLD",
+            target_weight: 0.2,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([
+          { ...heldPosition, unrealized_pnl_pct: -0.06, holding_days: 25 },
+        ]),
+        sharedPolicyValues: { stop_loss_pct: -0.05 },
+      }),
+    ).toThrow(/stop_loss breached/);
+  });
+
+  it("rejects MiroFish-only portfolio actions", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: {
+          ...cioOutput([
+            {
+              ticker: "600519.SH",
+              action: "BUY",
+              target_weight: 0.1,
+              holding_period: "3M",
+              dissent_notes: "scenario stress looked favorable",
+            },
+          ]),
+          declared_knob_influence_ids: ["mirofish_portfolio_stress_weight"],
+        },
+        currentPositions: loadedPositions([]),
+      }),
+    ).toThrow(/MiroFish-only/);
+  });
+
+  it("rejects MiroFish-influenced current-position changes without dissent notes", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: {
+          ...cioOutput([
+            {
+              ticker: "600519.SH",
+              action: "REDUCE",
+              target_weight: 0.1,
+              holding_period: "3M",
+              dissent_notes: "",
+            },
+          ]),
+          declared_knob_influence_ids: ["mirofish_portfolio_stress_weight", "rebalance_drift_pct"],
+        },
+        currentPositions: loadedPositions([heldPosition]),
+      }),
+    ).toThrow(/MiroFish-influenced position change requires dissent_notes/);
+  });
+
+  it("allows MiroFish-influenced current-position changes with dissent notes", () => {
+    const result = validateCioPositionActions({
+      output: {
+        ...cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "REDUCE",
+            target_weight: 0.1,
+            holding_period: "3M",
+            dissent_notes:
+              "MiroFish tail stress conflicts with base hold, current data still valid",
+          },
+        ]),
+        declared_knob_influence_ids: ["mirofish_portfolio_stress_weight", "rebalance_drift_pct"],
+      },
+      currentPositions: loadedPositions([heldPosition]),
+    });
+
+    expect(result.output.portfolio_actions[0]?.position_decision).toBe("REDUCE");
+    expect(result.position_audit.reduce_count).toBe(1);
+  });
+
+  it("allows stop-loss breached HOLD with an override and audits it", () => {
+    const result = validateCioPositionActions({
+      output: cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "HOLD",
+          target_weight: 0.2,
+          holding_period: "3M",
+          override_reason: "policy catalyst remains live through next review window",
+          dissent_notes: "",
+        },
+      ]),
+      currentPositions: loadedPositions([
+        { ...heldPosition, unrealized_pnl_pct: -0.12, holding_days: 25 },
+      ]),
+    });
+
+    expect(result.position_reviews).toEqual([
+      {
+        ticker: "600519.SH",
+        decision: "HOLD",
+        target_weight: 0.2,
+        reason: "HOLD target weight",
+        thesis_status: "intact",
+        risk_flags: [],
+        confidence: 0.61,
+      },
+    ]);
+    expect(result.position_audit.stop_loss_override_count).toBe(1);
+    expect(result.position_audit.positions_unreviewed).toBe(0);
+  });
+
+  it("normalizes covered loaded positions into reviews and audit counts", () => {
+    const result = validateCioPositionActions({
+      output: cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          target_weight: 0.27,
+          holding_period: "6M",
+          position_decision_reason: "increase high-conviction intact thesis",
+          dissent_notes: "",
+        },
+      ]),
+      currentPositions: loadedPositions([heldPosition]),
+    });
+
+    const action = result.output.portfolio_actions[0];
+    expect(action?.current_weight).toBe(0.2);
+    expect(action?.delta_weight).toBeCloseTo(0.07);
+    expect(action?.position_decision).toBe("ADD");
+    expect(result.position_audit.positions_loaded).toBe(1);
+    expect(result.position_audit.positions_reviewed).toBe(1);
+    expect(result.position_audit.add_count).toBe(1);
+    expect(result.position_audit.target_current_drift_count).toBe(1);
+  });
+
+  it("covers a 3-position fixture and audits stale thesis reviews", () => {
+    const result = validateCioPositionActions({
+      output: cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "HOLD",
+          target_weight: 0.2,
+          holding_period: "6M",
+          dissent_notes: "core position still intact",
+        },
+        {
+          ticker: "688981.SH",
+          action: "REDUCE",
+          target_weight: 0.04,
+          holding_period: "3M",
+          position_decision_reason: "trim after thesis decay",
+          thesis_status: "weakened",
+          dissent_notes: "",
+        },
+        {
+          ticker: "000001.SZ",
+          action: "SELL",
+          target_weight: 0,
+          holding_period: "1M",
+          position_decision_reason: "exit stale thesis",
+          thesis_status: "expired",
+          dissent_notes: "",
+        },
+      ]),
+      currentPositions: loadedPositions([
+        heldPosition,
+        {
+          ...heldPosition,
+          ticker: "688981.SH",
+          current_weight: 0.08,
+          holding_days: 31,
+          entry_thesis_id: "thesis-688981",
+        },
+        {
+          ...heldPosition,
+          ticker: "000001.SZ",
+          current_weight: 0.03,
+          holding_days: 45,
+          entry_thesis_id: "thesis-000001",
+        },
+      ]),
+    });
+
+    expect(result.position_reviews.map((review) => review.ticker).sort()).toEqual([
+      "000001.SZ",
+      "600519.SH",
+      "688981.SH",
+    ]);
+    expect(result.position_audit.positions_loaded).toBe(3);
+    expect(result.position_audit.positions_reviewed).toBe(3);
+    expect(result.position_audit.positions_unreviewed).toBe(0);
+    expect(result.position_audit.stale_thesis_count).toBe(2);
+    expect(result.position_audit.exit_count).toBe(1);
+  });
 });
 
 describe("Layer 1/2/3/4 context renderers", () => {
@@ -421,6 +746,30 @@ describe("buildAutonomousExecutionNode (Phase 3F bridge wiring)", () => {
       layer2_consensus: null,
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],
@@ -648,9 +997,25 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       layer4_outputs?: Partial<Layer4Outputs>;
       portfolio_actions?: PortfolioAction[];
     };
-    expect(u.layer4_outputs?.cio).toEqual(canned);
+    expect(u.layer4_outputs?.cio?.agent).toBe(canned.agent);
+    expect(u.layer4_outputs?.cio?.confidence).toBe(canned.confidence);
+    expect(u.layer4_outputs?.cio?.portfolio_actions).toEqual(u.portfolio_actions);
+    expect(u.portfolio_actions?.[0]).toMatchObject({
+      ...cannedPortfolio[0],
+      position_decision: "ADD",
+      position_decision_reason: "BUY target weight",
+      thesis_status: "intact",
+      risk_flags: [],
+    });
+    expect(u.portfolio_actions?.[1]).toMatchObject({
+      ...cannedPortfolio[1],
+      position_decision: "ADD",
+      position_decision_reason: "alpha_discovery flagged this; auto_exec missed",
+      thesis_status: "intact",
+      risk_flags: [],
+    });
     // Top-level mirror — Phase 3 scorecard / TUI consumers read this.
-    expect(u.portfolio_actions).toEqual(cannedPortfolio);
+    expect(u.portfolio_actions).toHaveLength(cannedPortfolio.length);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.bindToolsCalled).toBe(0); // Layer-4 bypasses tool loop
     expect(llm.structuredCalls).toBe(1);

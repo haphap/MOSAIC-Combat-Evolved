@@ -36,9 +36,10 @@ pnpm dev darwinian --cohort cohort_default
 
 ```bash
 pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
+pnpm dev autoresearch trigger --cohort cohort_default --agent cio --dry-run --fake-llm --mutation-mode knob_patch --eval-days 5
 pnpm dev autoresearch log --cohort crisis_2008
 ```
-子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`。`trigger` 选项含 `--cohort`、`--agent`、`--max <n>`、`--dry-run`、`--fake-llm`、`--eval-days <n>`、`--llm-provider/--model/--base-url`。
+子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`。`trigger` 选项含 `--cohort`、`--agent`、`--max <n>`、`--dry-run`、`--fake-llm`、`--mutation-mode <auto|knob_patch|prompt_rewrite>`、`--eval-days <n>`、`--llm-provider/--model/--base-url`。`knob_patch` 模式改动 Prompt IR / domain-knob 路径,包括持仓与 MiroFish 卡片,不改写提示词正文。
 
 ## Prompt 运维
 
@@ -77,11 +78,13 @@ pnpm dev janus weights
 ```bash
 pnpm dev mirofish generate --swarm --seed 7      # 生成情景
 pnpm dev mirofish train --path-aware             # 前向训练;--path-aware = 回撤惩罚评分
+pnpm dev mirofish train --current-positions-file .mosaic/tmp/mirofish-positions.json --fake-llm --dry-run
 pnpm dev mirofish history
 ```
 子命令:`generate`、`train`、`history`。
-- `generate`:`--days <n>`、`--seed <n>`、`--print`、`--reflexive`、`--swarm`、`--engine <name>`。
-- `train`:`--days`、`--seed`、`--agents <list>`、`--dry-run`、`--fake-llm`、`--reflexive`、`--engine <name>`、`--swarm`、`--scorer <name>`、`--path-aware`、LLM 选项。
+- `generate`:`--days <n>`、`--seed <n>`、`--print`、`--reflexive`、`--swarm`、`--engine <name>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--sector-exposure-json <json>`、`--theme-exposure-json <json>`。
+- `train`:`--days`、`--seed`、`--agents <list>`、`--dry-run`、`--fake-llm`、`--reflexive`、`--engine <name>`、`--swarm`、`--scorer <name>`、`--path-aware`、同样的 portfolio-stress fixture 参数、LLM 选项。
+portfolio-stress 文件可以是 JSON 持仓数组,也可以是包含 `current_positions`、`sector_exposure`、`theme_exposure` 的对象;inline JSON 参数会覆盖文件值。
 
 ## 回测
 

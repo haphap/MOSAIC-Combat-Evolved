@@ -22,6 +22,61 @@ function scenario(type: string, csiRet: number): MirofishScenario {
   };
 }
 
+function scenarioWithCurrentPositions(): MirofishScenario {
+  return {
+    ...scenario("position_stress", 0.01),
+    price_paths: {
+      "000300.SH": {
+        ticker: "000300.SH",
+        start_price: 3500,
+        prices: [3500, 3535],
+        cumulative_return: 0.01,
+        volatility: 0.2,
+      },
+      "WIN.SH": {
+        ticker: "WIN.SH",
+        start_price: 100,
+        prices: [100, 112],
+        cumulative_return: 0.12,
+        volatility: 0.2,
+      },
+      "LOSS.SH": {
+        ticker: "LOSS.SH",
+        start_price: 100,
+        prices: [100, 88],
+        cumulative_return: -0.12,
+        volatility: 0.2,
+      },
+    },
+    portfolio_context: {
+      current_position_tickers: ["WIN.SH", "LOSS.SH"],
+      position_count: 2,
+      sector_exposure: { battery: 0.05, consumer: 0.08 },
+      theme_exposure: { ev_supply_chain: 0.05, premium_consumption: 0.08 },
+      current_positions: [
+        {
+          ticker: "WIN.SH",
+          market_price: 100,
+          current_weight: 0.08,
+          cost_basis: 90,
+          holding_days: 30,
+          unrealized_pnl_pct: 0.11,
+          entry_thesis: "winner thesis",
+        },
+        {
+          ticker: "LOSS.SH",
+          market_price: 100,
+          current_weight: 0.05,
+          cost_basis: 110,
+          holding_days: 45,
+          unrealized_pnl_pct: -0.09,
+          entry_thesis: "loss thesis",
+        },
+      ],
+    },
+  };
+}
+
 class FakeLlm {
   async invoke() {
     return { content: "fake" };
@@ -32,8 +87,10 @@ class FakeLlm {
 }
 
 class JsonLlm {
+  captured: unknown[] = [];
   constructor(private readonly content: string) {}
-  async invoke() {
+  async invoke(messages: unknown[]) {
+    this.captured = messages;
     return { content: this.content };
   }
 }
@@ -97,6 +154,30 @@ describe("runMirofishTraining", () => {
     expect(captured).toMatchObject({ recommendation: "BUY", tickers: ["000300.SH"] });
   });
 
+  it("fake-llm emits portfolio reviews for current positions", async () => {
+    let captured: unknown = null;
+    const api = fakeApi({
+      mirofishScoreRecommendation: vi.fn().mockImplementation(async (p: unknown) => {
+        captured = (p as { recommendation: unknown }).recommendation;
+        return { score: 0.8 };
+      }),
+      mirofishGenerateScenarios: vi
+        .fn()
+        .mockResolvedValue({ scenarios: [scenarioWithCurrentPositions()] }),
+    });
+    await runMirofishTraining({ agents: ["x"], fakeLlm: true, deps: deps(api) });
+    expect(captured).toMatchObject({
+      position_reviews: [
+        { ticker: "WIN.SH", decision: "ADD", current_weight: 0.08, target_weight: 0.1 },
+        { ticker: "LOSS.SH", decision: "EXIT", current_weight: 0.05, target_weight: 0 },
+      ],
+      portfolio_actions: [
+        { ticker: "WIN.SH", action: "BUY", current_weight: 0.08, target_weight: 0.1 },
+        { ticker: "LOSS.SH", action: "SELL", current_weight: 0.05, target_weight: 0 },
+      ],
+    });
+  });
+
   it("passes seed/num_days/scenarios through to generate", async () => {
     const api = fakeApi();
     await runMirofishTraining({
@@ -111,6 +192,71 @@ describe("runMirofishTraining", () => {
       num_days: 10,
       seed: 99,
       scenarios: ["base"],
+    });
+  });
+
+  it("passes current position stress inputs through to scenario generation", async () => {
+    const api = fakeApi();
+    await runMirofishTraining({
+      agents: ["x"],
+      seed: 7,
+      fakeLlm: true,
+      currentPositions: [
+        {
+          ticker: "600519.SH",
+          market_price: 1680,
+          current_weight: 0.08,
+          cost_basis: 1500,
+          holding_days: 42,
+          unrealized_pnl_pct: 0.12,
+          entry_thesis: "premium moat thesis",
+        },
+        {
+          ticker: "300750.SZ",
+          current_price: 190,
+          current_weight: 0.05,
+          holding_days: 12,
+        },
+        {
+          ticker: "688981.SH",
+          market_price: 58,
+          current_weight: 0.03,
+          unrealized_pnl_pct: -0.06,
+        },
+      ],
+      sectorExposure: { consumer: 0.08, battery: 0.05 },
+      themeExposure: { premium_consumption: 0.08, ev_supply_chain: 0.05 },
+      deps: deps(api),
+    });
+
+    expect(api.mirofishGenerateScenarios).toHaveBeenCalledWith({
+      num_days: 30,
+      seed: 7,
+      current_positions: [
+        {
+          ticker: "600519.SH",
+          market_price: 1680,
+          current_weight: 0.08,
+          cost_basis: 1500,
+          holding_days: 42,
+          unrealized_pnl_pct: 0.12,
+          entry_thesis: "premium moat thesis",
+        },
+        {
+          ticker: "300750.SZ",
+          current_price: 190,
+          current_weight: 0.05,
+          holding_days: 12,
+        },
+        {
+          ticker: "688981.SH",
+          market_price: 58,
+          current_weight: 0.03,
+          unrealized_pnl_pct: -0.06,
+        },
+      ],
+      sector_exposure: { consumer: 0.08, battery: 0.05 },
+      theme_exposure: { premium_consumption: 0.08, ev_supply_chain: 0.05 },
     });
   });
 
@@ -180,5 +326,28 @@ describe("runMirofishTraining", () => {
         },
       }),
     );
+  });
+
+  it("includes current positions and exposure context in real-LLM prompt", async () => {
+    const api = fakeApi({
+      mirofishGenerateScenarios: vi
+        .fn()
+        .mockResolvedValue({ scenarios: [scenarioWithCurrentPositions()] }),
+    });
+    const llm = new JsonLlm(
+      '{"recommendation":"HOLD","tickers":[],"conviction":0.5,"reasoning":"review positions"}',
+    );
+    await runMirofishTraining({
+      agents: ["cio"],
+      dryRun: true,
+      deps: { llm: llm as never, api },
+    });
+    const user = llm.captured[1] as { content?: unknown } | undefined;
+    const content = typeof user?.content === "string" ? user.content : JSON.stringify(user);
+    expect(content).toContain("Current positions:");
+    expect(content).toContain("WIN.SH");
+    expect(content).toContain("Portfolio exposure:");
+    expect(content).toContain("sector_exposure: battery=0.0500, consumer=0.0800");
+    expect(content).toContain("theme_exposure: ev_supply_chain=0.0500, premium_consumption=0.0800");
   });
 });

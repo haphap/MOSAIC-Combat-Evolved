@@ -49,6 +49,17 @@ const KEY_DRIVERS = z
 
 const CONFIDENCE = z.number().min(0).max(1);
 
+const KNOB_INFLUENCE_FIELDS = {
+  declared_knob_influence_ids: z
+    .array(z.string().min(1))
+    .optional()
+    .describe("Visible domain knob card ids explicitly used in this conclusion."),
+  declared_influence_rationale: z
+    .string()
+    .optional()
+    .describe("Optional short rationale for declared knob influence ids."),
+};
+
 function buildSuperinvestorSchema<L extends string>(literal: L) {
   return z
     .object({
@@ -70,6 +81,7 @@ function buildSuperinvestorSchema<L extends string>(literal: L) {
         ),
       key_drivers: KEY_DRIVERS,
       confidence: CONFIDENCE,
+      ...KNOB_INFLUENCE_FIELDS,
     })
     .describe(`Layer-3 superinvestor (${literal}) philosophy-filtered picks.`);
 }

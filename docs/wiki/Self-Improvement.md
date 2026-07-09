@@ -10,6 +10,7 @@ MOSAIC's self-improvement stack has four parts: **Autoresearch** (prompt evoluti
 - **`constraints.py`** — `check_cooldown` (24h per agent), `check_monthly_cap` (≤100/cohort/month), `check_keep_lockout` (3 days after a keep).
 - **`evaluator.py`** — computes ΔSharpe over the evaluation horizon (default 5 trading days).
 - **`decider.py`** — keep iff `delta_sharpe ≥ keep_threshold_delta_sharpe` (default 0.1).
+- **`knob_patch` mode** — mutates Prompt IR/domain-knob paths, including position-aware and MiroFish cards, without rewriting prompt prose.
 
 Branch naming: `cohort/{name}/auto/{agent}/{YYYY-MM-DD}`.
 
@@ -45,7 +46,7 @@ CLI: `prism list|train|status|compare`.
 
 - **engine** (`config.mirofish.engine`): `montecarlo` (default — i.i.d. correlated paths + optional reflexivity kernel) or `swarm` (agent-to-agent interaction). Swarm is opt-in.
 - **scorer** (`config.mirofish.scorer`): `terminal` (default — direction × cumulative return) or `path_aware` (drawdown-penalized equity curve; the `--path-aware` shorthand on `mirofish train`).
-- **inject_context** (`config.mirofish.inject_context`, default OFF): append the latest scenario context to the CIO prompt (see [Agents](Agents.md)).
+- **inject_context** (`config.mirofish.inject_context`, default OFF): append one shared, simulation-only scenario context to the L4 CRO, autonomous execution, and CIO prompts for the run (see [Agents](Agents.md)).
 - An OASIS adapter can drive a real external MiroFish engine over HTTP (`MOSAIC_MIROFISH_URL`).
 
 CLI: `mirofish generate|train|history`; RPCs under `mirofish.*`.

@@ -100,6 +100,7 @@ V15_ALLOWED_EVOLUTION_PATHS: tuple[str, ...] = (
 
 DEFAULT_ALLOWED_EVOLUTION_PATHS: tuple[str, ...] = (
     "/rule_packs/*/rules/*/learnable_parameters/*/value",
+    "/rule_packs/*/rules/*/confidence_policy/*/cap",
     "/rule_packs/*/rules/*/confidence_policy/*",
     "/rule_packs/*/rules/*/predicate/*",
     *V15_ALLOWED_EVOLUTION_PATHS,

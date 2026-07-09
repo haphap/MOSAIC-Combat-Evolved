@@ -18,6 +18,7 @@ import {
   buildResearchKnobsSnapshot,
   parseResearchKnobsPrompt,
   type ResearchKnobsSnapshot,
+  type RuntimeSourceStatus,
 } from "../helpers/research_knobs.js";
 import {
   findPrivatePromptsRoot,
@@ -156,6 +157,10 @@ export interface LoadPromptWithKnobsResult {
     zh: string;
     en: string;
   };
+  bodies: {
+    zh: string;
+    en: string;
+  };
 }
 
 /**
@@ -165,16 +170,21 @@ export interface LoadPromptWithKnobsResult {
  * if either language is missing or the parsed knobs differ.
  */
 export async function loadPromptWithKnobs(
-  opts: Omit<LoadOptions, "language"> & { language?: "Bilingual" },
+  opts: Omit<LoadOptions, "language"> & {
+    language?: "Bilingual";
+    runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
+  },
 ): Promise<LoadPromptWithKnobsResult> {
   const privateRoot =
     opts.privatePromptsRoot ?? (opts.promptsRoot ? "" : (findPrivatePromptsRoot() ?? ""));
+  const runtimeSourceStatusKey = JSON.stringify(opts.runtimeSourceStatuses ?? []);
   const cacheKey = [
     opts.promptsRoot ?? "",
     privateRoot,
     opts.cohort,
     opts.agent,
     "ResearchKnobs",
+    runtimeSourceStatusKey,
   ].join("|");
   if (!opts.noCache) {
     const cached = knobsCache.get(cacheKey);
@@ -199,11 +209,17 @@ export async function loadPromptWithKnobs(
     agent: opts.agent,
     cohort: opts.cohort,
     knobs: zhParsed.knobs,
+    runtimeSourceStatuses: opts.runtimeSourceStatuses ?? [],
   });
   const prompt = [snapshot.visibleContract, "", zhParsed.body, "", "---", "", enParsed.body].join(
     "\n",
   );
-  const result = { prompt, snapshot, paths: { zh: zh.path, en: en.path } };
+  const result = {
+    prompt,
+    snapshot,
+    paths: { zh: zh.path, en: en.path },
+    bodies: { zh: zhParsed.body, en: enParsed.body },
+  };
   if (!opts.noCache) knobsCache.set(cacheKey, result);
   return result;
 }

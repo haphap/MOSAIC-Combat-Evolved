@@ -12,6 +12,27 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import { parseResearchKnobsPrompt } from "../../agents/helpers/research_knobs.js";
 import { promptPath } from "../../agents/prompts/cohorts.js";
+import {
+  buildDomainKnobCatalogArtifact,
+  renderDomainKnobCatalogArtifact,
+  validateDomainKnobCatalogArtifact,
+} from "../../agents/prompts/domain_knob_catalog.js";
+import {
+  buildDomainKnobValueRegistry,
+  domainKnobValueRegistryPath,
+  readDomainKnobValueRegistryFile,
+  renderDomainKnobValueRegistry,
+  validateDomainKnobValueRegistry,
+  writeDomainKnobValueRegistryFile,
+} from "../../agents/prompts/domain_knob_registry.js";
+import {
+  buildPromptIrContract,
+  promptIrPathForSpec,
+  readPromptIrContractFile,
+  renderPromptIrContract,
+  validatePromptIrContractForSpec,
+  writePromptIrContractFile,
+} from "../../agents/prompts/prompt_ir_registry.js";
 import { checkResearchKnobsPrompts } from "../../agents/prompts/research_knobs_checker.js";
 import {
   buildRuntimeResearchKnobs,
@@ -63,12 +84,24 @@ interface SyncResearchKnobsOpts {
   write?: boolean;
 }
 
+interface SyncPromptIrOpts {
+  cohort?: string;
+  privatePromptsRoot: string;
+  agents?: string;
+  write?: boolean;
+}
+
 interface DryRunKnobPatchOpts {
   cohort?: string;
   privatePromptsRoot: string;
   agent: string;
   metadataLog?: string;
   writeMetadata?: boolean;
+}
+
+interface ExportDomainKnobCatalogOpts {
+  out?: string;
+  json?: boolean;
 }
 
 export function registerPrompts(program: Command): void {
@@ -188,6 +221,29 @@ export function registerPrompts(program: Command): void {
     });
 
   prompts
+    .command("export-domain-knob-catalog")
+    .description("Render the machine-readable domain knob catalog and runtime registries.")
+    .option("--out <path>", "Write catalog JSON to a file")
+    .option("--json", "Print catalog JSON to stdout")
+    .action(async (opts: ExportDomainKnobCatalogOpts) => {
+      const artifact = buildDomainKnobCatalogArtifact();
+      const reasons = validateDomainKnobCatalogArtifact(artifact);
+      if (reasons.length > 0) {
+        throw new Error(`domain knob catalog failed self-check: ${reasons.join("; ")}`);
+      }
+      const rendered = renderDomainKnobCatalogArtifact(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        console.log(`domain_knob_catalog: ${redactSensitiveText(opts.out).slice(0, 220)}`);
+      }
+    });
+
+  prompts
     .command("check-research-knobs")
     .description("Validate research-knobs fences for enabled runtime agents.")
     .option("--cohort <name>", "Cohort to check (default cohort_default)")
@@ -265,7 +321,28 @@ export function registerPrompts(program: Command): void {
       const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
       const changed: string[] = [];
       for (const spec of specs) {
-        const knobs = buildRuntimeResearchKnobs(spec);
+        const registryPath = domainKnobValueRegistryPath({
+          privatePromptsRoot: opts.privatePromptsRoot,
+          cohort,
+          agent: spec.agent,
+        });
+        const existingRegistry = await readDomainKnobValueRegistryFile(registryPath);
+        const registry = buildDomainKnobValueRegistry(spec, cohort, { existing: existingRegistry });
+        const registryReasons = validateDomainKnobValueRegistry(spec, registry, cohort);
+        if (registryReasons.length > 0) {
+          throw new Error(`${spec.agent}: ${registryReasons.join("; ")}`);
+        }
+        const renderedRegistry = renderDomainKnobValueRegistry(registry);
+        const currentRegistry = existingRegistry
+          ? renderDomainKnobValueRegistry(existingRegistry)
+          : "";
+        if (renderedRegistry !== currentRegistry) {
+          changed.push(registryPath);
+          if (opts.write) {
+            await writeDomainKnobValueRegistryFile(registryPath, registry);
+          }
+        }
+        const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
         for (const language of ["zh", "en"] as const) {
           const path = promptPath({
             agent: spec.agent,
@@ -286,6 +363,50 @@ export function registerPrompts(program: Command): void {
       }
       const label = opts.write ? "updated" : "pending";
       console.log(`${label} research-knobs files: ${changed.length}`);
+      for (const path of changed.slice(0, 50)) {
+        console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
+      }
+      if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
+    });
+
+  prompts
+    .command("sync-prompt-ir")
+    .description("Generate/update Prompt IR contracts from runtime agent specs.")
+    .requiredOption("--private-prompts-root <path>", "Private prompts root to update")
+    .option("--cohort <name>", "Cohort to update (default cohort_default)")
+    .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
+    .option("--write", "Write changes. Without this, only reports pending updates.", false)
+    .action(async (opts: SyncPromptIrOpts) => {
+      const cohort = opts.cohort ?? "cohort_default";
+      const selected = opts.agents
+        ? new Set(
+            opts.agents
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          )
+        : null;
+      const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
+      const changed: string[] = [];
+      for (const spec of specs) {
+        const path = promptIrPathForSpec({ privatePromptsRoot: opts.privatePromptsRoot, spec });
+        const existing = await readPromptIrContractFile(path).catch(() => null);
+        const contract = buildPromptIrContract(spec, cohort);
+        const reasons = validatePromptIrContractForSpec(contract, spec, cohort);
+        if (reasons.length > 0) {
+          throw new Error(`${spec.agent}: ${reasons.join("; ")}`);
+        }
+        const rendered = renderPromptIrContract(contract);
+        const current = existing ? renderPromptIrContract(existing) : "";
+        if (rendered !== current) {
+          changed.push(path);
+          if (opts.write) {
+            await writePromptIrContractFile(path, contract);
+          }
+        }
+      }
+      const label = opts.write ? "updated" : "pending";
+      console.log(`${label} prompt-ir files: ${changed.length}`);
       for (const path of changed.slice(0, 50)) {
         console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
       }
@@ -337,6 +458,12 @@ export function registerPrompts(program: Command): void {
       const mutation: KnobMutation = {
         prediction_target: baseKnobs.prediction_targets[0]?.id ?? "primary",
         evaluation_metric: "confidence_calibration_error",
+        horizon: "5d",
+        rollback_condition: {
+          metric: "confidence_calibration_error",
+          worse_by: 0.03,
+          unit: "ratio",
+        },
         knob_patches: [
           {
             path: target.path,

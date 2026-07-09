@@ -29,6 +29,7 @@ import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
   applyResearchKnobCaps,
+  formatResearchKnobAuditFields,
   isResearchKnobsEnabled,
   type ResearchKnobsSnapshot,
 } from "../helpers/research_knobs.js";
@@ -43,6 +44,7 @@ import {
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
 import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
@@ -98,9 +100,11 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let baseSystemPrompt: string;
           if (isResearchKnobsEnabled(spec.agentId)) {
+            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(state, spec.agentId);
             const loaded = await loadPromptWithKnobs({
               agent: spec.agentId,
               cohort,
+              runtimeSourceStatuses,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
             knobSnapshot = loaded.snapshot;
@@ -189,14 +193,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 loopResult.llmElapsedMs,
               ),
               `source=${extractor.structured ? "structured" : "fallback"}`,
-              ...(capped
-                ? [
-                    `pre_cap_confidence=${capped.audit.pre_cap_confidence ?? "null"}`,
-                    `post_cap_confidence=${capped.audit.post_cap_confidence ?? "null"}`,
-                    `fired_caps=${capped.audit.fired_cap_ids.join(",") || "none"}`,
-                    `knob_snapshot=${capped.audit.knob_snapshot_hash}`,
-                  ]
-                : []),
+              ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
           );
