@@ -645,9 +645,9 @@ describe("CIO position validator", () => {
         ticker: "600519.SH",
         decision: "HOLD",
         target_weight: 0.2,
-        reason: "HOLD target weight",
+        reason: "stale thesis review required",
         thesis_status: "intact",
-        risk_flags: [],
+        risk_flags: ["stale_thesis"],
         confidence: 0.61,
       },
     ]);
@@ -678,6 +678,28 @@ describe("CIO position validator", () => {
     expect(result.position_audit.positions_reviewed).toBe(1);
     expect(result.position_audit.add_count).toBe(1);
     expect(result.position_audit.target_current_drift_count).toBe(1);
+  });
+
+  it("marks stale thesis holdings with an explicit review flag and reason", () => {
+    const result = validateCioPositionActions({
+      output: cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "HOLD",
+          target_weight: 0.2,
+          holding_period: "3M",
+          dissent_notes: "",
+        },
+      ]),
+      currentPositions: loadedPositions([{ ...heldPosition, holding_days: 30 }]),
+    });
+
+    expect(result.output.portfolio_actions[0]?.risk_flags).toContain("stale_thesis");
+    expect(result.output.portfolio_actions[0]?.position_decision_reason).toBe(
+      "stale thesis review required",
+    );
+    expect(result.position_reviews[0]?.risk_flags).toContain("stale_thesis");
+    expect(result.position_audit.stale_thesis_count).toBe(1);
   });
 
   it("covers a 3-position fixture and audits stale thesis reviews", () => {
@@ -738,6 +760,12 @@ describe("CIO position validator", () => {
     expect(result.position_audit.positions_unreviewed).toBe(0);
     expect(result.position_audit.stale_thesis_count).toBe(2);
     expect(result.position_audit.exit_count).toBe(1);
+    expect(
+      result.output.portfolio_actions.find((action) => action.ticker === "688981.SH")?.risk_flags,
+    ).toContain("stale_thesis");
+    expect(
+      result.output.portfolio_actions.find((action) => action.ticker === "000001.SZ")?.risk_flags,
+    ).toContain("stale_thesis");
   });
 });
 

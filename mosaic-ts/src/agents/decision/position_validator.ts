@@ -34,14 +34,6 @@ export function validateCioPositionActions(opts: {
       "MiroFish-only influence cannot emit portfolio_actions without current data support",
     );
   }
-  const actions = output.portfolio_actions.map((action) =>
-    normalizeAction(action, currentPositions),
-  );
-  assertMirofishInfluencedPositionChangesHaveDissent(output, actions, currentPositions);
-  const reviews = positionReviewsFromActions(actions, currentPositions, output.confidence);
-  if (currentPositions.snapshot_status === "loaded") {
-    assertEveryCurrentPositionReviewed(currentPositions, actions, reviews);
-  }
   const stopLossPct = thresholdNumber(knobSnapshot, sharedPolicyValues, "stop_loss_pct", -0.08);
   const maxSingleNameWeight = thresholdNumber(
     knobSnapshot,
@@ -55,6 +47,14 @@ export function validateCioPositionActions(opts: {
     "stale_thesis_days",
     20,
   );
+  const actions = output.portfolio_actions.map((action) =>
+    normalizeAction(action, currentPositions, staleThesisDays),
+  );
+  assertMirofishInfluencedPositionChangesHaveDissent(output, actions, currentPositions);
+  const reviews = positionReviewsFromActions(actions, currentPositions, output.confidence);
+  if (currentPositions.snapshot_status === "loaded") {
+    assertEveryCurrentPositionReviewed(currentPositions, actions, reviews);
+  }
   for (const action of actions) {
     if (action.target_weight > maxSingleNameWeight && !action.override_reason) {
       throw new PositionActionValidationError(
@@ -127,6 +127,7 @@ function assertMirofishInfluencedPositionChangesHaveDissent(
 function normalizeAction(
   action: PortfolioAction,
   currentPositions: CurrentPositionsSnapshot,
+  staleThesisDays: number,
 ): PortfolioAction {
   const position = currentPositions.positions.find((item) => item.ticker === action.ticker);
   const currentWeight = action.current_weight ?? position?.current_weight;
@@ -134,9 +135,14 @@ function normalizeAction(
     action.delta_weight ??
     (currentWeight === undefined ? undefined : action.target_weight - currentWeight);
   const positionDecision = action.position_decision ?? inferPositionDecision(action, currentWeight);
+  const staleThesis = position ? position.holding_days > staleThesisDays : false;
+  const riskFlags = [
+    ...new Set([...(action.risk_flags ?? []), ...(staleThesis ? ["stale_thesis"] : [])]),
+  ];
   const positionDecisionReason =
     nonEmptyText(action.position_decision_reason) ??
     nonEmptyText(action.dissent_notes) ??
+    (staleThesis ? "stale thesis review required" : undefined) ??
     `${action.action} target weight`;
   return {
     ...action,
@@ -144,7 +150,7 @@ function normalizeAction(
     ...(currentWeight !== undefined ? { current_weight: currentWeight } : {}),
     ...(deltaWeight !== undefined ? { delta_weight: deltaWeight } : {}),
     thesis_status: action.thesis_status ?? "intact",
-    risk_flags: action.risk_flags ?? [],
+    risk_flags: riskFlags,
     position_decision_reason: positionDecisionReason,
   };
 }

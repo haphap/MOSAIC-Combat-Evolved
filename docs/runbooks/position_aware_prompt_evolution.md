@@ -304,6 +304,8 @@ Do not promote a mutation when any of these are true:
 
 - a current position is missing from CIO output;
 - a stop-loss-breached holding remains `HOLD` without override rationale;
+- a stale-thesis holding lacks a `stale_thesis` risk flag and explicit review
+  reason;
 - MiroFish is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or `EXIT`;
 - MiroFish context is missing `as_of_date` or has an `as_of_date` later than the
   run date;

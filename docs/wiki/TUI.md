@@ -30,6 +30,8 @@ The dashboard surfaces the same position loop used by `daily-cycle`: loaded and
 reviewed position counts, stale thesis and stop-loss override counts, explicit
 warning labels, target-current deltas, per-action fired caps, declared knob
 influence ids, decision-agent audit summaries, and MiroFish per-position stress.
+Stale-thesis actions are expected to carry the `stale_thesis` risk flag and an
+explicit review reason.
 Operator steps and migration checks live in
 [`docs/runbooks/position_aware_prompt_evolution.md`](../runbooks/position_aware_prompt_evolution.md).
 

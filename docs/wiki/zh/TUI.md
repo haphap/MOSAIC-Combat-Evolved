@@ -26,7 +26,7 @@
 
 ## 持仓感知审查
 
-Dashboard 展示与 `daily-cycle` 同源的持仓循环:已加载/已审查持仓数、stale thesis 与 stop-loss override 计数、显式 warning label、target-current delta、逐 action fired caps、declared knob influence ids、决策 agent 审计摘要,以及 MiroFish 逐持仓压力。操作步骤和迁移检查见
+Dashboard 展示与 `daily-cycle` 同源的持仓循环:已加载/已审查持仓数、stale thesis 与 stop-loss override 计数、显式 warning label、target-current delta、逐 action fired caps、declared knob influence ids、决策 agent 审计摘要,以及 MiroFish 逐持仓压力。stale-thesis action 应带 `stale_thesis` risk flag 和明确复盘原因。操作步骤和迁移检查见
 [`docs/runbooks/position_aware_prompt_evolution.md`](../../runbooks/position_aware_prompt_evolution.md)。
 
 回测诊断是 stage-1 cache 摘要:turnover proxy、observed holding-day proxy、stale-thesis proxy 和 action mix 来自缓存的 `backtest_actions`;alpha/drawdown opportunity 指标仍明确标记为需要 stage-2 scored positions。
