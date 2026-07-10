@@ -317,7 +317,10 @@ export const ActivePromptReleaseManifestSchema = z
         schema_failure_rate: z.number().min(0).max(1),
         fallback_rate: z.number().min(0).max(1),
         source_failure_rate: z.number().min(0).max(1),
+        unsupported_influence_rejection_rate: z.number().min(0).max(1),
         validator_rejection_rate: z.number().min(0).max(1),
+        latency_p95_ms: z.number().nonnegative(),
+        token_budget_breach_count: z.number().int().min(0),
         duplicate_order_intent_count: z.number().int().min(0),
         exposure_breach_count: z.number().int().min(0),
       })
@@ -389,7 +392,10 @@ export const ActivePromptReleaseManifestSchema = z
           message: "active release requires completed canary timestamps",
         });
       }
-      if (!manifest.runtime_slo_summary?.passed) {
+      if (
+        !manifest.runtime_slo_summary?.passed ||
+        !promptReleaseRuntimeSloPasses(manifest.runtime_slo_summary)
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["runtime_slo_summary"],
@@ -404,6 +410,17 @@ export const ActivePromptReleaseManifestSchema = z
         });
       }
     }
+    if (
+      manifest.runtime_slo_summary &&
+      manifest.runtime_slo_summary.passed !==
+        promptReleaseRuntimeSloPasses(manifest.runtime_slo_summary)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["runtime_slo_summary", "passed"],
+        message: "runtime SLO passed flag does not match the measured thresholds",
+      });
+    }
     if (manifest.lifecycle_state === "rolled_back" && !manifest.rolled_back_at) {
       ctx.addIssue({
         code: "custom",
@@ -416,6 +433,22 @@ export const ActivePromptReleaseManifestSchema = z
 export type MutationTransactionState = z.infer<typeof MutationTransactionStateSchema>;
 export type MutationTransactionManifest = z.infer<typeof MutationTransactionManifestSchema>;
 export type ActivePromptReleaseManifest = z.infer<typeof ActivePromptReleaseManifestSchema>;
+
+export function promptReleaseRuntimeSloPasses(
+  summary: NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>,
+): boolean {
+  return (
+    summary.schema_failure_rate === 0 &&
+    summary.fallback_rate <= 0.1 &&
+    summary.source_failure_rate <= 0.05 &&
+    summary.unsupported_influence_rejection_rate <= 0.05 &&
+    summary.validator_rejection_rate <= 0.05 &&
+    summary.latency_p95_ms <= 120_000 &&
+    summary.token_budget_breach_count === 0 &&
+    summary.duplicate_order_intent_count === 0 &&
+    summary.exposure_breach_count === 0
+  );
+}
 
 const TRANSACTION_TRANSITIONS: Readonly<Record<MutationTransactionState, ReadonlySet<string>>> = {
   created: new Set(["prepared", "aborted"]),

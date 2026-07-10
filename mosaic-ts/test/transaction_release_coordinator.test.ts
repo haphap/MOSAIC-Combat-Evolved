@@ -267,7 +267,10 @@ function release(
           schema_failure_rate: 0,
           fallback_rate: 0,
           source_failure_rate: 0,
+          unsupported_influence_rejection_rate: 0,
           validator_rejection_rate: 0,
+          latency_p95_ms: 100,
+          token_budget_breach_count: 0,
           duplicate_order_intent_count: 0,
           exposure_breach_count: 0,
         }

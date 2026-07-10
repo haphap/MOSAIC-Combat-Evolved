@@ -9,6 +9,7 @@ import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
   type ReleasePromptPair,
+  releasePromptPairHash,
 } from "./prompt_release_contract.js";
 import type { RuntimeAgentStageId } from "./runtime_agent_spec.js";
 
@@ -38,6 +39,36 @@ const pairCache = new Map<string, ReleasePinnedPromptPair>();
 
 export function clearReleasePromptCache(): void {
   pairCache.clear();
+}
+
+export async function buildReleasePromptPairsAtCommit(opts: {
+  repo: string;
+  commit: string;
+  cohort: string;
+  specs: ReadonlyArray<{
+    agent: string;
+    layer: ReleasePromptPair["layer"];
+    stages: ReadonlyArray<{ stage: RuntimeAgentStageId }>;
+  }>;
+}): Promise<ReleasePromptPair[]> {
+  return Promise.all(
+    opts.specs.map(async (spec) => {
+      const base = `prompts/mosaic/${opts.cohort}/${spec.layer}/${spec.agent}`;
+      const [zh, en] = await Promise.all([
+        gitShow(opts.repo, opts.commit, `${base}.zh.md`),
+        gitShow(opts.repo, opts.commit, `${base}.en.md`),
+      ]);
+      const pair = {
+        agent: spec.agent,
+        layer: spec.layer,
+        cohort: opts.cohort,
+        stages: spec.stages.map((stage) => stage.stage),
+        zh: { path: `${base}.zh.md`, sha256: sha256(zh) },
+        en: { path: `${base}.en.md`, sha256: sha256(en) },
+      };
+      return { ...pair, pair_hash: releasePromptPairHash(pair) };
+    }),
+  );
 }
 
 function sha256(value: Buffer): string {
@@ -201,13 +232,13 @@ export async function loadReleasePinnedPromptPair(opts: {
   }
 }
 
-interface LocalEvaluationClosure {
+export interface LocalEvaluationClosure {
   catalog_hash: string;
   schema_hash: string;
   contract_hash: string;
 }
 
-async function localEvaluationClosure(): Promise<LocalEvaluationClosure> {
+export async function loadLocalPromptReleaseClosure(): Promise<LocalEvaluationClosure> {
   const path = join(
     findRepoRoot(),
     "registry",
@@ -230,7 +261,7 @@ export async function resolveConfiguredPromptReleaseContext(): Promise<PromptRel
   ) {
     throw new Error("prompt_release_account_mode_invalid");
   }
-  const closure = await localEvaluationClosure();
+  const closure = await loadLocalPromptReleaseClosure();
   return {
     manifest,
     ...(source?.kind === "private-repo" ? { privatePromptRepo: source.repo } : {}),

@@ -124,7 +124,10 @@
             "schema_failure_rate",
             "fallback_rate",
             "source_failure_rate",
+            "unsupported_influence_rejection_rate",
             "validator_rejection_rate",
+            "latency_p95_ms",
+            "token_budget_breach_count",
             "duplicate_order_intent_count",
             "exposure_breach_count"
           ],
@@ -147,10 +150,23 @@
               "minimum": 0,
               "maximum": 1
             },
+            "unsupported_influence_rejection_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
             "validator_rejection_rate": {
               "type": "number",
               "minimum": 0,
               "maximum": 1
+            },
+            "latency_p95_ms": {
+              "type": "number",
+              "minimum": 0
+            },
+            "token_budget_breach_count": {
+              "type": "integer",
+              "minimum": 0
             },
             "duplicate_order_intent_count": {
               "type": "integer",

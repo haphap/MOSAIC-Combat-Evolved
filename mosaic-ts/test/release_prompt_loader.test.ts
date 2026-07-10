@@ -11,6 +11,7 @@ import {
   releasePromptPairHash,
   releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
+import { buildReleasePromptPairsAtCommit } from "../src/agents/prompts/release_prompt_loader.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
@@ -147,7 +148,10 @@ function release(opts: {
       schema_failure_rate: 0,
       fallback_rate: 0,
       source_failure_rate: 0,
+      unsupported_influence_rejection_rate: 0,
       validator_rejection_rate: 0,
+      latency_p95_ms: 100,
+      token_budget_breach_count: 0,
       duplicate_order_intent_count: 0,
       exposure_breach_count: 0,
     },
@@ -170,6 +174,21 @@ function release(opts: {
 }
 
 describe("release-pinned prompt loading", () => {
+  it("builds a prompt-pair closure from the exact candidate commit", async () => {
+    const contents = { zh: prompt("candidate zh"), en: prompt("candidate en") };
+    const repo = gitRepo(contents);
+    writeFileSync(join(repo.root, PROMPT_PATHS.zh), prompt("floating zh"), "utf-8");
+
+    const pairs = await buildReleasePromptPairsAtCommit({
+      repo: repo.root,
+      commit: repo.commit,
+      cohort: "cohort_default",
+      specs: [{ agent: "central_bank", layer: "macro", stages: [{ stage: "agent_run" }] }],
+    });
+
+    expect(pairs).toEqual([pair(contents)]);
+  });
+
   it("reads the manifest commit instead of a floating private worktree", async () => {
     const contents = { zh: prompt("private zh v1"), en: prompt("private en v1") };
     const repo = gitRepo(contents);

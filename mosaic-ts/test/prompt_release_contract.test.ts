@@ -112,7 +112,10 @@ function release(
           schema_failure_rate: 0,
           fallback_rate: 0,
           source_failure_rate: 0,
+          unsupported_influence_rejection_rate: 0,
           validator_rejection_rate: 0,
+          latency_p95_ms: 100,
+          token_budget_breach_count: 0,
           duplicate_order_intent_count: 0,
           exposure_breach_count: 0,
         }
@@ -176,6 +179,11 @@ describe("aggregate prompt release contract", () => {
     invalid.approved_by = null;
     invalid.runtime_slo_summary = null;
     expect(ActivePromptReleaseManifestSchema.safeParse(invalid).success).toBe(false);
+
+    const assertedOnly = release("active");
+    if (!assertedOnly.runtime_slo_summary) throw new Error("active fixture requires SLOs");
+    assertedOnly.runtime_slo_summary.latency_p95_ms = 120_001;
+    expect(ActivePromptReleaseManifestSchema.safeParse(assertedOnly).success).toBe(false);
   });
 
   it("binds requested runtime stages to hash-closed prompt pairs", () => {
