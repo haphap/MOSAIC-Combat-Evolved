@@ -363,6 +363,7 @@
                 "type",
                 "default",
                 "coverage_level",
+                "activation_state",
                 "runtime_input_sources",
                 "runtime_input_source_policies",
                 "evidence_dependencies",
@@ -447,6 +448,9 @@
                 },
                 "coverage_level": {
                   "enum": ["direct_tool", "derived_proxy", "runtime_state", "gap_pending_tool"]
+                },
+                "activation_state": {
+                  "enum": ["active", "read_only", "backlog"]
                 },
                 "runtime_input_sources": {
                   "type": "array",

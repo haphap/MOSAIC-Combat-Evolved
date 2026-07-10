@@ -157,6 +157,7 @@ export function buildRuntimeResearchKnobs(
       card,
       domainKnobValueForCard(card, opts.domainRegistry),
     );
+    if (card.activation_state !== "active") continue;
     mutationTargets.push({
       path: card.path,
       type: card.type,
@@ -197,7 +198,8 @@ export function buildRuntimeResearchKnobs(
         authority: "domain_knob_catalog_v1",
         card_count: domainCards.length,
         domain_mutation_target_count: domainCards.filter(
-          (card) => card.coverage_level !== "gap_pending_tool",
+          (card) =>
+            card.coverage_level !== "gap_pending_tool" && card.activation_state === "active",
         ).length,
         cards: domainCards
           .filter((card) => card.coverage_level !== "gap_pending_tool")
@@ -206,6 +208,7 @@ export function buildRuntimeResearchKnobs(
             path: card.path,
             projection_bucket: card.projection_bucket,
             default: card.default,
+            activation_state: card.activation_state,
             owner_stage: card.owner_stage,
             consumer_stages: card.consumer_stages,
             runtime_input_sources: card.runtime_input_sources,

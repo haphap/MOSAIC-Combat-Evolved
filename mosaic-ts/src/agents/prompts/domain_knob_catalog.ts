@@ -123,6 +123,7 @@ export interface DomainKnobCard {
   step?: number;
   allowed_values?: unknown[];
   coverage_level: CoverageLevel;
+  activation_state: "active" | "read_only" | "backlog";
   runtime_input_sources: string[];
   runtime_input_source_policies: Record<string, Record<RuntimeSourceStatus, string>>;
   evidence_dependencies: EvidenceDependency[];
@@ -217,6 +218,7 @@ interface DomainSeed {
   step?: number;
   metric?: string;
   horizon?: string;
+  activation_state?: DomainKnobCard["activation_state"];
 }
 
 const LOOKBACK_DOMAIN_KNOB_IDS = new Set([
@@ -253,6 +255,10 @@ const LOOKBACK_DOMAIN_KNOB_IDS = new Set([
   "theme_persistence_days",
   "idea_decay_days",
   "stale_thesis_days",
+  "position_review_days",
+  "rebalance_cooldown_days",
+  "thesis_decay_review_days",
+  "do_not_trade_event_window_days",
 ]);
 
 const RUNTIME_SOURCE_IDS = [
@@ -726,7 +732,14 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "mirofish_drawdown_penalty",
     "mirofish_max_tail_loss_to_hold",
     "mirofish_tail_risk_veto_threshold",
-  ]),
+  ]).concat(
+    readOnlySeeds([
+      "liquidity_discount",
+      "correlation_stress_threshold",
+      "max_correlation_cluster_weight",
+      "portfolio_drawdown_cap",
+    ]),
+  ),
   alpha_discovery: seeds([
     "novelty_floor",
     "cross_agent_agreement_threshold",
@@ -744,7 +757,13 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "mirofish_max_size_adjustment",
     "mirofish_turnover_penalty",
     "mirofish_liquidity_stress_haircut",
-  ]),
+  ]).concat(
+    readOnlySeeds([
+      "execution_urgency_threshold",
+      "cio_cro_conflict_threshold",
+      "do_not_trade_event_window_days",
+    ]),
+  ),
   cio: seeds([
     "stale_thesis_days",
     "rebalance_drift_pct",
@@ -754,7 +773,30 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "mirofish_exit_regret_penalty",
     "mirofish_min_scenario_agreement_to_add",
     "mirofish_override_hurdle",
-  ]),
+  ]).concat(
+    readOnlySeeds([
+      "position_review_days",
+      "rebalance_cooldown_days",
+      "thesis_decay_review_days",
+      "target_count_min",
+      "target_count_max",
+      "max_target_position_weight",
+      "max_new_buy_weight",
+      "rebalance_threshold",
+      "new_buy_hurdle",
+      "hold_hurdle",
+      "trim_threshold",
+      "exit_threshold",
+      "conviction_upgrade_min_delta",
+      "liquidity_penalty_max",
+      "macro_signal_weight",
+      "sector_signal_weight",
+      "superinvestor_signal_weight",
+      "cro_risk_weight",
+      "min_upstream_confidence",
+      "cross_layer_conflict_cap",
+    ]),
+  ),
 };
 
 const CUSTOM_RANGES_BY_ID: Record<
@@ -1142,8 +1184,9 @@ export function validateDomainKnobCatalogArtifact(
       );
     }
     if (
-      agent.cards.filter((card) => card.coverage_level !== "gap_pending_tool").length <
-      agent.min_mutable_domain_knobs
+      agent.cards.filter(
+        (card) => card.coverage_level !== "gap_pending_tool" && card.activation_state === "active",
+      ).length < agent.min_mutable_domain_knobs
     ) {
       reasons.push(`domain_catalog_min_domain_count_mismatch:${spec.agent}`);
     }
@@ -1210,15 +1253,27 @@ export function validateDomainKnobClosure(
   const reasons: string[] = [];
   const cards = domainKnobCardsForSpec(spec);
   const mutableCards = cards.filter(
-    (card) => card.category === "domain" && card.coverage_level !== "gap_pending_tool",
+    (card) =>
+      card.category === "domain" &&
+      card.coverage_level !== "gap_pending_tool" &&
+      card.activation_state === "active",
   );
   const minCount = minDomainTargetCount(spec.layer, spec.agent);
   if (mutableCards.length < minCount) {
     reasons.push(`domain_knob_count_below_min:${mutableCards.length}:expected:${minCount}`);
   }
   const targetPaths = new Set(knobs.mutation_targets.map((target) => target.path));
-  for (const card of mutableCards) {
-    reasons.push(...validateCard(spec, card, knobs, targetPaths, opts.domainRegistry));
+  for (const card of cards.filter((candidate) => candidate.coverage_level !== "gap_pending_tool")) {
+    reasons.push(
+      ...validateCard(
+        spec,
+        card,
+        knobs,
+        targetPaths,
+        opts.domainRegistry,
+        card.activation_state === "active",
+      ),
+    );
   }
   return reasons;
 }
@@ -1237,6 +1292,7 @@ function validateCard(
   >,
   targetPaths: ReadonlySet<string>,
   domainRegistry?: DomainKnobValueRegistry | null,
+  requireMutationTarget = true,
 ): string[] {
   const reasons: string[] = [];
   if (card.owner_agent !== spec.promptIrAgentId) {
@@ -1251,8 +1307,11 @@ function validateCard(
   if (!card.consumer_stages.includes(card.owner_stage)) {
     reasons.push(`domain_card_missing_owner_consumer_stage:${card.id}:${card.owner_stage}`);
   }
-  if (!targetPaths.has(card.path)) {
+  if (requireMutationTarget && !targetPaths.has(card.path)) {
     reasons.push(`domain_card_missing_mutation_target:${card.id}`);
+  }
+  if (!requireMutationTarget && targetPaths.has(card.path)) {
+    reasons.push(`domain_card_inactive_mutation_target_present:${card.id}`);
   }
   if (card.learning_objective.trim().length < 12) {
     reasons.push(`domain_card_learning_objective_missing:${card.id}`);
@@ -1692,6 +1751,7 @@ function buildCard(spec: RuntimeAgentSpec, seed: DomainSeed): DomainKnobCard {
     max: range.max,
     step: range.step,
     coverage_level: coverageLevel,
+    activation_state: seed.activation_state ?? "active",
     runtime_input_sources: runtimeSources,
     runtime_input_source_policies: Object.fromEntries(
       runtimeSources.map((source) => [source, runtimeSourcePolicyForCard(id, source)]),
@@ -1752,6 +1812,10 @@ function consumerStagesForCard(
 
 function seeds(ids: string[]): DomainSeed[] {
   return ids.map((id) => ({ id }));
+}
+
+function readOnlySeeds(ids: string[]): DomainSeed[] {
+  return ids.map((id) => ({ id, activation_state: "read_only" }));
 }
 
 function runtimeSource(
@@ -2396,6 +2460,7 @@ function canonicalDomainCard(card: DomainKnobCard): DomainKnobCard {
     ...(card.step !== undefined ? { step: card.step } : {}),
     ...(card.allowed_values !== undefined ? { allowed_values: card.allowed_values } : {}),
     coverage_level: card.coverage_level,
+    activation_state: card.activation_state,
     runtime_input_sources: [...card.runtime_input_sources].sort(),
     runtime_input_source_policies: sortObjectRecord(card.runtime_input_source_policies),
     evidence_dependencies: [...card.evidence_dependencies].sort((left, right) =>

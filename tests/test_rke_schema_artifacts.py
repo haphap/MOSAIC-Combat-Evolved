@@ -6622,6 +6622,67 @@ def test_schema_validation_enforces_numeric_minimum(tmp_path: Path):
     assert any("below minimum" in failure for failure in record.failures)
 
 
+def test_schema_validation_enforces_local_refs_min_properties_and_one_of(
+    tmp_path: Path,
+):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/report_intelligence"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    (schema_dir / "composed.schema.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "title": "Composed fixture",
+                "type": "object",
+                "required": ["digest", "registry", "variant"],
+                "properties": {
+                    "digest": {"$ref": "#/$defs/sha256"},
+                    "registry": {
+                        "type": "object",
+                        "minProperties": 1,
+                    },
+                    "variant": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                },
+                "$defs": {
+                    "sha256": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                    }
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (artifact_dir / "composed.json").write_text(
+        json.dumps(
+            {"digest": "not-a-sha256", "registry": {}, "variant": []},
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/composed.schema.json",
+        artifact_path="registry/report_intelligence/composed.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(".digest: pattern mismatch" in failure for failure in record.failures)
+    assert any(".registry: below minProperties" in failure for failure in record.failures)
+    assert any(".variant: expected exactly one oneOf" in failure for failure in record.failures)
+
+
 def test_prompt_ir_runtime_contract_schema_accepts_runtime_contract(tmp_path: Path):
     schema_dir = tmp_path / "schemas"
     artifact_dir = tmp_path / "registry/prompt_ir"
@@ -7100,6 +7161,7 @@ def _domain_knob_catalog_fixture() -> dict:
                         "max": 8,
                         "step": 1,
                         "coverage_level": "direct_tool",
+                        "activation_state": "active",
                         "runtime_input_sources": [],
                         "runtime_input_source_policies": {},
                         "evidence_dependencies": [
@@ -7269,6 +7331,24 @@ def test_domain_knob_evaluation_contract_schema_requires_contract_hash(tmp_path:
 
     assert not record.accepted
     assert any(".contract_hash: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_evaluation_contract_schema_enforces_refs_and_min_properties(
+    tmp_path: Path,
+):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    contract["catalog_hash"] = "not-a-sha256"
+    contract["evaluation_metrics"] = {}
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".catalog_hash: pattern mismatch" in failure for failure in record.failures)
+    assert any(".evaluation_metrics: below minProperties" in failure for failure in record.failures)
 
 
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):

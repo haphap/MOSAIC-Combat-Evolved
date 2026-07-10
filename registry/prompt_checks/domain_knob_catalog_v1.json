@@ -1361,6 +1361,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1429,6 +1430,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1497,6 +1499,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1565,6 +1568,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1633,6 +1637,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1701,6 +1706,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1778,6 +1784,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1846,6 +1853,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1914,6 +1922,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -1982,6 +1991,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2050,6 +2060,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2118,6 +2129,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2195,6 +2207,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2263,6 +2276,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2331,6 +2345,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2399,6 +2414,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2467,6 +2483,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2535,6 +2552,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2612,6 +2630,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2680,6 +2699,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2748,6 +2768,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2816,6 +2837,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2884,6 +2906,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -2952,6 +2975,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3029,6 +3053,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3097,6 +3122,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3165,6 +3191,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3233,6 +3260,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3301,6 +3329,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3369,6 +3398,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3446,6 +3476,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3514,6 +3545,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3582,6 +3614,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3650,6 +3683,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3718,6 +3752,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3786,6 +3821,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3863,6 +3899,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3931,6 +3968,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -3999,6 +4037,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4067,6 +4106,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4135,6 +4175,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4203,6 +4244,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4280,6 +4322,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4348,6 +4391,7 @@
           "max": -0.01,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4416,6 +4460,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4484,6 +4529,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4552,6 +4598,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4620,6 +4667,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4697,6 +4745,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4765,6 +4814,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4833,6 +4883,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4901,6 +4952,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -4969,6 +5021,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5037,6 +5090,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5114,6 +5168,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5182,6 +5237,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5250,6 +5306,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5318,6 +5375,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5386,6 +5444,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5454,6 +5513,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5531,6 +5591,7 @@
           "max": 0.5,
           "step": 0.01,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5599,6 +5660,7 @@
           "max": 180,
           "step": 5,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5667,6 +5729,7 @@
           "max": 8,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5737,6 +5800,7 @@
           "max": 0.25,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5807,6 +5871,7 @@
           "max": 0.5,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5875,6 +5940,7 @@
           "max": 0.5,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -5943,6 +6009,7 @@
           "max": 0.6,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6011,6 +6078,7 @@
           "max": 8,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6079,6 +6147,7 @@
           "max": 0.5,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6147,6 +6216,7 @@
           "max": 0.1,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6215,6 +6285,7 @@
           "max": 60,
           "step": 5,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6283,6 +6354,7 @@
           "max": 8,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6352,6 +6424,7 @@
           "max": 0.6,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6421,6 +6494,7 @@
           "max": 0.6,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6489,6 +6563,7 @@
           "max": 0.5,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6557,6 +6632,7 @@
           "max": 6,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6631,6 +6707,7 @@
           "max": 0.9,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6699,6 +6776,7 @@
           "max": 0.85,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6767,6 +6845,7 @@
           "max": 0.5,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6835,6 +6914,7 @@
           "max": 90,
           "step": 1,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6903,6 +6983,7 @@
           "max": 0.15,
           "step": 0.01,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -6971,6 +7052,7 @@
           "max": 60,
           "step": 5,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7039,6 +7121,7 @@
           "max": 0.95,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7116,6 +7199,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7184,6 +7268,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7252,6 +7337,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7320,6 +7406,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7388,6 +7475,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7456,6 +7544,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7533,6 +7622,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7601,6 +7691,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7669,6 +7760,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7737,6 +7829,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7805,6 +7898,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7873,6 +7967,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -7950,6 +8045,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8018,6 +8114,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8086,6 +8183,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8154,6 +8252,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8222,6 +8321,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8290,6 +8390,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8367,6 +8468,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8435,6 +8537,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8503,6 +8606,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8571,6 +8675,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8639,6 +8744,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8707,6 +8813,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8784,6 +8891,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8852,6 +8960,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8920,6 +9029,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -8988,6 +9098,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9056,6 +9167,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9124,6 +9236,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9201,6 +9314,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9269,6 +9383,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9337,6 +9452,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9405,6 +9521,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9473,6 +9590,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9541,6 +9659,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9618,6 +9737,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9683,6 +9803,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9748,6 +9869,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9813,6 +9935,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9878,6 +10001,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -9952,6 +10076,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10017,6 +10142,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10082,6 +10208,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10147,6 +10274,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10212,6 +10340,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10286,6 +10415,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10351,6 +10481,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10416,6 +10547,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10481,6 +10613,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10546,6 +10679,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "derived_proxy",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10620,6 +10754,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10685,6 +10820,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10750,6 +10886,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10815,6 +10952,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10880,6 +11018,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
+          "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
@@ -10934,8 +11073,224 @@
       "agent": "cro",
       "prompt_ir_agent": "decision.cro",
       "min_mutable_domain_knobs": 6,
-      "card_count": 8,
+      "card_count": 12,
       "cards": [
+        {
+          "id": "correlation_stress_threshold",
+          "owner_agent": "decision.cro",
+          "consumer_agents": [
+            "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/correlation_stress_threshold/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "candidate_target_state",
+            "current_market_data",
+            "current_position_snapshot",
+            "portfolio_exposure_state"
+          ],
+          "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_market_data": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "portfolio_exposure_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate correlation stress threshold for decision.cro prediction quality",
+          "prediction_target": "decision.cro.correlation_stress_threshold.20d",
+          "evaluation_metric": "portfolio_risk_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_risk_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "liquidity_discount",
+          "owner_agent": "decision.cro",
+          "consumer_agents": [
+            "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/liquidity_discount/value",
+          "type": "number",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.75,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "candidate_target_state",
+            "current_market_data",
+            "current_position_snapshot",
+            "portfolio_exposure_state"
+          ],
+          "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_market_data": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "portfolio_exposure_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate liquidity discount for decision.cro prediction quality",
+          "prediction_target": "decision.cro.liquidity_discount.20d",
+          "evaluation_metric": "portfolio_risk_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_risk_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "max_correlation_cluster_weight",
+          "owner_agent": "decision.cro",
+          "consumer_agents": [
+            "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/max_correlation_cluster_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "candidate_target_state",
+            "current_market_data",
+            "current_position_snapshot",
+            "portfolio_exposure_state"
+          ],
+          "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_market_data": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "portfolio_exposure_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate max correlation cluster weight for decision.cro prediction quality",
+          "prediction_target": "decision.cro.max_correlation_cluster_weight.20d",
+          "evaluation_metric": "portfolio_risk_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_risk_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
         {
           "id": "max_sector_weight",
           "owner_agent": "decision.cro",
@@ -10955,6 +11310,7 @@
           "max": 0.45,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "portfolio_exposure_state"
@@ -11016,6 +11372,7 @@
           "max": 0.2,
           "step": 0.01,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "current_position_snapshot"
@@ -11076,6 +11433,7 @@
           "max": 0.7,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "current_market_data",
@@ -11147,6 +11505,7 @@
           "max": -0.05,
           "step": 0.01,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "current_market_data",
@@ -11219,6 +11578,7 @@
           "max": 0.9,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "current_market_data",
@@ -11291,6 +11651,7 @@
           "max": 0.5,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "current_market_data",
@@ -11346,6 +11707,78 @@
           "normalization": "none"
         },
         {
+          "id": "portfolio_drawdown_cap",
+          "owner_agent": "decision.cro",
+          "consumer_agents": [
+            "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/portfolio_drawdown_cap/value",
+          "type": "number",
+          "default": -0.08,
+          "min": -0.3,
+          "max": -0.01,
+          "step": 0.01,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "candidate_target_state",
+            "current_market_data",
+            "current_position_snapshot",
+            "portfolio_exposure_state"
+          ],
+          "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_market_data": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "portfolio_exposure_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate portfolio drawdown cap for decision.cro prediction quality",
+          "prediction_target": "decision.cro.portfolio_drawdown_cap.20d",
+          "evaluation_metric": "portfolio_risk_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_risk_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
           "id": "stop_loss_pct",
           "owner_agent": "decision.cro",
           "consumer_agents": [
@@ -11364,6 +11797,7 @@
           "max": -0.03,
           "step": 0.01,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot"
@@ -11423,6 +11857,7 @@
           "max": 0.4,
           "step": 0.02,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot"
@@ -11490,6 +11925,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot",
@@ -11555,6 +11991,7 @@
           "max": 0.75,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot",
@@ -11620,6 +12057,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot",
@@ -11685,6 +12123,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot",
@@ -11750,6 +12189,7 @@
           "max": 120,
           "step": 1,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot",
@@ -11815,6 +12255,7 @@
           "max": 1,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "current_position_snapshot",
@@ -11869,8 +12310,227 @@
       "agent": "autonomous_execution",
       "prompt_ir_agent": "decision.autonomous_execution",
       "min_mutable_domain_knobs": 6,
-      "card_count": 8,
+      "card_count": 11,
       "cards": [
+        {
+          "id": "cio_cro_conflict_threshold",
+          "owner_agent": "decision.autonomous_execution",
+          "consumer_agents": [
+            "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/cio_cro_conflict_threshold/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "candidate_target_state",
+            "current_market_data",
+            "current_position_snapshot",
+            "execution_liquidity_state"
+          ],
+          "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_market_data": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "execution_liquidity_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate cio cro conflict threshold for decision.autonomous_execution prediction quality",
+          "prediction_target": "decision.autonomous_execution.cio_cro_conflict_threshold.5d",
+          "evaluation_metric": "execution_quality_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "execution_quality_5d",
+            "worse_by": 5,
+            "unit": "bps"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "do_not_trade_event_window_days",
+          "owner_agent": "decision.autonomous_execution",
+          "consumer_agents": [
+            "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/do_not_trade_event_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "candidate_target_state",
+            "current_market_data",
+            "current_position_snapshot",
+            "execution_liquidity_state"
+          ],
+          "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_market_data": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "execution_liquidity_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate do not trade event window days for decision.autonomous_execution prediction quality",
+          "prediction_target": "decision.autonomous_execution.do_not_trade_event_window_days.5d",
+          "evaluation_metric": "execution_quality_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "execution_quality_5d",
+            "worse_by": 5,
+            "unit": "bps"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "execution_urgency_threshold",
+          "owner_agent": "decision.autonomous_execution",
+          "consumer_agents": [
+            "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/execution_urgency_threshold/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "candidate_target_state",
+            "current_market_data",
+            "current_position_snapshot",
+            "execution_liquidity_state"
+          ],
+          "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_market_data": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "execution_liquidity_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate execution urgency threshold for decision.autonomous_execution prediction quality",
+          "prediction_target": "decision.autonomous_execution.execution_urgency_threshold.5d",
+          "evaluation_metric": "execution_quality_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "execution_quality_5d",
+            "worse_by": 5,
+            "unit": "bps"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
         {
           "id": "liquidity_floor",
           "owner_agent": "decision.autonomous_execution",
@@ -11890,6 +12550,7 @@
           "max": 0.9,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "execution_liquidity_state"
@@ -11950,6 +12611,7 @@
           "max": 20,
           "step": 1,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "execution_liquidity_state"
@@ -12009,6 +12671,7 @@
           "max": 0.05,
           "step": 0.005,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "current_market_data",
@@ -12076,6 +12739,7 @@
           "max": 0.4,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12162,6 +12826,7 @@
           "max": 0.08,
           "step": 0.01,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12248,6 +12913,7 @@
           "max": 0.5,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12334,6 +13000,7 @@
           "max": 0.3,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12421,6 +13088,7 @@
           "max": 0.02,
           "step": 0.001,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_market_data",
             "execution_liquidity_state"
@@ -12470,8 +13138,602 @@
       "agent": "cio",
       "prompt_ir_agent": "decision.cio",
       "min_mutable_domain_knobs": 6,
-      "card_count": 8,
+      "card_count": 28,
       "cards": [
+        {
+          "id": "conviction_upgrade_min_delta",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/conviction_upgrade_min_delta/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate conviction upgrade min delta for decision.cio prediction quality",
+          "prediction_target": "decision.cio.conviction_upgrade_min_delta.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "cro_risk_weight",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/cro_risk_weight/value",
+          "type": "number",
+          "default": 0.15,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate cro risk weight for decision.cio prediction quality",
+          "prediction_target": "decision.cio.cro_risk_weight.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": "upstream_signal_weights",
+          "atomic_mutation_group": "weight_group:decision.cio:upstream_signal_weights",
+          "normalization": "sum_to_one"
+        },
+        {
+          "id": "cross_layer_conflict_cap",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/cross_layer_conflict_cap/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0.3,
+          "max": 0.8,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate cross layer conflict cap for decision.cio prediction quality",
+          "prediction_target": "decision.cio.cross_layer_conflict_cap.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "exit_threshold",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/exit_threshold/value",
+          "type": "number",
+          "default": 0.35,
+          "min": 0.1,
+          "max": 0.6,
+          "step": 0.01,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate exit threshold for decision.cio prediction quality",
+          "prediction_target": "decision.cio.exit_threshold.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "hold_hurdle",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/hold_hurdle/value",
+          "type": "number",
+          "default": 0.58,
+          "min": 0.4,
+          "max": 0.8,
+          "step": 0.01,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate hold hurdle for decision.cio prediction quality",
+          "prediction_target": "decision.cio.hold_hurdle.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "liquidity_penalty_max",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/liquidity_penalty_max/value",
+          "type": "number",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.75,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate liquidity penalty max for decision.cio prediction quality",
+          "prediction_target": "decision.cio.liquidity_penalty_max.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "macro_signal_weight",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/macro_signal_weight/value",
+          "type": "number",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.6,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate macro signal weight for decision.cio prediction quality",
+          "prediction_target": "decision.cio.macro_signal_weight.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": "upstream_signal_weights",
+          "atomic_mutation_group": "weight_group:decision.cio:upstream_signal_weights",
+          "normalization": "sum_to_one"
+        },
+        {
+          "id": "max_new_buy_weight",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/max_new_buy_weight/value",
+          "type": "number",
+          "default": 0.04,
+          "min": 0.01,
+          "max": 0.1,
+          "step": 0.01,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate max new buy weight for decision.cio prediction quality",
+          "prediction_target": "decision.cio.max_new_buy_weight.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "max_target_position_weight",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/max_target_position_weight/value",
+          "type": "number",
+          "default": 0.08,
+          "min": 0.02,
+          "max": 0.2,
+          "step": 0.01,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate max target position weight for decision.cio prediction quality",
+          "prediction_target": "decision.cio.max_target_position_weight.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
         {
           "id": "min_confidence_to_add",
           "owner_agent": "decision.cio",
@@ -12490,6 +13752,7 @@
           "max": 0.85,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_position_snapshot",
             "upstream_agent_outputs"
@@ -12548,6 +13811,7 @@
           "max": 0.7,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_position_snapshot",
             "position_thesis_state"
@@ -12589,6 +13853,72 @@
           "normalization": "none"
         },
         {
+          "id": "min_upstream_confidence",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/min_upstream_confidence/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate min upstream confidence for decision.cio prediction quality",
+          "prediction_target": "decision.cio.min_upstream_confidence.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
           "id": "mirofish_exit_regret_penalty",
           "owner_agent": "decision.cio",
           "consumer_agents": [
@@ -12606,6 +13936,7 @@
           "max": 0.5,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12692,6 +14023,7 @@
           "max": 0.85,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12778,6 +14110,7 @@
           "max": 0.9,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12864,6 +14197,7 @@
           "max": 0.5,
           "step": 0.05,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "candidate_target_state",
             "cro_review_state",
@@ -12933,6 +14267,204 @@
           "normalization": "none"
         },
         {
+          "id": "new_buy_hurdle",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/new_buy_hurdle/value",
+          "type": "number",
+          "default": 0.72,
+          "min": 0.5,
+          "max": 0.9,
+          "step": 0.01,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "allow"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate new buy hurdle for decision.cio prediction quality",
+          "prediction_target": "decision.cio.new_buy_hurdle.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "position_review_days",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/position_review_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate position review days for decision.cio prediction quality",
+          "prediction_target": "decision.cio.position_review_days.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "rebalance_cooldown_days",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/rebalance_cooldown_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate rebalance cooldown days for decision.cio prediction quality",
+          "prediction_target": "decision.cio.rebalance_cooldown_days.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
           "id": "rebalance_drift_pct",
           "owner_agent": "decision.cio",
           "consumer_agents": [
@@ -12950,6 +14482,7 @@
           "max": 0.1,
           "step": 0.01,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_position_snapshot",
             "previous_target_state",
@@ -12998,6 +14531,138 @@
           "normalization": "none"
         },
         {
+          "id": "rebalance_threshold",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/rebalance_threshold/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate rebalance threshold for decision.cio prediction quality",
+          "prediction_target": "decision.cio.rebalance_threshold.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "sector_signal_weight",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/sector_signal_weight/value",
+          "type": "number",
+          "default": 0.35,
+          "min": 0,
+          "max": 0.6,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate sector signal weight for decision.cio prediction quality",
+          "prediction_target": "decision.cio.sector_signal_weight.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": "upstream_signal_weights",
+          "atomic_mutation_group": "weight_group:decision.cio:upstream_signal_weights",
+          "normalization": "sum_to_one"
+        },
+        {
           "id": "stale_thesis_days",
           "owner_agent": "decision.cio",
           "consumer_agents": [
@@ -13015,6 +14680,7 @@
           "max": 60,
           "step": 5,
           "coverage_level": "runtime_state",
+          "activation_state": "active",
           "runtime_input_sources": [
             "current_position_snapshot",
             "position_thesis_state"
@@ -13051,6 +14717,336 @@
           "enforcement": "advisory",
           "category": "domain",
           "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "superinvestor_signal_weight",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/superinvestor_signal_weight/value",
+          "type": "number",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.6,
+          "step": 0.05,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate superinvestor signal weight for decision.cio prediction quality",
+          "prediction_target": "decision.cio.superinvestor_signal_weight.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": "upstream_signal_weights",
+          "atomic_mutation_group": "weight_group:decision.cio:upstream_signal_weights",
+          "normalization": "sum_to_one"
+        },
+        {
+          "id": "target_count_max",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/target_count_max/value",
+          "type": "integer",
+          "default": 15,
+          "min": 5,
+          "max": 30,
+          "step": 1,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "allow"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate target count max for decision.cio prediction quality",
+          "prediction_target": "decision.cio.target_count_max.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "target_count_min",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/target_count_min/value",
+          "type": "integer",
+          "default": 8,
+          "min": 3,
+          "max": 20,
+          "step": 1,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "allow"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate target count min for decision.cio prediction quality",
+          "prediction_target": "decision.cio.target_count_min.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "thesis_decay_review_days",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/thesis_decay_review_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate thesis decay review days for decision.cio prediction quality",
+          "prediction_target": "decision.cio.thesis_decay_review_days.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "trim_threshold",
+          "owner_agent": "decision.cio",
+          "consumer_agents": [
+            "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/trim_threshold/value",
+          "type": "number",
+          "default": 0.45,
+          "min": 0.2,
+          "max": 0.7,
+          "step": 0.01,
+          "coverage_level": "runtime_state",
+          "activation_state": "read_only",
+          "runtime_input_sources": [
+            "current_position_snapshot",
+            "previous_target_state",
+            "upstream_agent_outputs"
+          ],
+          "runtime_input_source_policies": {
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
+            },
+            "previous_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "upstream_agent_outputs": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            }
+          },
+          "evidence_dependencies": [],
+          "evidence_dependency_policies": {},
+          "learning_objective": "calibrate trim threshold for decision.cio prediction quality",
+          "prediction_target": "decision.cio.trim_threshold.20d",
+          "evaluation_metric": "portfolio_construction_quality_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "portfolio_construction_quality_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": "cio_portfolio_construction",
           "weight_group": null,
           "atomic_mutation_group": null,
           "normalization": "none"

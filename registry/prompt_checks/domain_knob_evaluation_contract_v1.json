@@ -2,7 +2,7 @@
   "schema_version": "domain_knob_evaluation_contract_v1",
   "contract_version": "domain_knob_evaluation_contract_v1",
   "catalog_version": "domain_knob_catalog_v1",
-  "catalog_hash": "sha256:886f82a5c5d7e2e2ff13c8b87f974480684af17692ae994dc5c9086476b1dbfe",
+  "catalog_hash": "sha256:b1bc337168870b706d6caf1e187d4b9e2f071305fb72988459ba5a471788d109",
   "metric_registry_hash": "sha256:aafb67d08764b43316c4732500d7e9d9eca481f53741591cd720a1ae01c1194a",
   "calculator_registry_hash": "sha256:f76785cc56ed7361bf9bf0f2e29ccd6d06bc19163f63917bbdb05e6c46406cc4",
   "evaluation_metrics": {
@@ -1127,6 +1127,60 @@
       }
     },
     {
+      "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/cio_cro_conflict_threshold/value",
+      "card_id": "cio_cro_conflict_threshold",
+      "owner_agent": "decision.autonomous_execution",
+      "owner_stage": "execution_feasibility",
+      "prediction_target": "decision.autonomous_execution.cio_cro_conflict_threshold.5d",
+      "evaluation_metric": "execution_quality_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "execution_quality_5d",
+        "worse_by": 5,
+        "unit": "bps"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/do_not_trade_event_window_days/value",
+      "card_id": "do_not_trade_event_window_days",
+      "owner_agent": "decision.autonomous_execution",
+      "owner_stage": "execution_feasibility",
+      "prediction_target": "decision.autonomous_execution.do_not_trade_event_window_days.5d",
+      "evaluation_metric": "execution_quality_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "execution_quality_5d",
+        "worse_by": 5,
+        "unit": "bps"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/execution_urgency_threshold/value",
+      "card_id": "execution_urgency_threshold",
+      "owner_agent": "decision.autonomous_execution",
+      "owner_stage": "execution_feasibility",
+      "prediction_target": "decision.autonomous_execution.execution_urgency_threshold.5d",
+      "evaluation_metric": "execution_quality_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "execution_quality_5d",
+        "worse_by": 5,
+        "unit": "bps"
+      }
+    },
+    {
       "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/liquidity_floor/value",
       "card_id": "liquidity_floor",
       "owner_agent": "decision.autonomous_execution",
@@ -1271,6 +1325,168 @@
       }
     },
     {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/conviction_upgrade_min_delta/value",
+      "card_id": "conviction_upgrade_min_delta",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.conviction_upgrade_min_delta.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/cro_risk_weight/value",
+      "card_id": "cro_risk_weight",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.cro_risk_weight.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/cross_layer_conflict_cap/value",
+      "card_id": "cross_layer_conflict_cap",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.cross_layer_conflict_cap.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/exit_threshold/value",
+      "card_id": "exit_threshold",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.exit_threshold.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/hold_hurdle/value",
+      "card_id": "hold_hurdle",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.hold_hurdle.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/liquidity_penalty_max/value",
+      "card_id": "liquidity_penalty_max",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.liquidity_penalty_max.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/macro_signal_weight/value",
+      "card_id": "macro_signal_weight",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.macro_signal_weight.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/max_new_buy_weight/value",
+      "card_id": "max_new_buy_weight",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.max_new_buy_weight.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/max_target_position_weight/value",
+      "card_id": "max_target_position_weight",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.max_target_position_weight.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
       "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/min_confidence_to_add/value",
       "card_id": "min_confidence_to_add",
       "owner_agent": "decision.cio",
@@ -1302,6 +1518,24 @@
       "horizon": "20d",
       "rollback_condition": {
         "metric": "max_drawdown_after_hold",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/min_upstream_confidence/value",
+      "card_id": "min_upstream_confidence",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.min_upstream_confidence.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
         "worse_by": 0.02,
         "unit": "ratio"
       }
@@ -1379,6 +1613,60 @@
       }
     },
     {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/new_buy_hurdle/value",
+      "card_id": "new_buy_hurdle",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.new_buy_hurdle.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/position_review_days/value",
+      "card_id": "position_review_days",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.position_review_days.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/rebalance_cooldown_days/value",
+      "card_id": "rebalance_cooldown_days",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.rebalance_cooldown_days.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
       "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/rebalance_drift_pct/value",
       "card_id": "rebalance_drift_pct",
       "owner_agent": "decision.cio",
@@ -1397,6 +1685,42 @@
       }
     },
     {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/rebalance_threshold/value",
+      "card_id": "rebalance_threshold",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.rebalance_threshold.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/sector_signal_weight/value",
+      "card_id": "sector_signal_weight",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.sector_signal_weight.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
       "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/stale_thesis_days/value",
       "card_id": "stale_thesis_days",
       "owner_agent": "decision.cio",
@@ -1410,6 +1734,147 @@
       "horizon": "20d",
       "rollback_condition": {
         "metric": "stale_thesis_review_alpha_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/superinvestor_signal_weight/value",
+      "card_id": "superinvestor_signal_weight",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.superinvestor_signal_weight.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/target_count_max/value",
+      "card_id": "target_count_max",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.target_count_max.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/target_count_min/value",
+      "card_id": "target_count_min",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.target_count_min.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/thesis_decay_review_days/value",
+      "card_id": "thesis_decay_review_days",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.thesis_decay_review_days.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/trim_threshold/value",
+      "card_id": "trim_threshold",
+      "owner_agent": "decision.cio",
+      "owner_stage": "cio_proposal",
+      "prediction_target": "decision.cio.trim_threshold.20d",
+      "evaluation_metric": "portfolio_construction_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_construction_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/correlation_stress_threshold/value",
+      "card_id": "correlation_stress_threshold",
+      "owner_agent": "decision.cro",
+      "owner_stage": "cro_review",
+      "prediction_target": "decision.cro.correlation_stress_threshold.20d",
+      "evaluation_metric": "portfolio_risk_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_risk_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/liquidity_discount/value",
+      "card_id": "liquidity_discount",
+      "owner_agent": "decision.cro",
+      "owner_stage": "cro_review",
+      "prediction_target": "decision.cro.liquidity_discount.20d",
+      "evaluation_metric": "portfolio_risk_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_risk_quality_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/max_correlation_cluster_weight/value",
+      "card_id": "max_correlation_cluster_weight",
+      "owner_agent": "decision.cro",
+      "owner_stage": "cro_review",
+      "prediction_target": "decision.cro.max_correlation_cluster_weight.20d",
+      "evaluation_metric": "portfolio_risk_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_risk_quality_20d",
         "worse_by": 0.02,
         "unit": "ratio"
       }
@@ -1517,6 +1982,23 @@
       "horizon": "20d",
       "rollback_condition": {
         "metric": "drawdown_avoidance_after_tail_veto",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/portfolio_drawdown_cap/value",
+      "card_id": "portfolio_drawdown_cap",
+      "owner_agent": "decision.cro",
+      "owner_stage": "cro_review",
+      "prediction_target": "decision.cro.portfolio_drawdown_cap.20d",
+      "evaluation_metric": "portfolio_risk_quality_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "portfolio_risk_quality_20d",
         "worse_by": 0.02,
         "unit": "ratio"
       }
@@ -3999,5 +4481,5 @@
       }
     }
   ],
-  "contract_hash": "sha256:7833aa6787ff3aa85bb10a748d61b899822ab7a825700d3132456b5a948679b9"
+  "contract_hash": "sha256:01009a768b737d562f325630dbbe64e51b573883081c7980419b3958136db9fa"
 }

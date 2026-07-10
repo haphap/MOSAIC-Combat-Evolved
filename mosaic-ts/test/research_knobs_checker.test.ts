@@ -393,7 +393,11 @@ describe("checkResearchKnobsPrompts", () => {
     expect(cioKnobs.mutation_targets.map((target) => target.path).join("\n")).not.toContain(
       ".primary.001",
     );
-    expect(domainKnobCardsForSpec(cioSpec).map((card) => card.id)).toEqual([
+    expect(
+      domainKnobCardsForSpec(cioSpec)
+        .filter((card) => card.activation_state === "active")
+        .map((card) => card.id),
+    ).toEqual([
       "stale_thesis_days",
       "rebalance_drift_pct",
       "min_confidence_to_add",
@@ -408,7 +412,11 @@ describe("checkResearchKnobsPrompts", () => {
     expect(croSpec).toBeDefined();
     expect(execSpec).toBeDefined();
     if (!croSpec || !execSpec) return;
-    expect(domainKnobCardsForSpec(croSpec).map((card) => card.id)).toEqual([
+    expect(
+      domainKnobCardsForSpec(croSpec)
+        .filter((card) => card.activation_state === "active")
+        .map((card) => card.id),
+    ).toEqual([
       "stop_loss_pct",
       "take_profit_review_pct",
       "max_single_name_weight",
@@ -418,7 +426,11 @@ describe("checkResearchKnobsPrompts", () => {
       "mirofish_max_tail_loss_to_hold",
       "mirofish_tail_risk_veto_threshold",
     ]);
-    expect(domainKnobCardsForSpec(execSpec).map((card) => card.id)).toEqual([
+    expect(
+      domainKnobCardsForSpec(execSpec)
+        .filter((card) => card.activation_state === "active")
+        .map((card) => card.id),
+    ).toEqual([
       "min_delta_trade_weight",
       "slippage_cap",
       "liquidity_floor",
@@ -445,7 +457,9 @@ describe("checkResearchKnobsPrompts", () => {
       const cards = domainKnobCardsForSpec(spec);
       expect(cards.length).toBeGreaterThanOrEqual(minDomainTargetCount(spec.layer, spec.agent));
       for (const card of cards) {
-        expect(generated.mutation_targets.some((target) => target.path === card.path)).toBe(true);
+        expect(generated.mutation_targets.some((target) => target.path === card.path)).toBe(
+          card.activation_state === "active",
+        );
         expect(domainProjectionValue(generated, card)).toBe(card.default);
       }
     }
@@ -522,6 +536,7 @@ describe("checkResearchKnobsPrompts", () => {
     }
     for (const card of cards) {
       expect(card.category).toBe("domain");
+      expect(["active", "read_only", "backlog"]).toContain(card.activation_state);
       expect(card.owner_agent).toContain(".");
       expect(card.path).toMatch(/^\/rule_packs\/[^/]+\/rules\/[^/]+\/learnable_parameters\//);
       expect(artifact.evaluation_metrics[card.evaluation_metric]).toBeDefined();
@@ -542,6 +557,24 @@ describe("checkResearchKnobsPrompts", () => {
     );
     expect([...referencedMetricIds].sort()).toEqual(
       [...referencedMetricIds].filter((id) => EVALUATION_METRIC_REGISTRY[id]).sort(),
+    );
+    const cioCards = artifact.agents.find((agent) => agent.agent === "cio")?.cards ?? [];
+    expect(cioCards.map((card) => card.id)).toEqual(
+      expect.arrayContaining([
+        "target_count_min",
+        "target_count_max",
+        "max_target_position_weight",
+        "new_buy_hurdle",
+        "trim_threshold",
+        "exit_threshold",
+        "macro_signal_weight",
+        "sector_signal_weight",
+        "superinvestor_signal_weight",
+        "cro_risk_weight",
+      ]),
+    );
+    expect(cioCards.find((card) => card.id === "target_count_min")?.activation_state).toBe(
+      "read_only",
     );
 
     const missingDirectDependency = structuredClone(artifact);
