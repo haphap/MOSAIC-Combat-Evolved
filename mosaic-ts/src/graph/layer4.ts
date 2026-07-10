@@ -26,12 +26,17 @@ import { buildCroNode } from "../agents/decision/cro.js";
 import {
   freezeCioProposal,
   freezeFinalTarget,
+  Layer4RuntimeContractError,
   runtimeStateForLayer4,
   stableRuntimeHash,
   updateLayer4Runtime,
-  withFrozenCandidatePositionCoverage,
+  validateFinalTargetEnvelope,
 } from "../agents/decision/layer4_runtime.js";
-import { validateCioPositionActions } from "../agents/decision/position_validator.js";
+import {
+  buildConservativeCioFinalFallback,
+  PositionActionValidationError,
+  validateCioPositionActions,
+} from "../agents/decision/position_validator.js";
 import {
   type Layer4SourceResolutionStage,
   resolveLayer4SourceBundle,
@@ -164,33 +169,78 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
   const output = state.layer4_outputs.cio;
   if (!output) throw new Error("shared_validation requires cio_final output");
   const runtime = runtimeStateForLayer4(state);
-  const coveredOutput = withFrozenCandidatePositionCoverage(state, output);
   const sharedPolicyValues = activeKnobValuesFromUpstreamDecisionAgents(state.layer4_outputs);
-  const validated = validateCioPositionActions({
-    output: coveredOutput,
-    currentPositions: state.current_positions,
-    knobSnapshot: runtime.cio_final_knob_snapshot,
-    sharedPolicyValues,
-  });
   const validatorHash = stableRuntimeHash({
     validator: "validateCioPositionActions.v1",
     knob_snapshot_hash: runtime.cio_final_knob_snapshot?.hash ?? null,
     shared_policy_values: sharedPolicyValues,
   });
+  let selectedOutput = output;
+  let fallbackRejectionReasons: string[] = [];
+  let validated: ReturnType<typeof validateCioPositionActions>;
+  try {
+    validated = validateCioPositionActions({
+      output: selectedOutput,
+      currentPositions: state.current_positions,
+      knobSnapshot: runtime.cio_final_knob_snapshot,
+      sharedPolicyValues,
+    });
+    const stateWithValidatedOutput: DailyCycleStateType = {
+      ...state,
+      layer4_outputs: { ...state.layer4_outputs, cio: validated.output },
+    };
+    validateFinalTargetEnvelope(stateWithValidatedOutput, validated.output);
+  } catch (error) {
+    if (
+      !(error instanceof PositionActionValidationError) &&
+      !(error instanceof Layer4RuntimeContractError)
+    ) {
+      throw error;
+    }
+    const candidate = runtime.candidate_target_state;
+    const croReview = runtime.cro_review_state;
+    if (!candidate || !croReview) throw error;
+    fallbackRejectionReasons = [error.message];
+    selectedOutput = buildConservativeCioFinalFallback({
+      sourceOutput: output,
+      currentPositions: state.current_positions,
+      candidate,
+      croReview,
+      knobSnapshot: runtime.cio_final_knob_snapshot,
+      sharedPolicyValues,
+      rejectionReasons: fallbackRejectionReasons,
+    });
+    validated = validateCioPositionActions({
+      output: selectedOutput,
+      currentPositions: state.current_positions,
+      knobSnapshot: runtime.cio_final_knob_snapshot,
+      sharedPolicyValues,
+    });
+  }
   const stateWithValidatedOutput: DailyCycleStateType = {
     ...state,
     layer4_outputs: { ...state.layer4_outputs, cio: validated.output },
   };
-  const finalTarget = freezeFinalTarget(stateWithValidatedOutput, validated.output, [
-    validatorHash,
-  ]);
+  const finalTarget = freezeFinalTarget(
+    stateWithValidatedOutput,
+    validated.output,
+    [validatorHash],
+    { allowRuntimeSafetyFallback: fallbackRejectionReasons.length > 0 },
+  );
   const updatedRuntime = updateLayer4Runtime(
     runtime,
     { final_target_state: finalTarget },
     {
       stage: "shared_validation",
       operation: "validation",
-      status: "completed",
+      status: fallbackRejectionReasons.length > 0 ? "fallback" : "completed",
+      ...(fallbackRejectionReasons.length > 0
+        ? {
+            reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED"],
+            fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
+            fallback_factory_version: "1",
+          }
+        : {}),
       input_hashes: {
         candidate_target_state: finalTarget.candidate_target_hash,
         cro_review_state: finalTarget.cro_review_hash,

@@ -75,7 +75,7 @@ import type {
   SuperinvestorOutput,
 } from "../src/agents/types.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
-import { freezeCandidateTargetNode } from "../src/graph/layer4.js";
+import { freezeCandidateTargetNode, validateFinalTargetNode } from "../src/graph/layer4.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ AGENTS_BY_LAYER
@@ -744,7 +744,14 @@ describe("Layer-4 runtime source envelopes", () => {
         },
       ]),
     );
-    const cro = freezeCroReview("t", frozen.candidate, fallbackCro(""));
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    });
     const execution = freezeExecutionFeasibility(
       "t",
       frozen.candidate,
@@ -775,6 +782,318 @@ describe("Layer-4 runtime source envelopes", () => {
     expect(missingPreviousTargetState()).toMatchObject({
       snapshot_status: "missing",
       final_target_hash: null,
+    });
+  });
+
+  it("turns CRO and execution stage fallbacks into no-new-risk envelopes", () => {
+    const frozen = freezeCioProposal(
+      baseState(),
+      cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          target_weight: 0.2,
+          holding_period: "3M",
+          dissent_notes: "",
+        },
+      ]),
+    );
+
+    const cro = freezeCroReview("t", frozen.candidate, fallbackCro(""));
+    const execution = freezeExecutionFeasibility(
+      "t",
+      frozen.candidate,
+      cro,
+      fallbackAutonomousExecution(""),
+    );
+
+    expect(cro.output.required_adjustments).toEqual([
+      expect.objectContaining({
+        ticker: "600519.SH",
+        adjustment: "VETO",
+        max_target_weight: 0,
+      }),
+    ]);
+    expect(execution.output).toMatchObject({
+      trades: [],
+      execution_checks: [
+        {
+          ticker: "600519.SH",
+          status: "blocked",
+          max_executable_delta_weight: 0,
+        },
+      ],
+    });
+  });
+
+  it("rejects CRO references outside the candidate and malformed reductions", () => {
+    const frozen = freezeCioProposal(
+      baseState(),
+      cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          target_weight: 0.2,
+          holding_period: "3M",
+          dissent_notes: "",
+        },
+      ]),
+    );
+    const baseCro: CroOutput = {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    };
+
+    const unknownTickerReview = freezeCroReview("t", frozen.candidate, {
+      ...baseCro,
+      rejected_picks: [{ ticker: "000001.SZ", reason: "outside" }],
+      required_adjustments: [{ ticker: "000001.SZ", adjustment: "VETO", reason: "outside" }],
+    });
+    const invalidReductionReview = freezeCroReview("t", frozen.candidate, {
+      ...baseCro,
+      required_adjustments: [
+        {
+          ticker: "600519.SH",
+          adjustment: "REDUCE_WEIGHT",
+          max_target_weight: 0.2,
+          reason: "not a reduction",
+        },
+      ],
+    });
+
+    expect(unknownTickerReview.output).toMatchObject({
+      confidence: 0,
+      rejected_picks: [{ ticker: "600519.SH" }],
+      required_adjustments: [{ ticker: "600519.SH", adjustment: "VETO" }],
+    });
+    expect(invalidReductionReview.output).toMatchObject({
+      confidence: 0,
+      required_adjustments: [{ ticker: "600519.SH", adjustment: "VETO" }],
+    });
+  });
+
+  it("rejects blocked or partial execution that carries excess delta", () => {
+    const frozen = freezeCioProposal(
+      baseState(),
+      cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          target_weight: 0.2,
+          holding_period: "3M",
+          dissent_notes: "",
+        },
+      ]),
+    );
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    });
+
+    const blocked = freezeExecutionFeasibility("t", frozen.candidate, cro, {
+      agent: "autonomous_execution",
+      trades: [
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          size_pct: 0.2,
+          delta_weight: 0.2,
+          conviction: 0.5,
+        },
+      ],
+      execution_checks: [
+        {
+          ticker: "600519.SH",
+          status: "blocked",
+          estimated_cost_bps: 10,
+          reason: "halted",
+        },
+      ],
+      confidence: 0.5,
+    });
+    const partial = freezeExecutionFeasibility("t", frozen.candidate, cro, {
+      agent: "autonomous_execution",
+      trades: [
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          size_pct: 0.15,
+          delta_weight: 0.15,
+          conviction: 0.5,
+        },
+      ],
+      execution_checks: [
+        {
+          ticker: "600519.SH",
+          status: "partial",
+          estimated_cost_bps: 10,
+          max_executable_delta_weight: 0.1,
+          reason: "capacity",
+        },
+      ],
+      confidence: 0.5,
+    });
+
+    expect(blocked.output).toMatchObject({
+      confidence: 0,
+      trades: [],
+      execution_checks: [{ ticker: "600519.SH", status: "blocked" }],
+    });
+    expect(partial.output).toMatchObject({
+      confidence: 0,
+      trades: [],
+      execution_checks: [{ ticker: "600519.SH", status: "blocked" }],
+    });
+  });
+
+  it("requires frozen CRO authorization for final target changes", () => {
+    const state = baseState();
+    const frozen = freezeCioProposal(
+      state,
+      cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          target_weight: 0.2,
+          holding_period: "3M",
+          dissent_notes: "",
+        },
+      ]),
+    );
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [
+        {
+          ticker: "600519.SH",
+          adjustment: "CAP_WEIGHT",
+          max_target_weight: 0.1,
+          reason: "concentration",
+        },
+      ],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    });
+    const execution = freezeExecutionFeasibility(
+      "t",
+      frozen.candidate,
+      cro,
+      fallbackAutonomousExecution(""),
+    );
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+    const adjusted = cioOutput([
+      {
+        ticker: "600519.SH",
+        action: "BUY",
+        target_weight: 0.1,
+        holding_period: "3M",
+        dissent_notes: "applied CRO cap",
+      },
+    ]);
+
+    expect(() => freezeFinalTarget(state, adjusted, [])).toThrow(/lacks frozen CRO dissent/);
+    adjusted.dissent_refs = [
+      {
+        ticker: "600519.SH",
+        source: "cro_review",
+        source_hash: cro.review_hash,
+        reason: "applied CRO cap",
+      },
+    ];
+    expect(freezeFinalTarget(state, adjusted, []).portfolio_actions[0]?.target_weight).toBe(0.1);
+    adjusted.dissent_refs[0] = {
+      ticker: "600519.SH",
+      source: "cro_review",
+      source_hash: "sha256:wrong",
+      reason: "applied CRO cap",
+    };
+    expect(() => freezeFinalTarget(state, adjusted, [])).toThrow(/dissent hash mismatch/);
+  });
+
+  it("uses a runtime hard-exit fallback after shared validation rejects CIO final", () => {
+    const state = baseState();
+    state.current_positions = loadedPositions([{ ...heldPosition, unrealized_pnl_pct: -0.12 }]);
+    const proposal = {
+      ...cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "HOLD" as const,
+          target_weight: 0.2,
+          holding_period: "3M" as const,
+          dissent_notes: "",
+        },
+      ]),
+      position_reviews: [
+        {
+          ticker: "600519.SH",
+          decision: "HOLD" as const,
+          target_weight: 0.2,
+          reason: "raw proposal",
+          thesis_status: "intact" as const,
+          risk_flags: [],
+          confidence: 0.5,
+        },
+      ],
+    };
+    const frozen = freezeCioProposal(state, proposal);
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    });
+    const execution = freezeExecutionFeasibility(
+      "t",
+      frozen.candidate,
+      cro,
+      fallbackAutonomousExecution(""),
+    );
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+    state.layer4_outputs.cio = cioOutput([
+      {
+        ticker: "000001.SZ",
+        action: "BUY",
+        target_weight: 0.1,
+        holding_period: "1M",
+        dissent_notes: "invalid new ticker",
+      },
+    ]);
+
+    const update = validateFinalTargetNode(state);
+
+    expect(update.portfolio_actions).toEqual([
+      expect.objectContaining({
+        ticker: "600519.SH",
+        action: "SELL",
+        target_weight: 0,
+        review_source: "runtime_safety_fallback",
+      }),
+    ]);
+    const layer4Update = update.layer4_outputs as Partial<Layer4Outputs>;
+    expect(layer4Update.runtime?.stage_trace.at(-1)).toMatchObject({
+      stage: "shared_validation",
+      status: "fallback",
     });
   });
 

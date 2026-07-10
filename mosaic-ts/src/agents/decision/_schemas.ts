@@ -103,6 +103,37 @@ export const CroSchema = z
       "raises objections. Empty rejected_picks is allowed when the upstream is clean.",
   )
   .superRefine((value, ctx) => {
+    addDuplicateTickerIssues(value.rejected_picks, "rejected_picks", ctx);
+    addDuplicateTickerIssues(value.required_adjustments ?? [], "required_adjustments", ctx);
+    for (const [index, adjustment] of (value.required_adjustments ?? []).entries()) {
+      if (
+        (adjustment.adjustment === "CAP_WEIGHT" || adjustment.adjustment === "REDUCE_WEIGHT") &&
+        adjustment.max_target_weight === undefined
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["required_adjustments", index, "max_target_weight"],
+          message: `${adjustment.adjustment} requires max_target_weight`,
+        });
+      }
+      if (adjustment.adjustment === "VETO" && (adjustment.max_target_weight ?? 0) > 1e-9) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["required_adjustments", index, "max_target_weight"],
+          message: "VETO max_target_weight must be zero when supplied",
+        });
+      }
+      if (
+        adjustment.adjustment === "REQUIRE_REVIEW" &&
+        adjustment.max_target_weight !== undefined
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["required_adjustments", index, "max_target_weight"],
+          message: "REQUIRE_REVIEW must not set max_target_weight",
+        });
+      }
+    }
     if (!value.claims || value.rejected_picks.length === 0) return;
     const vetoed = new Set(
       (value.required_adjustments ?? [])
@@ -243,6 +274,24 @@ export const AutonomousExecutionSchema = z
       "Darwinian weights are stubbed at uniform = 1/N until Phase 3 scorecard lands.",
   )
   .superRefine((value, ctx) => {
+    addDuplicateTickerIssues(value.trades, "trades", ctx);
+    addDuplicateTickerIssues(value.execution_checks ?? [], "execution_checks", ctx);
+    for (const [index, check] of (value.execution_checks ?? []).entries()) {
+      if (check.status === "partial" && check.max_executable_delta_weight === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["execution_checks", index, "max_executable_delta_weight"],
+          message: "partial execution requires max_executable_delta_weight",
+        });
+      }
+      if (check.status === "blocked" && (check.max_executable_delta_weight ?? 0) > 1e-9) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["execution_checks", index, "max_executable_delta_weight"],
+          message: "blocked execution must have zero executable delta",
+        });
+      }
+    }
     if (!value.claims || value.trades.length === 0) return;
     const checked = new Set((value.execution_checks ?? []).map((check) => check.ticker));
     for (const trade of value.trades) {
@@ -321,9 +370,10 @@ const CIO_BASE_SCHEMA = z.object({
 });
 
 function validateCioWeights(
-  val: { portfolio_actions: Array<{ target_weight: number }> },
+  val: { portfolio_actions: Array<{ ticker: string; target_weight: number }> },
   ctx: z.RefinementCtx,
 ): void {
+  addDuplicateTickerIssues(val.portfolio_actions, "portfolio_actions", ctx);
   const total = val.portfolio_actions.reduce((sum, action) => sum + action.target_weight, 0);
   if (total > 1 + 1e-6) {
     ctx.addIssue({
@@ -331,6 +381,24 @@ function validateCioWeights(
       message: `portfolio_actions target_weight sum ${total.toFixed(6)} exceeds 1.0 + epsilon; reduce allocations.`,
     });
   }
+}
+
+function addDuplicateTickerIssues(
+  entries: ReadonlyArray<{ ticker: string }>,
+  field: string,
+  ctx: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  entries.forEach((entry, index) => {
+    if (seen.has(entry.ticker)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [field, index, "ticker"],
+        message: `duplicate ticker ${entry.ticker}`,
+      });
+    }
+    seen.add(entry.ticker);
+  });
 }
 
 export const CioSchema = CIO_BASE_SCHEMA.superRefine(validateCioWeights).describe(
@@ -342,14 +410,31 @@ export const CioProposalSchema = CIO_BASE_SCHEMA.extend({
   position_reviews: z.array(POSITION_REVIEW_SCHEMA),
   dissent_refs: z.array(DISSENT_REF_SCHEMA).optional(),
 })
-  .superRefine(validateCioWeights)
+  .superRefine((value, ctx) => {
+    validateCioWeights(value, ctx);
+    addDuplicateTickerIssues(value.position_reviews, "position_reviews", ctx);
+  })
   .describe("CIO proposal with an explicit review for every current position.");
 
 export const CioFinalSchema = CIO_BASE_SCHEMA.extend({
   dissent_refs: z.array(DISSENT_REF_SCHEMA).default([]),
   position_reviews: z.array(POSITION_REVIEW_SCHEMA).optional(),
 })
-  .superRefine(validateCioWeights)
+  .superRefine((value, ctx) => {
+    validateCioWeights(value, ctx);
+    const seen = new Set<string>();
+    value.dissent_refs.forEach((reference, index) => {
+      const key = `${reference.ticker}:${reference.source}`;
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["dissent_refs", index],
+          message: `duplicate dissent reference ${key}`,
+        });
+      }
+      seen.add(key);
+    });
+  })
   .describe("CIO final target with structured CRO/execution dissent references.");
 
 export const CIO_FIELD_NAMES = [

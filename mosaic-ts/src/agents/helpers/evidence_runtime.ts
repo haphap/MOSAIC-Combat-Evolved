@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   type ClaimEvidenceGraph,
   type EvidenceLedgerEntry,
+  type LlmResearchClaim,
   LlmResearchClaimSchema,
   type RecommendationClaimReference,
   type ResearchClaim,
@@ -32,6 +33,75 @@ export interface ClaimGraphSelection<T> {
   graph: ClaimEvidenceGraph;
   rawOutputAccepted: boolean;
   rejectionReasons: string[];
+}
+
+export function attachRuntimeOwnedFallbackClaims<T>(input: {
+  output: T;
+  sourceOutput: unknown;
+  stage: RuntimeAgentStageId;
+  fallbackReasonCode: string;
+  rejectionReasons: ReadonlyArray<string>;
+  statement: string;
+}): T {
+  const sourceRecord =
+    input.sourceOutput !== null &&
+    typeof input.sourceOutput === "object" &&
+    !Array.isArray(input.sourceOutput)
+      ? (input.sourceOutput as Record<string, unknown>)
+      : null;
+  const sourceGraph = sourceRecord?.verified_claim_graph as ClaimEvidenceGraph | undefined;
+  if (!sourceGraph) return input.output;
+
+  const claimId = `runtime-fallback:${input.stage}:${sourceGraph.run_id}`;
+  const withRefs = withFallbackClaimRefs(input.output, claimId);
+  if (withRefs === null || typeof withRefs !== "object" || Array.isArray(withRefs)) {
+    return input.output;
+  }
+  const record = withRefs as Record<string, unknown>;
+  const fallbackClaim: LlmResearchClaim = {
+    claim_id: claimId,
+    claim_type: "uncertainty",
+    statement: input.statement,
+    structured_conclusion: { action_policy: "conservative_fallback" },
+    evidence_refs: [],
+    research_rule_refs: [],
+  };
+  record.claims = [fallbackClaim];
+  const references = outputClaimReferences(record, input.stage);
+  const graph: ClaimEvidenceGraph = {
+    schema_version: "evidence_claim_graph_v1",
+    run_id: sourceGraph.run_id,
+    snapshot_hash: sourceGraph.snapshot_hash,
+    evidence_ledger: sourceGraph.evidence_ledger,
+    claims: [{ ...fallbackClaim, snapshot_hash: sourceGraph.snapshot_hash }],
+    recommendation_claim_refs: references.references,
+  };
+  const runtimeEvidenceById = new Map(
+    sourceGraph.evidence_ledger.map((entry) => [entry.evidence_id, entry]),
+  );
+  const validation = validateClaimEvidenceGraph(graph, {
+    expectedRunId: sourceGraph.run_id,
+    expectedSnapshotHash: sourceGraph.snapshot_hash,
+    runtimeOwnedEvidenceById: runtimeEvidenceById,
+    requiredOutputIds: references.requiredOutputIds,
+    allowUncertaintyOnlyOutputIds: references.requiredOutputIds,
+  });
+  if (!validation.accepted) {
+    throw new Error(`runtime_owned_fallback_claim_graph_invalid:${validation.reasons.join(";")}`);
+  }
+  const priorReasons = (
+    sourceRecord?.verified_claim_audit as { rejection_reasons?: unknown } | undefined
+  )?.rejection_reasons;
+  return attachVerifiedClaimEnvelope(withRefs, graph, {
+    raw_output_accepted: false,
+    rejection_reasons: [
+      ...(Array.isArray(priorReasons)
+        ? priorReasons.filter((reason): reason is string => typeof reason === "string")
+        : []),
+      ...input.rejectionReasons,
+    ],
+    fallback_reason_code: input.fallbackReasonCode,
+  });
 }
 
 const RUNTIME_SOURCE_ALIASES: Readonly<Record<string, string>> = {

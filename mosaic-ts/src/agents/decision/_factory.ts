@@ -650,6 +650,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   }
 
   let runtime = currentRuntime;
+  let selectedOutput = output;
   if (spec.stateUpdateField === "alpha_discovery") {
     runtime = updateLayer4Runtime(
       currentRuntime,
@@ -668,13 +669,14 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       currentRuntime.candidate_target_state,
       output as unknown as CroOutput,
     );
+    selectedOutput = review.output as unknown as TOutput;
     runtime = updateLayer4Runtime(
       currentRuntime,
       { cro_review_state: review },
       {
         stage: "cro_review",
         operation: "agent_run",
-        ...stageResultTrace(spec, output),
+        ...stageResultTrace(spec, selectedOutput),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { cro_review_state: review.review_hash },
       },
@@ -688,13 +690,14 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       currentRuntime.resolved_source_statuses,
       opts.state.as_of_date || "live",
     );
+    selectedOutput = feasibility.output as unknown as TOutput;
     runtime = updateLayer4Runtime(
       currentRuntime,
       { execution_feasibility_state: feasibility },
       {
         stage: "execution_feasibility",
         operation: "agent_run",
-        ...stageResultTrace(spec, output),
+        ...stageResultTrace(spec, selectedOutput),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { execution_feasibility_state: feasibility.feasibility_hash },
       },
@@ -702,7 +705,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   }
   return {
     layer4_outputs: {
-      [spec.stateUpdateField]: output,
+      [spec.stateUpdateField]: selectedOutput,
       runtime,
     } as Partial<Layer4Outputs>,
     llm_calls: [llmCall],

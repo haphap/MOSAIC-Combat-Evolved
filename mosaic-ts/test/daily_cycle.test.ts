@@ -394,7 +394,7 @@ interface CannedOutputs {
 }
 
 function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
-  const rejectedCount = opts?.croRejected ?? 0;
+  const rejectedTickers = ["688981.SH", "600519.SH"].slice(0, opts?.croRejected ?? 0);
   // Deterministic outputs that should let the L1 aggregator emit BULLISH and
   // produce a non-empty portfolio.
   const sectorLong = (ticker: string, conv = 0.5) => ({
@@ -581,13 +581,16 @@ function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
     // ---- L4 ----
     cro: {
       agent: "cro",
-      rejected_picks: Array.from({ length: rejectedCount }, (_, i) => {
-        const tickers = ["688981.SH", "600519.SH", "002371.SZ", "600276.SH", "601318.SH"];
-        return {
-          ticker: tickers[i % 5] as string,
-          reason: `risk-${i}`,
-        };
-      }),
+      rejected_picks: rejectedTickers.map((ticker, index) => ({
+        ticker,
+        reason: `risk-${index}`,
+      })),
+      required_adjustments: rejectedTickers.map((ticker, index) => ({
+        ticker,
+        adjustment: "VETO" as const,
+        max_target_weight: 0,
+        reason: `risk-${index}`,
+      })),
       correlated_risks: [],
       black_swan_scenarios: ["fed pivot"],
       confidence: 0.5,
@@ -600,8 +603,34 @@ function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
     autonomous_execution: {
       agent: "autonomous_execution",
       trades: [
-        { ticker: "688981.SH", action: "BUY", size_pct: 0.4, conviction: 0.7 },
-        { ticker: "600519.SH", action: "BUY", size_pct: 0.4, conviction: 0.6 },
+        {
+          ticker: "688981.SH",
+          action: "BUY",
+          size_pct: 0.4,
+          delta_weight: 0.4,
+          conviction: 0.7,
+        },
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          size_pct: 0.4,
+          delta_weight: 0.4,
+          conviction: 0.6,
+        },
+      ],
+      execution_checks: [
+        {
+          ticker: "688981.SH",
+          status: "feasible",
+          estimated_cost_bps: 5,
+          reason: "liquid",
+        },
+        {
+          ticker: "600519.SH",
+          status: "feasible",
+          estimated_cost_bps: 5,
+          reason: "liquid",
+        },
       ],
       confidence: 0.6,
     },
@@ -919,9 +948,14 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
     expect(llm.perAgentStructuredCount.autonomous_execution).toBe(1);
     expect(llm.perAgentStructuredCount.cio).toBe(2);
     expect(final.llm_calls).toHaveLength(26);
-    expect(final.portfolio_actions.length).toBeGreaterThan(0);
+    expect(final.portfolio_actions).toEqual([]);
     expect(final.replay_triggered).toBe(false);
-    expect(final.layer4_outputs.runtime?.cro_review_state?.output.rejected_picks).toHaveLength(4);
+    expect(final.layer4_outputs.runtime?.cro_review_state?.output.rejected_picks).toHaveLength(2);
+    expect(final.layer4_outputs.runtime?.stage_trace.at(-1)).toMatchObject({
+      stage: "shared_validation",
+      status: "fallback",
+      fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
+    });
   });
 
   it("end branch (no replay) when cro rejects 0 picks even with full L3 pool", async () => {
