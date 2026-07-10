@@ -1246,6 +1246,8 @@ export interface AutoresearchEvalResult {
   delta_sharpe?: number;
   detail?: string;
   missing_runs?: AutoresearchMissingRun[];
+  missing_domain_samples?: boolean;
+  evaluation_result?: Record<string, unknown> | null;
 }
 
 /** A single autoresearch log row from ``autoresearch.get_log``. */
@@ -1630,6 +1632,7 @@ export class BridgeApi {
     prompt_repo_id?: string;
     prompt_sha256?: string;
     code_commit_hash?: string;
+    mutation_metadata?: Record<string, unknown>;
   }): Promise<{ run_id: number }> {
     return this.client.call<{ run_id: number }>("backtest.create_run", params);
   }
@@ -2213,6 +2216,7 @@ export class BridgeApi {
   autoresearchEvaluatePending(params?: {
     cohort?: string;
     version_id?: number;
+    domain_sample_manifest?: Record<string, unknown>;
   }): Promise<{ results: AutoresearchEvalResult[] }> {
     return this.client.call<{ results: AutoresearchEvalResult[] }>(
       "autoresearch.evaluate_pending",

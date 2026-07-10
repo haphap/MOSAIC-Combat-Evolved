@@ -239,6 +239,20 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       continue;
     }
 
+    const mutationId = knobPromptMutation ? `KM-${versionId}-${Date.now()}` : null;
+    const knobMutationMetadata =
+      knobPromptMutation && mutationId
+        ? buildKnobMutationMetadata({
+            mutationId,
+            agent: triggerResult.agent,
+            cohort,
+            baseKnobs: knobPromptMutation.base_knobs,
+            newKnobs: knobPromptMutation.new_knobs,
+            mutation: knobPromptMutation.knob_mutation,
+            decision: "applied",
+          })
+        : null;
+
     // 5. Record mutation in store
     await deps.api.autoresearchRecordMutation({
       version_id: versionId,
@@ -250,21 +264,14 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         : {}),
       ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
       code_commit_hash: triggerResult.base_commit,
+      ...(knobMutationMetadata ? { mutation_metadata: knobMutationMetadata } : {}),
     });
-    if (knobPromptMutation) {
+    if (knobMutationMetadata) {
       const logPath = knobMutationLogPath();
       if (logPath) {
         await appendKnobMutationMetadataLog({
           logPath,
-          metadata: buildKnobMutationMetadata({
-            mutationId: `KM-${Date.now()}`,
-            agent: triggerResult.agent,
-            cohort,
-            baseKnobs: knobPromptMutation.base_knobs,
-            newKnobs: knobPromptMutation.new_knobs,
-            mutation: knobPromptMutation.knob_mutation,
-            decision: "applied",
-          }),
+          metadata: knobMutationMetadata,
         });
       }
     }

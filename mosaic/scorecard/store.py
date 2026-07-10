@@ -39,6 +39,23 @@ DEFAULT_DB_PATH = (
     Path(os.getenv("MOSAIC_DATA_DIR", str(_REPO_ROOT / "data"))) / "scorecard.db"
 )
 
+_DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS: dict[str | None, set[str]] = {
+    None: {"proposed"},
+    "proposed": {"validated", "invalid"},
+    "validated": {"shadow_evaluating", "invalid"},
+    "shadow_evaluating": {
+        "needs_fill",
+        "eligible_for_promotion",
+        "reverted",
+        "invalid",
+    },
+    "needs_fill": {"shadow_evaluating", "invalid"},
+    "eligible_for_promotion": {"kept", "reverted"},
+    "kept": set(),
+    "reverted": set(),
+    "invalid": set(),
+}
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS recommendations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,6 +180,12 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
     prompt_sha256 TEXT,                         -- deterministic digest of the committed prompt files
     code_commit_hash TEXT,                      -- project code commit paired with this prompt mutation
     modification_summary TEXT,                  -- LLM-authored one-line "what changed"
+    mutation_id TEXT,                           -- stable parameter-mutation identifier
+    transaction_id TEXT,                        -- candidate artifact transaction identifier
+    experiment_id TEXT,                         -- preregistered evaluation episode identifier
+    mutation_metadata_json TEXT,                -- hash-bound knob/card/evaluation policy
+    mutation_lifecycle TEXT,                    -- proposed/validated/shadow_evaluating/...
+    evaluation_result_json TEXT,                -- card-bound PIT EvaluationResult
     created_at TEXT NOT NULL,                   -- ISO-8601
     status TEXT NOT NULL,                       -- pending / keep / revert
     decided_at TEXT,                            -- ISO-8601, set when status leaves pending
@@ -784,6 +807,12 @@ class ScorecardStore:
             self._ensure_column(conn, "prompt_versions", "prompt_base_commit_hash", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_sha256", "TEXT")
             self._ensure_column(conn, "prompt_versions", "code_commit_hash", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "mutation_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "transaction_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "experiment_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "mutation_metadata_json", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "mutation_lifecycle", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "evaluation_result_json", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_commit_ref", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_sha256", "TEXT")
@@ -1959,9 +1988,27 @@ class ScorecardStore:
         prompt_base_commit_hash: Optional[str] = None,
         prompt_sha256: Optional[str] = None,
         code_commit_hash: Optional[str] = None,
+        mutation_metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Back-fill the mutation commit + summary once the TS mutator has
         written and committed the rewrite (``autoresearch.record_mutation``)."""
+        metadata_json = _json_object_or_none(mutation_metadata)
+        mutation_id = None
+        transaction_id = None
+        experiment_id = None
+        mutation_lifecycle = None
+        if mutation_metadata is not None:
+            mutation_id = mutation_metadata.get("mutation_id")
+            transaction_id = mutation_metadata.get("transaction_id")
+            experiment_id = mutation_metadata.get("experiment_id")
+            for field, value in (
+                ("mutation_id", mutation_id),
+                ("transaction_id", transaction_id),
+                ("experiment_id", experiment_id),
+            ):
+                if not isinstance(value, str) or not value:
+                    raise ValueError(f"mutation metadata {field} must be a non-empty string")
+            mutation_lifecycle = "proposed"
         with self._connect() as conn:
             cur = conn.execute(
                 """
@@ -1971,7 +2018,12 @@ class ScorecardStore:
                     prompt_repo_id = COALESCE(:prompt_repo_id, prompt_repo_id),
                     prompt_base_commit_hash = COALESCE(:prompt_base_commit_hash, prompt_base_commit_hash),
                     prompt_sha256 = COALESCE(:prompt_sha256, prompt_sha256),
-                    code_commit_hash = COALESCE(:code_commit_hash, code_commit_hash)
+                    code_commit_hash = COALESCE(:code_commit_hash, code_commit_hash),
+                    mutation_id = COALESCE(:mutation_id, mutation_id),
+                    transaction_id = COALESCE(:transaction_id, transaction_id),
+                    experiment_id = COALESCE(:experiment_id, experiment_id),
+                    mutation_metadata_json = COALESCE(:mutation_metadata_json, mutation_metadata_json),
+                    mutation_lifecycle = COALESCE(:mutation_lifecycle, mutation_lifecycle)
                 WHERE id = :id
                 """,
                 {
@@ -1982,6 +2034,11 @@ class ScorecardStore:
                     "prompt_base_commit_hash": prompt_base_commit_hash,
                     "prompt_sha256": prompt_sha256,
                     "code_commit_hash": code_commit_hash,
+                    "mutation_id": mutation_id,
+                    "transaction_id": transaction_id,
+                    "experiment_id": experiment_id,
+                    "mutation_metadata_json": metadata_json,
+                    "mutation_lifecycle": mutation_lifecycle,
                 },
             )
             if cur.rowcount == 0:
@@ -2013,6 +2070,87 @@ class ScorecardStore:
             )
             if cur.rowcount == 0:
                 logger.warning("set_version_eval: no prompt_version id=%s", version_id)
+
+    def set_version_mutation_lifecycle(
+        self,
+        version_id: int,
+        lifecycle: str,
+        *,
+        decided_at: Optional[str] = None,
+    ) -> None:
+        """Apply one legal domain mutation lifecycle transition."""
+        if lifecycle not in _DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS:
+            raise ValueError(f"unknown domain mutation lifecycle: {lifecycle!r}")
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT mutation_lifecycle FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"prompt_version {version_id} not found")
+            current = row["mutation_lifecycle"]
+            if current == lifecycle:
+                return
+            allowed = _DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS.get(current, set())
+            if lifecycle not in allowed:
+                raise ValueError(
+                    f"illegal domain mutation lifecycle transition: {current!r} -> {lifecycle!r}"
+                )
+            status = None
+            if lifecycle == "kept":
+                status = "keep"
+            elif lifecycle == "reverted":
+                status = "revert"
+            elif lifecycle == "invalid":
+                status = "invalid"
+            terminal_at = decided_at or (_utcnow_iso() if status else None)
+            conn.execute(
+                """
+                UPDATE prompt_versions
+                SET mutation_lifecycle = ?,
+                    status = COALESCE(?, status),
+                    decided_at = COALESCE(?, decided_at)
+                WHERE id = ?
+                """,
+                (lifecycle, status, terminal_at, version_id),
+            )
+
+    def set_domain_evaluation_result(
+        self, version_id: int, result: dict[str, Any]
+    ) -> None:
+        """Persist the language-neutral EvaluationResult for one mutation."""
+        encoded = _json_object_or_none(result)
+        if encoded is None:
+            raise ValueError("domain evaluation result must be an object")
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE prompt_versions SET evaluation_result_json = ? WHERE id = ?",
+                (encoded, version_id),
+            )
+            if cur.rowcount == 0:
+                raise ValueError(f"prompt_version {version_id} not found")
+
+    def get_version_mutation_metadata(self, version_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT mutation_metadata_json FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+        if row is None or row["mutation_metadata_json"] is None:
+            return None
+        value = json.loads(row["mutation_metadata_json"])
+        return value if isinstance(value, dict) else None
+
+    def get_domain_evaluation_result(self, version_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT evaluation_result_json FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+        if row is None or row["evaluation_result_json"] is None:
+            return None
+        value = json.loads(row["evaluation_result_json"])
+        return value if isinstance(value, dict) else None
 
     def decide_version(
         self,

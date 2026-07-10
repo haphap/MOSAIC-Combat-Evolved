@@ -34,10 +34,12 @@ import {
 import { bindStructured } from "../agents/helpers/structured_output.js";
 import { ALL_MACRO_AGENTS } from "../agents/macro/_aggregator.js";
 import {
+  buildDomainKnobEvaluationContractArtifact,
   type DomainKnobCard,
   domainKnobCardFromPath,
   domainKnobCardsForSpec,
   domainKnobDescriptorFromPath,
+  EVALUATION_CALCULATOR_REGISTRY,
   EVALUATION_METRIC_REGISTRY,
   validateCrossFieldInvariants,
   validateWeightGroupInvariants,
@@ -185,8 +187,14 @@ export interface KnobMutationValidation {
 export interface KnobMutationMetadata {
   schema_version: "knob_mutation_metadata_v1";
   mutation_id: string;
+  transaction_id: string;
+  experiment_id: string;
+  mutation_kind: "domain_knob" | "generic_knob";
+  lifecycle_state: "proposed";
   created_at: string;
   agent: string;
+  owner_agent?: string;
+  owner_stage?: string;
   cohort: string;
   prediction_target: string;
   evaluation_metric: string;
@@ -194,6 +202,25 @@ export interface KnobMutationMetadata {
   rollback_condition: z.infer<typeof RollbackConditionSchema>;
   base_knobs_sha256: string;
   new_knobs_sha256: string;
+  catalog_version: string;
+  catalog_hash: string;
+  schema_hash: string;
+  evaluation_contract_hash: string;
+  metric_registry_hash: string;
+  calculator_registry_hash: string;
+  domain_card_id?: string;
+  domain_card_ids: string[];
+  calculator_id?: string;
+  calculator_version?: string;
+  evaluation_policy: {
+    baseline_id: string;
+    baseline: string;
+    min_effect_size: number;
+    min_sample_size: number;
+    uncertainty_method: string;
+    overlapping_sample_policy: string;
+    require_uncertainty_bound: boolean;
+  };
   changed_paths: string[];
   patches: KnobPatch[];
   renormalization: unknown[];
@@ -490,20 +517,68 @@ export function buildKnobMutationMetadata(opts: {
   mutation: KnobMutation;
   decision: KnobMutationMetadata["decision"];
   createdAt?: string;
+  transactionId?: string;
+  experimentId?: string;
 }): KnobMutationMetadata {
   const changedPaths = opts.mutation.knob_patches.map((patch) => patch.path);
+  const domainCards = changedPaths
+    .map((path) => domainKnobCardFromPath(path))
+    .filter((card): card is DomainKnobCard => card !== null);
+  if (domainCards.length > 0 && domainCards.length !== changedPaths.length) {
+    throw new PromptInvariantError("domain and generic knob paths cannot share one mutation");
+  }
+  const firstDomainCard = domainCards[0];
+  const evaluationContract = buildDomainKnobEvaluationContractArtifact();
+  const metric = EVALUATION_METRIC_REGISTRY[opts.mutation.evaluation_metric];
+  if (firstDomainCard && !metric) {
+    throw new PromptInvariantError(
+      `evaluation metric is not registered: ${opts.mutation.evaluation_metric}`,
+    );
+  }
+  const calculator = metric ? EVALUATION_CALCULATOR_REGISTRY[metric.calculator_id] : undefined;
+  if (firstDomainCard && !calculator) {
+    throw new PromptInvariantError(
+      `evaluation calculator is not registered: ${metric?.calculator_id ?? "unknown"}`,
+    );
+  }
+  const baseKnobsSha256 = hashKnobs(opts.baseKnobs);
   return {
     schema_version: "knob_mutation_metadata_v1",
     mutation_id: opts.mutationId,
+    transaction_id: opts.transactionId ?? `TX-${opts.mutationId}`,
+    experiment_id: opts.experimentId ?? `EXP-${opts.mutationId}`,
+    mutation_kind: firstDomainCard ? "domain_knob" : "generic_knob",
+    lifecycle_state: "proposed",
     created_at: opts.createdAt ?? new Date().toISOString(),
     agent: opts.agent,
+    ...(firstDomainCard ? { owner_agent: firstDomainCard.owner_agent } : {}),
+    ...(firstDomainCard ? { owner_stage: firstDomainCard.owner_stage } : {}),
     cohort: opts.cohort,
     prediction_target: opts.mutation.prediction_target,
     evaluation_metric: opts.mutation.evaluation_metric,
     horizon: opts.mutation.horizon,
     rollback_condition: opts.mutation.rollback_condition,
-    base_knobs_sha256: hashKnobs(opts.baseKnobs),
+    base_knobs_sha256: baseKnobsSha256,
     new_knobs_sha256: hashKnobs(opts.newKnobs),
+    catalog_version: evaluationContract.catalog_version,
+    catalog_hash: evaluationContract.catalog_hash,
+    schema_hash: evaluationContract.schema_hash,
+    evaluation_contract_hash: evaluationContract.contract_hash,
+    metric_registry_hash: evaluationContract.metric_registry_hash,
+    calculator_registry_hash: evaluationContract.calculator_registry_hash,
+    ...(firstDomainCard ? { domain_card_id: firstDomainCard.id } : {}),
+    domain_card_ids: domainCards.map((card) => card.id).sort(),
+    ...(calculator ? { calculator_id: calculator.id } : {}),
+    ...(calculator ? { calculator_version: calculator.version } : {}),
+    evaluation_policy: {
+      baseline_id: baseKnobsSha256,
+      baseline: metric?.baseline ?? "rolling_sharpe",
+      min_effect_size: 0,
+      min_sample_size: metric?.min_sample_size ?? 1,
+      uncertainty_method: metric?.uncertainty_method ?? "not_applicable",
+      overlapping_sample_policy: metric?.overlapping_sample_policy ?? "not_applicable",
+      require_uncertainty_bound: Boolean(firstDomainCard),
+    },
     changed_paths: changedPaths,
     patches: opts.mutation.knob_patches,
     renormalization: opts.mutation.renormalization,

@@ -377,6 +377,7 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         prompt_base_commit_hash: str | None
         prompt_sha256: str | None
         code_commit_hash: str | None
+        mutation_metadata: dict | None
 
     Returns:
         {"ok": true}
@@ -398,6 +399,9 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
     code_commit_hash = params.get("code_commit_hash")
     if code_commit_hash is not None and not isinstance(code_commit_hash, str):
         raise RpcError(INVALID_PARAMS, "'code_commit_hash' must be a string")
+    mutation_metadata = params.get("mutation_metadata")
+    if mutation_metadata is not None and not isinstance(mutation_metadata, dict):
+        raise RpcError(INVALID_PARAMS, "'mutation_metadata' must be an object")
 
     store = _store()
     store.set_version_mutation(
@@ -408,8 +412,14 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         prompt_base_commit_hash=prompt_base_commit_hash,
         prompt_sha256=prompt_sha256,
         code_commit_hash=code_commit_hash,
+        mutation_metadata=mutation_metadata,
     )
-    store.append_log(version_id, "mutated", f"commit={commit_hash[:12]}")
+    if mutation_metadata is not None:
+        store.append_log(version_id, "proposed", f"mutation_id={mutation_metadata['mutation_id']}")
+        store.set_version_mutation_lifecycle(version_id, "validated")
+        store.append_log(version_id, "validated", f"mutation_id={mutation_metadata['mutation_id']}")
+    else:
+        store.append_log(version_id, "mutated", f"commit={commit_hash[:12]}")
 
     return {"ok": True}
 
@@ -438,6 +448,10 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         {"results": [{version_id, status, delta_sharpe?}, ...]}
     """
     from mosaic.autoresearch.decider import decide
+    from mosaic.autoresearch.domain_evaluator import (
+        DomainEvaluationError,
+        evaluate_domain_mutation,
+    )
     from mosaic.autoresearch.evaluator import (
         compute_delta,
         ensure_baseline_run,
@@ -452,6 +466,14 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         not isinstance(version_id_filter, int) or isinstance(version_id_filter, bool)
     ):
         raise RpcError(INVALID_PARAMS, "'version_id' must be an integer when provided")
+    domain_sample_manifest = params.get("domain_sample_manifest")
+    if domain_sample_manifest is not None and not isinstance(domain_sample_manifest, dict):
+        raise RpcError(INVALID_PARAMS, "'domain_sample_manifest' must be an object")
+    if domain_sample_manifest is not None and version_id_filter is None:
+        raise RpcError(
+            INVALID_PARAMS,
+            "'domain_sample_manifest' requires a specific 'version_id'",
+        )
 
     store = _store()
     config = _config()
@@ -474,14 +496,6 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             continue
 
         v_cohort = v["cohort"]
-        cohort_info = cohorts_cfg.get(v_cohort, {})
-        start_date = cohort_info.get("start", "")
-        end_date = cohort_info.get("end", "")
-
-        if not start_date or not end_date:
-            results.append({"version_id": version_id, "status": "error",
-                            "detail": f"cohort '{v_cohort}' missing date range"})
-            continue
 
         git = _git_ops_for_branch(v["branch_name"], v)
         compatibility = validate_prompt_tool_compatibility(v, git, baseline_git=_git_ops())
@@ -499,6 +513,92 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                 "status": "incompatible",
                 "detail": detail,
             })
+            continue
+
+        mutation_metadata = store.get_version_mutation_metadata(version_id)
+        is_domain_mutation = bool(
+            mutation_metadata
+            and (
+                mutation_metadata.get("mutation_kind") == "domain_knob"
+                or mutation_metadata.get("domain_card_id")
+                or mutation_metadata.get("domain_card_ids")
+            )
+        )
+        if is_domain_mutation:
+            lifecycle = store.get_prompt_version(version_id).get("mutation_lifecycle")
+            if lifecycle in ("eligible_for_promotion", "reverted", "invalid", "kept"):
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": lifecycle,
+                        "evaluation_result": store.get_domain_evaluation_result(version_id),
+                    }
+                )
+                continue
+            if domain_sample_manifest is None:
+                if lifecycle == "validated":
+                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
+                    store.append_log(version_id, "shadow_evaluating", "awaiting PIT sample manifest")
+                    lifecycle = "shadow_evaluating"
+                if lifecycle == "shadow_evaluating":
+                    store.set_version_mutation_lifecycle(version_id, "needs_fill")
+                    store.append_log(version_id, "needs_fill", "missing PIT sample manifest")
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": "needs_fill",
+                        "missing_domain_samples": True,
+                    }
+                )
+                continue
+            try:
+                if lifecycle == "validated":
+                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
+                elif lifecycle == "needs_fill":
+                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
+                evaluation_result = evaluate_domain_mutation(
+                    mutation_metadata, domain_sample_manifest
+                )
+                store.set_domain_evaluation_result(version_id, evaluation_result)
+                evaluation_status = evaluation_result["status"]
+                store.set_version_mutation_lifecycle(version_id, evaluation_status)
+                store.append_log(
+                    version_id,
+                    evaluation_status,
+                    (
+                        f"metric={evaluation_result['metric_id']} "
+                        f"samples={evaluation_result['sample_count']} "
+                        f"effect={evaluation_result.get('effect_size')}"
+                    ),
+                )
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": evaluation_status,
+                        "evaluation_result": evaluation_result,
+                    }
+                )
+            except DomainEvaluationError as exc:
+                current = store.get_prompt_version(version_id).get("mutation_lifecycle")
+                if current not in ("invalid", "reverted", "kept"):
+                    store.set_version_mutation_lifecycle(version_id, "invalid")
+                store.append_log(version_id, "invalid", str(exc))
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": "invalid",
+                        "detail": str(exc),
+                    }
+                )
+            continue
+
+        cohort_info = cohorts_cfg.get(v_cohort, {})
+        start_date = cohort_info.get("start", "")
+        end_date = cohort_info.get("end", "")
+
+        if not start_date or not end_date:
+            results.append({"version_id": version_id, "status": "error",
+                            "detail": f"cohort '{v_cohort}' missing date range"})
             continue
 
         # Check if both runs exist.

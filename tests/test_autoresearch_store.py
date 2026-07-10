@@ -58,6 +58,12 @@ class TestSchema:
             "prompt_base_commit_hash",
             "prompt_sha256",
             "code_commit_hash",
+            "mutation_id",
+            "transaction_id",
+            "experiment_id",
+            "mutation_metadata_json",
+            "mutation_lifecycle",
+            "evaluation_result_json",
         }.issubset(prompt_version_cols)
 
     def test_reinstantiate_is_idempotent(self, store: ScorecardStore):
@@ -98,6 +104,12 @@ class TestSchema:
             "prompt_base_commit_hash",
             "prompt_sha256",
             "code_commit_hash",
+            "mutation_id",
+            "transaction_id",
+            "experiment_id",
+            "mutation_metadata_json",
+            "mutation_lifecycle",
+            "evaluation_result_json",
         }.issubset(cols)
 
 
@@ -149,6 +161,42 @@ class TestPromptVersionLifecycle:
         assert v["pre_sharpe"] == pytest.approx(0.8)
         assert v["post_sharpe"] == pytest.approx(1.05)
         assert v["delta_sharpe"] == pytest.approx(0.25)
+
+    def test_domain_mutation_metadata_and_lifecycle_are_persisted(
+        self, store: ScorecardStore
+    ):
+        vid = _new_version(store)
+        metadata = {
+            "mutation_id": "KM-1",
+            "transaction_id": "TX-KM-1",
+            "experiment_id": "EXP-KM-1",
+            "mutation_kind": "domain_knob",
+        }
+        store.set_version_mutation(vid, "b" * 40, mutation_metadata=metadata)
+        assert store.get_version_mutation_metadata(vid) == metadata
+        assert store.get_prompt_version(vid)["mutation_lifecycle"] == "proposed"
+
+        store.set_version_mutation_lifecycle(vid, "validated")
+        store.set_version_mutation_lifecycle(vid, "shadow_evaluating")
+        store.set_version_mutation_lifecycle(vid, "needs_fill")
+        store.set_version_mutation_lifecycle(vid, "shadow_evaluating")
+        store.set_version_mutation_lifecycle(vid, "eligible_for_promotion")
+        result = {"schema_version": "domain_evaluation_result_v1", "status": "eligible"}
+        store.set_domain_evaluation_result(vid, result)
+
+        assert store.get_domain_evaluation_result(vid) == result
+        assert store.get_prompt_version(vid)["mutation_lifecycle"] == "eligible_for_promotion"
+
+    def test_domain_lifecycle_rejects_skipped_transition(self, store: ScorecardStore):
+        vid = _new_version(store)
+        metadata = {
+            "mutation_id": "KM-1",
+            "transaction_id": "TX-KM-1",
+            "experiment_id": "EXP-KM-1",
+        }
+        store.set_version_mutation(vid, "b" * 40, mutation_metadata=metadata)
+        with pytest.raises(ValueError, match="illegal domain mutation lifecycle"):
+            store.set_version_mutation_lifecycle(vid, "eligible_for_promotion")
 
     def test_decide_keep(self, store: ScorecardStore):
         vid = _new_version(store)

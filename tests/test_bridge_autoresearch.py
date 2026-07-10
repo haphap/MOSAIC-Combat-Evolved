@@ -215,6 +215,33 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
         mutated_entries = [e for e in log if e["event"] == "mutated"]
         self.assertEqual(len(mutated_entries), 1)
 
+    def test_record_domain_mutation_advances_to_validated(self):
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-03",
+            base_commit_hash="a" * 40,
+        )
+        metadata = {
+            "mutation_id": "KM-domain-1",
+            "transaction_id": "TX-KM-domain-1",
+            "experiment_id": "EXP-KM-domain-1",
+            "mutation_kind": "domain_knob",
+            "domain_card_id": "macro.volatility.test",
+        }
+        autoresearch_record_mutation(
+            {
+                "version_id": vid,
+                "commit_hash": "b" * 40,
+                "mutation_metadata": metadata,
+            }
+        )
+        version = self.store.get_prompt_version(vid)
+        self.assertEqual(version["mutation_lifecycle"], "validated")
+        self.assertEqual(self.store.get_version_mutation_metadata(vid), metadata)
+        events = [entry["event"] for entry in self.store.get_log()]
+        self.assertEqual(events, ["validated", "proposed"])
+
 
 class TestAutoresearchEvaluatePending(unittest.TestCase):
     """Test autoresearch.evaluate_pending — esp. the version_id scoping (§11.6 O(N²) fix)."""
@@ -265,6 +292,28 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         )
         return vid
 
+    def _domain_mutated_version(self, branch: str) -> int:
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name=branch,
+            base_commit_hash="a" * 40,
+        )
+        self.store.set_version_mutation(
+            vid,
+            "b" * 40,
+            "domain mutation",
+            mutation_metadata={
+                "mutation_id": "KM-domain-1",
+                "transaction_id": "TX-KM-domain-1",
+                "experiment_id": "EXP-KM-domain-1",
+                "mutation_kind": "domain_knob",
+                "domain_card_id": "macro.volatility.test",
+            },
+        )
+        self.store.set_version_mutation_lifecycle(vid, "validated")
+        return vid
+
     def test_version_id_scopes_to_one_version(self):
         # Two mutated pending versions; ask for just the second.
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
@@ -278,6 +327,20 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
             [run["kind"] for run in result["results"][0]["missing_runs"]],
             ["base", "mod"],
         )
+
+    def test_domain_mutation_never_falls_back_to_sharpe_only(self):
+        vid = self._domain_mutated_version(
+            "cohort/euphoria_2021/auto/volatility/2021-01-06"
+        )
+        with patch("mosaic.autoresearch.evaluator.compute_delta") as compute_delta:
+            result = autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertEqual(result["results"][0]["status"], "needs_fill")
+        self.assertTrue(result["results"][0]["missing_domain_samples"])
+        self.assertEqual(
+            self.store.get_prompt_version(vid)["mutation_lifecycle"], "needs_fill"
+        )
+        compute_delta.assert_not_called()
 
     def test_needs_fill_reports_private_prompt_metadata(self):
         class FakePrivateGit:
