@@ -56,6 +56,7 @@ REQUIRED_SCHEMA_FILES = {
     "domain_promotion_decision_v1.schema.json",
     "l4_run_snapshot_bundle_v1.schema.json",
     "domain_knob_values_v1.schema.json",
+    "prompt_governance_values_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
     "report_intelligence_feature_flags.schema.json",
@@ -6876,6 +6877,54 @@ def test_prompt_ir_runtime_contract_schema_requires_output_fields(tmp_path: Path
 
     assert not record.accepted
     assert any(".output_schema_fields: required" in failure for failure in record.failures)
+
+
+def test_prompt_governance_values_schema_accepts_physical_write_back_registry(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_governance/cohort_default"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_governance_values_v1.schema.json",
+        schema_dir / "prompt_governance_values_v1.schema.json",
+    )
+    weight_path = (
+        "/rule_packs/macro.central_bank.runtime.v1/rules/"
+        "macro.central_bank.soft.001/learnable_parameters/pboc_ops_weight/value"
+    )
+    (artifact_dir / "central_bank.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_governance_values_v1",
+                "agent": "macro.central_bank",
+                "cohort": "cohort_default",
+                "prompt_ir_scope": "*",
+                "prompt_ir_hash": f"sha256:{'1' * 64}",
+                "generator_version": "prompt_governance_projection_v1",
+                "values_by_path": {weight_path: 1.0},
+                "weight_groups": {
+                    "evidence_weights": {
+                        "normalization": "sum_to_one",
+                        "members": [weight_path],
+                    }
+                },
+                "last_mutation_id": None,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_governance_values_v1.schema.json",
+        artifact_path="registry/prompt_governance/cohort_default/central_bank.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+    assert record.item_count == 1
 
 
 def _runtime_agent_manifest_fixture() -> dict:

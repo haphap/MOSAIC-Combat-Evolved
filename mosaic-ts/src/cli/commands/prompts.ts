@@ -30,6 +30,16 @@ import {
   writeDomainKnobValueRegistryFile,
 } from "../../agents/prompts/domain_knob_registry.js";
 import {
+  buildPromptGovernanceValueRegistry,
+  type PromptGovernanceValueRegistry,
+  promptGovernanceValueRegistryPath,
+  readPromptGovernanceValueRegistryFile,
+  renderPromptGovernanceValueRegistry,
+  updatePromptGovernanceRegistryFromProjection,
+  validatePromptGovernanceValueRegistry,
+  writePromptGovernanceValueRegistryFile,
+} from "../../agents/prompts/prompt_governance_registry.js";
+import {
   buildPromptIrContract,
   promptIrPathForSpec,
   readPromptIrContractFile,
@@ -404,6 +414,7 @@ export function registerPrompts(program: Command): void {
       const changed: string[] = [];
       for (const spec of specs) {
         let registry: DomainKnobValueRegistry | null = null;
+        let governanceRegistry: PromptGovernanceValueRegistry | null = null;
         if (opts.privatePromptsRoot) {
           const registryPath = domainKnobValueRegistryPath({
             privatePromptsRoot: opts.privatePromptsRoot,
@@ -426,8 +437,38 @@ export function registerPrompts(program: Command): void {
               await writeDomainKnobValueRegistryFile(registryPath, registry);
             }
           }
+          const governancePath = promptGovernanceValueRegistryPath({
+            privatePromptsRoot: opts.privatePromptsRoot,
+            cohort,
+            agent: spec.agent,
+          });
+          const existingGovernance = await readPromptGovernanceValueRegistryFile(governancePath);
+          governanceRegistry = buildPromptGovernanceValueRegistry(spec, cohort, {
+            existing: existingGovernance,
+          });
+          const governanceReasons = validatePromptGovernanceValueRegistry(
+            spec,
+            governanceRegistry,
+            cohort,
+          );
+          if (governanceReasons.length > 0) {
+            throw new Error(`${spec.agent}: ${governanceReasons.join("; ")}`);
+          }
+          const renderedGovernance = renderPromptGovernanceValueRegistry(governanceRegistry);
+          const currentGovernance = existingGovernance
+            ? renderPromptGovernanceValueRegistry(existingGovernance)
+            : "";
+          if (renderedGovernance !== currentGovernance) {
+            changed.push(governancePath);
+            if (opts.write) {
+              await writePromptGovernanceValueRegistryFile(governancePath, governanceRegistry);
+            }
+          }
         }
-        const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
+        const knobs = buildRuntimeResearchKnobs(spec, {
+          domainRegistry: registry,
+          governanceRegistry,
+        });
         for (const language of ["zh", "en"] as const) {
           const path = promptPath({
             agent: spec.agent,
@@ -568,8 +609,26 @@ export function registerPrompts(program: Command): void {
         risk: "May understate confidence when missing-data flags are noisy.",
       };
       const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, mutation);
+      const mutationId = `KM-${Date.now()}`;
+      const governancePath = promptGovernanceValueRegistryPath({
+        privatePromptsRoot: opts.privatePromptsRoot,
+        cohort,
+        agent: spec.agent,
+      });
+      const governanceRegistry = await readPromptGovernanceValueRegistryFile(governancePath);
+      if (!governanceRegistry) {
+        throw new Error(`${opts.agent}: prompt governance registry is missing`);
+      }
+      updatePromptGovernanceRegistryFromProjection({
+        registry: governanceRegistry,
+        spec,
+        baseKnobs,
+        newKnobs: assembled.knobs,
+        mutation,
+        mutationId,
+      });
       const metadata = buildKnobMutationMetadata({
-        mutationId: `KM-${Date.now()}`,
+        mutationId,
         agent: opts.agent,
         cohort,
         baseKnobs,

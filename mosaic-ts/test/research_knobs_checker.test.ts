@@ -25,6 +25,11 @@ import {
 } from "../src/agents/prompts/domain_knob_registry.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import {
+  buildPromptGovernanceValueRegistry,
+  promptGovernanceValueRegistryPath,
+  renderPromptGovernanceValueRegistry,
+} from "../src/agents/prompts/prompt_governance_registry.js";
+import {
   buildPromptIrContract,
   promptIrPathForSpec,
   renderPromptIrContract,
@@ -849,6 +854,21 @@ describe("checkResearchKnobsPrompts", () => {
         recursive: true,
       });
       writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+      const governancePath = promptGovernanceValueRegistryPath({
+        privatePromptsRoot: promptsRoot,
+        cohort: "cohort_default",
+        agent: spec.agent,
+      });
+      mkdirSync(join(repo.root, "registry", "prompt_governance", "cohort_default"), {
+        recursive: true,
+      });
+      writeFileSync(
+        governancePath,
+        renderPromptGovernanceValueRegistry(
+          buildPromptGovernanceValueRegistry(spec, "cohort_default"),
+        ),
+        "utf-8",
+      );
       const promptIrPath = promptIrPathForSpec({ privatePromptsRoot: promptsRoot, spec });
       mkdirSync(join(repo.root, "prompt_ir"), { recursive: true });
       writeFileSync(promptIrPath, renderPromptIrContract(buildPromptIrContract(spec)), "utf-8");
@@ -903,6 +923,21 @@ describe("checkResearchKnobsPrompts", () => {
         recursive: true,
       });
       writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
+      const governancePath = promptGovernanceValueRegistryPath({
+        privatePromptsRoot: promptsRoot,
+        cohort: "cohort_default",
+        agent: spec.agent,
+      });
+      mkdirSync(join(repo.root, "registry", "prompt_governance", "cohort_default"), {
+        recursive: true,
+      });
+      writeFileSync(
+        governancePath,
+        renderPromptGovernanceValueRegistry(
+          buildPromptGovernanceValueRegistry(spec, "cohort_default"),
+        ),
+        "utf-8",
+      );
       const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
       for (const lang of ["zh", "en"] as const) {
         writePrompt(

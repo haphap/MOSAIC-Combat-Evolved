@@ -144,6 +144,12 @@ describe("runAutoresearchCycle", () => {
         zh: { old_sha256: `sha256:${"1".repeat(64)}`, new_sha256: `sha256:${"2".repeat(64)}` },
         en: { old_sha256: `sha256:${"3".repeat(64)}`, new_sha256: `sha256:${"4".repeat(64)}` },
       },
+      governance_registry_update: {
+        relative_path: "registry/prompt_governance/cohort_default/volatility.json",
+        content: '{"schema_version":"prompt_governance_values_v1"}\n',
+        old_sha256: `sha256:${"8".repeat(64)}`,
+        new_sha256: `sha256:${"9".repeat(64)}`,
+      },
     });
   });
 

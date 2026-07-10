@@ -176,6 +176,12 @@ async function executeKnobMutationTransaction(opts: {
   metadata: KnobMutationMetadata;
   coordinator: PromptMutationTransactionCoordinator;
 }> {
+  if (opts.metadata.mutation_kind === "generic_knob" && !opts.mutation.governance_registry_update) {
+    throw new Error("generic knob mutation requires authoritative governance write-back");
+  }
+  if (opts.metadata.mutation_kind === "domain_knob" && !opts.mutation.domain_registry_update) {
+    throw new Error("domain knob mutation requires authoritative domain write-back");
+  }
   const layer = LAYER_BY_AGENT[opts.agent];
   if (!layer) throw new Error(`unknown prompt agent: ${opts.agent}`);
   const promptBaseCommit = await privatePromptBaseCommit(
@@ -219,6 +225,18 @@ async function executeKnobMutationTransaction(opts: {
         mutation_id: opts.metadata.mutation_id,
         path: opts.mutation.domain_registry_update.relative_path,
         new_hash: opts.mutation.domain_registry_update.new_sha256,
+      }),
+    });
+  }
+  if (opts.mutation.governance_registry_update) {
+    files.push({
+      path: opts.mutation.governance_registry_update.relative_path,
+      old_hash: opts.mutation.governance_registry_update.old_sha256,
+      new_hash: opts.mutation.governance_registry_update.new_sha256,
+      staging_path_hash: stableJsonHash({
+        mutation_id: opts.metadata.mutation_id,
+        path: opts.mutation.governance_registry_update.relative_path,
+        new_hash: opts.mutation.governance_registry_update.new_sha256,
       }),
     });
   }
@@ -291,11 +309,21 @@ async function executeKnobMutationTransaction(opts: {
         agent: opts.agent,
         cohort: opts.cohort,
         contents: { zh: opts.mutation.zh_prompt, en: opts.mutation.en_prompt },
-        ...(opts.mutation.domain_registry_update
+        ...(opts.mutation.domain_registry_update || opts.mutation.governance_registry_update
           ? {
               extra_files: {
-                [opts.mutation.domain_registry_update.relative_path]:
-                  opts.mutation.domain_registry_update.content,
+                ...(opts.mutation.domain_registry_update
+                  ? {
+                      [opts.mutation.domain_registry_update.relative_path]:
+                        opts.mutation.domain_registry_update.content,
+                    }
+                  : {}),
+                ...(opts.mutation.governance_registry_update
+                  ? {
+                      [opts.mutation.governance_registry_update.relative_path]:
+                        opts.mutation.governance_registry_update.content,
+                    }
+                  : {}),
               },
             }
           : {}),

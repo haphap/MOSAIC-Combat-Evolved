@@ -5,6 +5,12 @@ import {
   type DomainKnobValueRegistry,
   domainKnobValueForCard,
 } from "./domain_knob_registry.js";
+import {
+  evidenceKeyForTool,
+  genericGovernanceTargetDefinitions,
+  type PromptGovernanceValueRegistry,
+  promptGovernanceValueForDefinition,
+} from "./prompt_governance_registry.js";
 import type { RuntimeAgentSpec } from "./runtime_agent_spec.js";
 
 const FENCE_RE = /```research-knobs\s*\n[\s\S]*?```/g;
@@ -27,9 +33,11 @@ const MUST_NOT_COVER_BY_LAYER = {
 
 export function buildRuntimeResearchKnobs(
   spec: RuntimeAgentSpec,
-  opts: { domainRegistry?: DomainKnobValueRegistry | null } = {},
+  opts: {
+    domainRegistry?: DomainKnobValueRegistry | null;
+    governanceRegistry?: PromptGovernanceValueRegistry | null;
+  } = {},
 ): ResearchKnobs {
-  const rulePackId = `${spec.layer}.${spec.agent}.runtime.v1`;
   const ruleId = canonicalRuntimeRuleId(spec);
   const nonRkeTools = spec.requiredTools.filter((tool) => tool !== "get_rke_research_context");
   const evidenceRegistry: ResearchKnobs["evidence_registry"] = {};
@@ -43,7 +51,17 @@ export function buildRuntimeResearchKnobs(
     nonRkeTools.length > 0
       ? nonRkeTools.map((tool) => evidenceKeyForTool(tool))
       : ["upstream_context"];
-  const unitWeight = weightedKeys.length > 0 ? 1 / weightedKeys.length : 0;
+  const genericDefinitions = genericGovernanceTargetDefinitions(spec);
+  const genericByEvidenceKey = new Map(
+    genericDefinitions.flatMap((definition) =>
+      definition.evidenceKey ? [[definition.evidenceKey, definition] as const] : [],
+    ),
+  );
+  const genericByConfidenceCap = new Map(
+    genericDefinitions.flatMap((definition) =>
+      definition.confidenceCapId ? [[definition.confidenceCapId, definition] as const] : [],
+    ),
+  );
 
   for (const tool of nonRkeTools) {
     const key = evidenceKeyForTool(tool);
@@ -54,14 +72,9 @@ export function buildRuntimeResearchKnobs(
       primary: key === weightedKeys[0],
       fallback_confidence_cap: 0.6,
     };
-    evidenceWeights[key] = unitWeight;
-    mutationTargets.push({
-      path: `/rule_packs/${rulePackId}/rules/${ruleId}/learnable_parameters/${key}_weight/value`,
-      type: "number",
-      min: 0,
-      max: 1,
-      step: 0.05,
-    });
+    const definition = genericByEvidenceKey.get(key);
+    if (!definition) throw new Error(`${spec.agent}: missing governance target for ${key}`);
+    evidenceWeights[key] = promptGovernanceValueForDefinition(definition, opts.governanceRegistry);
   }
 
   if (nonRkeTools.length === 0) {
@@ -71,14 +84,12 @@ export function buildRuntimeResearchKnobs(
       current_data: true,
       primary: true,
     };
-    evidenceWeights.upstream_context = 1;
-    mutationTargets.push({
-      path: `/rule_packs/${rulePackId}/rules/${ruleId}/learnable_parameters/upstream_context_weight/value`,
-      type: "number",
-      min: 0,
-      max: 1,
-      step: 0.05,
-    });
+    const definition = genericByEvidenceKey.get("upstream_context");
+    if (!definition) throw new Error(`${spec.agent}: missing upstream governance target`);
+    evidenceWeights.upstream_context = promptGovernanceValueForDefinition(
+      definition,
+      opts.governanceRegistry,
+    );
   }
 
   if (spec.layer === "decision") {
@@ -117,33 +128,28 @@ export function buildRuntimeResearchKnobs(
     .map(([key]) => key);
   const confidenceCaps: ResearchKnobs["confidence_caps"] = {
     missing_current_data: {
-      cap: 0.55,
+      cap: governanceConfidenceCap(
+        "missing_current_data",
+        genericByConfidenceCap,
+        opts.governanceRegistry,
+      ),
       trigger: "missing_required_evidence",
       enforcement: "code",
       required_evidence: requiredEvidence,
     },
     fallback_primary_tool: {
-      cap: 0.6,
+      cap: governanceConfidenceCap(
+        "fallback_primary_tool",
+        genericByConfidenceCap,
+        opts.governanceRegistry,
+      ),
       trigger: "primary_tool_failed_or_fallback",
       enforcement: "code",
       required_evidence: requiredEvidence,
     },
   };
 
-  mutationTargets.push({
-    path: `/rule_packs/${rulePackId}/rules/${ruleId}/confidence_policy/missing_current_data/cap`,
-    type: "number",
-    min: 0.25,
-    max: 0.75,
-    step: 0.05,
-  });
-  mutationTargets.push({
-    path: `/rule_packs/${rulePackId}/rules/${ruleId}/confidence_policy/fallback_primary_tool/cap`,
-    type: "number",
-    min: 0.25,
-    max: 0.75,
-    step: 0.05,
-  });
+  mutationTargets.push(...genericDefinitions.map((definition) => definition.target));
 
   const domainCards = domainKnobCardsForSpec(spec);
   for (const card of domainCards) {
@@ -342,15 +348,18 @@ export function upsertRuntimeEvidenceContract(
   return `${cleaned}\n\n${block}\n`;
 }
 
-function evidenceKeyForTool(tool: string): string {
-  return tool
-    .replace(/^get_/, "")
-    .replace(/[^a-zA-Z0-9]+/g, "_")
-    .replace(/_+$/g, "");
-}
-
 function metricForTool(tool: string): string {
   return `${evidenceKeyForTool(tool)}_current`;
+}
+
+function governanceConfidenceCap(
+  capId: string,
+  definitions: ReadonlyMap<string, ReturnType<typeof genericGovernanceTargetDefinitions>[number]>,
+  registry?: PromptGovernanceValueRegistry | null,
+): number {
+  const definition = definitions.get(capId);
+  if (!definition) throw new Error(`missing governance target for confidence cap ${capId}`);
+  return promptGovernanceValueForDefinition(definition, registry);
 }
 
 function primaryTargetVariable(spec: RuntimeAgentSpec): string {

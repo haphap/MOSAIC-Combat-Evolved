@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   parseResearchKnobsPrompt,
   type ResearchKnobs,
+  renderResearchKnobsFence,
 } from "../src/agents/helpers/research_knobs.js";
 import {
   applyDomainKnobValueToProjection,
@@ -14,6 +15,13 @@ import {
   replaceDomainKnobValueInProjection,
 } from "../src/agents/prompts/domain_knob_registry.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
+import {
+  buildPromptGovernanceValueRegistry,
+  promptGovernanceValueRegistryPath,
+  renderPromptGovernanceValueRegistry,
+  updatePromptGovernanceRegistryFromProjection,
+  validatePromptGovernanceValueRegistry,
+} from "../src/agents/prompts/prompt_governance_registry.js";
 import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 import type { KnobPatch } from "../src/autoresearch/mutator.js";
@@ -484,6 +492,9 @@ describe("knob mutation validation", () => {
         path: expect.stringContaining("/confidence_policy/missing_current_data/cap"),
         category: "generic",
         write_back_source: "prompt_ir_governance_registry",
+        write_back_repo_id: "MOSAIC-Prompts",
+        write_back_path: "registry/prompt_governance/cohort_default/central_bank.json",
+        write_back_json_pointer: expect.stringContaining("/values_by_path/~1rule_packs~1"),
         evaluation_metrics: expect.arrayContaining(["confidence_calibration_error"]),
       }),
     );
@@ -492,6 +503,7 @@ describe("knob mutation validation", () => {
         path: expect.stringContaining("/learnable_parameters/pboc_fed_policy_weight/value"),
         category: "domain",
         write_back_source: "domain_knob_value_registry",
+        write_back_path: "registry/domain_knobs/cohort_default/central_bank.json",
         domain_card_id: "pboc_fed_policy_weight",
         evaluation_metrics: expect.arrayContaining([
           "macro_signal_accuracy_5d",
@@ -506,6 +518,42 @@ describe("knob mutation validation", () => {
     for (const target of knobs.mutation_targets) {
       expect(registry.filter((entry) => entry.path === target.path)).toHaveLength(1);
     }
+  });
+
+  it("writes generic projection changes back to the physical governance registry", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const registry = buildPromptGovernanceValueRegistry(spec, "cohort_default");
+    const baseKnobs = buildRuntimeResearchKnobs(spec, { governanceRegistry: registry });
+    const mutation = knobMutation({
+      prediction_target: baseKnobs.prediction_targets[0]?.id ?? "macro.central_bank.soft.001",
+      knob_patches: [
+        {
+          path: baseKnobs.mutation_targets.find((target) =>
+            target.path.includes("/confidence_policy/missing_current_data/cap"),
+          )?.path as string,
+          old_value: 0.55,
+          new_value: 0.5,
+          rationale: "Tighten missing-data calibration.",
+          expected_effect: "Reduce unsupported high-confidence outputs.",
+        },
+      ],
+    });
+    const newKnobs = applyKnobPatchesToProjection(baseKnobs, mutation);
+
+    const result = updatePromptGovernanceRegistryFromProjection({
+      registry,
+      spec,
+      baseKnobs,
+      newKnobs,
+      mutation,
+      mutationId: "KM-generic-1",
+    });
+
+    expect(result.registry.last_mutation_id).toBe("KM-generic-1");
+    expect(result.registry.values_by_path[mutation.knob_patches[0]?.path ?? ""]).toBe(0.5);
+    expect(validatePromptGovernanceValueRegistry(spec, result.registry)).toEqual([]);
   });
 
   it("applies concrete learnable-parameter patches to a governance registry payload", () => {
@@ -1399,12 +1447,37 @@ function makeRoot(): FakeRoot {
 }
 
 function makeKnobsRoot(): FakeRoot {
-  const root = mkdtempSync(join(tmpdir(), "mosaic-knob-mutator-test-"));
+  const repoRoot = mkdtempSync(join(tmpdir(), "mosaic-knob-mutator-test-"));
+  const root = join(repoRoot, "prompts", "mosaic");
   const dir = join(root, "cohort_default", "macro");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "volatility.zh.md"), knobsFencePrompt("# zh body"), "utf-8");
-  writeFileSync(join(dir, "volatility.en.md"), knobsFencePrompt("# en body"), "utf-8");
-  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "volatility");
+  if (!spec) throw new Error("volatility runtime spec missing");
+  const knobs = buildRuntimeResearchKnobs(spec);
+  writeFileSync(
+    join(dir, "volatility.zh.md"),
+    `${renderResearchKnobsFence(knobs)}\n\n# zh body`,
+    "utf-8",
+  );
+  writeFileSync(
+    join(dir, "volatility.en.md"),
+    `${renderResearchKnobsFence(knobs)}\n\n# en body`,
+    "utf-8",
+  );
+  const governancePath = promptGovernanceValueRegistryPath({
+    privatePromptsRoot: root,
+    cohort: "cohort_default",
+    agent: spec.agent,
+  });
+  mkdirSync(join(repoRoot, "registry", "prompt_governance", "cohort_default"), {
+    recursive: true,
+  });
+  writeFileSync(
+    governancePath,
+    renderPromptGovernanceValueRegistry(buildPromptGovernanceValueRegistry(spec, "cohort_default")),
+    "utf-8",
+  );
+  return { root, cleanup: () => rmSync(repoRoot, { recursive: true, force: true }) };
 }
 
 function makeLegacyDecisionRoot(): FakeRoot {
@@ -1528,6 +1601,7 @@ describe("mutate", () => {
       cohort: "cohort_default",
       agent: "volatility",
       promptsRoot: fake.root,
+      mutationId: "KM-generic-test",
       fakeLlm: true,
       deps: { llm: llmReturning({}) as never, api: fakeApi() },
     });
@@ -1538,6 +1612,12 @@ describe("mutate", () => {
     expect(m.en_prompt).toContain("# en body");
     expect(m.zh_prompt).toContain("cap: 0.5");
     expect(m.en_prompt).toContain("cap: 0.5");
+    expect(m.governance_registry_update).toMatchObject({
+      relative_path: "registry/prompt_governance/cohort_default/volatility.json",
+    });
+    expect(m.governance_registry_update?.content).toContain(
+      '"last_mutation_id": "KM-generic-test"',
+    );
   });
 
   it("bootstraps legacy prompts before a fake-llm domain knob patch", async () => {

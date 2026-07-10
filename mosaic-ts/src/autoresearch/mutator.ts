@@ -58,6 +58,12 @@ import {
   writeDomainKnobValueRegistryFile,
 } from "../agents/prompts/domain_knob_registry.js";
 import { loadPrompt } from "../agents/prompts/loader.js";
+import {
+  promptGovernanceValueRegistryPath,
+  readPromptGovernanceValueRegistryFile,
+  renderPromptGovernanceValueRegistry,
+  updatePromptGovernanceRegistryFromProjection,
+} from "../agents/prompts/prompt_governance_registry.js";
 import { buildRuntimeResearchKnobs } from "../agents/prompts/research_knobs_projection.js";
 import { RUNTIME_AGENT_SPEC_BY_AGENT } from "../agents/prompts/runtime_agent_spec.js";
 import type { BridgeApi } from "../bridge/types.js";
@@ -285,6 +291,9 @@ export interface KnobTargetRegistryEntry {
   step?: number;
   allowed_values?: unknown[];
   write_back_source: "prompt_ir_governance_registry" | "domain_knob_value_registry";
+  write_back_repo_id: "MOSAIC-Prompts";
+  write_back_path: string;
+  write_back_json_pointer: string;
   evaluation_metrics: string[];
   horizons: string[];
   rollback_metrics: string[];
@@ -301,8 +310,13 @@ interface ResolvedKnobTargetRegistryEntry {
   allowedRollbackMetrics: ReadonlySet<string>;
 }
 
-export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistryEntry[] {
+export function buildKnobTargetRegistry(
+  knobs: ResearchKnobs,
+  cohort = "cohort_default",
+): KnobTargetRegistryEntry[] {
   const genericPolicy = genericTargetPolicy(knobs);
+  const agent = knobs.agent.split(".").at(-1);
+  if (!agent) throw new PromptInvariantError(`invalid research knobs agent: ${knobs.agent}`);
   return knobs.mutation_targets.map((target) => {
     const domainCard = domainKnobCardFromPath(target.path);
     if (domainCard) {
@@ -316,6 +330,9 @@ export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistr
         ...(target.step !== undefined ? { step: target.step } : {}),
         ...(target.allowed_values !== undefined ? { allowed_values: target.allowed_values } : {}),
         write_back_source: "domain_knob_value_registry",
+        write_back_repo_id: "MOSAIC-Prompts",
+        write_back_path: `registry/domain_knobs/${cohort}/${agent}.json`,
+        write_back_json_pointer: `/values_by_path/${escapeJsonPointer(target.path)}`,
         evaluation_metrics: metricClosure,
         horizons: [domainCard.horizon],
         rollback_metrics: metricClosure,
@@ -332,11 +349,18 @@ export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistr
       ...(target.step !== undefined ? { step: target.step } : {}),
       ...(target.allowed_values !== undefined ? { allowed_values: target.allowed_values } : {}),
       write_back_source: "prompt_ir_governance_registry",
+      write_back_repo_id: "MOSAIC-Prompts",
+      write_back_path: `registry/prompt_governance/${cohort}/${agent}.json`,
+      write_back_json_pointer: `/values_by_path/${escapeJsonPointer(target.path)}`,
       evaluation_metrics: [...genericPolicy.metrics].sort(),
       horizons: [...genericPolicy.horizons].sort(),
       rollback_metrics: [...genericPolicy.metrics].sort(),
     };
   });
+}
+
+function escapeJsonPointer(value: string): string {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
 export function validateKnobMutation(
@@ -1506,6 +1530,12 @@ export interface ResearchKnobPromptMutation extends Mutation {
     old_sha256: string;
     new_sha256: string;
   };
+  governance_registry_update?: {
+    relative_path: string;
+    content: string;
+    old_sha256: string;
+    new_sha256: string;
+  };
 }
 
 /** Deterministic rewrite for ``--fake-llm`` mode (Plan §11.5 4F decision). */
@@ -1692,7 +1722,9 @@ export async function mutateResearchKnobs(
   if (domainPaths.length > 0 && domainPaths.length !== knobMutation.knob_patches.length) {
     throw new PromptInvariantError("domain and generic knob paths cannot share one mutation");
   }
+  const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, knobMutation);
   let domainRegistryUpdate: ResearchKnobPromptMutation["domain_registry_update"];
+  let governanceRegistryUpdate: ResearchKnobPromptMutation["governance_registry_update"];
   if (domainPaths.length > 0) {
     if (!mutationId) {
       throw new PromptInvariantError("domain knob mutation requires a stable mutation_id");
@@ -1723,9 +1755,47 @@ export async function mutateResearchKnobs(
       old_sha256: hashText(oldContent),
       new_sha256: hashText(newContent),
     };
+  } else {
+    if (!mutationId) {
+      throw new PromptInvariantError("generic knob mutation requires a stable mutation_id");
+    }
+    const privatePromptsRoot = promptsRoot ?? findPrivatePromptsRoot();
+    if (!privatePromptsRoot) {
+      throw new PromptInvariantError(
+        "generic knob mutation requires a configured private prompt repo",
+      );
+    }
+    const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(agent);
+    if (!spec) throw new PromptInvariantError(`runtime agent spec missing for ${agent}`);
+    const registryPath = promptGovernanceValueRegistryPath({
+      privatePromptsRoot,
+      cohort,
+      agent,
+    });
+    const registry = await readPromptGovernanceValueRegistryFile(registryPath);
+    if (!registry) {
+      throw new PromptInvariantError(
+        `prompt governance registry is missing for ${cohort}/${agent}`,
+      );
+    }
+    const applied = updatePromptGovernanceRegistryFromProjection({
+      registry,
+      spec,
+      baseKnobs: zh.knobs,
+      newKnobs: assembled.knobs,
+      mutation: knobMutation,
+      mutationId,
+    });
+    const oldContent = renderPromptGovernanceValueRegistry(registry);
+    const newContent = renderPromptGovernanceValueRegistry(applied.registry);
+    governanceRegistryUpdate = {
+      relative_path: `registry/prompt_governance/${cohort}/${agent}.json`,
+      content: newContent,
+      old_sha256: hashText(oldContent),
+      new_sha256: hashText(newContent),
+    };
   }
 
-  const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, knobMutation);
   return {
     zh_prompt: assembled.zh_prompt,
     en_prompt: assembled.en_prompt,
@@ -1739,6 +1809,7 @@ export async function mutateResearchKnobs(
       en: { old_sha256: hashText(enPrompt), new_sha256: hashText(assembled.en_prompt) },
     },
     ...(domainRegistryUpdate ? { domain_registry_update: domainRegistryUpdate } : {}),
+    ...(governanceRegistryUpdate ? { governance_registry_update: governanceRegistryUpdate } : {}),
   };
 }
 

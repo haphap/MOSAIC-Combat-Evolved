@@ -27,6 +27,12 @@ import {
 } from "./domain_knob_registry.js";
 import { loadPromptWithKnobs } from "./loader.js";
 import {
+  type PromptGovernanceValueRegistry,
+  promptGovernanceValueRegistryPath,
+  readPromptGovernanceValueRegistryFile,
+  validatePromptGovernanceValueRegistry,
+} from "./prompt_governance_registry.js";
+import {
   promptIrPathForSpec,
   readPromptIrContractFile,
   validatePromptIrContractForSpec,
@@ -123,14 +129,17 @@ export async function checkResearchKnobsPrompts(opts: {
           noCache: true,
         });
         const registry = await loadDomainKnobRegistryForCheck(opts, spec);
+        const governance = await loadPromptGovernanceRegistryForCheck(opts, spec);
         const promptIr = await loadPromptIrForCheck(opts, spec);
         const semanticReasons = [
           ...registry.reasons,
+          ...governance.reasons,
           ...promptIr.reasons,
           ...validatePromptBodiesAgainstRuntimeSpec(loaded.bodies, spec, loaded.snapshot.knobs),
           ...validateLoadedKnobsAgainstRuntimeSpec(loaded.snapshot.knobs, spec, {
             cohort: opts.cohort,
             domainRegistry: registry.registry,
+            governanceRegistry: governance.registry,
           }),
         ];
         if (semanticReasons.length > 0) {
@@ -282,7 +291,11 @@ function hasPostRunDomainDependencies(knobs: ResearchKnobs): boolean {
 function validateLoadedKnobsAgainstRuntimeSpec(
   knobs: ResearchKnobs,
   spec: RuntimeAgentSpec,
-  opts: { cohort: string; domainRegistry?: DomainKnobValueRegistry | null },
+  opts: {
+    cohort: string;
+    domainRegistry?: DomainKnobValueRegistry | null;
+    governanceRegistry?: PromptGovernanceValueRegistry | null;
+  },
 ): string[] {
   const reasons: string[] = [];
   if (knobs.agent !== spec.promptIrAgentId) {
@@ -326,10 +339,18 @@ function validateLoadedKnobsAgainstRuntimeSpec(
   if (opts.domainRegistry) {
     reasons.push(...validateDomainKnobValueRegistry(spec, opts.domainRegistry, opts.cohort));
   }
+  if (opts.governanceRegistry) {
+    reasons.push(
+      ...validatePromptGovernanceValueRegistry(spec, opts.governanceRegistry, opts.cohort),
+    );
+  }
   reasons.push(...validateDomainKnobClosure(spec, knobs, { domainRegistry: opts.domainRegistry }));
   reasons.push(...validateCrossFieldInvariants(spec, knobs));
   reasons.push(...validateWeightGroupInvariants(spec, knobs));
-  const expected = buildRuntimeResearchKnobs(spec, { domainRegistry: opts.domainRegistry ?? null });
+  const expected = buildRuntimeResearchKnobs(spec, {
+    domainRegistry: opts.domainRegistry ?? null,
+    governanceRegistry: opts.governanceRegistry ?? null,
+  });
   const actualProjection = JSON.stringify(canonicalResearchKnobs(knobs));
   const expectedProjection = JSON.stringify(canonicalResearchKnobs(expected));
   if (actualProjection !== expectedProjection) {
@@ -372,6 +393,26 @@ async function loadDomainKnobRegistryForCheck(
   const registry = await readDomainKnobValueRegistryFile(path);
   if (!registry) {
     return { registry: null, reasons: [`domain_registry_missing:${path}`] };
+  }
+  return { registry, reasons: [] };
+}
+
+async function loadPromptGovernanceRegistryForCheck(
+  opts: {
+    cohort: string;
+    privatePromptsRoot?: string;
+  },
+  spec: RuntimeAgentSpec,
+): Promise<{ registry: PromptGovernanceValueRegistry | null; reasons: string[] }> {
+  if (!opts.privatePromptsRoot) return { registry: null, reasons: [] };
+  const path = promptGovernanceValueRegistryPath({
+    privatePromptsRoot: opts.privatePromptsRoot,
+    cohort: opts.cohort,
+    agent: spec.agent,
+  });
+  const registry = await readPromptGovernanceValueRegistryFile(path);
+  if (!registry) {
+    return { registry: null, reasons: [`prompt_governance_registry_missing:${path}`] };
   }
   return { registry, reasons: [] };
 }
