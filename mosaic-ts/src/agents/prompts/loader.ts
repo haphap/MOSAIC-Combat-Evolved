@@ -26,6 +26,7 @@ import {
   promptPathCandidates,
   resolvePromptPath,
 } from "./cohorts.js";
+import type { RuntimeAgentStageId } from "./runtime_agent_spec.js";
 
 export type LoaderLanguage = Language | "Bilingual";
 
@@ -172,6 +173,7 @@ export interface LoadPromptWithKnobsResult {
 export async function loadPromptWithKnobs(
   opts: Omit<LoadOptions, "language"> & {
     language?: "Bilingual";
+    stage?: RuntimeAgentStageId;
     runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
   },
 ): Promise<LoadPromptWithKnobsResult> {
@@ -183,6 +185,7 @@ export async function loadPromptWithKnobs(
     privateRoot,
     opts.cohort,
     opts.agent,
+    opts.stage ?? "legacy_unscoped",
     "ResearchKnobs",
     runtimeSourceStatusKey,
   ].join("|");
@@ -209,6 +212,7 @@ export async function loadPromptWithKnobs(
     agent: opts.agent,
     cohort: opts.cohort,
     knobs: zhParsed.knobs,
+    ...(opts.stage ? { stage: opts.stage } : {}),
     runtimeSourceStatuses: opts.runtimeSourceStatuses ?? [],
   });
   const prompt = [snapshot.visibleContract, "", zhParsed.body, "", "---", "", enParsed.body].join(

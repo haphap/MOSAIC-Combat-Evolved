@@ -82,6 +82,7 @@ interface CheckResearchKnobsOpts {
   promptsRoot?: string;
   privatePromptsRoot?: string;
   enabledAgents?: string;
+  enabledStages?: string;
   json?: boolean;
 }
 
@@ -310,6 +311,10 @@ export function registerPrompts(program: Command): void {
       "--enabled-agents <list>",
       "Comma-separated agent ids to fail-closed check; '*' checks all 25. Defaults to all agents for private prompts, otherwise MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS.",
     )
+    .option(
+      "--enabled-stages <list>",
+      "Comma-separated agent:stage ids; '*' checks all declared runtime stages.",
+    )
     .option("--json", "Print the full machine-readable report")
     .action(async (opts: CheckResearchKnobsOpts) => {
       const enabledAgents =
@@ -321,12 +326,22 @@ export function registerPrompts(program: Command): void {
                 .filter(Boolean),
             )
           : undefined;
+      const enabledAgentStages =
+        opts.enabledStages !== undefined
+          ? new Set(
+              opts.enabledStages
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          : undefined;
       try {
         const result = await checkResearchKnobsPrompts({
           cohort: opts.cohort ?? "cohort_default",
           ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
           ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
           ...(enabledAgents ? { enabledAgents } : {}),
+          ...(enabledAgentStages ? { enabledAgentStages } : {}),
         });
         if (opts.json) {
           console.log(JSON.stringify(result, null, 2));
@@ -335,7 +350,8 @@ export function registerPrompts(program: Command): void {
           console.log(
             color(
               `research-knobs ${result.ready ? "ready" : "blocked"} ` +
-                `enabled=${result.enabled_agents.length} legacy=${result.legacy_agents.length}`,
+                `enabled_stages=${result.enabled_agent_stages.length} ` +
+                `legacy_stages=${result.legacy_agent_stages.length}`,
             ),
           );
           for (const row of result.rows.filter(
@@ -343,7 +359,7 @@ export function registerPrompts(program: Command): void {
           )) {
             const marker = row.ready ? pc.green("ok") : row.enabled ? pc.red("no") : pc.dim("--");
             console.log(
-              `  ${marker} ${row.layer}/${row.agent} ${row.status}` +
+              `  ${marker} ${row.layer}/${row.agent}:${row.stage} ${row.status}` +
                 (row.snapshot_hash ? ` ${row.snapshot_hash.slice(0, 19)}` : ""),
             );
             for (const reason of row.reasons) {

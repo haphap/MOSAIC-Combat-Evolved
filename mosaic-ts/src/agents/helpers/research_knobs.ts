@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import YAML from "yaml";
 import { z } from "zod";
+import type { RuntimeAgentStageId, RuntimeDagStageId } from "../prompts/runtime_agent_spec.js";
 
 const SET_LIKE_LIST_KEYS = new Set([
   "allowed_outputs",
@@ -141,6 +142,7 @@ export interface ParsedResearchKnobsPrompt {
 export interface ResearchKnobsSnapshot {
   agent: string;
   cohort: string;
+  stage: RuntimeAgentStageId | "legacy_unscoped";
   hash: string;
   knobs: ResearchKnobs;
   consumptionSnapshot: KnobConsumptionSnapshot;
@@ -329,6 +331,31 @@ export function isResearchKnobsEnabled(
   return enabled.has("*") || enabled.has(agent);
 }
 
+export function researchKnobsEnabledAgentStages(
+  value = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES,
+  legacyAgentValue = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS,
+): ReadonlySet<string> {
+  const configured = value?.trim();
+  if (configured) {
+    return new Set(
+      configured
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    );
+  }
+  const legacy = researchKnobsEnabledAgents(legacyAgentValue);
+  return new Set([...legacy].map((agent) => (agent === "*" ? "*" : `${agent}:*`)));
+}
+
+export function isResearchKnobsStageEnabled(
+  agent: string,
+  stage: RuntimeAgentStageId,
+  enabled = researchKnobsEnabledAgentStages(),
+): boolean {
+  return enabled.has("*") || enabled.has(`${agent}:*`) || enabled.has(`${agent}:${stage}`);
+}
+
 export function parseResearchKnobsPrompt(text: string): ParsedResearchKnobsPrompt {
   const matches = [...text.matchAll(/```research-knobs\s*\n([\s\S]*?)```/g)];
   if (matches.length !== 1) {
@@ -396,6 +423,7 @@ export function buildResearchKnobsSnapshot(opts: {
   agent: string;
   cohort: string;
   knobs: ResearchKnobs;
+  stage?: RuntimeAgentStageId;
   runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
 }): ResearchKnobsSnapshot {
   const canonical = JSON.stringify(canonicalResearchKnobs(opts.knobs));
@@ -403,14 +431,21 @@ export function buildResearchKnobsSnapshot(opts: {
   const consumptionSnapshot = buildKnobConsumptionSnapshot(
     opts.knobs,
     opts.runtimeSourceStatuses ?? [],
+    opts.stage,
   );
   return {
     agent: opts.agent,
     cohort: opts.cohort,
+    stage: opts.stage ?? "legacy_unscoped",
     hash,
     knobs: opts.knobs,
     consumptionSnapshot,
-    visibleContract: renderVisibleResearchKnobsContract(opts.knobs, hash, consumptionSnapshot),
+    visibleContract: renderVisibleResearchKnobsContract(
+      opts.knobs,
+      hash,
+      consumptionSnapshot,
+      opts.stage,
+    ),
   };
 }
 
@@ -418,14 +453,26 @@ export function renderVisibleResearchKnobsContract(
   knobs: ResearchKnobs,
   hash: string,
   consumptionSnapshot = buildKnobConsumptionSnapshot(knobs, []),
+  stage?: RuntimeAgentStageId,
 ): string {
+  const domainCards = domainCardSummaries(knobs);
   const activeDomainPaths = new Set(consumptionSnapshot.active_knobs.map((knob) => knob.path));
-  const allDomainPaths = new Set(domainCardSummaries(knobs).map((card) => card.path));
+  const allDomainPaths = new Set(domainCards.map((card) => card.path));
+  const allDomainIds = new Set(domainCards.map((card) => card.id));
+  const stageDomainIds = new Set(
+    domainCards
+      .filter((card) => !stage || card.consumer_stages.includes(stage))
+      .map((card) => card.id),
+  );
   const visible = {
     schema_version: knobs.schema_version,
     knob_snapshot_hash: hash,
+    runtime_stage: stage ?? "legacy_unscoped",
     research_scope: knobs.research_scope,
-    prediction_targets: knobs.prediction_targets,
+    prediction_targets: knobs.prediction_targets.filter(
+      (target) =>
+        !allDomainIds.has(target.target_variable) || stageDomainIds.has(target.target_variable),
+    ),
     evidence_registry: knobs.evidence_registry,
     evidence_weights: visibleEvidenceWeights(knobs, consumptionSnapshot),
     lookbacks: visibleProjectionBucket(knobs, "lookbacks", consumptionSnapshot),
@@ -446,10 +493,13 @@ export function renderVisibleResearchKnobsContract(
 export function buildKnobConsumptionSnapshot(
   knobs: ResearchKnobs,
   runtimeSourceStatuses: ReadonlyArray<RuntimeSourceStatus>,
+  stage?: RuntimeAgentStageId,
 ): KnobConsumptionSnapshot {
   const active_knobs: ActiveKnobConsumption[] = [];
   const disabled_knobs: DisabledKnobConsumption[] = [];
-  for (const card of domainCardSummaries(knobs)) {
+  for (const card of domainCardSummaries(knobs).filter(
+    (candidate) => !stage || candidate.consumer_stages.includes(stage),
+  )) {
     const value = projectionValueForCard(knobs, card);
     const disabled = disabledReasonForCard(card, runtimeSourceStatuses);
     if (disabled) {
@@ -606,6 +656,8 @@ interface DomainCardSummary {
   path: string;
   projection_bucket: DomainProjectionBucket;
   default?: unknown;
+  owner_stage: RuntimeAgentStageId | "agent_run";
+  consumer_stages: RuntimeDagStageId[];
   runtime_input_sources: string[];
   runtime_input_source_policies: Record<
     string,
@@ -649,12 +701,18 @@ function domainCardSummaries(knobs: ResearchKnobs): DomainCardSummary[] {
           (source): source is string => typeof source === "string",
         )
       : [];
+    const ownerStage = isRuntimeAgentStage(record.owner_stage) ? record.owner_stage : "agent_run";
+    const consumerStages = Array.isArray(record.consumer_stages)
+      ? record.consumer_stages.filter(isRuntimeDagStage)
+      : [ownerStage];
     return [
       {
         id: record.id,
         path: record.path,
         projection_bucket: record.projection_bucket as DomainProjectionBucket,
         default: record.default,
+        owner_stage: ownerStage,
+        consumer_stages: consumerStages,
         runtime_input_sources: sources,
         runtime_input_source_policies: runtimeInputSourcePolicies(
           record.runtime_input_source_policies,
@@ -664,6 +722,32 @@ function domainCardSummaries(knobs: ResearchKnobs): DomainCardSummary[] {
       },
     ];
   });
+}
+
+function isRuntimeAgentStage(value: unknown): value is RuntimeAgentStageId {
+  return [
+    "agent_run",
+    "alpha_discovery",
+    "cio_proposal",
+    "cro_review",
+    "execution_feasibility",
+    "cio_final",
+  ].includes(String(value));
+}
+
+function isRuntimeDagStage(value: unknown): value is RuntimeDagStageId {
+  return [
+    "cycle_input",
+    "pre_stage_source_resolution",
+    "agent_run",
+    "alpha_discovery",
+    "cio_proposal",
+    "cro_review",
+    "execution_feasibility",
+    "cio_final",
+    "shared_validation",
+    "order_adapter",
+  ].includes(String(value));
 }
 
 function evidenceDependencies(value: unknown): DomainCardEvidenceDependency[] {

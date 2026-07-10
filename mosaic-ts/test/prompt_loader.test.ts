@@ -566,6 +566,7 @@ describe("loadPrompt", () => {
     const out = await loadPromptWithKnobs({
       agent: "central_bank",
       cohort: "cohort_default",
+      stage: "agent_run",
       promptsRoot: fake.root,
     });
 
@@ -574,6 +575,8 @@ describe("loadPrompt", () => {
     expect(out.prompt).toContain("EN body");
     expect(out.prompt).not.toContain("```research-knobs");
     expect(out.snapshot.knobs.evidence_weights.pboc_liquidity).toBe(1);
+    expect(out.snapshot.stage).toBe("agent_run");
+    expect(out.prompt).toContain('"runtime_stage": "agent_run"');
     expect(out.snapshot.hash).toMatch(/^sha256:/);
   });
 

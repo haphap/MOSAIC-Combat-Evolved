@@ -36,11 +36,14 @@ import {
   RUNTIME_AGENT_SPEC_BY_AGENT,
   RUNTIME_AGENT_SPECS,
   type RuntimeAgentSpec,
+  type RuntimeAgentStageId,
+  runtimeAgentStageKey,
 } from "./runtime_agent_spec.js";
 
 export interface ResearchKnobsCheckRow {
   agent: string;
   layer: Layer;
+  stage: RuntimeAgentStageId;
   status: "ready" | "failed" | "legacy";
   ready: boolean;
   enabled: boolean;
@@ -52,8 +55,11 @@ export interface ResearchKnobsCheckReport {
   schema_version: "research_knobs_prompt_check_v1";
   cohort: string;
   total_runtime_agents: number;
+  total_runtime_stages: number;
   enabled_agents: string[];
+  enabled_agent_stages: string[];
   legacy_agents: string[];
+  legacy_agent_stages: string[];
   ready: boolean;
   rows: ResearchKnobsCheckRow[];
 }
@@ -63,9 +69,11 @@ export async function checkResearchKnobsPrompts(opts: {
   promptsRoot?: string;
   privatePromptsRoot?: string;
   enabledAgents?: ReadonlySet<string>;
+  enabledAgentStages?: ReadonlySet<string>;
 }): Promise<ResearchKnobsCheckReport> {
   const enabled =
     opts.enabledAgents ?? (opts.privatePromptsRoot ? new Set(["*"]) : researchKnobsEnabledAgents());
+  const enabledStages = opts.enabledAgentStages;
   const rows: ResearchKnobsCheckRow[] = [];
   const runtimeAgents = new Set(RUNTIME_AGENT_SPECS.map((spec) => spec.agent));
   const manifestDrift = ALL_AGENTS.filter((agent) => !runtimeAgents.has(agent));
@@ -78,6 +86,7 @@ export async function checkResearchKnobsPrompts(opts: {
       rows.push({
         agent,
         layer,
+        stage: "agent_run",
         status: "failed",
         ready: false,
         enabled: true,
@@ -85,76 +94,94 @@ export async function checkResearchKnobsPrompts(opts: {
       });
       continue;
     }
-    const isEnabled = enabled.has("*") || enabled.has(agent);
-    if (!isEnabled) {
-      rows.push({
-        agent,
-        layer,
-        status: "legacy",
-        ready: false,
-        enabled: false,
-        reasons: ["agent_not_enabled_for_research_knobs"],
-      });
-      continue;
-    }
-    try {
-      const loaded = await loadPromptWithKnobs({
-        agent,
-        cohort: opts.cohort,
-        ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
-        ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
-        noCache: true,
-      });
-      const registry = await loadDomainKnobRegistryForCheck(opts, spec);
-      const promptIr = await loadPromptIrForCheck(opts, spec);
-      const semanticReasons = [
-        ...registry.reasons,
-        ...promptIr.reasons,
-        ...validatePromptBodiesAgainstRuntimeSpec(loaded.bodies, spec, loaded.snapshot.knobs),
-        ...validateLoadedKnobsAgainstRuntimeSpec(loaded.snapshot.knobs, spec, {
-          cohort: opts.cohort,
-          domainRegistry: registry.registry,
-        }),
-      ];
-      if (semanticReasons.length > 0) {
+    for (const stageSpec of spec.stages) {
+      const stageKey = runtimeAgentStageKey(agent, stageSpec.stage);
+      const isEnabled = enabledStages
+        ? enabledStages.has("*") || enabledStages.has(stageKey) || enabledStages.has(`${agent}:*`)
+        : enabled.has("*") || enabled.has(agent);
+      if (!isEnabled) {
         rows.push({
           agent,
           layer,
-          status: "failed",
+          stage: stageSpec.stage,
+          status: "legacy",
           ready: false,
-          enabled: true,
-          reasons: semanticReasons,
+          enabled: false,
+          reasons: ["agent_stage_not_enabled_for_research_knobs"],
         });
         continue;
       }
-      rows.push({
-        agent,
-        layer,
-        status: "ready",
-        ready: true,
-        enabled: true,
-        snapshot_hash: loaded.snapshot.hash,
-        reasons: [],
-      });
-    } catch (err) {
-      rows.push({
-        agent,
-        layer,
-        status: "failed",
-        ready: false,
-        enabled: true,
-        reasons: [(err as Error).message],
-      });
+      try {
+        const loaded = await loadPromptWithKnobs({
+          agent,
+          stage: stageSpec.stage,
+          cohort: opts.cohort,
+          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+          ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
+          noCache: true,
+        });
+        const registry = await loadDomainKnobRegistryForCheck(opts, spec);
+        const promptIr = await loadPromptIrForCheck(opts, spec);
+        const semanticReasons = [
+          ...registry.reasons,
+          ...promptIr.reasons,
+          ...validatePromptBodiesAgainstRuntimeSpec(loaded.bodies, spec, loaded.snapshot.knobs),
+          ...validateLoadedKnobsAgainstRuntimeSpec(loaded.snapshot.knobs, spec, {
+            cohort: opts.cohort,
+            domainRegistry: registry.registry,
+          }),
+        ];
+        if (semanticReasons.length > 0) {
+          rows.push({
+            agent,
+            layer,
+            stage: stageSpec.stage,
+            status: "failed",
+            ready: false,
+            enabled: true,
+            reasons: semanticReasons,
+          });
+          continue;
+        }
+        rows.push({
+          agent,
+          layer,
+          stage: stageSpec.stage,
+          status: "ready",
+          ready: true,
+          enabled: true,
+          snapshot_hash: loaded.snapshot.hash,
+          reasons: [],
+        });
+      } catch (err) {
+        rows.push({
+          agent,
+          layer,
+          stage: stageSpec.stage,
+          status: "failed",
+          ready: false,
+          enabled: true,
+          reasons: [(err as Error).message],
+        });
+      }
     }
   }
   const enabledRows = rows.filter((row) => row.enabled);
-  const legacyAgents = rows.filter((row) => !row.enabled).map((row) => row.agent);
+  const enabledAgentStages = enabledRows.map((row) => runtimeAgentStageKey(row.agent, row.stage));
+  const legacyRows = rows.filter((row) => !row.enabled);
+  const legacyAgentStages = legacyRows.map((row) => runtimeAgentStageKey(row.agent, row.stage));
   return {
     schema_version: "research_knobs_prompt_check_v1",
     cohort: opts.cohort,
     total_runtime_agents: ALL_AGENTS.length,
-    enabled_agents: enabledRows.map((row) => row.agent),
-    legacy_agents: legacyAgents,
+    total_runtime_stages: RUNTIME_AGENT_SPECS.reduce(
+      (count, spec) => count + spec.stages.length,
+      0,
+    ),
+    enabled_agents: [...new Set(enabledRows.map((row) => row.agent))],
+    enabled_agent_stages: enabledAgentStages,
+    legacy_agents: [...new Set(legacyRows.map((row) => row.agent))],
+    legacy_agent_stages: legacyAgentStages,
     ready:
       manifestDrift.length === 0 && enabledRows.length > 0 && enabledRows.every((row) => row.ready),
     rows,
@@ -192,6 +219,7 @@ async function collectOrphanPromptRows(opts: {
         rows.push({
           agent,
           layer,
+          stage: "agent_run",
           status: "failed",
           ready: false,
           enabled: true,

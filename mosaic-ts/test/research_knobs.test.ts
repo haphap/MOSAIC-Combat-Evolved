@@ -6,9 +6,11 @@ import {
   assertResearchKnobsParity,
   buildResearchKnobsSnapshot,
   canonicalResearchKnobs,
+  isResearchKnobsStageEnabled,
   parseResearchKnobsPrompt,
   type ResearchKnobs,
   ResearchKnobsSchema,
+  researchKnobsEnabledAgentStages,
 } from "../src/agents/helpers/research_knobs.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../src/agents/helpers/runtime_sources.js";
 import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
@@ -73,6 +75,19 @@ function knobs(): ResearchKnobs {
 }
 
 describe("research knob cap enforcement", () => {
+  it("uses agent-stage enablement with an explicit legacy migration path", () => {
+    const explicit = researchKnobsEnabledAgentStages(
+      "cio:cio_proposal,cro:cro_review",
+      "ignored_legacy_agent",
+    );
+    expect(isResearchKnobsStageEnabled("cio", "cio_proposal", explicit)).toBe(true);
+    expect(isResearchKnobsStageEnabled("cio", "cio_final", explicit)).toBe(false);
+
+    const migrated = researchKnobsEnabledAgentStages(undefined, "cio,central_bank");
+    expect(isResearchKnobsStageEnabled("cio", "cio_final", migrated)).toBe(true);
+    expect(isResearchKnobsStageEnabled("central_bank", "agent_run", migrated)).toBe(true);
+  });
+
   it("rejects extra fields in the prompt projection schema", () => {
     const text = `\`\`\`research-knobs
 research-knobs:
@@ -322,6 +337,61 @@ research-knobs:
     expect(active.consumptionSnapshot.disabled_knobs).toHaveLength(0);
     expect(active.visibleContract).toContain('"min_confidence_to_add"');
     expect(active.visibleContract).toContain('"active_knobs"');
+  });
+
+  it("filters CIO cards by explicit proposal and final stages", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const knobs = buildRuntimeResearchKnobs(spec);
+    const proposal = buildResearchKnobsSnapshot({
+      agent: "cio",
+      cohort: "cohort_default",
+      stage: "cio_proposal",
+      knobs,
+      runtimeSourceStatuses: [
+        { source_id: "current_position_snapshot", scope: "account:paper", status: "loaded" },
+        { source_id: "current_market_data", scope: "ticker:600519.SH", status: "loaded" },
+        { source_id: "previous_target_state", scope: "account:paper", status: "loaded" },
+        { source_id: "upstream_agent_outputs", scope: "agent:macro", status: "loaded" },
+        { source_id: "position_thesis_state", scope: "ticker:600519.SH", status: "loaded" },
+      ],
+    });
+    const final = buildResearchKnobsSnapshot({
+      agent: "cio",
+      cohort: "cohort_default",
+      stage: "cio_final",
+      knobs,
+      runtimeSourceStatuses: [
+        { source_id: "current_position_snapshot", scope: "account:paper", status: "loaded" },
+        { source_id: "current_market_data", scope: "ticker:600519.SH", status: "loaded" },
+        { source_id: "candidate_target_state", scope: "run:test", status: "loaded" },
+        { source_id: "cro_review_state", scope: "run:test", status: "loaded" },
+        { source_id: "execution_feasibility_state", scope: "run:test", status: "loaded" },
+        { source_id: "mirofish_context", scope: "context:test", status: "loaded" },
+      ],
+    });
+
+    expect(proposal.stage).toBe("cio_proposal");
+    expect(proposal.consumptionSnapshot.active_knobs.map((card) => card.card_id)).toEqual(
+      expect.arrayContaining([
+        "stale_thesis_days",
+        "rebalance_drift_pct",
+        "min_confidence_to_add",
+        "min_confidence_to_hold",
+      ]),
+    );
+    expect(proposal.visibleContract).not.toContain('"mirofish_portfolio_stress_weight"');
+    expect(final.stage).toBe("cio_final");
+    expect(final.consumptionSnapshot.active_knobs.map((card) => card.card_id)).toEqual(
+      expect.arrayContaining([
+        "mirofish_portfolio_stress_weight",
+        "mirofish_exit_regret_penalty",
+        "mirofish_min_scenario_agreement_to_add",
+        "mirofish_override_hurdle",
+      ]),
+    );
+    expect(final.visibleContract).not.toContain('"min_confidence_to_add"');
   });
 
   it("disables drift knobs when previous target state is empty-confirmed", () => {

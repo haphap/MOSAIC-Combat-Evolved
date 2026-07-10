@@ -161,8 +161,11 @@ describe("checkResearchKnobsPrompts", () => {
 
     expect(report.ready).toBe(true);
     expect(report.total_runtime_agents).toBe(25);
+    expect(report.total_runtime_stages).toBe(26);
     expect(report.enabled_agents).toEqual(["central_bank"]);
+    expect(report.enabled_agent_stages).toEqual(["central_bank:agent_run"]);
     expect(report.legacy_agents).toHaveLength(24);
+    expect(report.legacy_agent_stages).toHaveLength(25);
     const row = report.rows.find((item) => item.agent === "central_bank");
     expect(row?.status).toBe("ready");
     expect(row?.snapshot_hash).toMatch(/^sha256:/);
@@ -185,6 +188,34 @@ describe("checkResearchKnobsPrompts", () => {
     const row = report.rows.find((item) => item.agent === "central_bank");
     expect(row?.status).toBe("failed");
     expect(row?.reasons.join("\n")).toContain("expected exactly one research-knobs fence");
+  });
+
+  it("supports an explicit per-stage enablement gate for multi-stage CIO", async () => {
+    const spec = specForAgent("cio");
+    const knobs = buildRuntimeResearchKnobs(spec);
+    for (const lang of ["zh", "en"] as const) {
+      writePrompt(
+        fake.root,
+        spec.agent,
+        spec.layer,
+        lang,
+        upsertResearchKnobsFence(promptBodyForSpec(spec, lang), knobs),
+      );
+    }
+
+    const report = await checkResearchKnobsPrompts({
+      cohort: "cohort_default",
+      promptsRoot: fake.root,
+      enabledAgentStages: new Set(["cio:cio_proposal"]),
+    });
+
+    expect(report.ready).toBe(true);
+    expect(report.enabled_agents).toEqual(["cio"]);
+    expect(report.enabled_agent_stages).toEqual(["cio:cio_proposal"]);
+    expect(report.legacy_agent_stages).toContain("cio:cio_final");
+    expect(
+      report.rows.find((row) => row.agent === "cio" && row.stage === "cio_proposal")?.status,
+    ).toBe("ready");
   });
 
   it("fails when prompt prose omits a required runtime tool", async () => {
@@ -349,7 +380,9 @@ describe("checkResearchKnobsPrompts", () => {
 
     expect(report.ready).toBe(true);
     expect(report.enabled_agents).toHaveLength(25);
+    expect(report.enabled_agent_stages).toHaveLength(26);
     expect(report.legacy_agents).toEqual([]);
+    expect(report.legacy_agent_stages).toEqual([]);
     const cioSpec = RUNTIME_AGENT_SPECS.find((spec) => spec.agent === "cio");
     expect(cioSpec).toBeDefined();
     if (!cioSpec) return;
