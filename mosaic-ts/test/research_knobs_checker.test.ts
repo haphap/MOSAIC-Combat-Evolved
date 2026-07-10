@@ -121,6 +121,9 @@ function promptBodyForSpec(spec: RuntimeAgentSpec, lang: "zh" | "en"): string {
     "",
     "## Output Schema",
     ...spec.fieldNames.map((field) => `- ${field}`),
+    ...(spec.fieldNames.includes("claims")
+      ? ["- claim_refs", "- evidence_refs", "- research_rule_refs"]
+      : []),
     "- declared_knob_influence_ids",
     "- declared_influence_rationale",
   ].join("\n");
@@ -302,6 +305,34 @@ describe("checkResearchKnobsPrompts", () => {
     expect(report.rows.find((item) => item.agent === "central_bank")?.reasons).toContain(
       "knob_influence_field_missing_from_prompt_body:declared_knob_influence_ids",
     );
+  });
+
+  it("fails evidence-enabled decision prompts without per-output claim refs", async () => {
+    const spec = specForAgent("cio");
+    const knobs = buildRuntimeResearchKnobs(spec);
+    for (const lang of ["zh", "en"] as const) {
+      writePrompt(
+        fake.root,
+        spec.agent,
+        spec.layer,
+        lang,
+        upsertResearchKnobsFence(
+          promptBodyForSpec(spec, lang).replace("- claim_refs\n", ""),
+          knobs,
+        ),
+      );
+    }
+
+    const report = await checkResearchKnobsPrompts({
+      cohort: "cohort_default",
+      promptsRoot: fake.root,
+      enabledAgentStages: new Set(["cio:cio_proposal"]),
+    });
+
+    expect(report.ready).toBe(false);
+    expect(
+      report.rows.find((item) => item.agent === "cio" && item.stage === "cio_proposal")?.reasons,
+    ).toContain("formal_evidence_field_missing_from_prompt_body:claim_refs");
   });
 
   it("fails stale projections that no longer match generated runtime knobs", async () => {

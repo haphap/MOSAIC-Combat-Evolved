@@ -32,6 +32,7 @@ export function emptyLayer4RuntimeState(): Layer4RuntimeState {
     final_target_state: null,
     cio_final_knob_snapshot: null,
     resolved_source_statuses: [],
+    source_evidence_observations: [],
     stage_trace: [],
   };
 }

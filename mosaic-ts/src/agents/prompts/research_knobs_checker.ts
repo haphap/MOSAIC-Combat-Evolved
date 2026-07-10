@@ -248,6 +248,13 @@ function validatePromptBodiesAgainstRuntimeSpec(
       reasons.push(`output_schema_field_missing_from_prompt_body:${field}`);
     }
   }
+  if (spec.fieldNames.includes("claims")) {
+    for (const field of ["claim_refs", "evidence_refs", "research_rule_refs"]) {
+      if (!combined.includes(field)) {
+        reasons.push(`formal_evidence_field_missing_from_prompt_body:${field}`);
+      }
+    }
+  }
   if (hasPostRunDomainDependencies(knobs)) {
     for (const field of ["declared_knob_influence_ids", "declared_influence_rationale"]) {
       if (!combined.includes(field)) {

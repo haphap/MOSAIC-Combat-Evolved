@@ -55,7 +55,10 @@ import {
   PositionActionValidationError,
   validateCioPositionActions,
 } from "../src/agents/decision/position_validator.js";
-import { buildResearchKnobsSnapshot } from "../src/agents/helpers/research_knobs.js";
+import {
+  buildResearchKnobsSnapshot,
+  renderResearchKnobsFence,
+} from "../src/agents/helpers/research_knobs.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
@@ -100,6 +103,7 @@ describe("each Layer-4 spec wires correct fields", () => {
       "correlated_risks",
       "black_swan_scenarios",
       "confidence",
+      "claims",
     ]);
     expect(croSpec.requiredTools).toContain("get_rke_research_context");
   });
@@ -107,14 +111,14 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(alphaDiscoverySpec.agentId).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.runtimeStage).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.stateUpdateField).toBe("alpha_discovery");
-    expect(alphaDiscoverySpec.fieldNames).toEqual(["novel_picks", "confidence"]);
+    expect(alphaDiscoverySpec.fieldNames).toEqual(["novel_picks", "confidence", "claims"]);
     expect(alphaDiscoverySpec.requiredTools).toContain("get_rke_research_context");
   });
   it("autonomous_execution", () => {
     expect(autonomousExecutionSpec.agentId).toBe("autonomous_execution");
     expect(autonomousExecutionSpec.runtimeStage).toBe("execution_feasibility");
     expect(autonomousExecutionSpec.stateUpdateField).toBe("autonomous_execution");
-    expect(autonomousExecutionSpec.fieldNames).toEqual(["trades", "confidence"]);
+    expect(autonomousExecutionSpec.fieldNames).toEqual(["trades", "confidence", "claims"]);
     expect(autonomousExecutionSpec.requiredTools).toContain("get_rke_research_context");
   });
   it("cio", () => {
@@ -122,7 +126,7 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(cioProposalSpec.runtimeStage).toBe("cio_proposal");
     expect(cioSpec.runtimeStage).toBe("cio_final");
     expect(cioSpec.stateUpdateField).toBe("cio");
-    expect(cioSpec.fieldNames).toEqual(["portfolio_actions", "confidence"]);
+    expect(cioSpec.fieldNames).toEqual(["portfolio_actions", "confidence", "claims"]);
     expect(cioSpec.requiredTools).toContain("get_rke_research_context");
   });
 });
@@ -1759,6 +1763,127 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     });
     expect(llm.invokeCalls).toBe(2);
     expect(llm.structuredCalls).toBe(1);
+  });
+
+  it("passes runtime evidence ids to extraction and verifies action claim refs", async () => {
+    const previousEnabled = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES;
+    process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES = "cio:cio_proposal";
+    try {
+      const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get("cio");
+      expect(spec).toBeDefined();
+      if (!spec) return;
+      const prompt = `FAKE-CIO\n\n${renderResearchKnobsFence(buildRuntimeResearchKnobs(spec))}`;
+      const dir = join(promptDir, "cohort_default", "decision");
+      writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
+      writeFileSync(join(dir, "cio.en.md"), prompt, "utf-8");
+      clearPromptCache();
+
+      class EvidenceAwareLlm {
+        invokeCalls = 0;
+        structuredCalls = 0;
+        async invoke(): Promise<AIMessage> {
+          this.invokeCalls++;
+          return new AIMessage("Hold the existing position on current account evidence.");
+        }
+        withStructuredOutput(): { invoke: (messages: BaseMessage[]) => Promise<CioOutput> } {
+          return {
+            invoke: async (messages) => {
+              this.structuredCalls++;
+              const text = messages.map((message) => String(message.content)).join("\n");
+              const evidenceId = text.match(
+                /"evidence_id": "(evidence:[0-9a-f]{64})"[\s\S]{0,300}"tool_or_source": "current_position_snapshot"/,
+              )?.[1];
+              expect(evidenceId).toBeDefined();
+              expect(text).toContain("decision.cio.policy.001");
+              return {
+                agent: "cio",
+                portfolio_actions: [
+                  {
+                    ticker: "600519.SH",
+                    action: "HOLD",
+                    position_decision: "HOLD",
+                    current_weight: 0.1,
+                    target_weight: 0.1,
+                    delta_weight: 0,
+                    holding_period: "1M",
+                    position_decision_reason: "Current position evidence remains valid.",
+                    dissent_notes: "",
+                    claim_refs: ["claim-hold"],
+                  },
+                ],
+                confidence: 0.6,
+                claims: [
+                  {
+                    claim_id: "claim-hold",
+                    claim_type: "inference",
+                    statement: "Keep the existing target unchanged.",
+                    structured_conclusion: { decision: "HOLD" },
+                    evidence_refs: [evidenceId ?? "missing"],
+                    research_rule_refs: ["decision.cio.policy.001"],
+                  },
+                ],
+              };
+            },
+          };
+        }
+      }
+
+      const llm = new EvidenceAwareLlm();
+      const sample = baseState();
+      sample.trace_id = "claim-run";
+      sample.current_positions = loadedPositions([heldPosition]);
+      const runtime = emptyLayer4RuntimeState();
+      runtime.resolved_source_statuses = [
+        {
+          source_id: "current_market_data",
+          scope: "ticker:600519.SH",
+          status: "loaded",
+          as_of: sample.as_of_date,
+          snapshot_hash: `sha256:${"4".repeat(64)}`,
+          adapter_id: "market.scoped_snapshot_adapter.v1",
+        },
+      ];
+      sample.layer4_outputs = {
+        ...sample.layer4_outputs,
+        runtime,
+        previous_target_state: missingPreviousTargetState(),
+      };
+      const handle: LlmHandle = {
+        llm: llm as unknown as LlmHandle["llm"],
+        provider: "fake",
+        model: "fake-model",
+        baseUrl: undefined,
+      };
+
+      const update = await buildCioProposalNode({
+        llmHandle: handle,
+        config: testConfig(),
+        promptsRoot: promptDir,
+      })(sample);
+      const proposal = (update.layer4_outputs as Partial<Layer4Outputs> | undefined)?.runtime
+        ?.cio_proposal;
+
+      expect(proposal?.verified_claim_audit).toEqual({
+        raw_output_accepted: true,
+        rejection_reasons: [],
+      });
+      expect(proposal?.verified_claim_graph?.recommendation_claim_refs).toEqual([
+        {
+          output_id: "portfolio_action:0:600519.SH",
+          output_type: "portfolio_action",
+          claim_refs: ["claim-hold"],
+        },
+      ]);
+      expect(llm.invokeCalls).toBe(1);
+      expect(llm.structuredCalls).toBe(1);
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES;
+      } else {
+        process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES = previousEnabled;
+      }
+      clearPromptCache();
+    }
   });
 });
 

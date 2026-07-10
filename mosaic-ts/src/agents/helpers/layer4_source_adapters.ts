@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { BridgeApi } from "../../bridge/index.js";
 import type { DailyCycleStateType } from "../state.js";
-import type { RuntimeSourceStatus } from "./research_knobs.js";
+import type { RuntimeSourceEvidenceObservation, RuntimeSourceStatus } from "./research_knobs.js";
 
 export type Layer4SourceResolutionStage =
   | "pre_candidate"
@@ -11,11 +11,24 @@ export type Layer4SourceResolutionStage =
 const MARKET_ADAPTER_ID = "market.scoped_snapshot_adapter.v1";
 const LIQUIDITY_ADAPTER_ID = "execution.liquidity_adapter.v1";
 
+export interface Layer4SourceResolutionBundle {
+  statuses: RuntimeSourceStatus[];
+  evidence: RuntimeSourceEvidenceObservation[];
+}
+
 export async function resolveLayer4SourceStatuses(
   state: DailyCycleStateType,
   stage: Layer4SourceResolutionStage,
   api?: Pick<BridgeApi, "toolsCall">,
 ): Promise<RuntimeSourceStatus[]> {
+  return (await resolveLayer4SourceBundle(state, stage, api)).statuses;
+}
+
+export async function resolveLayer4SourceBundle(
+  state: DailyCycleStateType,
+  stage: Layer4SourceResolutionStage,
+  api?: Pick<BridgeApi, "toolsCall">,
+): Promise<Layer4SourceResolutionBundle> {
   const asOf = state.as_of_date || new Date().toISOString().slice(0, 10);
   const sourceId =
     stage === "execution_liquidity" ? "execution_liquidity_state" : "current_market_data";
@@ -36,7 +49,16 @@ export async function resolveLayer4SourceStatuses(
   const additions = await mapWithConcurrency(unresolved, 4, (ticker) =>
     resolveTickerSource({ api, state, ticker, asOf, sourceId, adapterId, stage }),
   );
-  return mergeRuntimeSourceStatuses(existing, additions);
+  return {
+    statuses: mergeRuntimeSourceStatuses(
+      existing,
+      additions.map((addition) => addition.status),
+    ),
+    evidence: mergeRuntimeSourceEvidence(
+      state.layer4_outputs?.runtime?.source_evidence_observations ?? [],
+      additions.flatMap((addition) => (addition.evidence ? [addition.evidence] : [])),
+    ),
+  };
 }
 
 export function mergeRuntimeSourceStatuses(
@@ -47,6 +69,17 @@ export function mergeRuntimeSourceStatuses(
   for (const status of additions) merged.set(statusKey(status), status);
   return [...merged.values()].sort((left, right) =>
     statusKey(left).localeCompare(statusKey(right)),
+  );
+}
+
+export function mergeRuntimeSourceEvidence(
+  current: ReadonlyArray<RuntimeSourceEvidenceObservation>,
+  additions: ReadonlyArray<RuntimeSourceEvidenceObservation>,
+): RuntimeSourceEvidenceObservation[] {
+  const merged = new Map(current.map((entry) => [evidenceKey(entry), entry]));
+  for (const entry of additions) merged.set(evidenceKey(entry), entry);
+  return [...merged.values()].sort((left, right) =>
+    evidenceKey(left).localeCompare(evidenceKey(right)),
   );
 }
 
@@ -84,7 +117,10 @@ async function resolveTickerSource(opts: {
   sourceId: string;
   adapterId: string;
   stage: Layer4SourceResolutionStage;
-}): Promise<RuntimeSourceStatus> {
+}): Promise<{
+  status: RuntimeSourceStatus;
+  evidence: RuntimeSourceEvidenceObservation | null;
+}> {
   const common = {
     source_id: opts.sourceId,
     scope: `ticker:${opts.ticker}`,
@@ -95,9 +131,12 @@ async function resolveTickerSource(opts: {
   } satisfies Partial<RuntimeSourceStatus> & Pick<RuntimeSourceStatus, "source_id" | "scope">;
   if (!opts.api) {
     return {
-      ...common,
-      status: "source_error",
-      error_code: `${opts.sourceId}_adapter_unavailable`,
+      status: {
+        ...common,
+        status: "source_error",
+        error_code: `${opts.sourceId}_adapter_unavailable`,
+      },
+      evidence: null,
     };
   }
   const args = {
@@ -115,14 +154,28 @@ async function resolveTickerSource(opts: {
     );
     const text = result.text.trim();
     if (text.length === 0 || /(?:no data|no rows|not found|empty result|无数据)/i.test(text)) {
-      return { ...common, status: "missing", error_code: `${opts.sourceId}_empty_result` };
+      return {
+        status: { ...common, status: "missing", error_code: `${opts.sourceId}_empty_result` },
+        evidence: null,
+      };
     }
-    const observedAsOf = latestObservedDate(text);
-    if (!observedAsOf) {
-      return { ...common, status: "source_error", error_code: `${opts.sourceId}_date_unparseable` };
+    const normalized = parseLatestMarketRecord(text);
+    if (!normalized) {
+      return {
+        status: {
+          ...common,
+          status: "source_error",
+          error_code: `${opts.sourceId}_schema_unparseable`,
+        },
+        evidence: null,
+      };
     }
+    const observedAsOf = normalized.asOf;
     if (observedAsOf > opts.asOf) {
-      return { ...common, status: "source_error", error_code: `${opts.sourceId}_lookahead` };
+      return {
+        status: { ...common, status: "source_error", error_code: `${opts.sourceId}_lookahead` },
+        evidence: null,
+      };
     }
     const snapshot_hash = stableHash({
       adapter_id: opts.adapterId,
@@ -130,30 +183,113 @@ async function resolveTickerSource(opts: {
       observed_as_of: observedAsOf,
       response_hash: stableHash(text),
     });
-    if (observedAsOf !== opts.asOf) {
-      return {
-        ...common,
-        status: "stale",
+    const stale = observedAsOf !== opts.asOf;
+    const status: RuntimeSourceStatus = stale
+      ? {
+          ...common,
+          status: "stale",
+          as_of: observedAsOf,
+          snapshot_hash,
+          error_code: `${opts.sourceId}_not_current_for_run_date`,
+        }
+      : { ...common, status: "loaded", as_of: observedAsOf, snapshot_hash };
+    return {
+      status,
+      evidence: {
+        source_id: opts.sourceId,
+        scope: `ticker:${opts.ticker}`,
+        metric: opts.sourceId,
+        value: normalized.value,
+        unit: "market_record",
         as_of: observedAsOf,
-        snapshot_hash,
-        error_code: `${opts.sourceId}_not_current_for_run_date`,
-      };
-    }
-    return { ...common, status: "loaded", as_of: observedAsOf, snapshot_hash };
+        lookback: "10d",
+        freshness: stale ? "stale" : "current",
+        source_fingerprint: snapshot_hash,
+        direction: "ambiguous",
+        privacy_class: "private_runtime",
+        adapter_id: opts.adapterId,
+        adapter_version: "1",
+      },
+    };
   } catch {
-    return { ...common, status: "source_error", error_code: `${opts.sourceId}_tool_failed` };
+    return {
+      status: { ...common, status: "source_error", error_code: `${opts.sourceId}_tool_failed` },
+      evidence: null,
+    };
   }
 }
 
-function latestObservedDate(text: string): string | null {
-  const dates = [
-    ...text.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g),
-    ...text.matchAll(/\b(\d{4})(\d{2})(\d{2})\b/g),
-  ]
-    .map((match) => `${match[1]}-${match[2]}-${match[3]}`)
-    .filter((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)))
-    .sort();
-  return dates.at(-1) ?? null;
+export function parseLatestMarketRecord(
+  text: string,
+): { asOf: string; value: Record<string, string | number | null> } | null {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let headerIndex = 0; headerIndex < lines.length; headerIndex++) {
+    const header = parseCsvLine(lines[headerIndex] ?? "");
+    const dateIndex = header.findIndex((field) =>
+      ["date", "trade_date", "datetime", "timestamp"].includes(field.trim().toLowerCase()),
+    );
+    if (dateIndex < 0) continue;
+    const records = lines
+      .slice(headerIndex + 1)
+      .map((line) => parseCsvLine(line))
+      .filter((row) => row.length === header.length)
+      .flatMap((row) => {
+        const asOf = normalizeObservedDate(row[dateIndex] ?? "");
+        if (!asOf) return [];
+        const value = Object.fromEntries(
+          header.map((field, index) => [field.trim(), parseScalar(row[index] ?? "")]),
+        );
+        return [{ asOf, value }];
+      })
+      .sort((left, right) => left.asOf.localeCompare(right.asOf));
+    return records.at(-1) ?? null;
+  }
+  return null;
+}
+
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (char === '"') {
+      if (quoted && line[index + 1] === '"') {
+        current += '"';
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === "," && !quoted) {
+      fields.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
+function normalizeObservedDate(value: string): string | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+  if (!match) return null;
+  const normalized = `${match[1]}-${match[2]}-${match[3]}`;
+  return Number.isNaN(Date.parse(`${normalized}T00:00:00Z`)) ? null : normalized;
+}
+
+function parseScalar(value: string): string | number | null {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  if (/^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return trimmed;
 }
 
 function shiftIsoDate(value: string, days: number): string {
@@ -168,6 +304,12 @@ function uniqueTickers(tickers: ReadonlyArray<string>): string[] {
 
 function statusKey(status: Pick<RuntimeSourceStatus, "source_id" | "scope">): string {
   return `${status.source_id}\u0000${status.scope}`;
+}
+
+function evidenceKey(
+  evidence: Pick<RuntimeSourceEvidenceObservation, "source_id" | "scope" | "metric">,
+): string {
+  return `${evidence.source_id}\u0000${evidence.scope}\u0000${evidence.metric}`;
 }
 
 function stableHash(value: unknown): string {

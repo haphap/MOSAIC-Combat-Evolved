@@ -20,13 +20,28 @@
  * ``agents/<layer>/<agent>.ts``.
  */
 
-import type { ResearchKnobsSnapshot, RuntimeSourceStatus } from "./helpers/research_knobs.js";
+import type { ClaimEvidenceGraph, LlmResearchClaim } from "./evidence_contract.js";
+import type {
+  ResearchKnobsSnapshot,
+  RuntimeSourceEvidenceObservation,
+  RuntimeSourceStatus,
+} from "./helpers/research_knobs.js";
 
 // ============================================================ Layer 1: Macro
 
 export interface KnobInfluenceDeclaration {
   declared_knob_influence_ids?: string[] | undefined;
   declared_influence_rationale?: string | undefined;
+  claims?: LlmResearchClaim[] | undefined;
+  /** Runtime-owned fields, ignored by legacy consumers. */
+  verified_claim_graph?: ClaimEvidenceGraph | undefined;
+  verified_claim_audit?:
+    | {
+        raw_output_accepted: boolean;
+        rejection_reasons: string[];
+        fallback_reason_code?: string | undefined;
+      }
+    | undefined;
 }
 
 /** Plan §5.1 — central_bank, geopolitical, china, dollar, yield_curve,
@@ -163,6 +178,7 @@ export interface SectorPick {
   thesis: string;
   /** [0, 1]. */
   conviction: number;
+  claim_refs?: string[] | undefined;
 }
 
 export interface SectorAgentOutputBase extends KnobInfluenceDeclaration {
@@ -238,6 +254,7 @@ export interface SuperinvestorPick {
   conviction: number;
   /** Suggested holding period bracket. */
   holding_period: "1W" | "1M" | "3M" | "6M" | "1Y" | "5Y+";
+  claim_refs?: string[] | undefined;
 }
 
 export interface SuperinvestorOutput extends KnobInfluenceDeclaration {
@@ -269,7 +286,7 @@ export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
 
 export interface CroOutput extends KnobInfluenceDeclaration {
   agent: "cro";
-  rejected_picks: Array<{ ticker: string; reason: string }>;
+  rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
   correlated_risks: string[];
   black_swan_scenarios: string[];
   /** Self-rated confidence in [0, 1]. Same semantics as L1/L2/L3. */
@@ -278,7 +295,11 @@ export interface CroOutput extends KnobInfluenceDeclaration {
 
 export interface AlphaDiscoveryOutput extends KnobInfluenceDeclaration {
   agent: "alpha_discovery";
-  novel_picks: Array<{ ticker: string; why_missed_by_others: string }>;
+  novel_picks: Array<{
+    ticker: string;
+    why_missed_by_others: string;
+    claim_refs?: string[] | undefined;
+  }>;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
 }
@@ -294,6 +315,7 @@ export interface AutoExecOutput extends KnobInfluenceDeclaration {
     liquidity_score?: number | undefined;
     order_split_count?: number | undefined;
     conviction: number;
+    claim_refs?: string[] | undefined;
   }>;
   execution_enforcement?:
     | {
@@ -326,6 +348,7 @@ export interface PortfolioAction {
   review_source?: "llm" | "runtime_safety_fallback" | undefined;
   /** CIO note explaining dissent against another agent's call, if any. */
   dissent_notes: string;
+  claim_refs?: string[] | undefined;
 }
 
 export interface CioOutput extends KnobInfluenceDeclaration {
@@ -500,6 +523,7 @@ export interface Layer4RuntimeState {
   final_target_state: FinalTargetState | null;
   cio_final_knob_snapshot: ResearchKnobsSnapshot | null;
   resolved_source_statuses: RuntimeSourceStatus[];
+  source_evidence_observations: RuntimeSourceEvidenceObservation[];
   stage_trace: Layer4RuntimeTraceEntry[];
 }
 

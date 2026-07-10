@@ -34,7 +34,7 @@ import {
 import { validateCioPositionActions } from "../agents/decision/position_validator.js";
 import {
   type Layer4SourceResolutionStage,
-  resolveLayer4SourceStatuses,
+  resolveLayer4SourceBundle,
 } from "../agents/helpers/layer4_source_adapters.js";
 import {
   DailyCycleState,
@@ -108,10 +108,14 @@ export function buildSourceResolutionNode(
 ): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
   return async (state) => {
     const currentRuntime = runtimeStateForLayer4(state);
-    const resolved_source_statuses = await resolveLayer4SourceStatuses(state, stage, deps.api);
+    const resolved = await resolveLayer4SourceBundle(state, stage, deps.api);
     return {
       layer4_outputs: {
-        runtime: { ...currentRuntime, resolved_source_statuses },
+        runtime: {
+          ...currentRuntime,
+          resolved_source_statuses: resolved.statuses,
+          source_evidence_observations: resolved.evidence,
+        },
       },
     };
   };

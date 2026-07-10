@@ -10,6 +10,7 @@
  */
 
 import { z } from "zod";
+import { LlmResearchClaimSchema } from "../evidence_contract.js";
 import type { AlphaDiscoveryOutput, AutoExecOutput, CioOutput, CroOutput } from "../types.js";
 
 const KEY_DRIVERS_OPTIONAL_NOTE = "key_drivers may be omitted on Layer 4 (synthesis-only).";
@@ -25,7 +26,17 @@ const KNOB_INFLUENCE_FIELDS = {
     .string()
     .optional()
     .describe("Optional short rationale for declared knob influence ids."),
+  claims: z
+    .array(LlmResearchClaimSchema)
+    .optional()
+    .describe("Claim declarations referencing only runtime-provided evidence ids."),
 };
+
+const CLAIM_REFS = z
+  .array(z.string().min(1))
+  .min(1)
+  .optional()
+  .describe("Claim ids supporting this output entry; required by the enabled evidence gate.");
 
 // ---------------------------------------------------------------------------
 // 1. cro
@@ -50,6 +61,7 @@ export const CroSchema = z
             .describe(
               "Concrete risk: regulatory / liquidity / valuation / correlation / black-swan exposure.",
             ),
+          claim_refs: CLAIM_REFS,
         }),
       )
       .max(20)
@@ -77,6 +89,7 @@ export const CRO_FIELD_NAMES = [
   "correlated_risks",
   "black_swan_scenarios",
   "confidence",
+  "claims",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -101,6 +114,7 @@ export const AlphaDiscoverySchema = z
             .describe(
               "Why this pick fell through the philosophy filters above. Concrete reasoning, no fluff.",
             ),
+          claim_refs: CLAIM_REFS,
         }),
       )
       .max(10)
@@ -113,7 +127,7 @@ export const AlphaDiscoverySchema = z
       "Empty novel_picks is the most common outcome and is fine.",
   );
 
-export const ALPHA_DISCOVERY_FIELD_NAMES = ["novel_picks", "confidence"] as const;
+export const ALPHA_DISCOVERY_FIELD_NAMES = ["novel_picks", "confidence", "claims"] as const;
 
 // ---------------------------------------------------------------------------
 // 3. autonomous_execution
@@ -158,6 +172,7 @@ export const AutonomousExecutionSchema = z
             .optional()
             .describe("Optional number of order slices planned for this ticker."),
           conviction: z.number().min(0).max(1),
+          claim_refs: CLAIM_REFS,
         }),
       )
       .max(20)
@@ -179,7 +194,7 @@ export const AutonomousExecutionSchema = z
       "Darwinian weights are stubbed at uniform = 1/N until Phase 3 scorecard lands.",
   );
 
-export const AUTONOMOUS_EXECUTION_FIELD_NAMES = ["trades", "confidence"] as const;
+export const AUTONOMOUS_EXECUTION_FIELD_NAMES = ["trades", "confidence", "claims"] as const;
 
 // ---------------------------------------------------------------------------
 // 4. cio (most strict)
@@ -213,6 +228,7 @@ export const CioSchema = z
               "Empty when CIO matches autonomous_execution; non-empty when CIO overrides " +
                 "(must explain why).",
             ),
+          claim_refs: CLAIM_REFS,
         }),
       )
       .max(15),
@@ -235,7 +251,7 @@ export const CioSchema = z
     }
   });
 
-export const CIO_FIELD_NAMES = ["portfolio_actions", "confidence"] as const;
+export const CIO_FIELD_NAMES = ["portfolio_actions", "confidence", "claims"] as const;
 
 // ---------------------------------------------------------------------------
 // Type-check guards

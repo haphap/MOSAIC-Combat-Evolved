@@ -31,6 +31,12 @@ import { formatMirofishContext } from "../../mirofish/context.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
+  attachDeterministicFallbackClaimGraph,
+  buildRuntimeEvidenceSnapshot,
+  type RuntimeEvidenceSnapshot,
+  selectOutputByClaimEvidence,
+} from "../helpers/evidence_runtime.js";
+import {
   applyResearchKnobCapsWithFallback,
   assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
@@ -179,6 +185,17 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             language,
             mirofish.context,
           );
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
+            ? buildRuntimeEvidenceSnapshot({
+                state,
+                agent: spec.agentId,
+                stage: spec.runtimeStage,
+                knobSnapshot,
+              })
+            : null;
+          const evidenceAugmentedContext = runtimeEvidence
+            ? `${augmentedContext}\n\n${runtimeEvidence.visibleCatalog}`
+            : augmentedContext;
           const requiredTools = spec.requiredTools ?? [];
           let analysisText = "";
           let analysisLlmInvocations = 1;
@@ -199,8 +216,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               llm: deps.llmHandle.llm,
               tools: tools as StructuredToolInterface[],
               systemMessage: systemPrompt,
-              initialMessages: [new HumanMessage(augmentedContext)],
-              agentInvocationId: layer4AgentInvocationId(state, spec, knobSnapshot),
+              initialMessages: [new HumanMessage(evidenceAugmentedContext)],
+              ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
               onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
               signal,
             });
@@ -213,11 +230,20 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             completionTokens = loopResult.completionTokens;
             llmElapsedMs = loopResult.llmElapsedMs;
             toolStatuses = loopResult.toolStatuses;
+            if (knobSnapshot) {
+              runtimeEvidence = buildRuntimeEvidenceSnapshot({
+                state,
+                agent: spec.agentId,
+                stage: spec.runtimeStage,
+                knobSnapshot,
+                toolStatuses,
+              });
+            }
           } else {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
             const llmStartedAt = Date.now();
             const analysisResponse = await deps.llmHandle.llm.invoke(
-              [new SystemMessage(systemPrompt), new HumanMessage(augmentedContext)],
+              [new SystemMessage(systemPrompt), new HumanMessage(evidenceAugmentedContext)],
               signal ? { signal } : undefined,
             );
             llmElapsedMs = Date.now() - llmStartedAt;
@@ -242,7 +268,11 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             schema: spec.schema,
             messages: [
               new SystemMessage(extractorSystem),
-              new HumanMessage(analysisText || "(no analysis produced)"),
+              new HumanMessage(
+                [analysisText || "(no analysis produced)", runtimeEvidence?.visibleCatalog]
+                  .filter((part): part is string => Boolean(part))
+                  .join("\n\n"),
+              ),
             ],
             render: spec.render,
             agentName: spec.agentId,
@@ -252,14 +282,29 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           });
 
           const rawOutput = extractor.structured ?? spec.fallback(analysisText);
+          const claimSelection = runtimeEvidence
+            ? selectOutputByClaimEvidence(rawOutput, () => spec.fallback(""), runtimeEvidence)
+            : null;
+          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
           const capped = knobSnapshot
-            ? applyResearchKnobCapsWithFallback(rawOutput, () => spec.fallback(""), knobSnapshot, {
-                toolStatuses,
-              })
+            ? applyResearchKnobCapsWithFallback(
+                claimSelectedOutput,
+                () => spec.fallback(""),
+                knobSnapshot,
+                { toolStatuses },
+              )
             : null;
           let output = capped
             ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
-            : rawOutput;
+            : claimSelectedOutput;
+          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
+            output = attachDeterministicFallbackClaimGraph(
+              output,
+              runtimeEvidence,
+              claimSelection?.rejectionReasons ?? [],
+              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
+            ).output;
+          }
           if (spec.stateUpdateField === "autonomous_execution") {
             output = validateAutonomousExecutionActions({
               output: output as unknown as AutoExecOutput,
@@ -275,6 +320,13 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               `tool_executions=${toolExecutions}`,
               ...formatTokenMetricFields(promptTokens, completionTokens, llmElapsedMs),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(runtimeEvidence
+                ? [
+                    `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
+                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
+                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                  ]
+                : []),
               ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
@@ -548,26 +600,10 @@ function defaultExtractorSystem<TOutput extends Layer4AgentOutput>(
     `schema fields (${spec.fieldNames.join(", ")}). Cite only tickers / numbers that appeared ` +
     `in the analysis text; never invent. If the analysis is missing key inputs (e.g. cio ` +
     `with no autonomous_execution trades to act on), return the conservative fallback ` +
-    `(empty arrays / confidence ≤ 0.3). ` +
+    `(empty arrays / confidence ≤ 0.3). When a runtime evidence catalog is present, include ` +
+    `claims and per-entry claim_refs using only its evidence_id and allowed research rule ids. ` +
     lang
   );
-}
-
-function layer4AgentInvocationId<TOutput extends Layer4AgentOutput>(
-  state: DailyCycleStateType,
-  spec: LayerFourAgentSpec<TOutput>,
-  knobSnapshot: ResearchKnobsSnapshot | null,
-): string {
-  const digest = stableRuntimeHash({
-    schema_version: "agent_invocation_id_v1",
-    run_id: state.trace_id || state.as_of_date || "current_run",
-    agent: spec.agentId,
-    stage: spec.runtimeStage,
-    cohort: state.active_cohort || "cohort_default",
-    as_of: state.as_of_date || "live",
-    knob_snapshot_hash: knobSnapshot?.hash ?? null,
-  });
-  return `agent-invocation:${digest.slice("sha256:".length)}`;
 }
 
 function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
@@ -682,8 +718,16 @@ function stageResultTrace<TOutput extends Layer4AgentOutput>(
 > {
   const audit = (output as { verified_knob_audit?: { fallback_reason_code?: unknown } | undefined })
     .verified_knob_audit;
-  const fallbackReason =
+  const knobFallbackReason =
     typeof audit?.fallback_reason_code === "string" ? audit.fallback_reason_code : null;
+  const claimAudit = (
+    output as {
+      verified_claim_audit?: { fallback_reason_code?: unknown } | undefined;
+    }
+  ).verified_claim_audit;
+  const claimFallbackReason =
+    typeof claimAudit?.fallback_reason_code === "string" ? claimAudit.fallback_reason_code : null;
+  const fallbackReason = knobFallbackReason ?? claimFallbackReason;
   if (output.confidence > 0 && !fallbackReason) return { status: "completed" };
   return {
     status: "fallback",

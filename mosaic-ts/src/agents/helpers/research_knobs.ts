@@ -196,6 +196,23 @@ export interface RuntimeSourceStatus {
   adapter_id?: string;
 }
 
+/** Normalized in-memory payload emitted by a registered runtime source adapter. */
+export interface RuntimeSourceEvidenceObservation {
+  source_id: string;
+  scope: string;
+  metric: string;
+  value: unknown;
+  unit: string;
+  as_of: string;
+  lookback: string;
+  freshness: "current" | "stale" | "missing" | "fallback" | "tool_failed";
+  source_fingerprint: string;
+  direction: "positive" | "negative" | "neutral" | "ambiguous";
+  privacy_class: "public_structured" | "private_runtime" | "licensed_private";
+  adapter_id: string;
+  adapter_version: string;
+}
+
 export type EvidenceDependencyState =
   | "loaded"
   | "partial_loaded"
@@ -692,7 +709,7 @@ export function assertResearchKnobCappedOutputSchema<T>(
   schema: z.ZodTypeAny,
   agentName: string,
 ): T {
-  const parsed = schema.safeParse(stripRuntimeOwnedOutputAudit(output));
+  const parsed = schema.safeParse(stripRuntimeOwnedOutputEnvelope(output));
   if (!parsed.success) {
     throw new Error(
       `research_knob_capped_output_schema_failed:${agentName}:${parsed.error.message}`,
@@ -1534,10 +1551,12 @@ function attachVerifiedKnobAudit<T>(value: T, audit: ResearchKnobCapAudit): T {
   } as T;
 }
 
-function stripRuntimeOwnedOutputAudit(value: unknown): unknown {
+function stripRuntimeOwnedOutputEnvelope(value: unknown): unknown {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
   const copy = { ...(value as Record<string, unknown>) };
   delete copy.verified_knob_audit;
+  delete copy.verified_claim_graph;
+  delete copy.verified_claim_audit;
   return copy;
 }
 

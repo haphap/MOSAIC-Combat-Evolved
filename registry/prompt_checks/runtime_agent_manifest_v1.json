@@ -705,7 +705,8 @@
         "rejected_picks",
         "correlated_risks",
         "black_swan_scenarios",
-        "confidence"
+        "confidence",
+        "claims"
       ],
       "stages": [
         {
@@ -736,7 +737,8 @@
       ],
       "output_schema_fields": [
         "novel_picks",
-        "confidence"
+        "confidence",
+        "claims"
       ],
       "stages": [
         {
@@ -765,7 +767,8 @@
       ],
       "output_schema_fields": [
         "trades",
-        "confidence"
+        "confidence",
+        "claims"
       ],
       "stages": [
         {
@@ -796,7 +799,8 @@
       ],
       "output_schema_fields": [
         "portfolio_actions",
-        "confidence"
+        "confidence",
+        "claims"
       ],
       "stages": [
         {

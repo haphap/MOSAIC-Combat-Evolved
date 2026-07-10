@@ -163,4 +163,34 @@ describe("claim-to-evidence graph", () => {
 
     expect(result).toEqual({ accepted: true, reasons: [] });
   });
+
+  it("rejects unregistered research rule references", () => {
+    const result = validateClaimEvidenceGraph(validGraph(), {
+      allowedResearchRuleIds: new Set(["sector.semiconductor.soft.002"]),
+    });
+
+    expect(result.reasons).toContain(
+      "claim_unknown_research_rule_ref:claim-1:sector.semiconductor.soft.001",
+    );
+  });
+
+  it("allows failed evidence to explain uncertainty but not an inference", () => {
+    const graph = validGraph();
+    const evidence = graph.evidence_ledger[0];
+    const claim = graph.claims[0];
+    if (!evidence || !claim) return;
+    evidence.freshness = "tool_failed";
+    claim.claim_type = "uncertainty";
+    claim.research_rule_refs = [];
+
+    const uncertainty = validateClaimEvidenceGraph(graph, {
+      allowUncertaintyOnlyOutputIds: new Set(["action-1"]),
+    });
+    expect(uncertainty.accepted).toBe(true);
+
+    claim.claim_type = "inference";
+    claim.research_rule_refs = ["sector.semiconductor.soft.001"];
+    const inference = validateClaimEvidenceGraph(graph);
+    expect(inference.reasons).toContain("claim_unsupported_evidence:claim-1:ev-1");
+  });
 });

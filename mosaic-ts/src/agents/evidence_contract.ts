@@ -34,6 +34,9 @@ export const ResearchClaimSchema = z
   })
   .strict();
 
+/** LLM-authored claim fields. Runtime owns and appends snapshot_hash. */
+export const LlmResearchClaimSchema = ResearchClaimSchema.omit({ snapshot_hash: true }).strict();
+
 export const RecommendationClaimReferenceSchema = z
   .object({
     output_id: z.string().min(1),
@@ -55,6 +58,7 @@ export const ClaimEvidenceGraphSchema = z
 
 export type EvidenceLedgerEntry = z.infer<typeof EvidenceLedgerEntrySchema>;
 export type ResearchClaim = z.infer<typeof ResearchClaimSchema>;
+export type LlmResearchClaim = z.infer<typeof LlmResearchClaimSchema>;
 export type RecommendationClaimReference = z.infer<typeof RecommendationClaimReferenceSchema>;
 export type ClaimEvidenceGraph = z.infer<typeof ClaimEvidenceGraphSchema>;
 
@@ -73,6 +77,7 @@ export function validateClaimEvidenceGraph(
     allowFallbackEvidenceIds?: ReadonlySet<string>;
     requiredOutputIds?: ReadonlySet<string>;
     allowUncertaintyOnlyOutputIds?: ReadonlySet<string>;
+    allowedResearchRuleIds?: ReadonlySet<string>;
   } = {},
 ): ClaimEvidenceGraphValidationResult {
   const parsed = ClaimEvidenceGraphSchema.safeParse(graphInput);
@@ -145,16 +150,25 @@ export function validateClaimEvidenceGraph(
     if (claim.claim_type === "inference" && claim.research_rule_refs.length === 0) {
       reasons.push(`claim_rule_required:${claim.claim_id}`);
     }
+    for (const ruleId of claim.research_rule_refs) {
+      if (opts.allowedResearchRuleIds && !opts.allowedResearchRuleIds.has(ruleId)) {
+        reasons.push(`claim_unknown_research_rule_ref:${claim.claim_id}:${ruleId}`);
+      }
+    }
     for (const evidenceId of claim.evidence_refs) {
       const evidence = evidenceById.get(evidenceId);
       if (!evidence) {
         reasons.push(`claim_unknown_evidence_ref:${claim.claim_id}:${evidenceId}`);
         continue;
       }
-      if (["stale", "missing", "tool_failed"].includes(evidence.freshness)) {
+      if (
+        claim.claim_type !== "uncertainty" &&
+        ["stale", "missing", "tool_failed"].includes(evidence.freshness)
+      ) {
         reasons.push(`claim_unsupported_evidence:${claim.claim_id}:${evidenceId}`);
       }
       if (
+        claim.claim_type !== "uncertainty" &&
         evidence.freshness === "fallback" &&
         !opts.allowFallbackEvidenceIds?.has(evidence.evidence_id)
       ) {
