@@ -14,6 +14,14 @@ export interface ActivePromptReleasePointer {
   updated_at: string;
 }
 
+export interface PromptReleaseCanaryPointer {
+  schema_version: "prompt_release_canary_pointer_v1";
+  current_release_id: string | null;
+  traffic_percent: number;
+  pointer_version: number;
+  updated_at: string;
+}
+
 export interface PromptReleaseAuditContext {
   operator: string;
   reason: string;
@@ -119,6 +127,10 @@ export class ActivePromptReleaseRegistry {
     return join(this.root, "active-pointer.json");
   }
 
+  private canaryPointerPath(): string {
+    return join(this.root, "canary-pointer.json");
+  }
+
   private lockPath(): string {
     return join(this.root, ".release.lock");
   }
@@ -137,6 +149,18 @@ export class ActivePromptReleaseRegistry {
       (await readJson<ActivePromptReleasePointer>(this.pointerPath())) ?? {
         schema_version: "active_prompt_release_pointer_v1",
         current_release_id: null,
+        pointer_version: 0,
+        updated_at: new Date(0).toISOString(),
+      }
+    );
+  }
+
+  async canaryPointer(): Promise<PromptReleaseCanaryPointer> {
+    return (
+      (await readJson<PromptReleaseCanaryPointer>(this.canaryPointerPath())) ?? {
+        schema_version: "prompt_release_canary_pointer_v1",
+        current_release_id: null,
+        traffic_percent: 0,
         pointer_version: 0,
         updated_at: new Date(0).toISOString(),
       }
@@ -209,6 +233,14 @@ export class ActivePromptReleaseRegistry {
       }
 
       const pointer = await this.pointer();
+      const canaryPointer = await this.canaryPointer();
+      if (
+        next.lifecycle_state === "canary" &&
+        canaryPointer.current_release_id !== null &&
+        canaryPointer.current_release_id !== next.release_id
+      ) {
+        throw new Error("prompt_release_canary_pointer_conflict");
+      }
       if (next.lifecycle_state === "active") {
         if (!next.activated_at) throw new Error("prompt_release_activation_timestamp_missing");
         if (opts.expectedBaseReleaseId === undefined) {
@@ -245,6 +277,20 @@ export class ActivePromptReleaseRegistry {
 
       if (!exactRetry) await atomicWrite(this.manifestPath(next.release_id), next);
 
+      if (
+        next.lifecycle_state === "canary" &&
+        (canaryPointer.current_release_id !== next.release_id ||
+          canaryPointer.traffic_percent !== next.activation_scope.traffic_percent)
+      ) {
+        await atomicWrite(this.canaryPointerPath(), {
+          schema_version: "prompt_release_canary_pointer_v1",
+          current_release_id: next.release_id,
+          traffic_percent: next.activation_scope.traffic_percent,
+          pointer_version: canaryPointer.pointer_version + 1,
+          updated_at: next.canary_started_at as string,
+        } satisfies PromptReleaseCanaryPointer);
+      }
+
       if (next.lifecycle_state === "active" && pointer.current_release_id !== next.release_id) {
         await atomicWrite(this.pointerPath(), {
           schema_version: "active_prompt_release_pointer_v1",
@@ -252,6 +298,21 @@ export class ActivePromptReleaseRegistry {
           pointer_version: pointer.pointer_version + 1,
           updated_at: next.activated_at as string,
         } satisfies ActivePromptReleasePointer);
+      }
+
+      if (
+        ["active", "rolled_back"].includes(next.lifecycle_state) &&
+        canaryPointer.current_release_id === next.release_id
+      ) {
+        await atomicWrite(this.canaryPointerPath(), {
+          schema_version: "prompt_release_canary_pointer_v1",
+          current_release_id: null,
+          traffic_percent: 0,
+          pointer_version: canaryPointer.pointer_version + 1,
+          updated_at: (next.lifecycle_state === "active"
+            ? next.activated_at
+            : next.rolled_back_at) as string,
+        } satisfies PromptReleaseCanaryPointer);
       }
 
       if (activeRollback && pointer.current_release_id !== rollbackTarget) {
@@ -283,6 +344,31 @@ export class ActivePromptReleaseRegistry {
       throw new Error("active_prompt_release_pointer_is_not_closed");
     }
     return manifest;
+  }
+
+  async resolveForRuntime(assignmentKey?: string): Promise<ActivePromptReleaseManifest | null> {
+    const canaryPointer = await this.canaryPointer();
+    if (canaryPointer.current_release_id) {
+      if (!assignmentKey?.trim()) throw new Error("prompt_release_canary_assignment_key_required");
+      const canary = await this.load(canaryPointer.current_release_id);
+      if (
+        canary?.lifecycle_state !== "canary" ||
+        canary.activation_scope.traffic_percent !== canaryPointer.traffic_percent
+      ) {
+        throw new Error("prompt_release_canary_pointer_is_not_closed");
+      }
+      const bucket = Number.parseInt(
+        createHash("sha256")
+          .update(`${canary.release_id}\0${assignmentKey.trim()}`)
+          .digest("hex")
+          .slice(0, 8),
+        16,
+      );
+      if ((bucket / 0x1_0000_0000) * 100 < canaryPointer.traffic_percent) {
+        return canary;
+      }
+    }
+    return this.resolveActive();
   }
 
   private async appendAudit(event: Record<string, unknown>): Promise<void> {

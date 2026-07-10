@@ -266,6 +266,39 @@ describe("release-pinned prompt loading", () => {
     });
   });
 
+  it("loads a traffic-assigned canary manifest", async () => {
+    const contents = { zh: prompt("canary zh"), en: prompt("canary en") };
+    const repo = gitRepo(contents);
+    const active = release({ promptCommit: repo.commit, promptPair: pair(contents) });
+    const canary: ActivePromptReleaseManifest = {
+      ...active,
+      lifecycle_state: "canary",
+      activation_scope: { ...active.activation_scope, traffic_percent: 10 },
+      canary_ended_at: null,
+      runtime_slo_summary: null,
+      runtime_slo_evidence: null,
+      activated_at: null,
+    };
+
+    const loaded = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      noCache: true,
+      releaseContext: {
+        manifest: canary,
+        privatePromptRepo: repo.root,
+        accountMode: "paper",
+      },
+    });
+
+    expect(loaded.release).toMatchObject({
+      release_id: "release-1",
+      lifecycle_state: "canary",
+      traffic_percent: 10,
+    });
+  });
+
   it("uses only a manifest-pinned bundled fallback when private source is unavailable", async () => {
     const privateContents = { zh: prompt("private zh"), en: prompt("private en") };
     const fallbackContents = { zh: prompt("fallback zh"), en: prompt("fallback en") };

@@ -23,15 +23,22 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
+import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_release_canary_slo.js";
 import type { BridgeApi, BridgeToolFactoryOptions, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import {
   attachDeterministicFallbackClaimGraph,
+  buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
   selectOutputByClaimEvidence,
 } from "../helpers/evidence_runtime.js";
+import {
+  type AgentCanaryEventContext,
+  agentCanaryEventContext,
+  buildAgentPromptCanaryEvent,
+} from "../helpers/prompt_canary.js";
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
   applyResearchKnobCapsWithFallback,
@@ -39,6 +46,7 @@ import {
   formatResearchKnobAuditFields,
   isResearchKnobsStageEnabled,
   type ResearchKnobsSnapshot,
+  type ToolStatus,
 } from "../helpers/research_knobs.js";
 import {
   AgentTimeoutError,
@@ -92,6 +100,9 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
+    let canaryContext: AgentCanaryEventContext | null = null;
+    let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
+    let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L2", spec.agentId, [
         `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
@@ -107,6 +118,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
 
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let baseSystemPrompt: string;
+          let release: Parameters<typeof agentCanaryEventContext>[0]["release"];
           if (isResearchKnobsStageEnabled(spec.agentId, "agent_run", undefined, cohort)) {
             const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
               state,
@@ -117,11 +129,14 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
               agent: spec.agentId,
               cohort,
               stage: "agent_run",
+              trafficAssignmentKey: state.trace_id || state.as_of_date,
               runtimeSourceStatuses,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
             knobSnapshot = loaded.snapshot;
             baseSystemPrompt = loaded.prompt;
+            canaryKnobSnapshot = loaded.snapshot;
+            release = loaded.release;
           } else {
             baseSystemPrompt = await loadPrompt({
               agent: spec.agentId,
@@ -131,6 +146,21 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             });
           }
           const systemPrompt = `${baseSystemPrompt}\n\n${buildCurrentToolContract(spec.requiredTools)}`;
+          if (knobSnapshot) {
+            canaryContext = agentCanaryEventContext({
+              release,
+              state,
+              agentInvocationId: buildAgentInvocationId({
+                runId: state.trace_id || state.as_of_date || "current_run",
+                agent: spec.agentId,
+                stage: "agent_run",
+                cohort,
+                asOf: state.as_of_date || "live",
+                snapshotHash: knobSnapshot.hash,
+              }),
+              systemPrompt,
+            });
+          }
 
           const toolOptions = {
             ...(state.mode === "backtest" && state.as_of_date
@@ -182,6 +212,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             });
             fallbackRuntimeEvidence = runtimeEvidence;
           }
+          canaryToolStatuses = loopResult.toolStatuses;
 
           // Phase 2: structured extraction.
           onLog(
@@ -243,6 +274,24 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             ).output;
           }
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+          const canaryEvent = buildAgentPromptCanaryEvent({
+            context: canaryContext,
+            agent: spec.agentId,
+            stage: "agent_run",
+            startedAt,
+            structuredAccepted: extractor.structured !== null,
+            claimGraphAccepted: claimSelection?.rawOutputAccepted ?? true,
+            knobSnapshot,
+            knobAudit: capped?.audit ?? null,
+            toolStatuses: loopResult.toolStatuses,
+            output,
+            validatorIds: [
+              `${spec.agentId}.structured_output.v1`,
+              "evidence_claim_graph_v1",
+              "research_knobs_runtime_v1",
+            ],
+          });
+          if (canaryEvent) llmCall.prompt_canary_event = canaryEvent;
 
           onLog(
             formatAgentEvent("done", "L2", spec.agentId, [
@@ -299,6 +348,26 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
               "AGENT_TIMEOUT",
             ).output
           : fallback;
+        const canaryEvent = buildAgentPromptCanaryEvent({
+          context: canaryContext,
+          agent: spec.agentId,
+          stage: "agent_run",
+          startedAt,
+          structuredAccepted: false,
+          claimGraphAccepted: false,
+          knobSnapshot: canaryKnobSnapshot,
+          knobAudit: null,
+          toolStatuses: canaryToolStatuses,
+          output,
+          validatorIds: [
+            `${spec.agentId}.structured_output.v1`,
+            "evidence_claim_graph_v1",
+            "research_knobs_runtime_v1",
+          ],
+          forceFallback: true,
+        });
+        const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+        if (canaryEvent) llmCall.prompt_canary_event = canaryEvent;
         onLog(
           formatAgentEvent("timeout", "L2", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -307,7 +376,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
         );
         return {
           layer2_outputs: { [spec.agentId]: output },
-          llm_calls: [buildLlmCall(spec.agentId, structuredHandle)],
+          llm_calls: [llmCall],
         };
       }
       onLog(
@@ -316,6 +385,26 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
           `message=${safeErrorMessage(err)}`,
         ]),
       );
+      const failureEvent = buildAgentPromptCanaryEvent({
+        context: canaryContext,
+        agent: spec.agentId,
+        stage: "agent_run",
+        startedAt,
+        structuredAccepted: false,
+        claimGraphAccepted: false,
+        knobSnapshot: canaryKnobSnapshot,
+        knobAudit: null,
+        toolStatuses: canaryToolStatuses,
+        output: null,
+        validatorIds: [
+          `${spec.agentId}.structured_output.v1`,
+          "evidence_claim_graph_v1",
+          "research_knobs_runtime_v1",
+        ],
+        forceFallback: true,
+        forceSourceFailure: true,
+      });
+      if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
     }
   };

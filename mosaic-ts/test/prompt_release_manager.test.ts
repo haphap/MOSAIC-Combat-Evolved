@@ -120,6 +120,8 @@ function canaryEvents(
   return Array.from({ length: 20 }, (_, index) => ({
     schema_version: "prompt_release_canary_event_v1",
     event_id: `event-${index}`,
+    run_id: `run-${index}`,
+    agent_invocation_id: `invocation-${index}`,
     release_id: "release-1",
     account_mode: "paper",
     traffic_percent: 10,
@@ -133,7 +135,13 @@ function canaryEvents(
     unsupported_influence_rejected: false,
     validator_rejected: false,
     latency_ms: 100,
+    tokenizer_id: "cl100k_base",
+    tokenizer_version: "1.0.21",
+    context_window_tokens: 131_072,
+    system_prompt_tokens: 1_000,
+    system_prompt_cap_tokens: 32_768,
     token_budget_breached: false,
+    validator_ids: ["macro.central_bank.output.v1"],
     duplicate_order_intent_count: 0,
     exposure_breach_count: 0,
     ...overrides,
@@ -209,6 +217,18 @@ describe("prompt release manager", () => {
     };
     await startPromptReleaseCanary(canaryOptions);
     await startPromptReleaseCanary(canaryOptions);
+    const canaryRegistry = new ActivePromptReleaseRegistry(registryRoot);
+    expect(await canaryRegistry.canaryPointer()).toMatchObject({
+      current_release_id: "release-1",
+      traffic_percent: 10,
+    });
+    const assignments = await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        canaryRegistry.resolveForRuntime(`assignment-${index}`),
+      ),
+    );
+    expect(assignments.some((manifest) => manifest?.lifecycle_state === "canary")).toBe(true);
+    expect(assignments.some((manifest) => manifest === null)).toBe(true);
     await expect(
       activatePromptRelease({
         registryRoot,
@@ -234,6 +254,7 @@ describe("prompt release manager", () => {
     expect((await new ActivePromptReleaseRegistry(registryRoot).resolveActive())?.release_id).toBe(
       "release-1",
     );
+    expect((await canaryRegistry.canaryPointer()).current_release_id).toBeNull();
     const rollbackOptions = {
       registryRoot,
       releaseId: "release-1",

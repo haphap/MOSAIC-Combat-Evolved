@@ -21,6 +21,10 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
 import {
+  type PromptReleaseCanaryEvent,
+  persistPromptReleaseCanaryEvents,
+} from "../../autoresearch/prompt_release_canary_slo.js";
+import {
   type BridgeApi,
   type MirofishContext,
   type MosaicConfig,
@@ -32,10 +36,16 @@ import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
   attachDeterministicFallbackClaimGraph,
+  buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
   selectOutputByClaimEvidence,
 } from "../helpers/evidence_runtime.js";
+import {
+  type AgentCanaryEventContext,
+  agentCanaryEventContext,
+  buildAgentPromptCanaryEvent,
+} from "../helpers/prompt_canary.js";
 import {
   applyResearchKnobCapsWithFallback,
   assertResearchKnobCappedOutputSchema,
@@ -140,6 +150,9 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
+    let canaryContext: AgentCanaryEventContext | null = null;
+    let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
+    let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L4", spec.agentId, [
         `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
@@ -167,12 +180,27 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               agent: spec.agentId,
               cohort,
               stage: spec.runtimeStage,
+              trafficAssignmentKey: state.trace_id || state.as_of_date,
               runtimeSourceStatuses,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
             knobSnapshot = loaded.snapshot;
             systemPrompt = loaded.prompt;
             promptSourceHash = layer4PromptSourceHash(loaded.bodies);
+            canaryKnobSnapshot = loaded.snapshot;
+            canaryContext = agentCanaryEventContext({
+              release: loaded.release,
+              state,
+              agentInvocationId: buildAgentInvocationId({
+                runId: state.trace_id || state.as_of_date || "current_run",
+                agent: spec.agentId,
+                stage: spec.runtimeStage,
+                cohort,
+                asOf: state.as_of_date || "live",
+                snapshotHash: loaded.snapshot.hash,
+              }),
+              systemPrompt,
+            });
           } else {
             systemPrompt = await loadPrompt({
               agent: spec.agentId,
@@ -249,6 +277,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             completionTokens = loopResult.completionTokens;
             llmElapsedMs = loopResult.llmElapsedMs;
             toolStatuses = loopResult.toolStatuses;
+            canaryToolStatuses = toolStatuses;
             if (knobSnapshot) {
               runtimeEvidence = buildRuntimeEvidenceSnapshot({
                 state,
@@ -331,6 +360,26 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               knobSnapshot,
             }) as TOutput;
           }
+          const canaryEvent = buildAgentPromptCanaryEvent({
+            context: canaryContext,
+            agent: spec.agentId,
+            stage: spec.runtimeStage,
+            startedAt,
+            structuredAccepted: extractor.structured !== null,
+            claimGraphAccepted: claimSelection?.rawOutputAccepted ?? true,
+            knobSnapshot,
+            knobAudit: capped?.audit ?? null,
+            toolStatuses,
+            output,
+            validatorIds: [
+              `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
+              "evidence_claim_graph_v1",
+              "research_knobs_runtime_v1",
+              ...(spec.stateUpdateField === "autonomous_execution"
+                ? ["decision.autonomous_execution.action_validator.v1"]
+                : []),
+            ],
+          });
           onLog(
             formatAgentEvent("done", "L4", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -355,6 +404,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle), {
             state,
             knobSnapshot,
+            canaryEvent,
           });
         },
         timeoutMs,
@@ -382,6 +432,24 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               "AGENT_TIMEOUT",
             ).output
           : fallback;
+        const canaryEvent = buildAgentPromptCanaryEvent({
+          context: canaryContext,
+          agent: spec.agentId,
+          stage: spec.runtimeStage,
+          startedAt,
+          structuredAccepted: false,
+          claimGraphAccepted: false,
+          knobSnapshot: canaryKnobSnapshot,
+          knobAudit: null,
+          toolStatuses: canaryToolStatuses,
+          output,
+          validatorIds: [
+            `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
+            "evidence_claim_graph_v1",
+            "research_knobs_runtime_v1",
+          ],
+          forceFallback: true,
+        });
         onLog(
           formatAgentEvent("timeout", "L4", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -391,6 +459,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
         return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle), {
           state,
           knobSnapshot: null,
+          canaryEvent,
         });
       }
       onLog(
@@ -399,6 +468,26 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           `message=${safeErrorMessage(err)}`,
         ]),
       );
+      const failureEvent = buildAgentPromptCanaryEvent({
+        context: canaryContext,
+        agent: spec.agentId,
+        stage: spec.runtimeStage,
+        startedAt,
+        structuredAccepted: false,
+        claimGraphAccepted: false,
+        knobSnapshot: canaryKnobSnapshot,
+        knobAudit: null,
+        toolStatuses: canaryToolStatuses,
+        output: null,
+        validatorIds: [
+          `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
+          "evidence_claim_graph_v1",
+          "research_knobs_runtime_v1",
+        ],
+        forceFallback: true,
+        forceSourceFailure: true,
+      });
+      if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
     }
   };
@@ -677,8 +766,13 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
   output: TOutput,
   llmCall: LlmCallRecord,
-  opts: { state: DailyCycleStateType; knobSnapshot: ResearchKnobsSnapshot | null },
+  opts: {
+    state: DailyCycleStateType;
+    knobSnapshot: ResearchKnobsSnapshot | null;
+    canaryEvent: PromptReleaseCanaryEvent | null;
+  },
 ): DailyCycleStateUpdate {
+  if (opts.canaryEvent) llmCall.prompt_canary_event = opts.canaryEvent;
   const currentRuntime = runtimeStateForLayer4(opts.state);
   const runId = opts.state.trace_id || opts.state.as_of_date || "current_run";
   const mode = spec.stateWriteMode ?? "agent_output";
@@ -695,7 +789,10 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
         output_hashes: { cio_proposal: stableRuntimeHash(proposal) },
       },
     );
-    return { layer4_outputs: { runtime }, llm_calls: [llmCall] };
+    return {
+      layer4_outputs: { runtime },
+      llm_calls: [llmCall],
+    };
   }
   if (mode === "cio_final") {
     const finalOutput = output as unknown as CioOutput;

@@ -140,8 +140,8 @@ function findPair(
 
 function assertClosure(context: PromptReleaseLoadContext, cohort: string): void {
   const manifest = ActivePromptReleaseManifestSchema.parse(context.manifest);
-  if (manifest.lifecycle_state !== "active") {
-    throw new Error(`prompt_release_not_active:${manifest.lifecycle_state}`);
+  if (!["canary", "active"].includes(manifest.lifecycle_state)) {
+    throw new Error(`prompt_release_not_runtime_eligible:${manifest.lifecycle_state}`);
   }
   if (manifest.activation_scope.cohort !== cohort) {
     throw new Error("prompt_release_cohort_mismatch");
@@ -327,11 +327,18 @@ export async function loadPromptReleaseClosureAtCommit(opts: {
   return value as LocalEvaluationClosure;
 }
 
-export async function resolveConfiguredPromptReleaseContext(): Promise<PromptReleaseLoadContext | null> {
+export async function resolveConfiguredPromptReleaseContext(
+  trafficAssignmentKey?: string,
+): Promise<PromptReleaseLoadContext | null> {
   const registryRoot = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT?.trim();
   if (!registryRoot) return null;
-  const manifest = await new ActivePromptReleaseRegistry(registryRoot).resolveActive();
-  if (!manifest) throw new Error("active_prompt_release_missing");
+  const registry = new ActivePromptReleaseRegistry(registryRoot);
+  const manifest = await registry.resolveForRuntime(trafficAssignmentKey);
+  const canaryPointer = await registry.canaryPointer();
+  if (!manifest) {
+    if (canaryPointer.current_release_id) return null;
+    throw new Error("active_prompt_release_missing");
+  }
   const source = getConfiguredPromptSource();
   const accountModeValue = process.env.MOSAIC_PROMPT_ACCOUNT_MODE?.trim();
   if (!accountModeValue) throw new Error("prompt_release_account_mode_required");
@@ -339,8 +346,10 @@ export async function resolveConfiguredPromptReleaseContext(): Promise<PromptRel
     throw new Error("prompt_release_account_mode_invalid");
   }
   const closure = await loadLocalPromptReleaseClosure();
+  const explicitCodeCommit = process.env.MOSAIC_CODE_COMMIT?.trim();
   const expectedCodeCommit =
-    process.env.MOSAIC_CODE_COMMIT?.trim() || (await gitHead(findRepoRoot()));
+    explicitCodeCommit ??
+    (canaryPointer.current_release_id ? undefined : await gitHead(findRepoRoot()));
   return {
     manifest,
     ...(source?.kind === "private-repo" ? { privatePromptRepo: source.repo } : {}),
@@ -349,6 +358,6 @@ export async function resolveConfiguredPromptReleaseContext(): Promise<PromptRel
     expectedCatalogHash: closure.catalog_hash,
     expectedSchemaHash: closure.schema_hash,
     expectedEvaluationContractHash: closure.contract_hash,
-    expectedCodeCommit,
+    ...(expectedCodeCommit ? { expectedCodeCommit } : {}),
   };
 }

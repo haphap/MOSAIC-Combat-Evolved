@@ -161,6 +161,7 @@ export function buildL4SnapshotFreezeNode(
             agent,
             cohort,
             stage,
+            trafficAssignmentKey: state.trace_id || state.as_of_date,
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
           return {
@@ -333,6 +334,7 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
       sharedPolicyValues,
     });
   }
+  const finalValidationReasonCodes = classifyFinalValidationRejections(fallbackRejectionReasons);
   const stateWithValidatedOutput: DailyCycleStateType = {
     ...state,
     layer4_outputs: { ...state.layer4_outputs, cio: validated.output },
@@ -360,7 +362,7 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
       status: fallbackRejectionReasons.length > 0 ? "fallback" : "completed",
       ...(fallbackRejectionReasons.length > 0
         ? {
-            reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED"],
+            reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED", ...finalValidationReasonCodes],
             fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
             fallback_factory_version: "1",
           }
@@ -383,4 +385,26 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
     position_audit: validated.position_audit,
     portfolio_actions: validated.output.portfolio_actions,
   };
+}
+
+function classifyFinalValidationRejections(messages: ReadonlyArray<string>): string[] {
+  const reasons = new Set<string>();
+  for (const message of messages) {
+    const lower = message.toLowerCase();
+    let classified = false;
+    if (lower.includes("duplicate")) {
+      reasons.add("DUPLICATE_ORDER_INTENT");
+      classified = true;
+    }
+    if (
+      ["exposure", "gross", "net", "cash", "weight", "long-only", "negative target"].some((token) =>
+        lower.includes(token),
+      )
+    ) {
+      reasons.add("EXPOSURE_BREACH");
+      classified = true;
+    }
+    if (!classified) reasons.add("ACTION_VALIDATOR_REJECTION");
+  }
+  return [...reasons].sort();
 }

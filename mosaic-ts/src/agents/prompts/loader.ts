@@ -67,6 +67,7 @@ interface LoadOptions {
   noCache?: boolean;
   stage?: RuntimeAgentStageId;
   releaseContext?: PromptReleaseLoadContext | null;
+  trafficAssignmentKey?: string;
 }
 
 const cache = new Map<string, string>();
@@ -100,13 +101,14 @@ async function releasePinnedPair(
     | "noCache"
     | "promptsRoot"
     | "privatePromptsRoot"
+    | "trafficAssignmentKey"
   >,
 ): Promise<ReleasePinnedPromptPair | null> {
   const context =
     opts.releaseContext === undefined
       ? opts.promptsRoot || opts.privatePromptsRoot
         ? null
-        : await resolveConfiguredPromptReleaseContext()
+        : await resolveConfiguredPromptReleaseContext(opts.trafficAssignmentKey)
       : opts.releaseContext;
   if (!context) return null;
   return loadReleasePinnedPromptPair({

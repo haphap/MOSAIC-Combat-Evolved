@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -30,20 +30,26 @@ SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
         "allOf",
         "anyOf",
         "const",
+        "contains",
         "enum",
         "exclusiveMaximum",
         "exclusiveMinimum",
+        "format",
         "if",
         "items",
         "maxItems",
+        "maxContains",
         "maxLength",
         "maximum",
         "minItems",
+        "minContains",
         "minLength",
         "minProperties",
         "minimum",
         "oneOf",
+        "not",
         "pattern",
+        "propertyNames",
         "properties",
         "required",
         "then",
@@ -359,6 +365,15 @@ def _validate_value(
         )
         if matching_branches != 1:
             failures.append(f"{path}: expected exactly one oneOf schema match")
+    not_schema = schema.get("not")
+    if isinstance(not_schema, Mapping) and not _validate_value(
+        value,
+        not_schema,
+        path,
+        root_schema=root_schema,
+        ref_stack=ref_stack,
+    ):
+        failures.append(f"{path}: matched forbidden not schema")
     if_schema = schema.get("if")
     then_schema = schema.get("then")
     if isinstance(if_schema, Mapping) and isinstance(then_schema, Mapping):
@@ -408,6 +423,13 @@ def _validate_value(
             failures.append(f"{path}: above maxLength")
         if "pattern" in schema and not re.search(str(schema["pattern"]), value):
             failures.append(f"{path}: pattern mismatch")
+        if schema.get("format") == "date-time":
+            try:
+                parsed_datetime = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed_datetime.tzinfo is None:
+                    raise ValueError("timezone required")
+            except ValueError:
+                failures.append(f"{path}: invalid date-time format")
     if isinstance(value, list):
         if len(value) < int(schema.get("minItems") or 0):
             failures.append(f"{path}: below minItems")
@@ -427,9 +449,39 @@ def _validate_value(
                         ref_stack=ref_stack,
                     )
                 )
+        contains_schema = schema.get("contains")
+        if isinstance(contains_schema, Mapping):
+            matching_items = sum(
+                not _validate_value(
+                    item,
+                    contains_schema,
+                    f"{path}[{idx}]",
+                    root_schema=root_schema,
+                    ref_stack=ref_stack,
+                )
+                for idx, item in enumerate(value)
+            )
+            min_contains = int(schema.get("minContains", 1))
+            max_contains = schema.get("maxContains")
+            if matching_items < min_contains:
+                failures.append(f"{path}: below minContains")
+            if max_contains is not None and matching_items > int(max_contains):
+                failures.append(f"{path}: above maxContains")
     if isinstance(value, dict):
         if len(value) < int(schema.get("minProperties") or 0):
             failures.append(f"{path}: below minProperties")
+        property_names = schema.get("propertyNames")
+        if isinstance(property_names, Mapping):
+            for field in value:
+                failures.extend(
+                    _validate_value(
+                        field,
+                        property_names,
+                        f"{path}.{field}<propertyName>",
+                        root_schema=root_schema,
+                        ref_stack=ref_stack,
+                    )
+                )
         required = tuple(schema.get("required") or ())
         for field in required:
             if field not in value:

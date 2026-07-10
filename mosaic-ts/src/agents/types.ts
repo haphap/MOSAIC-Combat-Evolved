@@ -20,6 +20,7 @@
  * ``agents/<layer>/<agent>.ts``.
  */
 
+import type { PromptReleaseCanaryEvent } from "../autoresearch/prompt_release_canary_slo.js";
 import type { ClaimEvidenceGraph, LlmResearchClaim } from "./evidence_contract.js";
 import type {
   ResearchKnobsSnapshot,
@@ -678,6 +679,7 @@ export interface LlmCallRecord {
   provider: string;
   /** Estimated USD cost; computed at the call site, may be 0 for local providers. */
   cost_usd: number;
+  prompt_canary_event?: PromptReleaseCanaryEvent;
 }
 
 // ============================================================ Convenience

@@ -30,6 +30,11 @@ import {
   type DailyCycleStateType,
   type DailyCycleStateUpdate,
 } from "../agents/state.js";
+import {
+  type PromptReleaseCanaryEvent,
+  PromptReleaseCanaryEventSchema,
+  persistPromptReleaseCanaryEvents,
+} from "../autoresearch/prompt_release_canary_slo.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { buildLayer1Graph } from "./layer1.js";
@@ -135,11 +140,45 @@ export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
     .addNode("layer2", invokeSubgraph(l2 as InvokeOnly))
     .addNode("layer3", invokeSubgraph(l3 as InvokeOnly))
     .addNode("layer4", invokeSubgraph(l4 as InvokeOnly))
+    .addNode("prompt_canary_audit", async (state: DailyCycleStateType) => {
+      const events = state.llm_calls.flatMap((call) =>
+        call.prompt_canary_event ? [call.prompt_canary_event] : [],
+      );
+      await persistPromptReleaseCanaryEvents(finalizeCanaryEvents(state, events));
+      return {};
+    })
     .addEdge(START, "layer1")
     .addEdge("layer1", "layer2")
     .addEdge("layer2", "layer3")
     .addEdge("layer3", "layer4")
-    .addEdge("layer4", END);
+    .addEdge("layer4", "prompt_canary_audit")
+    .addEdge("prompt_canary_audit", END);
 
   return graph.compile();
+}
+
+function finalizeCanaryEvents(
+  state: DailyCycleStateType,
+  events: ReadonlyArray<PromptReleaseCanaryEvent>,
+) {
+  const sharedValidation = state.layer4_outputs.runtime?.stage_trace
+    .filter((entry) => entry.stage === "shared_validation")
+    .at(-1);
+  return events.map((event) => {
+    if (event.stage !== "cio_final") return event;
+    const rejected = sharedValidation?.status !== "completed";
+    const reasonCodes = new Set(sharedValidation?.reason_codes ?? []);
+    return PromptReleaseCanaryEventSchema.parse({
+      ...event,
+      fallback: event.fallback || rejected,
+      validator_rejected: event.validator_rejected || rejected,
+      validator_ids: [
+        ...new Set([...event.validator_ids, "portfolio.position_action_validator.v1"]),
+      ].sort(),
+      duplicate_order_intent_count:
+        event.duplicate_order_intent_count + (reasonCodes.has("DUPLICATE_ORDER_INTENT") ? 1 : 0),
+      exposure_breach_count:
+        event.exposure_breach_count + (reasonCodes.has("EXPOSURE_BREACH") ? 1 : 0),
+    });
+  });
 }

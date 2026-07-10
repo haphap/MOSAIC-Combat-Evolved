@@ -1,22 +1,25 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
-import { getEncoding } from "js-tiktoken";
 import { z } from "zod";
 import { canonicalResearchKnobs } from "../helpers/research_knobs.js";
 import { LAYER_BY_AGENT, normalizePromptsRoot, promptPath } from "./cohorts.js";
 import { loadPromptWithKnobs } from "./loader.js";
+import {
+  countPromptTokens,
+  PROMPT_ABSOLUTE_SYSTEM_CAP_TOKENS,
+  PROMPT_DEFAULT_CONTEXT_WINDOW_TOKENS,
+  PROMPT_MIN_RESERVED_CONTEXT_RATIO,
+  PROMPT_TOKENIZER_ID,
+  PROMPT_TOKENIZER_PACKAGE,
+  PROMPT_TOKENIZER_VERSION,
+  PROMPT_VISIBLE_CONTRACT_CAP_TOKENS,
+} from "./prompt_tokenizer.js";
 import { buildRuntimeAgentManifestArtifact, RUNTIME_AGENT_SPECS } from "./runtime_agent_spec.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
-const TOKENIZER_ID = "cl100k_base" as const;
-const TOKENIZER_PACKAGE = "js-tiktoken" as const;
-const TOKENIZER_VERSION = "1.0.21" as const;
 const GENERATOR_ID = "prompt_token_budget" as const;
 const GENERATOR_VERSION = "1" as const;
-const VISIBLE_CONTRACT_CAP = 8_192;
-const ABSOLUTE_SYSTEM_PROMPT_CAP = 32_768;
-const MIN_RESERVED_CONTEXT_RATIO = 0.5;
 const MAX_BASELINE_GROWTH_RATIO = 1.25;
 
 const PromptTokenBudgetRowSchema = z
@@ -55,15 +58,15 @@ export const PromptTokenBudgetManifestSchema = z
     cohort: z.string().min(1),
     tokenizer: z
       .object({
-        id: z.literal(TOKENIZER_ID),
-        package: z.literal(TOKENIZER_PACKAGE),
-        version: z.literal(TOKENIZER_VERSION),
+        id: z.literal(PROMPT_TOKENIZER_ID),
+        package: z.literal(PROMPT_TOKENIZER_PACKAGE),
+        version: z.literal(PROMPT_TOKENIZER_VERSION),
       })
       .strict(),
     context_window_tokens: z.number().int().positive(),
-    visible_contract_cap_tokens: z.literal(VISIBLE_CONTRACT_CAP),
+    visible_contract_cap_tokens: z.literal(PROMPT_VISIBLE_CONTRACT_CAP_TOKENS),
     system_prompt_cap_tokens: z.number().int().positive(),
-    min_reserved_context_ratio: z.literal(MIN_RESERVED_CONTEXT_RATIO),
+    min_reserved_context_ratio: z.literal(PROMPT_MIN_RESERVED_CONTEXT_RATIO),
     max_baseline_growth_ratio: z.literal(MAX_BASELINE_GROWTH_RATIO),
     runtime_manifest_hash: Sha256Schema,
     source_commits: z
@@ -126,12 +129,12 @@ export async function buildPromptTokenBudgetManifest(opts: {
   contextWindowTokens?: number;
   baseline?: PromptTokenBudgetManifest | null;
 }): Promise<PromptTokenBudgetManifest> {
-  const contextWindowTokens = opts.contextWindowTokens ?? 131_072;
+  const contextWindowTokens = opts.contextWindowTokens ?? PROMPT_DEFAULT_CONTEXT_WINDOW_TOKENS;
   if (!Number.isInteger(contextWindowTokens) || contextWindowTokens <= 0) {
     throw new Error("prompt_token_budget_context_window_invalid");
   }
   const systemPromptCapTokens = Math.min(
-    ABSOLUTE_SYSTEM_PROMPT_CAP,
+    PROMPT_ABSOLUTE_SYSTEM_CAP_TOKENS,
     Math.floor(contextWindowTokens * 0.25),
   );
   if (systemPromptCapTokens <= 0) throw new Error("prompt_token_budget_system_cap_invalid");
@@ -153,7 +156,6 @@ export async function buildPromptTokenBudgetManifest(opts: {
       promptsRoot: normalizePromptsRoot(opts.bundledPromptsRoot),
     },
   ];
-  const tokenizer = getEncoding(TOKENIZER_ID);
   const rows: PromptTokenBudgetRow[] = [];
   const snapshotHashes = new Map<string, Record<"private" | "bundled", string>>();
   for (const source of sources) {
@@ -176,8 +178,8 @@ export async function buildPromptTokenBudgetManifest(opts: {
         const projectionBytes = utf8Bytes(
           JSON.stringify(canonicalResearchKnobs(loaded.snapshot.knobs)),
         );
-        const visibleContractTokens = tokenizer.encode(loaded.snapshot.visibleContract).length;
-        const finalSystemPromptTokens = tokenizer.encode(loaded.prompt).length;
+        const visibleContractTokens = countPromptTokens(loaded.snapshot.visibleContract);
+        const finalSystemPromptTokens = countPromptTokens(loaded.prompt);
         for (const language of ["zh", "en"] as const) {
           const absolutePath = promptPath({
             agent: spec.agent,
@@ -195,11 +197,12 @@ export async function buildPromptTokenBudgetManifest(opts: {
             ? finalSystemPromptTokens / baselineRow.final_system_prompt_tokens
             : null;
           const checks = {
-            visible_contract_within_cap: visibleContractTokens <= VISIBLE_CONTRACT_CAP,
+            visible_contract_within_cap:
+              visibleContractTokens <= PROMPT_VISIBLE_CONTRACT_CAP_TOKENS,
             system_prompt_within_cap: finalSystemPromptTokens <= systemPromptCapTokens,
             reserved_context_within_floor:
               contextWindowTokens - finalSystemPromptTokens >=
-              contextWindowTokens * MIN_RESERVED_CONTEXT_RATIO,
+              contextWindowTokens * PROMPT_MIN_RESERVED_CONTEXT_RATIO,
             baseline_growth_within_limit:
               growthRatio === null || growthRatio <= MAX_BASELINE_GROWTH_RATIO,
           };
@@ -238,14 +241,14 @@ export async function buildPromptTokenBudgetManifest(opts: {
     generated_at: new Date(opts.generatedAt).toISOString(),
     cohort: opts.cohort,
     tokenizer: {
-      id: TOKENIZER_ID,
-      package: TOKENIZER_PACKAGE,
-      version: TOKENIZER_VERSION,
+      id: PROMPT_TOKENIZER_ID,
+      package: PROMPT_TOKENIZER_PACKAGE,
+      version: PROMPT_TOKENIZER_VERSION,
     },
     context_window_tokens: contextWindowTokens,
-    visible_contract_cap_tokens: VISIBLE_CONTRACT_CAP,
+    visible_contract_cap_tokens: PROMPT_VISIBLE_CONTRACT_CAP_TOKENS,
     system_prompt_cap_tokens: systemPromptCapTokens,
-    min_reserved_context_ratio: MIN_RESERVED_CONTEXT_RATIO,
+    min_reserved_context_ratio: PROMPT_MIN_RESERVED_CONTEXT_RATIO,
     max_baseline_growth_ratio: MAX_BASELINE_GROWTH_RATIO,
     runtime_manifest_hash: runtimeManifestHash,
     source_commits: { private: opts.privateCommit, bundled: opts.bundledCommit },
@@ -290,8 +293,8 @@ function validateBaseline(
     parsed.cohort !== cohort ||
     parsed.context_window_tokens !== contextWindowTokens ||
     parsed.runtime_manifest_hash !== runtimeManifestHash ||
-    parsed.tokenizer.id !== TOKENIZER_ID ||
-    parsed.tokenizer.version !== TOKENIZER_VERSION
+    parsed.tokenizer.id !== PROMPT_TOKENIZER_ID ||
+    parsed.tokenizer.version !== PROMPT_TOKENIZER_VERSION
   ) {
     throw new Error("prompt_token_budget_baseline_configuration_mismatch");
   }
