@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Active Prompt Release Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "base_release_id",
+    "lifecycle_state",
+    "prompt_commit",
+    "code_commit",
+    "prompt_hash",
+    "catalog_hash",
+    "schema_hash",
+    "evaluation_contract_hash",
+    "keep_decision_hash",
+    "keep_decision_state",
+    "activation_scope",
+    "approval_policy_id",
+    "approved_by",
+    "canary_started_at",
+    "canary_ended_at",
+    "runtime_slo_summary",
+    "rollback_triggers",
+    "previous_approved_release_id",
+    "bundled_fallback",
+    "created_at",
+    "activated_at",
+    "rolled_back_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "active_prompt_release_manifest_v1"
+    },
+    "release_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_release_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "lifecycle_state": {
+      "enum": ["staged", "canary", "active", "rolled_back"]
+    },
+    "prompt_commit": {
+      "type": "string",
+      "minLength": 7
+    },
+    "code_commit": {
+      "type": "string",
+      "minLength": 7
+    },
+    "prompt_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "catalog_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "schema_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "evaluation_contract_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "keep_decision_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "keep_decision_state": {
+      "const": "kept"
+    },
+    "activation_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cohort", "account_mode", "traffic_percent"],
+      "properties": {
+        "cohort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "account_mode": {
+          "enum": ["paper", "backtest", "live"]
+        },
+        "traffic_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "approval_policy_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_by": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "canary_started_at": {
+      "type": ["string", "null"]
+    },
+    "canary_ended_at": {
+      "type": ["string", "null"]
+    },
+    "runtime_slo_summary": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "schema_failure_rate",
+            "fallback_rate",
+            "source_failure_rate",
+            "validator_rejection_rate",
+            "duplicate_order_intent_count",
+            "exposure_breach_count"
+          ],
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "schema_failure_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "fallback_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source_failure_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "validator_rejection_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "duplicate_order_intent_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "exposure_breach_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "rollback_triggers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "previous_approved_release_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "bundled_fallback": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prompt_commit", "prompt_hash", "schema_hash", "catalog_hash"],
+          "properties": {
+            "prompt_commit": {
+              "type": "string",
+              "minLength": 7
+            },
+            "prompt_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "schema_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "catalog_hash": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "activated_at": {
+      "type": ["string", "null"]
+    },
+    "rolled_back_at": {
+      "type": ["string", "null"]
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

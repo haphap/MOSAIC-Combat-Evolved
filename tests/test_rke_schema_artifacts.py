@@ -46,6 +46,8 @@ REQUIRED_SCHEMA_FILES = {
     "runtime_agent_manifest_v1.schema.json",
     "domain_knob_evaluation_contract_v1.schema.json",
     "evidence_claim_graph_v1.schema.json",
+    "prompt_mutation_transaction_v1.schema.json",
+    "active_prompt_release_manifest_v1.schema.json",
     "domain_knob_values_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
@@ -6919,6 +6921,113 @@ def test_evidence_claim_graph_schema_accepts_contract_shape(tmp_path: Path):
 
     assert record.accepted
     assert record.item_count == 1
+
+
+def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    for schema_name in (
+        "prompt_mutation_transaction_v1.schema.json",
+        "active_prompt_release_manifest_v1.schema.json",
+    ):
+        shutil.copyfile(f"schemas/{schema_name}", schema_dir / schema_name)
+    digest = f"sha256:{'1' * 64}"
+    transaction = {
+        "schema_version": "prompt_mutation_transaction_v1",
+        "mutation_id": "mutation-1",
+        "transaction_id": "transaction-1",
+        "experiment_id": "experiment-1",
+        "state": "created",
+        "recovery_state": "not_needed",
+        "base_release_id": "release-0",
+        "catalog_hash": digest,
+        "schema_hash": digest,
+        "evaluation_contract_hash": digest,
+        "target_paths": ["/rule_packs/test/value"],
+        "components": [
+            {
+                "repo_id": "MOSAIC-Prompts",
+                "base_commit": "1234567",
+                "new_commit": None,
+                "candidate_ref": "refs/mosaic-candidates/mutation-1",
+                "prepare_status": "pending",
+                "files": [
+                    {
+                        "path": "registry/domain_knobs/cohort_default/cio.json",
+                        "old_hash": digest,
+                        "new_hash": digest,
+                        "staging_path_hash": digest,
+                    }
+                ],
+            }
+        ],
+        "metadata_log": {
+            "path": "mutation_patches/knob_mutations.jsonl",
+            "entry_hash": digest,
+            "appended": False,
+        },
+        "created_at": "2026-07-10T00:00:00Z",
+        "prepared_at": None,
+        "committed_at": None,
+        "aborted_at": None,
+        "recovery_decision": None,
+    }
+    release = {
+        "schema_version": "active_prompt_release_manifest_v1",
+        "release_id": "release-1",
+        "base_release_id": "release-0",
+        "lifecycle_state": "staged",
+        "prompt_commit": "1234567",
+        "code_commit": "7654321",
+        "prompt_hash": digest,
+        "catalog_hash": digest,
+        "schema_hash": digest,
+        "evaluation_contract_hash": digest,
+        "keep_decision_hash": digest,
+        "keep_decision_state": "kept",
+        "activation_scope": {
+            "cohort": "cohort_default",
+            "account_mode": "paper",
+            "traffic_percent": 0,
+        },
+        "approval_policy_id": "decision_release_manual_v1",
+        "approved_by": None,
+        "canary_started_at": None,
+        "canary_ended_at": None,
+        "runtime_slo_summary": None,
+        "rollback_triggers": ["schema_failure_rate_gt_0"],
+        "previous_approved_release_id": "release-0",
+        "bundled_fallback": None,
+        "created_at": "2026-07-10T00:00:00Z",
+        "activated_at": None,
+        "rolled_back_at": None,
+    }
+    artifacts = {
+        "prompt_mutation_transaction_v1.json": transaction,
+        "active_prompt_release_manifest_v1.json": release,
+    }
+    for filename, payload in artifacts.items():
+        (artifact_dir / filename).write_text(
+            json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+    transaction_record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_mutation_transaction_v1.schema.json",
+        artifact_path="registry/prompt_checks/prompt_mutation_transaction_v1.json",
+        artifact_kind="json",
+    )
+    release_record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/active_prompt_release_manifest_v1.schema.json",
+        artifact_path="registry/prompt_checks/active_prompt_release_manifest_v1.json",
+        artifact_kind="json",
+    )
+
+    assert transaction_record.accepted
+    assert release_record.accepted
 
 
 def _domain_knob_catalog_fixture() -> dict:
