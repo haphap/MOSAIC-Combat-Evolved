@@ -29,6 +29,7 @@ import {
   buildKnobMutationMetadata,
   buildKnobTargetRegistry,
   type KnobMutation,
+  KnobMutationSchema,
   MAX_LENGTH_DELTA,
   mutate,
   mutateResearchKnobs,
@@ -320,6 +321,20 @@ describe("assertPromptInvariants", () => {
 });
 
 describe("knob mutation validation", () => {
+  it("rejects negative rollback deterioration thresholds", () => {
+    expect(
+      KnobMutationSchema.safeParse(
+        knobMutation({
+          rollback_condition: {
+            metric: "confidence_calibration_error",
+            worse_by: -0.01,
+            unit: "ratio",
+          },
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
   it("accepts and applies an authorized confidence cap patch", () => {
     const knobs = knobsFixture();
     const mutation = knobMutation();
@@ -477,6 +492,10 @@ describe("knob mutation validation", () => {
         write_back_source: "domain_knob_value_registry",
         domain_card_id: "pboc_fed_policy_weight",
         evaluation_metrics: expect.arrayContaining([
+          "macro_signal_accuracy_5d",
+          "confidence_calibration_error",
+        ]),
+        rollback_metrics: expect.arrayContaining([
           "macro_signal_accuracy_5d",
           "confidence_calibration_error",
         ]),

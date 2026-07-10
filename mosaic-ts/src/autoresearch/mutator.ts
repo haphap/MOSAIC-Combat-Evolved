@@ -159,7 +159,7 @@ export const KnobPatchSchema = z.object({
 export const RollbackConditionSchema = z
   .object({
     metric: z.string().min(1),
-    worse_by: z.number(),
+    worse_by: z.number().nonnegative(),
     unit: z.enum(["ratio", "bps", "count", "score", "currency", "registered_custom_unit"]),
   })
   .strict();
@@ -232,14 +232,7 @@ export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistr
   return knobs.mutation_targets.map((target) => {
     const domainCard = domainKnobCardFromPath(target.path);
     if (domainCard) {
-      const evaluationMetrics = uniqueStrings([
-        domainCard.evaluation_metric,
-        ...domainCard.secondary_metrics,
-      ]);
-      const rollbackMetrics = uniqueStrings([
-        domainCard.rollback_condition.metric,
-        ...domainCard.secondary_metrics,
-      ]);
+      const metricClosure = domainCardMetricClosure(domainCard);
       return {
         path: target.path,
         category: "domain",
@@ -249,9 +242,9 @@ export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistr
         ...(target.step !== undefined ? { step: target.step } : {}),
         ...(target.allowed_values !== undefined ? { allowed_values: target.allowed_values } : {}),
         write_back_source: "domain_knob_value_registry",
-        evaluation_metrics: evaluationMetrics,
+        evaluation_metrics: metricClosure,
         horizons: [domainCard.horizon],
-        rollback_metrics: rollbackMetrics,
+        rollback_metrics: metricClosure,
         domain_card_id: domainCard.id,
         domain_card_path: domainCard.path,
       };
@@ -536,6 +529,14 @@ function hashKnobs(knobs: ResearchKnobs): string {
 
 function uniqueStrings(values: ReadonlyArray<string>): string[] {
   return [...new Set(values)];
+}
+
+function domainCardMetricClosure(card: DomainKnobCard): string[] {
+  return uniqueStrings([
+    card.evaluation_metric,
+    card.rollback_condition.metric,
+    ...card.secondary_metrics,
+  ]);
 }
 
 export class PromptInvariantError extends Error {

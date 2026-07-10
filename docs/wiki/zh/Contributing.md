@@ -37,9 +37,12 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
   input source。
 - Domain card metric 必须闭包到 evaluation metric registry:
   `evaluation_metric`、`rollback_condition.metric` 和 `secondary_metrics`
-  都要已注册、horizon 兼容,且 rollback unit 要匹配 metric unit。Registry entry
+  都要已注册、horizon 兼容,且 rollback unit 要匹配 metric unit；
+  `rollback_condition.worse_by` 必须非负。Registry entry
   还必须包含可用于 rollback 的 direction、value convention、baseline、PIT 和
-  exclusion policy 字段。
+  exclusion policy 字段，并覆盖 missing/stale input、source error、lookahead
+  risk 和 incomplete fill。signed-return metric 必须是 higher-is-better，loss/cost
+  convention 必须是 lower-is-better。
 - Domain knob mutation 只能选择 owner card metric closure 内的指标:主
   evaluation metric、rollback metric 或已注册 secondary metrics。
 - CIO pre-decision card 不得消费 `candidate_target_state`;这个 source 只能由

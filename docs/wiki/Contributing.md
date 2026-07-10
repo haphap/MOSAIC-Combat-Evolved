@@ -39,9 +39,12 @@ Notes:
   cards need runtime input sources.
 - Domain card metrics are closed over the evaluation metric registry:
   `evaluation_metric`, `rollback_condition.metric`, and `secondary_metrics`
-  must all be registered, horizon-compatible, and rollback-unit compatible.
+  must all be registered, horizon-compatible, and rollback-unit compatible;
+  `rollback_condition.worse_by` must be nonnegative.
   Registry entries also need rollback-usable direction, value convention,
-  baseline, PIT, and exclusion policy fields.
+  baseline, PIT, and exclusion policies covering missing/stale inputs, source
+  errors, lookahead risk, and incomplete fills. Signed-return metrics must be
+  higher-is-better, while loss/cost conventions must be lower-is-better.
 - Domain knob mutations may choose only metrics in the owning card's metric
   closure: its primary evaluation metric, rollback metric, or registered
   secondary metrics.

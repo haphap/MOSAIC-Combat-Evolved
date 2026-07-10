@@ -253,6 +253,14 @@ export const RUNTIME_SOURCE_REGISTRY: Record<
   }),
 };
 
+const REQUIRED_EVALUATION_METRIC_EXCLUSION_RULES = [
+  "missing_required_runtime_source",
+  "stale_required_runtime_source",
+  "runtime_source_error",
+  "lookahead_risk",
+  "incomplete_fill",
+] as const;
+
 export const EVALUATION_METRIC_REGISTRY: Record<string, EvaluationMetricRegistryEntry> = {
   macro_signal_accuracy_5d: metric("macro_signal_accuracy_5d", "ratio", "maximize", "5d"),
   sector_rank_correlation_20d: metric("sector_rank_correlation_20d", "ratio", "maximize", "20d"),
@@ -1126,6 +1134,20 @@ function validateEvaluationMetricEntry(
   if (!Array.isArray(metricEntry.exclusion_rules) || metricEntry.exclusion_rules.length === 0) {
     reasons.push(`domain_catalog_metric_exclusion_rules_missing:${metricId}`);
   }
+  for (const exclusionRule of REQUIRED_EVALUATION_METRIC_EXCLUSION_RULES) {
+    if (!metricEntry.exclusion_rules.includes(exclusionRule)) {
+      reasons.push(`domain_catalog_metric_exclusion_rule_missing:${metricId}:${exclusionRule}`);
+    }
+  }
+  const directionConventionMismatch =
+    (metricEntry.direction === "lower_is_better" &&
+      metricEntry.value_convention === "signed_return") ||
+    (metricEntry.direction === "higher_is_better" &&
+      (metricEntry.value_convention === "nonnegative_loss_magnitude" ||
+        metricEntry.value_convention === "bps_cost"));
+  if (directionConventionMismatch) {
+    reasons.push(`domain_catalog_metric_value_convention_incompatible:${metricId}`);
+  }
   return reasons;
 }
 
@@ -1326,25 +1348,30 @@ function metric(
     value_convention:
       unit === "bps"
         ? "bps_cost"
-        : id.includes("drawdown") || id.includes("loss") || id.includes("regret")
-          ? "nonnegative_loss_magnitude"
-          : id.includes("rate") || id.includes("calibration")
-            ? "rate_0_1"
-            : "signed_return",
+        : id.includes("rate") || id.includes("calibration") || id.includes("accuracy")
+          ? "rate_0_1"
+          : higher
+            ? "signed_return"
+            : "nonnegative_loss_magnitude",
     direction: higher ? "higher_is_better" : "lower_is_better",
-    aggregation: id.includes("rate")
-      ? "hit_rate"
-      : id.includes("calibration")
-        ? "calibration_error"
-        : higher
-          ? "mean"
-          : "max",
+    aggregation: id.includes("calibration")
+      ? "calibration_error"
+      : id.includes("rank_correlation")
+        ? "rank_correlation"
+        : id.includes("rate") || id.includes("accuracy")
+          ? "hit_rate"
+          : id.includes("max_drawdown") ||
+              id.includes("tail_loss") ||
+              id.includes("tail_stress_drawdown") ||
+              id.includes("realized_risk")
+            ? "max"
+            : "mean",
     window,
     baseline: "previous_knob_snapshot",
     min_sample_size: 30,
     pit_required: true,
     exclusion_rules: [
-      "missing_required_runtime_source",
+      ...REQUIRED_EVALUATION_METRIC_EXCLUSION_RULES,
       "missing_required_evidence_dependency",
       "fallback_dependency_without_policy_allowance",
     ],

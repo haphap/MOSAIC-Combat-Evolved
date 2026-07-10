@@ -112,11 +112,15 @@ Acceptance checks:
 - card metric closure includes `evaluation_metric`, `rollback_condition.metric`,
   and `secondary_metrics`; every referenced metric must exist in the evaluation
   registry and use the card horizon, and rollback units must match the metric
-  unit; metric registry entries must carry rollback-usable
-  `value_convention`, `direction`, `baseline`, PIT, and exclusion policy fields;
-- domain knob mutations may use the card's primary evaluation metric or a
-  registered `secondary_metrics` entry, but unrelated metrics and rollback
-  metrics outside the card's metric closure must be rejected;
+  unit; `rollback_condition.worse_by` must be nonnegative; metric registry
+  entries must carry rollback-usable `value_convention`, `direction`, `baseline`,
+  PIT, and exclusion policies covering missing/stale inputs, source errors,
+  lookahead risk, and incomplete fills;
+  signed-return metrics must be higher-is-better, while loss/cost conventions
+  must be lower-is-better;
+- domain knob mutations may use only the card's metric closure: its primary
+  evaluation metric, rollback metric, or a registered `secondary_metrics`
+  entry; unrelated evaluation or rollback metrics must be rejected;
 - CIO pre-decision cards must not declare `candidate_target_state`; that source
   is only available after the CIO proposal and is reserved for CRO/execution
   validation and downstream cards;

@@ -178,6 +178,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -185,15 +189,19 @@
     "churn_adjusted_slippage": {
       "id": "churn_adjusted_slippage",
       "unit": "ratio",
-      "value_convention": "signed_return",
+      "value_convention": "nonnegative_loss_magnitude",
       "direction": "lower_is_better",
-      "aggregation": "max",
+      "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -210,6 +218,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -226,6 +238,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -233,7 +249,7 @@
     "drawdown_avoidance_after_tail_veto": {
       "id": "drawdown_avoidance_after_tail_veto",
       "unit": "ratio",
-      "value_convention": "nonnegative_loss_magnitude",
+      "value_convention": "signed_return",
       "direction": "higher_is_better",
       "aggregation": "mean",
       "window": "20d",
@@ -242,6 +258,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -251,13 +271,17 @@
       "unit": "bps",
       "value_convention": "bps_cost",
       "direction": "lower_is_better",
-      "aggregation": "max",
+      "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -274,6 +298,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -290,6 +318,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -297,7 +329,7 @@
     "false_veto_adjusted_drawdown_avoidance": {
       "id": "false_veto_adjusted_drawdown_avoidance",
       "unit": "ratio",
-      "value_convention": "nonnegative_loss_magnitude",
+      "value_convention": "signed_return",
       "direction": "higher_is_better",
       "aggregation": "mean",
       "window": "20d",
@@ -306,6 +338,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -322,6 +358,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -338,6 +378,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -345,15 +389,19 @@
     "macro_signal_accuracy_5d": {
       "id": "macro_signal_accuracy_5d",
       "unit": "ratio",
-      "value_convention": "signed_return",
+      "value_convention": "rate_0_1",
       "direction": "higher_is_better",
-      "aggregation": "mean",
+      "aggregation": "hit_rate",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -370,6 +418,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -386,6 +438,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -393,15 +449,19 @@
     "opportunity_cost_after_reduce": {
       "id": "opportunity_cost_after_reduce",
       "unit": "ratio",
-      "value_convention": "signed_return",
+      "value_convention": "nonnegative_loss_magnitude",
       "direction": "lower_is_better",
-      "aggregation": "max",
+      "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -409,7 +469,7 @@
     "override_realized_risk": {
       "id": "override_realized_risk",
       "unit": "ratio",
-      "value_convention": "signed_return",
+      "value_convention": "nonnegative_loss_magnitude",
       "direction": "lower_is_better",
       "aggregation": "max",
       "window": "20d",
@@ -418,6 +478,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -434,6 +498,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -450,6 +518,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -459,13 +531,17 @@
       "unit": "bps",
       "value_convention": "bps_cost",
       "direction": "lower_is_better",
-      "aggregation": "max",
+      "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -475,13 +551,17 @@
       "unit": "ratio",
       "value_convention": "nonnegative_loss_magnitude",
       "direction": "lower_is_better",
-      "aggregation": "max",
+      "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -489,15 +569,19 @@
     "scenario_adjusted_slippage": {
       "id": "scenario_adjusted_slippage",
       "unit": "ratio",
-      "value_convention": "signed_return",
+      "value_convention": "nonnegative_loss_magnitude",
       "direction": "lower_is_better",
-      "aggregation": "max",
+      "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -514,6 +598,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -523,13 +611,17 @@
       "unit": "ratio",
       "value_convention": "signed_return",
       "direction": "higher_is_better",
-      "aggregation": "mean",
+      "aggregation": "rank_correlation",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -546,6 +638,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -562,6 +658,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -578,6 +678,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -594,6 +698,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -610,6 +718,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -626,6 +738,10 @@
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]
@@ -633,15 +749,19 @@
     "turnover_adjusted_slippage": {
       "id": "turnover_adjusted_slippage",
       "unit": "ratio",
-      "value_convention": "signed_return",
+      "value_convention": "nonnegative_loss_magnitude",
       "direction": "lower_is_better",
-      "aggregation": "max",
+      "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
         "missing_required_runtime_source",
+        "stale_required_runtime_source",
+        "runtime_source_error",
+        "lookahead_risk",
+        "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
       ]

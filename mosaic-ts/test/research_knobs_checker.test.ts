@@ -430,6 +430,22 @@ describe("checkResearchKnobsPrompts", () => {
     expect(Object.keys(artifact.evaluation_metrics)).toEqual(
       Object.keys(EVALUATION_METRIC_REGISTRY).sort(),
     );
+    for (const metric of Object.values(artifact.evaluation_metrics)) {
+      if (metric.direction === "lower_is_better") {
+        expect(metric.value_convention).not.toBe("signed_return");
+      }
+      if (metric.direction === "higher_is_better") {
+        expect(metric.value_convention).not.toBe("nonnegative_loss_magnitude");
+        expect(metric.value_convention).not.toBe("bps_cost");
+      }
+    }
+    expect(artifact.evaluation_metrics.macro_signal_accuracy_5d?.value_convention).toBe("rate_0_1");
+    expect(artifact.evaluation_metrics.macro_signal_accuracy_5d?.aggregation).toBe("hit_rate");
+    expect(artifact.evaluation_metrics.sector_rank_correlation_20d?.aggregation).toBe(
+      "rank_correlation",
+    );
+    expect(artifact.evaluation_metrics.realized_slippage_bps?.aggregation).toBe("mean");
+    expect(artifact.evaluation_metrics.max_drawdown_after_hold?.aggregation).toBe("max");
     expect(PROJECTION_BUCKETS).toEqual([
       "lookbacks",
       "thresholds",
@@ -552,6 +568,36 @@ describe("checkResearchKnobsPrompts", () => {
         "domain_catalog_metric_baseline_missing:sector_rank_correlation_20d",
         "domain_catalog_metric_pit_not_required:sector_rank_correlation_20d",
       ]),
+    );
+
+    const incompatibleMetric = structuredClone(artifact);
+    const slippageMetric = incompatibleMetric.evaluation_metrics.turnover_adjusted_slippage;
+    expect(slippageMetric).toBeDefined();
+    if (!slippageMetric) return;
+    slippageMetric.value_convention = "signed_return";
+    expect(validateDomainKnobCatalogArtifact(incompatibleMetric)).toContain(
+      "domain_catalog_metric_value_convention_incompatible:turnover_adjusted_slippage",
+    );
+
+    const incompatibleHigherMetric = structuredClone(artifact);
+    const riskQualityMetric =
+      incompatibleHigherMetric.evaluation_metrics.portfolio_risk_quality_20d;
+    expect(riskQualityMetric).toBeDefined();
+    if (!riskQualityMetric) return;
+    riskQualityMetric.value_convention = "nonnegative_loss_magnitude";
+    expect(validateDomainKnobCatalogArtifact(incompatibleHigherMetric)).toContain(
+      "domain_catalog_metric_value_convention_incompatible:portfolio_risk_quality_20d",
+    );
+
+    const incompleteExclusionPolicy = structuredClone(artifact);
+    const exclusionMetric = incompleteExclusionPolicy.evaluation_metrics.max_drawdown_after_hold;
+    expect(exclusionMetric).toBeDefined();
+    if (!exclusionMetric) return;
+    exclusionMetric.exclusion_rules = exclusionMetric.exclusion_rules.filter(
+      (rule) => rule !== "lookahead_risk",
+    );
+    expect(validateDomainKnobCatalogArtifact(incompleteExclusionPolicy)).toContain(
+      "domain_catalog_metric_exclusion_rule_missing:max_drawdown_after_hold:lookahead_risk",
     );
 
     const missingSecondaryMetric = structuredClone(artifact);
