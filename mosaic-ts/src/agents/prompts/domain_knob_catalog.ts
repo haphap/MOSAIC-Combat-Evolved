@@ -200,6 +200,7 @@ export interface DomainKnobEvaluationContractArtifact {
     card_id: string;
     owner_agent: string;
     owner_stage: RuntimeAgentStageId;
+    activation_state: DomainKnobCard["activation_state"];
     prediction_target: string;
     evaluation_metric: string;
     secondary_metrics: string[];
@@ -1033,6 +1034,7 @@ export function buildDomainKnobEvaluationContractArtifact(
         card_id: card.id,
         owner_agent: card.owner_agent,
         owner_stage: card.owner_stage,
+        activation_state: card.activation_state,
         prediction_target: card.prediction_target,
         evaluation_metric: card.evaluation_metric,
         secondary_metrics: [...card.secondary_metrics].sort(),

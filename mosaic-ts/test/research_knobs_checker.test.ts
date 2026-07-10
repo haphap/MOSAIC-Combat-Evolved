@@ -726,9 +726,13 @@ describe("checkResearchKnobsPrompts", () => {
     expect(contract.card_bindings.find((binding) => binding.card_id === "stop_loss_pct")).toEqual(
       expect.objectContaining({
         owner_stage: "cro_review",
+        activation_state: "active",
         evaluation_metric: "max_drawdown_after_hold",
       }),
     );
+    expect(
+      contract.card_bindings.find((binding) => binding.card_id === "target_count_min"),
+    ).toEqual(expect.objectContaining({ activation_state: "read_only" }));
 
     const tampered = structuredClone(contract);
     tampered.card_bindings[0] = {

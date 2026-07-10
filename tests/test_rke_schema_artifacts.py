@@ -7351,6 +7351,22 @@ def test_domain_knob_evaluation_contract_schema_enforces_refs_and_min_properties
     assert any(".evaluation_metrics: below minProperties" in failure for failure in record.failures)
 
 
+def test_domain_knob_evaluation_contract_schema_requires_binding_activation_state(
+    tmp_path: Path,
+):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    del contract["card_bindings"][0]["activation_state"]
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".activation_state: required" in failure for failure in record.failures)
+
+
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):
     schema_dir = tmp_path / "schemas"
     artifact_dir = tmp_path / "registry/sources"

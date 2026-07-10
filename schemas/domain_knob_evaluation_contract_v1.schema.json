@@ -62,6 +62,7 @@
           "card_id",
           "owner_agent",
           "owner_stage",
+          "activation_state",
           "prediction_target",
           "evaluation_metric",
           "secondary_metrics",
@@ -90,6 +91,9 @@
               "execution_feasibility",
               "cio_final"
             ]
+          },
+          "activation_state": {
+            "enum": ["active", "read_only", "backlog"]
           },
           "prediction_target": {
             "type": "string",

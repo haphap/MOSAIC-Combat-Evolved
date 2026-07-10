@@ -145,7 +145,9 @@ export function buildRuntimeResearchKnobs(
 
   const domainCards = domainKnobCardsForSpec(spec);
   for (const card of domainCards) {
-    if (card.coverage_level === "gap_pending_tool") continue;
+    if (card.coverage_level === "gap_pending_tool" || card.activation_state === "backlog") {
+      continue;
+    }
     applyDomainKnobValueToProjection(
       {
         evidence_weights: evidenceWeights,
@@ -183,7 +185,12 @@ export function buildRuntimeResearchKnobs(
         horizon: HORIZON_BY_LAYER[spec.layer],
         allowed_outputs: ["negative", "neutral", "positive"],
       },
-      ...domainPredictionTargets(domainCards),
+      ...domainPredictionTargets(
+        domainCards.filter(
+          (card) =>
+            card.coverage_level !== "gap_pending_tool" && card.activation_state !== "backlog",
+        ),
+      ),
     ],
     evidence_registry: evidenceRegistry,
     evidence_weights: evidenceWeights,

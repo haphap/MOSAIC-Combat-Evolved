@@ -1023,6 +1023,7 @@
       "card_id": "cross_agent_agreement_threshold",
       "owner_agent": "decision.alpha_discovery",
       "owner_stage": "alpha_discovery",
+      "activation_state": "active",
       "prediction_target": "decision.alpha_discovery.cross_agent_agreement_threshold.20d",
       "evaluation_metric": "alpha_discovery_quality_20d",
       "secondary_metrics": [
@@ -1041,6 +1042,7 @@
       "card_id": "false_positive_penalty",
       "owner_agent": "decision.alpha_discovery",
       "owner_stage": "alpha_discovery",
+      "activation_state": "active",
       "prediction_target": "decision.alpha_discovery.false_positive_penalty.20d",
       "evaluation_metric": "alpha_discovery_quality_20d",
       "secondary_metrics": [
@@ -1059,6 +1061,7 @@
       "card_id": "idea_decay_days",
       "owner_agent": "decision.alpha_discovery",
       "owner_stage": "alpha_discovery",
+      "activation_state": "active",
       "prediction_target": "decision.alpha_discovery.idea_decay_days.20d",
       "evaluation_metric": "alpha_discovery_quality_20d",
       "secondary_metrics": [
@@ -1077,6 +1080,7 @@
       "card_id": "novelty_floor",
       "owner_agent": "decision.alpha_discovery",
       "owner_stage": "alpha_discovery",
+      "activation_state": "active",
       "prediction_target": "decision.alpha_discovery.novelty_floor.20d",
       "evaluation_metric": "alpha_discovery_quality_20d",
       "secondary_metrics": [
@@ -1095,6 +1099,7 @@
       "card_id": "theme_persistence_days",
       "owner_agent": "decision.alpha_discovery",
       "owner_stage": "alpha_discovery",
+      "activation_state": "active",
       "prediction_target": "decision.alpha_discovery.theme_persistence_days.20d",
       "evaluation_metric": "alpha_discovery_quality_20d",
       "secondary_metrics": [
@@ -1113,6 +1118,7 @@
       "card_id": "upstream_disagreement_filter",
       "owner_agent": "decision.alpha_discovery",
       "owner_stage": "alpha_discovery",
+      "activation_state": "active",
       "prediction_target": "decision.alpha_discovery.upstream_disagreement_filter.20d",
       "evaluation_metric": "alpha_discovery_quality_20d",
       "secondary_metrics": [
@@ -1131,6 +1137,7 @@
       "card_id": "cio_cro_conflict_threshold",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "read_only",
       "prediction_target": "decision.autonomous_execution.cio_cro_conflict_threshold.5d",
       "evaluation_metric": "execution_quality_5d",
       "secondary_metrics": [
@@ -1149,6 +1156,7 @@
       "card_id": "do_not_trade_event_window_days",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "read_only",
       "prediction_target": "decision.autonomous_execution.do_not_trade_event_window_days.5d",
       "evaluation_metric": "execution_quality_5d",
       "secondary_metrics": [
@@ -1167,6 +1175,7 @@
       "card_id": "execution_urgency_threshold",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "read_only",
       "prediction_target": "decision.autonomous_execution.execution_urgency_threshold.5d",
       "evaluation_metric": "execution_quality_5d",
       "secondary_metrics": [
@@ -1185,6 +1194,7 @@
       "card_id": "liquidity_floor",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "failed_or_partial_fill_rate",
       "secondary_metrics": [
@@ -1203,6 +1213,7 @@
       "card_id": "max_order_split_count",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "turnover_adjusted_slippage",
       "secondary_metrics": [
@@ -1221,6 +1232,7 @@
       "card_id": "min_delta_trade_weight",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "churn_adjusted_slippage",
       "secondary_metrics": [
@@ -1239,6 +1251,7 @@
       "card_id": "mirofish_liquidity_stress_haircut",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "failed_or_partial_fill_rate",
       "secondary_metrics": [
@@ -1257,6 +1270,7 @@
       "card_id": "mirofish_max_size_adjustment",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "tail_stress_drawdown_after_sizing",
       "secondary_metrics": [
@@ -1275,6 +1289,7 @@
       "card_id": "mirofish_path_sizing_weight",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "scenario_adjusted_slippage",
       "secondary_metrics": [
@@ -1293,6 +1308,7 @@
       "card_id": "mirofish_turnover_penalty",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "turnover_adjusted_slippage",
       "secondary_metrics": [
@@ -1311,6 +1327,7 @@
       "card_id": "slippage_cap",
       "owner_agent": "decision.autonomous_execution",
       "owner_stage": "execution_feasibility",
+      "activation_state": "active",
       "prediction_target": "execution_quality_5d",
       "evaluation_metric": "realized_slippage_bps",
       "secondary_metrics": [
@@ -1329,6 +1346,7 @@
       "card_id": "conviction_upgrade_min_delta",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.conviction_upgrade_min_delta.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1347,6 +1365,7 @@
       "card_id": "cro_risk_weight",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.cro_risk_weight.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1365,6 +1384,7 @@
       "card_id": "cross_layer_conflict_cap",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.cross_layer_conflict_cap.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1383,6 +1403,7 @@
       "card_id": "exit_threshold",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.exit_threshold.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1401,6 +1422,7 @@
       "card_id": "hold_hurdle",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.hold_hurdle.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1419,6 +1441,7 @@
       "card_id": "liquidity_penalty_max",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.liquidity_penalty_max.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1437,6 +1460,7 @@
       "card_id": "macro_signal_weight",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.macro_signal_weight.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1455,6 +1479,7 @@
       "card_id": "max_new_buy_weight",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.max_new_buy_weight.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1473,6 +1498,7 @@
       "card_id": "max_target_position_weight",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.max_target_position_weight.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1491,6 +1517,7 @@
       "card_id": "min_confidence_to_add",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "active",
       "prediction_target": "add_decision_quality_20d",
       "evaluation_metric": "incremental_alpha_after_add_20d",
       "secondary_metrics": [
@@ -1509,6 +1536,7 @@
       "card_id": "min_confidence_to_hold",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "active",
       "prediction_target": "hold_exit_quality_20d",
       "evaluation_metric": "max_drawdown_after_hold",
       "secondary_metrics": [
@@ -1527,6 +1555,7 @@
       "card_id": "min_upstream_confidence",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.min_upstream_confidence.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1545,6 +1574,7 @@
       "card_id": "mirofish_exit_regret_penalty",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_final",
+      "activation_state": "active",
       "prediction_target": "hold_exit_quality_20d",
       "evaluation_metric": "regret_after_exit",
       "secondary_metrics": [
@@ -1563,6 +1593,7 @@
       "card_id": "mirofish_min_scenario_agreement_to_add",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_final",
+      "activation_state": "active",
       "prediction_target": "add_decision_quality_20d",
       "evaluation_metric": "incremental_alpha_after_add_20d",
       "secondary_metrics": [
@@ -1581,6 +1612,7 @@
       "card_id": "mirofish_override_hurdle",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_final",
+      "activation_state": "active",
       "prediction_target": "override_quality_20d",
       "evaluation_metric": "override_realized_risk",
       "secondary_metrics": [
@@ -1599,6 +1631,7 @@
       "card_id": "mirofish_portfolio_stress_weight",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_final",
+      "activation_state": "active",
       "prediction_target": "portfolio_construction_quality_20d",
       "evaluation_metric": "stress_adjusted_alpha_20d",
       "secondary_metrics": [
@@ -1617,6 +1650,7 @@
       "card_id": "new_buy_hurdle",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.new_buy_hurdle.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1635,6 +1669,7 @@
       "card_id": "position_review_days",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.position_review_days.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1653,6 +1688,7 @@
       "card_id": "rebalance_cooldown_days",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.rebalance_cooldown_days.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1671,6 +1707,7 @@
       "card_id": "rebalance_drift_pct",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "active",
       "prediction_target": "portfolio_rebalance_quality_20d",
       "evaluation_metric": "turnover_adjusted_alpha_20d",
       "secondary_metrics": [
@@ -1689,6 +1726,7 @@
       "card_id": "rebalance_threshold",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.rebalance_threshold.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1707,6 +1745,7 @@
       "card_id": "sector_signal_weight",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.sector_signal_weight.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1725,6 +1764,7 @@
       "card_id": "stale_thesis_days",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "active",
       "prediction_target": "thesis_quality_20d",
       "evaluation_metric": "stale_thesis_review_alpha_20d",
       "secondary_metrics": [
@@ -1743,6 +1783,7 @@
       "card_id": "superinvestor_signal_weight",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.superinvestor_signal_weight.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1761,6 +1802,7 @@
       "card_id": "target_count_max",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.target_count_max.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1779,6 +1821,7 @@
       "card_id": "target_count_min",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.target_count_min.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1797,6 +1840,7 @@
       "card_id": "thesis_decay_review_days",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.thesis_decay_review_days.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1815,6 +1859,7 @@
       "card_id": "trim_threshold",
       "owner_agent": "decision.cio",
       "owner_stage": "cio_proposal",
+      "activation_state": "read_only",
       "prediction_target": "decision.cio.trim_threshold.20d",
       "evaluation_metric": "portfolio_construction_quality_20d",
       "secondary_metrics": [
@@ -1833,6 +1878,7 @@
       "card_id": "correlation_stress_threshold",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "read_only",
       "prediction_target": "decision.cro.correlation_stress_threshold.20d",
       "evaluation_metric": "portfolio_risk_quality_20d",
       "secondary_metrics": [
@@ -1850,6 +1896,7 @@
       "card_id": "liquidity_discount",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "read_only",
       "prediction_target": "decision.cro.liquidity_discount.20d",
       "evaluation_metric": "portfolio_risk_quality_20d",
       "secondary_metrics": [
@@ -1867,6 +1914,7 @@
       "card_id": "max_correlation_cluster_weight",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "read_only",
       "prediction_target": "decision.cro.max_correlation_cluster_weight.20d",
       "evaluation_metric": "portfolio_risk_quality_20d",
       "secondary_metrics": [
@@ -1884,6 +1932,7 @@
       "card_id": "max_sector_weight",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "portfolio_risk_quality_20d",
       "evaluation_metric": "sector_concentration_breach_rate",
       "secondary_metrics": [
@@ -1902,6 +1951,7 @@
       "card_id": "max_single_name_weight",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "portfolio_risk_quality_20d",
       "evaluation_metric": "concentration_breach_rate",
       "secondary_metrics": [
@@ -1920,6 +1970,7 @@
       "card_id": "mirofish_drawdown_penalty",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "portfolio_risk_quality_20d",
       "evaluation_metric": "max_drawdown_after_hold",
       "secondary_metrics": [
@@ -1937,6 +1988,7 @@
       "card_id": "mirofish_max_tail_loss_to_hold",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "hold_exit_quality_20d",
       "evaluation_metric": "tail_loss_after_hold",
       "secondary_metrics": [
@@ -1955,6 +2007,7 @@
       "card_id": "mirofish_tail_risk_veto_threshold",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "tail_risk_review_20d",
       "evaluation_metric": "false_veto_adjusted_drawdown_avoidance",
       "secondary_metrics": [
@@ -1973,6 +2026,7 @@
       "card_id": "mirofish_tail_scenario_weight",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "tail_risk_review_20d",
       "evaluation_metric": "drawdown_avoidance_after_tail_veto",
       "secondary_metrics": [
@@ -1991,6 +2045,7 @@
       "card_id": "portfolio_drawdown_cap",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "read_only",
       "prediction_target": "decision.cro.portfolio_drawdown_cap.20d",
       "evaluation_metric": "portfolio_risk_quality_20d",
       "secondary_metrics": [
@@ -2008,6 +2063,7 @@
       "card_id": "stop_loss_pct",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "hold_exit_quality_20d",
       "evaluation_metric": "max_drawdown_after_hold",
       "secondary_metrics": [
@@ -2025,6 +2081,7 @@
       "card_id": "take_profit_review_pct",
       "owner_agent": "decision.cro",
       "owner_stage": "cro_review",
+      "activation_state": "active",
       "prediction_target": "reduce_decision_quality_20d",
       "evaluation_metric": "opportunity_cost_after_reduce",
       "secondary_metrics": [
@@ -2043,6 +2100,7 @@
       "card_id": "easing_threshold_bps",
       "owner_agent": "macro.central_bank",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.central_bank.easing_threshold_bps.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2061,6 +2119,7 @@
       "card_id": "liquidity_net_injection_window_days",
       "owner_agent": "macro.central_bank",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.central_bank.liquidity_net_injection_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2079,6 +2138,7 @@
       "card_id": "omo_mlf_freshness_days",
       "owner_agent": "macro.central_bank",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.central_bank.omo_mlf_freshness_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2097,6 +2157,7 @@
       "card_id": "pboc_fed_policy_weight",
       "owner_agent": "macro.central_bank",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.central_bank.pboc_fed_policy_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2115,6 +2176,7 @@
       "card_id": "policy_conflict_cap",
       "owner_agent": "macro.central_bank",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.central_bank.policy_conflict_cap.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2133,6 +2195,7 @@
       "card_id": "tightening_threshold_bps",
       "owner_agent": "macro.central_bank",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.central_bank.tightening_threshold_bps.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2151,6 +2214,7 @@
       "card_id": "a_share_beta_discount",
       "owner_agent": "macro.china",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.china.a_share_beta_discount.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2169,6 +2233,7 @@
       "card_id": "consumption_weight",
       "owner_agent": "macro.china",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.china.consumption_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2187,6 +2252,7 @@
       "card_id": "pmi_weight",
       "owner_agent": "macro.china",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.china.pmi_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2205,6 +2271,7 @@
       "card_id": "policy_confirmation_window_days",
       "owner_agent": "macro.china",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.china.policy_confirmation_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2223,6 +2290,7 @@
       "card_id": "property_cycle_weight",
       "owner_agent": "macro.china",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.china.property_cycle_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2241,6 +2309,7 @@
       "card_id": "social_financing_weight",
       "owner_agent": "macro.china",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.china.social_financing_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2259,6 +2328,7 @@
       "card_id": "agriculture_weight",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.commodities.agriculture_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2277,6 +2347,7 @@
       "card_id": "china_demand_weight",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.commodities.china_demand_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2295,6 +2366,7 @@
       "card_id": "industrial_metals_weight",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.commodities.industrial_metals_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2313,6 +2385,7 @@
       "card_id": "inventory_confirmation_window_days",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.commodities.inventory_confirmation_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2331,6 +2404,7 @@
       "card_id": "oil_weight",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.commodities.oil_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2349,6 +2423,7 @@
       "card_id": "precious_metals_weight",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.commodities.precious_metals_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2367,6 +2442,7 @@
       "card_id": "cn_us_spread_weight",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.dollar.cn_us_spread_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2385,6 +2461,7 @@
       "card_id": "dollar_pressure_cap",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.dollar.dollar_pressure_cap.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2403,6 +2480,7 @@
       "card_id": "dxy_trend_window_days",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.dollar.dxy_trend_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2421,6 +2499,7 @@
       "card_id": "em_flow_pressure_weight",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.dollar.em_flow_pressure_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2439,6 +2518,7 @@
       "card_id": "fed_pboc_divergence_threshold_bps",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.dollar.fed_pboc_divergence_threshold_bps.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2457,6 +2537,7 @@
       "card_id": "real_rate_weight",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.dollar.real_rate_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2475,6 +2556,7 @@
       "card_id": "dxy_pressure_threshold",
       "owner_agent": "macro.emerging_markets",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.emerging_markets.dxy_pressure_threshold.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2493,6 +2575,7 @@
       "card_id": "em_drawdown_cap",
       "owner_agent": "macro.emerging_markets",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.emerging_markets.em_drawdown_cap.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2511,6 +2594,7 @@
       "card_id": "em_etf_weight",
       "owner_agent": "macro.emerging_markets",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.emerging_markets.em_etf_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2529,6 +2613,7 @@
       "card_id": "foreign_flow_confirmation_days",
       "owner_agent": "macro.emerging_markets",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.emerging_markets.foreign_flow_confirmation_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2547,6 +2632,7 @@
       "card_id": "hk_a_relative_strength_window_days",
       "owner_agent": "macro.emerging_markets",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.emerging_markets.hk_a_relative_strength_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2565,6 +2651,7 @@
       "card_id": "northbound_flow_weight",
       "owner_agent": "macro.emerging_markets",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.emerging_markets.northbound_flow_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2583,6 +2670,7 @@
       "card_id": "conflict_weight",
       "owner_agent": "macro.geopolitical",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.geopolitical.conflict_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2601,6 +2689,7 @@
       "card_id": "event_decay_window_days",
       "owner_agent": "macro.geopolitical",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.geopolitical.event_decay_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2619,6 +2708,7 @@
       "card_id": "risk_event_severity_threshold",
       "owner_agent": "macro.geopolitical",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.geopolitical.risk_event_severity_threshold.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2637,6 +2727,7 @@
       "card_id": "risk_off_override_threshold",
       "owner_agent": "macro.geopolitical",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.geopolitical.risk_off_override_threshold.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2655,6 +2746,7 @@
       "card_id": "sanction_weight",
       "owner_agent": "macro.geopolitical",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.geopolitical.sanction_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2673,6 +2765,7 @@
       "card_id": "supply_chain_weight",
       "owner_agent": "macro.geopolitical",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.geopolitical.supply_chain_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2691,6 +2784,7 @@
       "card_id": "flow_persistence_days",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.institutional_flow.flow_persistence_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2709,6 +2803,7 @@
       "card_id": "industry_moneyflow_window_days",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.institutional_flow.industry_moneyflow_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2727,6 +2822,7 @@
       "card_id": "lhb_window_days",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.institutional_flow.lhb_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2745,6 +2841,7 @@
       "card_id": "main_net_inflow_threshold",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.institutional_flow.main_net_inflow_threshold.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2763,6 +2860,7 @@
       "card_id": "null_flow_fallback_cap",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.institutional_flow.null_flow_fallback_cap.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2781,6 +2879,7 @@
       "card_id": "top_buyer_weight",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.institutional_flow.top_buyer_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2799,6 +2898,7 @@
       "card_id": "contrarian_threshold",
       "owner_agent": "macro.news_sentiment",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.news_sentiment.contrarian_threshold.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2817,6 +2917,7 @@
       "card_id": "event_decay_window_days",
       "owner_agent": "macro.news_sentiment",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.news_sentiment.event_decay_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2835,6 +2936,7 @@
       "card_id": "news_sentiment_scale",
       "owner_agent": "macro.news_sentiment",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.news_sentiment.news_sentiment_scale.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2853,6 +2955,7 @@
       "card_id": "policy_semantic_weight",
       "owner_agent": "macro.news_sentiment",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.news_sentiment.policy_semantic_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2871,6 +2974,7 @@
       "card_id": "topic_filter_threshold",
       "owner_agent": "macro.news_sentiment",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.news_sentiment.topic_filter_threshold.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2889,6 +2993,7 @@
       "card_id": "xueqiu_replacement_weight",
       "owner_agent": "macro.news_sentiment",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.news_sentiment.xueqiu_replacement_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2907,6 +3012,7 @@
       "card_id": "ivx_weight",
       "owner_agent": "macro.volatility",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.volatility.ivx_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2925,6 +3031,7 @@
       "card_id": "realized_vol_weight",
       "owner_agent": "macro.volatility",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.volatility.realized_vol_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2943,6 +3050,7 @@
       "card_id": "risk_off_threshold",
       "owner_agent": "macro.volatility",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.volatility.risk_off_threshold.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2961,6 +3069,7 @@
       "card_id": "vix_weight",
       "owner_agent": "macro.volatility",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.volatility.vix_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2979,6 +3088,7 @@
       "card_id": "vol_amplification_window_days",
       "owner_agent": "macro.volatility",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.volatility.vol_amplification_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -2997,6 +3107,7 @@
       "card_id": "volatility_cap",
       "owner_agent": "macro.volatility",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.volatility.volatility_cap.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -3015,6 +3126,7 @@
       "card_id": "credit_spread_discount",
       "owner_agent": "macro.yield_curve",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.yield_curve.credit_spread_discount.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -3033,6 +3145,7 @@
       "card_id": "duration_risk_weight",
       "owner_agent": "macro.yield_curve",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.yield_curve.duration_risk_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -3051,6 +3164,7 @@
       "card_id": "flattening_threshold_bps",
       "owner_agent": "macro.yield_curve",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.yield_curve.flattening_threshold_bps.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -3069,6 +3183,7 @@
       "card_id": "inversion_threshold_bps",
       "owner_agent": "macro.yield_curve",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.yield_curve.inversion_threshold_bps.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -3087,6 +3202,7 @@
       "card_id": "steepening_threshold_bps",
       "owner_agent": "macro.yield_curve",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.yield_curve.steepening_threshold_bps.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -3105,6 +3221,7 @@
       "card_id": "term_spread_window_days",
       "owner_agent": "macro.yield_curve",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "macro.yield_curve.term_spread_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
@@ -3123,6 +3240,7 @@
       "card_id": "approval_catalyst_window_days",
       "owner_agent": "sector.biotech",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.biotech.approval_catalyst_window_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3141,6 +3259,7 @@
       "card_id": "clinical_failure_risk_cap",
       "owner_agent": "sector.biotech",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.biotech.clinical_failure_risk_cap.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3159,6 +3278,7 @@
       "card_id": "cxo_external_demand_weight",
       "owner_agent": "sector.biotech",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.biotech.cxo_external_demand_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3177,6 +3297,7 @@
       "card_id": "medical_insurance_discount",
       "owner_agent": "sector.biotech",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.biotech.medical_insurance_discount.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3195,6 +3316,7 @@
       "card_id": "pipeline_stage_weight",
       "owner_agent": "sector.biotech",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.biotech.pipeline_stage_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3213,6 +3335,7 @@
       "card_id": "valuation_risk_threshold",
       "owner_agent": "sector.biotech",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.biotech.valuation_risk_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3231,6 +3354,7 @@
       "card_id": "consumption_policy_weight",
       "owner_agent": "sector.consumer",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.consumer.consumption_policy_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3249,6 +3373,7 @@
       "card_id": "income_elasticity_weight",
       "owner_agent": "sector.consumer",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.consumer.income_elasticity_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3267,6 +3392,7 @@
       "card_id": "inventory_cycle_window_days",
       "owner_agent": "sector.consumer",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.consumer.inventory_cycle_window_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3285,6 +3411,7 @@
       "card_id": "margin_recovery_threshold",
       "owner_agent": "sector.consumer",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.consumer.margin_recovery_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3303,6 +3430,7 @@
       "card_id": "premium_brand_discount",
       "owner_agent": "sector.consumer",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.consumer.premium_brand_discount.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3321,6 +3449,7 @@
       "card_id": "property_chain_weight",
       "owner_agent": "sector.consumer",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.consumer.property_chain_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3339,6 +3468,7 @@
       "card_id": "coal_price_weight",
       "owner_agent": "sector.energy",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.energy.coal_price_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3357,6 +3487,7 @@
       "card_id": "energy_security_theme_weight",
       "owner_agent": "sector.energy",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.energy.energy_security_theme_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3375,6 +3506,7 @@
       "card_id": "inventory_window_days",
       "owner_agent": "sector.energy",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.energy.inventory_window_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3393,6 +3525,7 @@
       "card_id": "oil_price_transmission_weight",
       "owner_agent": "sector.energy",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.energy.oil_price_transmission_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3411,6 +3544,7 @@
       "card_id": "power_tariff_policy_weight",
       "owner_agent": "sector.energy",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.energy.power_tariff_policy_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3429,6 +3563,7 @@
       "card_id": "refining_margin_threshold",
       "owner_agent": "sector.energy",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.energy.refining_margin_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3447,6 +3582,7 @@
       "card_id": "brokerage_volume_threshold",
       "owner_agent": "sector.financials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.financials.brokerage_volume_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3465,6 +3601,7 @@
       "card_id": "credit_risk_cap",
       "owner_agent": "sector.financials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.financials.credit_risk_cap.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3483,6 +3620,7 @@
       "card_id": "curve_weight",
       "owner_agent": "sector.financials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.financials.curve_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3501,6 +3639,7 @@
       "card_id": "insurance_rate_sensitivity",
       "owner_agent": "sector.financials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.financials.insurance_rate_sensitivity.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3519,6 +3658,7 @@
       "card_id": "property_risk_discount",
       "owner_agent": "sector.financials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.financials.property_risk_discount.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3537,6 +3677,7 @@
       "card_id": "turnover_beta_weight",
       "owner_agent": "sector.financials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.financials.turnover_beta_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3555,6 +3696,7 @@
       "card_id": "capacity_utilization_weight",
       "owner_agent": "sector.industrials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.industrials.capacity_utilization_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3573,6 +3715,7 @@
       "card_id": "capex_weight",
       "owner_agent": "sector.industrials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.industrials.capex_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3591,6 +3734,7 @@
       "card_id": "export_chain_weight",
       "owner_agent": "sector.industrials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.industrials.export_chain_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3609,6 +3753,7 @@
       "card_id": "military_order_confirmation_days",
       "owner_agent": "sector.industrials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.industrials.military_order_confirmation_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3627,6 +3772,7 @@
       "card_id": "order_backlog_threshold",
       "owner_agent": "sector.industrials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.industrials.order_backlog_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3645,6 +3791,7 @@
       "card_id": "policy_catalyst_window_days",
       "owner_agent": "sector.industrials",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.industrials.policy_catalyst_window_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3663,6 +3810,7 @@
       "card_id": "cross_sector_spillover_threshold",
       "owner_agent": "sector.relationship_mapper",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.relationship_mapper.cross_sector_spillover_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3681,6 +3829,7 @@
       "card_id": "etf_overlap_threshold",
       "owner_agent": "sector.relationship_mapper",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.relationship_mapper.etf_overlap_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3699,6 +3848,7 @@
       "card_id": "flow_diffusion_window_days",
       "owner_agent": "sector.relationship_mapper",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.relationship_mapper.flow_diffusion_window_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3717,6 +3867,7 @@
       "card_id": "holding_overlap_threshold",
       "owner_agent": "sector.relationship_mapper",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.relationship_mapper.holding_overlap_threshold.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3735,6 +3886,7 @@
       "card_id": "policy_resonance_weight",
       "owner_agent": "sector.relationship_mapper",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.relationship_mapper.policy_resonance_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3753,6 +3905,7 @@
       "card_id": "supply_chain_transmission_strength",
       "owner_agent": "sector.relationship_mapper",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.relationship_mapper.supply_chain_transmission_strength.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3771,6 +3924,7 @@
       "card_id": "ai_compute_weight",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.ai_compute_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3789,6 +3943,7 @@
       "card_id": "broker_research_days",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.broker_research_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3807,6 +3962,7 @@
       "card_id": "capex_cycle_quarters",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.capex_cycle_quarters.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3825,6 +3981,7 @@
       "card_id": "capex_to_revenue_min",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.capex_to_revenue_min.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3843,6 +4000,7 @@
       "card_id": "design_weight",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.design_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3861,6 +4019,7 @@
       "card_id": "equipment_weight",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.equipment_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3879,6 +4038,7 @@
       "card_id": "export_control_discount",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.export_control_discount.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3897,6 +4057,7 @@
       "card_id": "financial_statement_quarters",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.financial_statement_quarters.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3915,6 +4076,7 @@
       "card_id": "foundry_weight",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.foundry_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3933,6 +4095,7 @@
       "card_id": "gross_margin_change_min",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.gross_margin_change_min.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3951,6 +4114,7 @@
       "card_id": "industry_moneyflow_days",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.industry_moneyflow_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3969,6 +4133,7 @@
       "card_id": "inventory_cycle_quarters",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.inventory_cycle_quarters.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -3987,6 +4152,7 @@
       "card_id": "inventory_to_revenue_risk",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.inventory_to_revenue_risk.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4005,6 +4171,7 @@
       "card_id": "localization_policy_weight",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.localization_policy_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4023,6 +4190,7 @@
       "card_id": "materials_weight",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.materials_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4041,6 +4209,7 @@
       "card_id": "max_verified_constituents",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.max_verified_constituents.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4059,6 +4228,7 @@
       "card_id": "min_long_conviction",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.min_long_conviction.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4077,6 +4247,7 @@
       "card_id": "min_short_conviction",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.min_short_conviction.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4095,6 +4266,7 @@
       "card_id": "packaging_weight",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.packaging_weight.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4113,6 +4285,7 @@
       "card_id": "policy_digest_days",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.policy_digest_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4131,6 +4304,7 @@
       "card_id": "price_confirmation_pct",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.price_confirmation_pct.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4149,6 +4323,7 @@
       "card_id": "price_momentum_days",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.price_momentum_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4167,6 +4342,7 @@
       "card_id": "valuation_risk_max",
       "owner_agent": "sector.semiconductor",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "sector.semiconductor.valuation_risk_max.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
@@ -4185,6 +4361,7 @@
       "card_id": "activist_catalyst_window_days",
       "owner_agent": "superinvestor.ackman",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.ackman.activist_catalyst_window_days.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4200,6 +4377,7 @@
       "card_id": "brand_quality_weight",
       "owner_agent": "superinvestor.ackman",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.ackman.brand_quality_weight.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4215,6 +4393,7 @@
       "card_id": "free_cashflow_growth_weight",
       "owner_agent": "superinvestor.ackman",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.ackman.free_cashflow_growth_weight.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4230,6 +4409,7 @@
       "card_id": "growth_quality_min",
       "owner_agent": "superinvestor.ackman",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.ackman.growth_quality_min.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4245,6 +4425,7 @@
       "card_id": "operating_leverage_threshold",
       "owner_agent": "superinvestor.ackman",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.ackman.operating_leverage_threshold.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4260,6 +4441,7 @@
       "card_id": "crowding_penalty",
       "owner_agent": "superinvestor.burry",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.burry.crowding_penalty.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4275,6 +4457,7 @@
       "card_id": "distress_catalyst_weight",
       "owner_agent": "superinvestor.burry",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.burry.distress_catalyst_weight.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4290,6 +4473,7 @@
       "card_id": "downside_protection_min",
       "owner_agent": "superinvestor.burry",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.burry.downside_protection_min.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4305,6 +4489,7 @@
       "card_id": "short_signal_window_days",
       "owner_agent": "superinvestor.burry",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.burry.short_signal_window_days.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4320,6 +4505,7 @@
       "card_id": "valuation_mispricing_threshold",
       "owner_agent": "superinvestor.burry",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.burry.valuation_mispricing_threshold.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4335,6 +4521,7 @@
       "card_id": "concentration_cap",
       "owner_agent": "superinvestor.druckenmiller",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.druckenmiller.concentration_cap.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4350,6 +4537,7 @@
       "card_id": "error_cut_rule",
       "owner_agent": "superinvestor.druckenmiller",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.druckenmiller.error_cut_rule.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4365,6 +4553,7 @@
       "card_id": "macro_weight",
       "owner_agent": "superinvestor.druckenmiller",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.druckenmiller.macro_weight.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4380,6 +4569,7 @@
       "card_id": "payoff_threshold",
       "owner_agent": "superinvestor.druckenmiller",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.druckenmiller.payoff_threshold.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4395,6 +4585,7 @@
       "card_id": "trend_confirmation_window_days",
       "owner_agent": "superinvestor.druckenmiller",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.druckenmiller.trend_confirmation_window_days.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4410,6 +4601,7 @@
       "card_id": "balance_sheet_quality_weight",
       "owner_agent": "superinvestor.munger",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.munger.balance_sheet_quality_weight.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4425,6 +4617,7 @@
       "card_id": "capital_allocation_quality_min",
       "owner_agent": "superinvestor.munger",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.munger.capital_allocation_quality_min.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4440,6 +4633,7 @@
       "card_id": "compounder_window_days",
       "owner_agent": "superinvestor.munger",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.munger.compounder_window_days.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4455,6 +4649,7 @@
       "card_id": "moat_score_min",
       "owner_agent": "superinvestor.munger",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.munger.moat_score_min.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4470,6 +4665,7 @@
       "card_id": "pricing_power_weight",
       "owner_agent": "superinvestor.munger",
       "owner_stage": "agent_run",
+      "activation_state": "active",
       "prediction_target": "superinvestor.munger.pricing_power_weight.60d",
       "evaluation_metric": "style_pick_alpha_60d",
       "secondary_metrics": [],
@@ -4481,5 +4677,5 @@
       }
     }
   ],
-  "contract_hash": "sha256:01009a768b737d562f325630dbbe64e51b573883081c7980419b3958136db9fa"
+  "contract_hash": "sha256:116f0f1e40663dd140f99a05b1b9dbd2444ebfa273fbc5576aebbcfaec3791d6"
 }
