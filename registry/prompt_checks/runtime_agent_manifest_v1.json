@@ -710,7 +710,7 @@
       "stages": [
         {
           "stage": "cro_review",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "decision.cro.review.v1",
           "fallback_factory_id": "decision.cro.cro_review.fallback",
           "fallback_factory_version": "1",
@@ -741,7 +741,7 @@
       "stages": [
         {
           "stage": "alpha_discovery",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "decision.alpha_discovery.output.v1",
           "fallback_factory_id": "decision.alpha_discovery.alpha_discovery.fallback",
           "fallback_factory_version": "1",
@@ -770,7 +770,7 @@
       "stages": [
         {
           "stage": "execution_feasibility",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "decision.autonomous_execution.feasibility.v1",
           "fallback_factory_id": "decision.autonomous_execution.execution_feasibility.fallback",
           "fallback_factory_version": "1",
@@ -801,7 +801,7 @@
       "stages": [
         {
           "stage": "cio_proposal",
-          "enablement": "declared",
+          "enablement": "enabled",
           "output_schema_ref": "decision.cio.proposal.v1",
           "fallback_factory_id": "decision.cio.cio_proposal.fallback",
           "fallback_factory_version": "1",
@@ -819,7 +819,7 @@
         },
         {
           "stage": "cio_final",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "decision.cio.final.v1",
           "fallback_factory_id": "decision.cio.cio_final.fallback",
           "fallback_factory_version": "1",

@@ -38,6 +38,17 @@ describe("stage-aware runtime agent manifest", () => {
       ]),
     );
     expect(proposal?.outputSchemaRef).not.toBe(final?.outputSchemaRef);
+    for (const key of [
+      ["alpha_discovery", "alpha_discovery"],
+      ["cio", "cio_proposal"],
+      ["cro", "cro_review"],
+      ["autonomous_execution", "execution_feasibility"],
+      ["cio", "cio_final"],
+    ] as const) {
+      expect(
+        RUNTIME_AGENT_STAGE_SPEC_BY_KEY.get(runtimeAgentStageKey(key[0], key[1]))?.enablement,
+      ).toBe("enabled");
+    }
   });
 
   it("registers a deterministic fallback factory for every stage", () => {

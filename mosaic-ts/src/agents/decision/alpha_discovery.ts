@@ -34,6 +34,7 @@ function buildUserContext(state: DailyCycleStateType): string {
 
 export const alphaDiscoverySpec: LayerFourAgentSpec<AlphaDiscoveryOutput> = {
   agentId: "alpha_discovery",
+  runtimeStage: "alpha_discovery",
   schema: AlphaDiscoverySchema,
   fieldNames: ALPHA_DISCOVERY_FIELD_NAMES,
   stateUpdateField: "alpha_discovery",

@@ -158,7 +158,7 @@ export function registerRkeFixedBenchmark(program: Command): void {
     .option("--model <name>", "Baseline model override")
     .option("--base-url <url>", "Baseline model base URL override")
     .option("--max-tokens <n>", "Per-call LLM max token cap")
-    .option("--veto-threshold <num>", "CRO veto threshold (default 0.5)")
+    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--prompts-repo <path>", "Use a private prompt git repo for this run")
     .option("--prompts-root <path>", "Override prompts root directory")
     .option("--max-runs <n>", "Cap episode/model runs for smoke; formal runs omit this")

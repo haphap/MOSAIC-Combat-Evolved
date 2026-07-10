@@ -20,6 +20,8 @@
  * ``agents/<layer>/<agent>.ts``.
  */
 
+import type { ResearchKnobsSnapshot, RuntimeSourceStatus } from "./helpers/research_knobs.js";
+
 // ============================================================ Layer 1: Macro
 
 export interface KnobInfluenceDeclaration {
@@ -478,6 +480,8 @@ export interface Layer4RuntimeState {
   cro_review_state: CroReviewState | null;
   execution_feasibility_state: ExecutionFeasibilityState | null;
   final_target_state: FinalTargetState | null;
+  cio_final_knob_snapshot: ResearchKnobsSnapshot | null;
+  resolved_source_statuses: RuntimeSourceStatus[];
   stage_trace: Layer4RuntimeTraceEntry[];
 }
 

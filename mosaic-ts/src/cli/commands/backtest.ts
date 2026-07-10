@@ -69,7 +69,7 @@ export function registerBacktest(program: Command): void {
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
-    .option("--veto-threshold <num>", "CRO veto threshold (default 0.5)")
+    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--initial-cash <amount>", "Initial cash (default 1000000)")
     .option("--benchmark <ticker>", "Benchmark for alpha calc (default SH000300)")
     .option(

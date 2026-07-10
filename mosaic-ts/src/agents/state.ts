@@ -196,22 +196,17 @@ export const DailyCycleState = Annotation.Root({
     default: emptyPositionAudit,
   }),
 
-  // ----- Final action surface (CIO output, mirrored for downstream readers). -----
-  // ``replaceReducer`` is intentional: when the CRO veto loop fires (Plan §11.2
-  // sub-step 2E), the layer4_replay subgraph's CIO writes a *new*
-  // portfolio_actions array which fully supersedes the first-pass CIO output.
-  // The replace semantics also match the single-writer invariant — only CIO
-  // ever populates this channel; no concurrent appenders exist.
+  // ----- Final action surface (published only by shared validation). -----
+  // ``replaceReducer`` matches the single-writer invariant: a validated final
+  // target fully supersedes the previous channel value.
   portfolio_actions: Annotation<PortfolioAction[]>({
     reducer: replaceReducer,
     default: () => [],
   }),
 
-  // ----- Replay provenance (Plan §14 R-A1). -----
-  // True once the CRO veto loop has re-run Layer 4 (set by the layer4_replay
-  // node). Lets downstream consumers (scorecard / autoresearch) distinguish a
-  // first-pass cycle from a replayed one. replaceReducer + default false; only
-  // the replay node ever writes it, so single-writer holds.
+  // ----- Deprecated replay provenance compatibility channel. -----
+  // The canonical Layer-4 DAG has no asymmetric veto replay, so new runs leave
+  // this false. Keep the field while stored run readers still expect it.
   replay_triggered: Annotation<boolean>({
     reducer: replaceReducer,
     default: () => false,

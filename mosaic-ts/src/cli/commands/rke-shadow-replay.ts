@@ -78,7 +78,7 @@ export function registerRkeShadowReplay(program: Command): void {
     .option("--llm-provider <name>", "Model provider override")
     .option("--model <name>", "Model override")
     .option("--base-url <url>", "Model base URL override")
-    .option("--veto-threshold <num>", "CRO veto threshold (default 0.5)")
+    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--prompts-repo <path>", "Use a private prompt git repo for this run")
     .option("--prompts-root <path>", "Override prompts root directory")
     .option("--max-runs <n>", "Cap replay dates for smoke/debug")

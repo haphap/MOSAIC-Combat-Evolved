@@ -12,8 +12,8 @@
  * State writes:
  *   * ``layer4_outputs[<stateUpdateField>]`` (cro / alpha_discovery /
  *     autonomous_execution / cio).
- *   * cio additionally writes ``portfolio_actions`` (top-level convenience
- *     mirror, single-writer replace).
+ *   * shared validation, outside this factory, is the only writer of the
+ *     top-level ``portfolio_actions`` channel.
  *   * ``llm_calls`` append.
  */
 
@@ -54,31 +54,33 @@ import {
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
 import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
-import {
-  type DailyCycleStateType,
-  type DailyCycleStateUpdate,
-  emptyCurrentPositions,
-} from "../state.js";
+import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
+import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
   AlphaDiscoveryOutput,
   AutoExecOutput,
   CioOutput,
   CroOutput,
-  CurrentPosition,
-  CurrentPositionsSnapshot,
   Layer4AgentOutputKey,
   Layer4Outputs,
   LlmCallRecord,
-  PortfolioAction,
 } from "../types.js";
 import { validateAutonomousExecutionActions } from "./execution_validator.js";
-import { validateCioPositionActions } from "./position_validator.js";
+import {
+  freezeCroReview,
+  freezeExecutionFeasibility,
+  runtimeStateForLayer4,
+  stableRuntimeHash,
+  updateLayer4Runtime,
+} from "./layer4_runtime.js";
 
 /** Union of the 4 Layer-4 outputs handled by this factory. */
 export type Layer4AgentOutput = CroOutput | AlphaDiscoveryOutput | AutoExecOutput | CioOutput;
 
 export interface LayerFourAgentSpec<TOutput extends Layer4AgentOutput> {
   agentId: string;
+  runtimeStage: RuntimeAgentStageId;
+  stateWriteMode?: "agent_output" | "cio_proposal" | "cio_final";
   schema: z.ZodType<TOutput>;
   fieldNames: ReadonlyArray<string>;
   /** The Layer4Outputs slot this agent populates. */
@@ -145,12 +147,13 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           let systemPrompt: string;
           if (isResearchKnobsEnabled(spec.agentId)) {
             const runtimeSourceStatuses = [
-              ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId),
+              ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId, spec.runtimeStage),
               ...(mirofish.status ? [mirofish.status] : []),
             ];
             const loaded = await loadPromptWithKnobs({
               agent: spec.agentId,
               cohort,
+              stage: spec.runtimeStage,
               runtimeSourceStatuses,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
@@ -259,12 +262,6 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               knobSnapshot,
             }) as TOutput;
           }
-          if (spec.stateUpdateField === "cio") {
-            output = withConservativeCioCurrentPositionActions(
-              output as unknown as CioOutput,
-              state.current_positions ?? emptyCurrentPositions(),
-            ) as TOutput;
-          }
           onLog(
             formatAgentEvent("done", "L4", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -297,7 +294,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           ]),
         );
         return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle), {
-          state: null,
+          state,
           knobSnapshot: null,
         });
       }
@@ -556,77 +553,124 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
   output: TOutput,
   llmCall: LlmCallRecord,
-  opts: { state: DailyCycleStateType | null; knobSnapshot: ResearchKnobsSnapshot | null },
+  opts: { state: DailyCycleStateType; knobSnapshot: ResearchKnobsSnapshot | null },
 ): DailyCycleStateUpdate {
-  // Per-agent state update. cio additionally mirrors portfolio_actions to
-  // the top-level field so Phase 3 scorecard / TUI consumers don't have
-  // to dive through layer4_outputs.cio.
-  const baseUpdate: DailyCycleStateUpdate = {
-    layer4_outputs: { [spec.stateUpdateField]: output } as Partial<Layer4Outputs>,
+  const currentRuntime = runtimeStateForLayer4(opts.state);
+  const runId = opts.state.trace_id || opts.state.as_of_date || "current_run";
+  const mode = spec.stateWriteMode ?? "agent_output";
+  if (mode === "cio_proposal") {
+    const proposal = output as unknown as CioOutput;
+    const runtime = updateLayer4Runtime(
+      currentRuntime,
+      { cio_proposal: proposal },
+      {
+        stage: "cio_proposal",
+        operation: "agent_run",
+        status: proposal.confidence === 0 ? "fallback" : "completed",
+        input_hashes: layer4InputHashes(currentRuntime),
+        output_hashes: { cio_proposal: stableRuntimeHash(proposal) },
+      },
+    );
+    return { layer4_outputs: { runtime }, llm_calls: [llmCall] };
+  }
+  if (mode === "cio_final") {
+    const finalOutput = output as unknown as CioOutput;
+    const runtime = updateLayer4Runtime(
+      currentRuntime,
+      { cio_final_knob_snapshot: opts.knobSnapshot },
+      {
+        stage: "cio_final",
+        operation: "agent_run",
+        status: finalOutput.confidence === 0 ? "fallback" : "completed",
+        input_hashes: layer4InputHashes(currentRuntime),
+        output_hashes: { cio_final: stableRuntimeHash(finalOutput) },
+      },
+    );
+    return {
+      layer4_outputs: { cio: finalOutput, runtime },
+      llm_calls: [llmCall],
+    };
+  }
+
+  let runtime = currentRuntime;
+  if (spec.stateUpdateField === "alpha_discovery") {
+    runtime = updateLayer4Runtime(
+      currentRuntime,
+      {},
+      {
+        stage: "alpha_discovery",
+        operation: "agent_run",
+        status: output.confidence === 0 ? "fallback" : "completed",
+        input_hashes: {},
+        output_hashes: { alpha_discovery: stableRuntimeHash(output) },
+      },
+    );
+  } else if (spec.stateUpdateField === "cro") {
+    const review = freezeCroReview(
+      runId,
+      currentRuntime.candidate_target_state,
+      output as unknown as CroOutput,
+    );
+    runtime = updateLayer4Runtime(
+      currentRuntime,
+      { cro_review_state: review },
+      {
+        stage: "cro_review",
+        operation: "agent_run",
+        status: output.confidence === 0 ? "fallback" : "completed",
+        input_hashes: layer4InputHashes(currentRuntime),
+        output_hashes: { cro_review_state: review.review_hash },
+      },
+    );
+  } else if (spec.stateUpdateField === "autonomous_execution") {
+    const feasibility = freezeExecutionFeasibility(
+      runId,
+      currentRuntime.candidate_target_state,
+      currentRuntime.cro_review_state,
+      output as unknown as AutoExecOutput,
+    );
+    runtime = updateLayer4Runtime(
+      currentRuntime,
+      { execution_feasibility_state: feasibility },
+      {
+        stage: "execution_feasibility",
+        operation: "agent_run",
+        status: output.confidence === 0 ? "fallback" : "completed",
+        input_hashes: layer4InputHashes(currentRuntime),
+        output_hashes: { execution_feasibility_state: feasibility.feasibility_hash },
+      },
+    );
+  }
+  return {
+    layer4_outputs: {
+      [spec.stateUpdateField]: output,
+      runtime,
+    } as Partial<Layer4Outputs>,
     llm_calls: [llmCall],
   };
-  if (spec.stateUpdateField === "cio") {
-    const cioOut = output as unknown as CioOutput;
-    const validated = opts.state
-      ? validateCioPositionActions({
-          output: cioOut,
-          currentPositions: opts.state.current_positions ?? emptyCurrentPositions(),
-          knobSnapshot: opts.knobSnapshot,
-          sharedPolicyValues: activeKnobValuesFromUpstreamDecisionAgents(opts.state.layer4_outputs),
-        })
-      : null;
-    if (validated) {
-      baseUpdate.layer4_outputs = { cio: validated.output };
-      (baseUpdate as { position_reviews: typeof validated.position_reviews }).position_reviews =
-        validated.position_reviews;
-      (baseUpdate as { position_audit: typeof validated.position_audit }).position_audit =
-        validated.position_audit;
-    }
-    (baseUpdate as { portfolio_actions: PortfolioAction[] }).portfolio_actions = (
-      validated?.output ?? cioOut
-    ).portfolio_actions;
-  }
-  return baseUpdate;
 }
 
-function withConservativeCioCurrentPositionActions(
-  output: CioOutput,
-  currentPositions: CurrentPositionsSnapshot,
-): CioOutput {
-  if (currentPositions.snapshot_status !== "loaded" || currentPositions.positions.length === 0) {
-    return output;
-  }
-  const coveredTickers = new Set(output.portfolio_actions.map((action) => action.ticker));
-  const missingPositions = currentPositions.positions.filter(
-    (position) => !coveredTickers.has(position.ticker),
-  );
-  if (missingPositions.length === 0) return output;
+function layer4InputHashes(
+  runtime: ReturnType<typeof runtimeStateForLayer4>,
+): Record<string, string> {
   return {
-    ...output,
-    portfolio_actions: [
-      ...output.portfolio_actions,
-      ...missingPositions.map(conservativeHoldActionForCurrentPosition),
-    ],
+    ...(runtime.candidate_target_state
+      ? { candidate_target_state: runtime.candidate_target_state.candidate_target_hash }
+      : {}),
+    ...(runtime.position_review_state
+      ? { position_review_state: runtime.position_review_state.position_review_hash }
+      : {}),
+    ...(runtime.portfolio_exposure_state
+      ? { portfolio_exposure_state: runtime.portfolio_exposure_state.exposure_hash }
+      : {}),
+    ...(runtime.cro_review_state ? { cro_review_state: runtime.cro_review_state.review_hash } : {}),
+    ...(runtime.execution_feasibility_state
+      ? { execution_feasibility_state: runtime.execution_feasibility_state.feasibility_hash }
+      : {}),
   };
 }
 
-function conservativeHoldActionForCurrentPosition(position: CurrentPosition): PortfolioAction {
-  return {
-    ticker: position.ticker,
-    action: "HOLD",
-    position_decision: "HOLD",
-    current_weight: position.current_weight,
-    target_weight: position.current_weight,
-    delta_weight: 0,
-    holding_period: "1M",
-    position_decision_reason: "current position reviewed by conservative fallback",
-    thesis_status: "intact",
-    risk_flags: [],
-    dissent_notes: "",
-  };
-}
-
-function activeKnobValuesFromUpstreamDecisionAgents(
+export function activeKnobValuesFromUpstreamDecisionAgents(
   outputs: Layer4Outputs,
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {};

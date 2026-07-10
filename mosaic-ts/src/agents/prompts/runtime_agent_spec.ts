@@ -160,7 +160,7 @@ function stagesForAgent(
         "decision.alpha_discovery.output.v1",
         ["upstream_agent_outputs", "current_position_snapshot", "current_market_data"],
         ["upstream_agent_outputs"],
-        "legacy",
+        "enabled",
         promptIrAgentId,
       ),
     ];
@@ -178,7 +178,7 @@ function stagesForAgent(
           "portfolio_exposure_state",
         ],
         ["cro_review_state"],
-        "legacy",
+        "enabled",
         promptIrAgentId,
       ),
     ];
@@ -196,7 +196,7 @@ function stagesForAgent(
           "execution_liquidity_state",
         ],
         ["execution_feasibility_state"],
-        "legacy",
+        "enabled",
         promptIrAgentId,
       ),
     ];
@@ -214,7 +214,7 @@ function stagesForAgent(
           "position_thesis_state",
         ],
         ["candidate_target_state", "position_review_state"],
-        "declared",
+        "enabled",
         promptIrAgentId,
       ),
       stageSpec(
@@ -229,7 +229,7 @@ function stagesForAgent(
           "current_market_data",
         ],
         [],
-        "legacy",
+        "enabled",
         promptIrAgentId,
       ),
     ];

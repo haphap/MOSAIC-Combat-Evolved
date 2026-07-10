@@ -1,27 +1,43 @@
 /**
  * Layer-4 LangGraph subgraph (Plan §11.2 sub-step 2D.3).
  *
- * Topology is a deterministic serial chain:
+ * Topology is the canonical stage-aware serial chain:
  *
- *   START → cro → alpha_discovery → autonomous_execution → cio → END
+ *   START → alpha_discovery → cio_proposal → candidate_freeze → cro
+ *         → autonomous_execution → cio_final → shared_validation → END
  *
  * Dependency contract:
- *   * cro reads L1+L2+L3 first and writes risk objections.
- *   * alpha_discovery then reads the same upstream state plus CRO context.
- *   * autonomous_execution waits for CRO + alpha state.
- *   * cio is the final aggregator.
+ *   * alpha_discovery runs before target construction.
+ *   * cio_proposal emits a candidate which is frozen by deterministic code.
+ *   * CRO and execution consume the exact same candidate hash.
+ *   * cio_final consumes frozen CRO/execution envelopes.
+ *   * shared_validation is the only node that publishes portfolio_actions.
  *
  * Subgraph assumes Layer-1, Layer-2 and Layer-3 outputs are populated in
- * state. cio's output also writes ``state.portfolio_actions`` (top-level
- * convenience mirror handled by the factory).
+ * state. Only shared_validation writes ``state.portfolio_actions``.
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
+import { activeKnobValuesFromUpstreamDecisionAgents } from "../agents/decision/_factory.js";
 import { buildAlphaDiscoveryNode } from "../agents/decision/alpha_discovery.js";
 import { buildAutonomousExecutionNode } from "../agents/decision/autonomous_execution.js";
-import { buildCioNode } from "../agents/decision/cio.js";
+import { buildCioNode, buildCioProposalNode } from "../agents/decision/cio.js";
 import { buildCroNode } from "../agents/decision/cro.js";
-import { DailyCycleState } from "../agents/state.js";
+import {
+  freezeCioProposal,
+  freezeFinalTarget,
+  runtimeStateForLayer4,
+  stableRuntimeHash,
+  updateLayer4Runtime,
+  withFrozenCandidatePositionCoverage,
+} from "../agents/decision/layer4_runtime.js";
+import { validateCioPositionActions } from "../agents/decision/position_validator.js";
+import {
+  DailyCycleState,
+  type DailyCycleStateType,
+  type DailyCycleStateUpdate,
+} from "../agents/state.js";
+import type { CioOutput } from "../agents/types.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { chainEdges, serialEdges } from "./_edges.js";
@@ -40,61 +56,116 @@ export interface BuildLayer4GraphDeps {
 }
 
 export const LAYER4_AGENT_NODES = [
-  "cro",
   "alpha_discovery",
+  "cio_proposal",
+  "cro",
   "autonomous_execution",
-  "cio",
+  "cio_final",
 ] as const;
 
-export const LAYER4_REPLAY_AGENT_NODES = [
+export const LAYER4_RUNTIME_NODES = [
   "alpha_discovery",
+  "cio_proposal",
+  "candidate_freeze",
+  "cro",
   "autonomous_execution",
-  "cio",
+  "cio_final",
+  "shared_validation",
 ] as const;
 
 /** Build (and compile) the Layer-4 decision subgraph. */
 export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
   const graph = new StateGraph(DailyCycleState)
-    .addNode("cro", buildCroNode(deps))
     .addNode("alpha_discovery", buildAlphaDiscoveryNode(deps))
+    .addNode("cio_proposal", buildCioProposalNode(deps))
+    .addNode("candidate_freeze", freezeCandidateTargetNode)
+    .addNode("cro", buildCroNode(deps))
     .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
-    .addNode("cio", buildCioNode(deps));
+    .addNode("cio_final", buildCioNode(deps))
+    .addNode("shared_validation", validateFinalTargetNode);
 
   // Serial L4: keep one LLM/tool stream active at a time.
-  chainEdges(graph, serialEdges([START, ...LAYER4_AGENT_NODES, END] as const));
+  chainEdges(graph, serialEdges([START, ...LAYER4_RUNTIME_NODES, END] as const));
 
   return graph.compile();
 }
 
-/**
- * Layer-4 *replay* subgraph (Plan §11.2 sub-step 2E).
- *
- * Topology: START → alpha_discovery → autonomous_execution → cio → END.
- *
- * Used by the daily-cycle veto loop (max 1 replay): when the first L4
- * pass produced cro.rejected_picks > 50% of the L3 candidate pool, the
- * daily cycle re-runs alpha + auto_exec + cio (skipping cro — its
- * rejected_picks from the first pass remain in state and inform the
- * replay's alpha + auto_exec context).
- *
- * **Asymmetry vs buildLayer4Graph (intentional)**: the replay graph
- * deliberately omits the ``cro`` node so the topology can guarantee
- * max-1-replay (``layer4_replay → END`` is unconditional; if cro ran in
- * replay, a second veto could fire). Trade-off: if alpha_discovery
- * surfaces a *new* novel pick during replay, that ticker is never
- * adversarially reviewed by CRO. The implicit assumption is that the
- * replay's alpha is constrained by the first-pass cro context (renderer
- * surfaces rejected_picks + correlated_risks + black_swan_scenarios) and
- * tends toward consolidation, not exploration. Phase 3's scorecard will
- * track replay outcomes and surface this if it becomes a real risk.
- */
-export function buildLayer4ReplayGraph(deps: BuildLayer4GraphDeps) {
-  const graph = new StateGraph(DailyCycleState)
-    .addNode("alpha_discovery", buildAlphaDiscoveryNode(deps))
-    .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
-    .addNode("cio", buildCioNode(deps));
+export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycleStateUpdate {
+  const currentRuntime = runtimeStateForLayer4(state);
+  if (!currentRuntime.cio_proposal) {
+    throw new Error("candidate_freeze requires cio_proposal output");
+  }
+  const frozen = freezeCioProposal(state, currentRuntime.cio_proposal);
+  const runtime = updateLayer4Runtime(
+    currentRuntime,
+    {
+      cio_proposal: frozen.proposal,
+      candidate_target_state: frozen.candidate,
+      position_review_state: frozen.reviews,
+      portfolio_exposure_state: frozen.exposure,
+    },
+    {
+      stage: "cio_proposal",
+      operation: "source_freeze",
+      status: "completed",
+      input_hashes: { cio_proposal: frozen.candidate.proposal_hash },
+      output_hashes: {
+        candidate_target_state: frozen.candidate.candidate_target_hash,
+        position_review_state: frozen.reviews.position_review_hash,
+        portfolio_exposure_state: frozen.exposure.exposure_hash,
+      },
+    },
+  );
+  return {
+    layer4_outputs: { runtime },
+    position_reviews: frozen.reviews.reviews,
+  };
+}
 
-  chainEdges(graph, serialEdges([START, ...LAYER4_REPLAY_AGENT_NODES, END] as const));
-
-  return graph.compile();
+export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleStateUpdate {
+  const output = state.layer4_outputs.cio;
+  if (!output) throw new Error("shared_validation requires cio_final output");
+  const runtime = runtimeStateForLayer4(state);
+  const coveredOutput = withFrozenCandidatePositionCoverage(state, output);
+  const sharedPolicyValues = activeKnobValuesFromUpstreamDecisionAgents(state.layer4_outputs);
+  const validated = validateCioPositionActions({
+    output: coveredOutput,
+    currentPositions: state.current_positions,
+    knobSnapshot: runtime.cio_final_knob_snapshot,
+    sharedPolicyValues,
+  });
+  const validatorHash = stableRuntimeHash({
+    validator: "validateCioPositionActions.v1",
+    knob_snapshot_hash: runtime.cio_final_knob_snapshot?.hash ?? null,
+    shared_policy_values: sharedPolicyValues,
+  });
+  const stateWithValidatedOutput: DailyCycleStateType = {
+    ...state,
+    layer4_outputs: { ...state.layer4_outputs, cio: validated.output },
+  };
+  const finalTarget = freezeFinalTarget(stateWithValidatedOutput, validated.output, [
+    validatorHash,
+  ]);
+  const updatedRuntime = updateLayer4Runtime(
+    runtime,
+    { final_target_state: finalTarget },
+    {
+      stage: "shared_validation",
+      operation: "validation",
+      status: "completed",
+      input_hashes: {
+        candidate_target_state: finalTarget.candidate_target_hash,
+        cro_review_state: finalTarget.cro_review_hash,
+        execution_feasibility_state: finalTarget.execution_feasibility_hash,
+        cio_final: stableRuntimeHash(output),
+      },
+      output_hashes: { final_target_state: finalTarget.final_target_hash },
+    },
+  );
+  return {
+    layer4_outputs: { cio: validated.output as CioOutput, runtime: updatedRuntime },
+    position_reviews: validated.position_reviews,
+    position_audit: validated.position_audit,
+    portfolio_actions: validated.output.portfolio_actions,
+  };
 }

@@ -10,6 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAutonomousExecutionNode } from "../src/agents/decision/autonomous_execution.js";
 import { buildCioNode } from "../src/agents/decision/cio.js";
 import { buildCroNode } from "../src/agents/decision/cro.js";
+import {
+  emptyLayer4RuntimeState,
+  freezeCioProposal,
+} from "../src/agents/decision/layer4_runtime.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type { AutoExecOutput, CioOutput, CroOutput } from "../src/agents/types.js";
@@ -140,7 +144,20 @@ describe("CIO MiroFish context injection (opt-in)", () => {
       layer1_outputs: {},
       layer2_outputs: {},
       layer3_outputs: {},
-      layer4_outputs: {},
+      layer4_outputs: {
+        cro: null,
+        alpha_discovery: null,
+        autonomous_execution: null,
+        cio: null,
+      },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      portfolio_actions: [],
     }) as unknown as DailyCycleStateType;
 
   function fakeApi(ctx: MirofishContext | null) {
@@ -329,10 +346,24 @@ describe("CIO MiroFish context injection (opt-in)", () => {
     } as unknown as BridgeApi;
     const config = { ...baseConfig(), mirofish: { inject_context: true } } as MosaicConfig;
     const deps = { llmHandle: handle, api, config, promptsRoot: promptDir };
-
-    await buildCroNode(deps)(state());
-    await buildAutonomousExecutionNode(deps)(state());
-    await buildCioNode(deps)(state());
+    const staged = state();
+    const proposal = freezeCioProposal(staged, {
+      agent: "cio",
+      portfolio_actions: [],
+      confidence: 0.3,
+    });
+    staged.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      cio_proposal: proposal.proposal,
+      candidate_target_state: proposal.candidate,
+      position_review_state: proposal.reviews,
+      portfolio_exposure_state: proposal.exposure,
+    };
+    const croUpdate = await buildCroNode(deps)(staged);
+    staged.layer4_outputs = { ...staged.layer4_outputs, ...croUpdate.layer4_outputs };
+    const executionUpdate = await buildAutonomousExecutionNode(deps)(staged);
+    staged.layer4_outputs = { ...staged.layer4_outputs, ...executionUpdate.layer4_outputs };
+    await buildCioNode(deps)(staged);
 
     expect(api.mirofishGetContext).toHaveBeenCalledOnce();
     const renderedContexts = allHumanText(llm);

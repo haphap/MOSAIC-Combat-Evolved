@@ -1,16 +1,19 @@
 import { createHash } from "node:crypto";
 import { AGENTS_BY_LAYER } from "../prompts/cohorts.js";
+import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
 import type { RuntimeSourceStatus } from "./research_knobs.js";
 
 export function resolveRuntimeSourceStatusesForAgent(
   state: DailyCycleStateType,
   agentId: string,
+  stage?: RuntimeAgentStageId,
 ): RuntimeSourceStatus[] {
   const cohort = state.active_cohort || "cohort_default";
   const runId = state.trace_id || state.as_of_date || "current_run";
   const asOf = state.as_of_date || undefined;
   const statuses: RuntimeSourceStatus[] = [];
+  const runtime = state.layer4_outputs?.runtime;
 
   if (isDecisionAgent(agentId)) {
     const currentPositions = state.current_positions ?? {
@@ -23,7 +26,6 @@ export function resolveRuntimeSourceStatusesForAgent(
         : currentPositions.snapshot_status === "empty_confirmed"
           ? "empty_confirmed"
           : "missing";
-    const marketStatus = currentPositions.snapshot_status === "missing" ? "missing" : "loaded";
     statuses.push(
       runtimeStatus(
         "current_position_snapshot",
@@ -56,7 +58,7 @@ export function resolveRuntimeSourceStatusesForAgent(
     );
     const marketScopes = scopedTickers([
       ...currentPositions.positions.map((position) => position.ticker),
-      ...state.portfolio_actions.map((action) => action.ticker),
+      ...(runtime?.candidate_target_state?.portfolio_actions ?? []).map((action) => action.ticker),
     ]);
     if (marketScopes.length === 0) {
       statuses.push(
@@ -70,12 +72,14 @@ export function resolveRuntimeSourceStatusesForAgent(
       );
     } else {
       for (const scope of marketScopes) {
+        const resolved = runtime?.resolved_source_statuses.find(
+          (status) => status.source_id === "current_market_data" && status.scope === scope,
+        );
         statuses.push(
-          runtimeStatus("current_market_data", scope, marketStatus, asOf, {
-            ...(marketStatus === "loaded"
-              ? { snapshot_hash: stableHash({ asOf, scope, source_id: "current_market_data" }) }
-              : { error_code: "current_market_data_missing" }),
-          }),
+          resolved ??
+            runtimeStatus("current_market_data", scope, "missing", asOf, {
+              error_code: "current_market_data_adapter_not_resolved",
+            }),
         );
       }
     }
@@ -95,52 +99,89 @@ export function resolveRuntimeSourceStatusesForAgent(
   }
   if (agentId === "cro") {
     statuses.push(
-      runtimeStatus(
+      frozenSourceStatus(
         "candidate_target_state",
         `account:default|cohort:${cohort}|run:${runId}`,
-        state.portfolio_actions.length > 0 ? "loaded" : "missing",
+        runtime?.candidate_target_state?.candidate_target_hash,
         asOf,
-        state.portfolio_actions.length > 0
-          ? { snapshot_hash: stableHash(state.portfolio_actions) }
-          : { error_code: "candidate_target_state_missing" },
       ),
-      runtimeStatus(
+      frozenSourceStatus(
+        "position_review_state",
+        `account:default|cohort:${cohort}|run:${runId}`,
+        runtime?.position_review_state?.position_review_hash,
+        asOf,
+      ),
+      frozenSourceStatus(
         "portfolio_exposure_state",
         `account:default|cohort:${cohort}|run:${runId}`,
-        "missing",
+        runtime?.portfolio_exposure_state?.exposure_hash,
         asOf,
-        { error_code: "portfolio_exposure_state_missing" },
       ),
     );
   }
   if (agentId === "autonomous_execution") {
     statuses.push(
-      runtimeStatus(
+      frozenSourceStatus(
         "candidate_target_state",
         `account:default|cohort:${cohort}|run:${runId}`,
-        state.portfolio_actions.length > 0 ? "loaded" : "missing",
+        runtime?.candidate_target_state?.candidate_target_hash,
         asOf,
-        state.portfolio_actions.length > 0
-          ? { snapshot_hash: stableHash(state.portfolio_actions) }
-          : { error_code: "candidate_target_state_missing" },
+      ),
+      frozenSourceStatus(
+        "cro_review_state",
+        `account:default|cohort:${cohort}|run:${runId}|candidate:${runtime?.candidate_target_state?.candidate_target_hash ?? "missing"}`,
+        runtime?.cro_review_state?.review_hash,
+        asOf,
       ),
       runtimeStatus("execution_liquidity_state", "ticker_scope:target_trades", "missing", asOf, {
         error_code: "execution_liquidity_state_missing",
       }),
     );
   }
-  if (agentId === "alpha_discovery") {
+  if (agentId === "cio" && stage === "cio_final") {
     statuses.push(
-      runtimeStatus(
+      frozenSourceStatus(
+        "candidate_target_state",
+        `account:default|cohort:${cohort}|run:${runId}`,
+        runtime?.candidate_target_state?.candidate_target_hash,
+        asOf,
+      ),
+      frozenSourceStatus(
         "position_review_state",
         `account:default|cohort:${cohort}|run:${runId}`,
-        "missing",
+        runtime?.position_review_state?.position_review_hash,
         asOf,
-        { error_code: "position_review_state_missing" },
+      ),
+      frozenSourceStatus(
+        "cro_review_state",
+        `account:default|cohort:${cohort}|run:${runId}|candidate:${runtime?.candidate_target_state?.candidate_target_hash ?? "missing"}`,
+        runtime?.cro_review_state?.review_hash,
+        asOf,
+      ),
+      frozenSourceStatus(
+        "execution_feasibility_state",
+        `account:default|cohort:${cohort}|run:${runId}|candidate:${runtime?.candidate_target_state?.candidate_target_hash ?? "missing"}`,
+        runtime?.execution_feasibility_state?.feasibility_hash,
+        asOf,
       ),
     );
   }
   return statuses;
+}
+
+function frozenSourceStatus(
+  sourceId: string,
+  scope: string,
+  snapshotHash: string | undefined,
+  asOf: string | undefined,
+): RuntimeSourceStatus {
+  return runtimeStatus(
+    sourceId,
+    scope,
+    snapshotHash ? "loaded" : "missing",
+    asOf,
+    snapshotHash ? { snapshot_hash: snapshotHash } : { error_code: `${sourceId}_missing` },
+  );
 }
 
 function runtimeStatus(

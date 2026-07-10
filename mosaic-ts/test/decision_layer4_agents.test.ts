@@ -27,7 +27,14 @@ import {
   fallbackAutonomousExecution,
   renderAutonomousExecution,
 } from "../src/agents/decision/autonomous_execution.js";
-import { buildCioNode, cioSpec, fallbackCio, renderCio } from "../src/agents/decision/cio.js";
+import {
+  buildCioNode,
+  buildCioProposalNode,
+  cioProposalSpec,
+  cioSpec,
+  fallbackCio,
+  renderCio,
+} from "../src/agents/decision/cio.js";
 import { buildCroNode, croSpec, fallbackCro, renderCro } from "../src/agents/decision/cro.js";
 import {
   ExecutionActionValidationError,
@@ -63,6 +70,7 @@ import type {
   SuperinvestorOutput,
 } from "../src/agents/types.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { freezeCandidateTargetNode } from "../src/graph/layer4.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ AGENTS_BY_LAYER
@@ -83,6 +91,7 @@ describe("AGENTS_BY_LAYER.decision", () => {
 describe("each Layer-4 spec wires correct fields", () => {
   it("cro", () => {
     expect(croSpec.agentId).toBe("cro");
+    expect(croSpec.runtimeStage).toBe("cro_review");
     expect(croSpec.stateUpdateField).toBe("cro");
     expect(croSpec.fieldNames).toEqual([
       "rejected_picks",
@@ -94,18 +103,22 @@ describe("each Layer-4 spec wires correct fields", () => {
   });
   it("alpha_discovery", () => {
     expect(alphaDiscoverySpec.agentId).toBe("alpha_discovery");
+    expect(alphaDiscoverySpec.runtimeStage).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.stateUpdateField).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.fieldNames).toEqual(["novel_picks", "confidence"]);
     expect(alphaDiscoverySpec.requiredTools).toContain("get_rke_research_context");
   });
   it("autonomous_execution", () => {
     expect(autonomousExecutionSpec.agentId).toBe("autonomous_execution");
+    expect(autonomousExecutionSpec.runtimeStage).toBe("execution_feasibility");
     expect(autonomousExecutionSpec.stateUpdateField).toBe("autonomous_execution");
     expect(autonomousExecutionSpec.fieldNames).toEqual(["trades", "confidence"]);
     expect(autonomousExecutionSpec.requiredTools).toContain("get_rke_research_context");
   });
   it("cio", () => {
     expect(cioSpec.agentId).toBe("cio");
+    expect(cioProposalSpec.runtimeStage).toBe("cio_proposal");
+    expect(cioSpec.runtimeStage).toBe("cio_final");
     expect(cioSpec.stateUpdateField).toBe("cio");
     expect(cioSpec.fieldNames).toEqual(["portfolio_actions", "confidence"]);
     expect(cioSpec.requiredTools).toContain("get_rke_research_context");
@@ -515,6 +528,30 @@ const heldPosition = {
   last_review_date: "2024-06-20",
 };
 
+function stateWithFrozenCandidate(): DailyCycleStateType {
+  const state = baseState();
+  const frozen = freezeCioProposal(
+    state,
+    cioOutput([
+      {
+        ticker: "600519.SH",
+        action: "BUY",
+        target_weight: 0.2,
+        holding_period: "3M",
+        dissent_notes: "",
+      },
+    ]),
+  );
+  state.layer4_outputs.runtime = {
+    ...emptyLayer4RuntimeState(),
+    cio_proposal: frozen.proposal,
+    candidate_target_state: frozen.candidate,
+    position_review_state: frozen.reviews,
+    portfolio_exposure_state: frozen.exposure,
+  };
+  return state;
+}
+
 describe("Layer-4 runtime source envelopes", () => {
   it("freezes a deterministic candidate and marks runtime HOLDs as unreviewed", () => {
     const state = baseState();
@@ -630,6 +667,36 @@ describe("Layer-4 runtime source envelopes", () => {
 });
 
 describe("CIO position validator", () => {
+  it("does not count runtime fallback HOLDs as model-reviewed positions", () => {
+    const result = validateCioPositionActions({
+      output: cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "HOLD",
+          position_decision: "HOLD",
+          current_weight: 0.2,
+          target_weight: 0.2,
+          delta_weight: 0,
+          holding_period: "1M",
+          position_decision_reason: "runtime preserved omitted position",
+          thesis_status: "intact",
+          risk_flags: ["position_review_missing"],
+          dissent_notes: "",
+          review_source: "runtime_safety_fallback",
+        },
+      ]),
+      currentPositions: loadedPositions([heldPosition]),
+    });
+
+    expect(result.position_reviews[0]?.review_source).toBe("runtime_safety_fallback");
+    expect(result.position_audit).toMatchObject({
+      positions_loaded: 1,
+      positions_reviewed: 0,
+      positions_unreviewed: 1,
+      hold_count: 0,
+    });
+  });
+
   it("rejects a loaded current position missing from CIO actions", () => {
     expect(() =>
       validateCioPositionActions({
@@ -1012,6 +1079,7 @@ describe("CIO position validator", () => {
         thesis_status: "intact",
         risk_flags: ["cro_risk_override", "stop_loss_breached", "stale_thesis"],
         confidence: 0.61,
+        review_source: "llm",
       },
     ]);
     expect(result.position_audit.stop_loss_override_count).toBe(1);
@@ -1509,7 +1577,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     clearPromptCache();
   });
 
-  it("writes layer4_outputs.cio AND mirrors to portfolio_actions", async () => {
+  it("writes CIO final output without publishing before shared validation", async () => {
     const cannedPortfolio: PortfolioAction[] = [
       {
         ticker: "688981.SH",
@@ -1598,29 +1666,18 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     };
     expect(u.layer4_outputs?.cio?.agent).toBe(canned.agent);
     expect(u.layer4_outputs?.cio?.confidence).toBe(canned.confidence);
-    expect(u.layer4_outputs?.cio?.portfolio_actions).toEqual(u.portfolio_actions);
-    expect(u.portfolio_actions?.[0]).toMatchObject({
-      ...cannedPortfolio[0],
-      position_decision: "ADD",
-      position_decision_reason: "BUY target weight",
-      thesis_status: "intact",
-      risk_flags: [],
+    expect(u.layer4_outputs?.cio?.portfolio_actions).toEqual(cannedPortfolio);
+    expect(u.portfolio_actions).toBeUndefined();
+    expect(u.layer4_outputs?.runtime?.stage_trace.at(-1)).toMatchObject({
+      stage: "cio_final",
+      operation: "agent_run",
     });
-    expect(u.portfolio_actions?.[1]).toMatchObject({
-      ...cannedPortfolio[1],
-      position_decision: "ADD",
-      position_decision_reason: "alpha_discovery flagged this; auto_exec missed",
-      thesis_status: "intact",
-      risk_flags: [],
-    });
-    // Top-level mirror — Phase 3 scorecard / TUI consumers read this.
-    expect(u.portfolio_actions).toHaveLength(cannedPortfolio.length);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.bindToolsCalled).toBe(0); // Layer-4 bypasses tool loop
     expect(llm.structuredCalls).toBe(1);
   });
 
-  it("conservatively reviews loaded current positions when CIO extraction falls back", async () => {
+  it("freezes omitted positions as runtime fallback HOLDs without model-review credit", async () => {
     const llm = new FallbackLlm();
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
@@ -1645,36 +1702,30 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       },
     ]);
 
-    const node = buildCioNode({ llmHandle: handle, config: testConfig(), promptsRoot: promptDir });
+    const node = buildCioProposalNode({
+      llmHandle: handle,
+      config: testConfig(),
+      promptsRoot: promptDir,
+    });
     const update = await node(sample);
-    const u = update as DailyCycleStateUpdate as unknown as {
-      layer4_outputs?: Partial<Layer4Outputs>;
-      portfolio_actions?: PortfolioAction[];
-      position_reviews?: Array<{ ticker: string; decision: string }>;
-      position_audit?: {
-        positions_loaded: number;
-        positions_reviewed: number;
-        positions_unreviewed: number;
-        hold_count: number;
-        target_current_drift_count: number;
-      };
-    };
+    sample.layer4_outputs = { ...sample.layer4_outputs, ...update.layer4_outputs };
+    const frozen = freezeCandidateTargetNode(sample);
+    const runtime = (frozen.layer4_outputs as Partial<Layer4Outputs> | undefined)?.runtime;
 
-    expect(u.portfolio_actions?.map((action) => action.ticker).sort()).toEqual([
+    expect(
+      runtime?.candidate_target_state?.portfolio_actions.map((action) => action.ticker).sort(),
+    ).toEqual(["300750.SZ", "600519.SH", "688981.SH"]);
+    expect(
+      runtime?.candidate_target_state?.portfolio_actions.every(
+        (action) => action.action === "HOLD" && action.review_source === "runtime_safety_fallback",
+      ),
+    ).toBe(true);
+    expect(runtime?.position_review_state?.llm_reviewed_tickers).toEqual([]);
+    expect(runtime?.position_review_state?.fallback_tickers).toEqual([
       "300750.SZ",
       "600519.SH",
       "688981.SH",
     ]);
-    expect(u.portfolio_actions?.every((action) => action.action === "HOLD")).toBe(true);
-    expect(u.layer4_outputs?.cio?.portfolio_actions).toEqual(u.portfolio_actions);
-    expect(u.position_reviews?.map((review) => review.decision)).toEqual(["HOLD", "HOLD", "HOLD"]);
-    expect(u.position_audit).toMatchObject({
-      positions_loaded: 3,
-      positions_reviewed: 3,
-      positions_unreviewed: 0,
-      hold_count: 3,
-      target_current_drift_count: 0,
-    });
     expect(llm.invokeCalls).toBe(2);
     expect(llm.structuredCalls).toBe(1);
   });
@@ -1759,8 +1810,9 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
       data_vendors: {},
       tool_vendors: {},
     };
+    const sample = stateWithFrozenCandidate();
     const node = buildCroNode({ llmHandle: handle, config, promptsRoot: promptDir });
-    const update = await node(baseState());
+    const update = await node(sample);
     const u = update as DailyCycleStateUpdate as unknown as {
       layer4_outputs?: Partial<Layer4Outputs>;
       portfolio_actions?: PortfolioAction[];
@@ -1823,7 +1875,7 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
     } as unknown as BridgeApi;
 
     const node = buildCroNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
-    await node(baseState());
+    await node(stateWithFrozenCandidate());
 
     expect(toolCalls).toEqual([
       {

@@ -389,7 +389,8 @@ function positionReviewsFromActions(
         "position reviewed",
       thesis_status: action.thesis_status ?? "intact",
       risk_flags: action.risk_flags ?? [],
-      confidence,
+      confidence: action.review_source === "runtime_safety_fallback" ? 0 : confidence,
+      review_source: action.review_source ?? "llm",
     }));
 }
 
@@ -435,7 +436,10 @@ function buildPositionAudit(opts: {
   stopLossPct: number;
   staleThesisDays: number;
 }): PositionAudit {
-  const reviewed = new Set(opts.reviews.map((review) => review.ticker));
+  const modelReviews = opts.reviews.filter(
+    (review) => review.review_source !== "runtime_safety_fallback",
+  );
+  const reviewed = new Set(modelReviews.map((review) => review.ticker));
   const stopLossOverrideCount = opts.currentPositions.positions.filter((position) => {
     const action = opts.actions.find((item) => item.ticker === position.ticker);
     return (
@@ -455,10 +459,10 @@ function buildPositionAudit(opts: {
     positions_unreviewed: opts.currentPositions.positions.filter(
       (position) => !reviewed.has(position.ticker),
     ).length,
-    hold_count: opts.reviews.filter((review) => review.decision === "HOLD").length,
-    add_count: opts.reviews.filter((review) => review.decision === "ADD").length,
-    reduce_count: opts.reviews.filter((review) => review.decision === "REDUCE").length,
-    exit_count: opts.reviews.filter((review) => review.decision === "EXIT").length,
+    hold_count: modelReviews.filter((review) => review.decision === "HOLD").length,
+    add_count: modelReviews.filter((review) => review.decision === "ADD").length,
+    reduce_count: modelReviews.filter((review) => review.decision === "REDUCE").length,
+    exit_count: modelReviews.filter((review) => review.decision === "EXIT").length,
     stale_thesis_count: opts.currentPositions.positions.filter(
       (position) => position.holding_days > opts.staleThesisDays,
     ).length,

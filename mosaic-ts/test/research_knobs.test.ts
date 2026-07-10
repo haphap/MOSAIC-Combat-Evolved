@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { emptyLayer4RuntimeState } from "../src/agents/decision/layer4_runtime.js";
 import {
   applyResearchKnobCaps,
   assertResearchKnobCappedOutputSchema,
@@ -767,6 +768,35 @@ research-knobs:
           dissent_notes: "",
         },
       ],
+      layer4_outputs: {
+        runtime: {
+          ...emptyLayer4RuntimeState(),
+          candidate_target_state: {
+            candidate_target_hash: "sha256:candidate",
+            portfolio_actions: [
+              {
+                ticker: "000001.SZ",
+                action: "BUY",
+                target_weight: 0.03,
+                holding_period: "1M",
+                dissent_notes: "",
+              },
+            ],
+          },
+          position_review_state: { position_review_hash: "sha256:reviews" },
+          cro_review_state: { review_hash: "sha256:cro" },
+          execution_feasibility_state: { feasibility_hash: "sha256:execution" },
+          resolved_source_statuses: [
+            {
+              source_id: "current_market_data",
+              scope: "ticker:600519.SH",
+              status: "loaded",
+              as_of: "2026-07-09",
+              snapshot_hash: "sha256:market-600519",
+            },
+          ],
+        },
+      },
     } as unknown as Parameters<typeof resolveRuntimeSourceStatusesForAgent>[0];
     const loadedStatuses = resolveRuntimeSourceStatusesForAgent(loadedState, "cio");
 
@@ -778,10 +808,35 @@ research-knobs:
       }),
     );
     expect(loadedStatuses).toContainEqual(
-      expect.objectContaining({ source_id: "current_market_data", scope: "ticker:000001.SZ" }),
+      expect.objectContaining({
+        source_id: "current_market_data",
+        scope: "ticker:000001.SZ",
+        status: "missing",
+        error_code: "current_market_data_adapter_not_resolved",
+      }),
     );
     expect(loadedStatuses).toContainEqual(
       expect.objectContaining({ source_id: "position_thesis_state", scope: "ticker:600519.SH" }),
+    );
+    const proposalStatuses = resolveRuntimeSourceStatusesForAgent(
+      loadedState,
+      "cio",
+      "cio_proposal",
+    );
+    expect(proposalStatuses.some((status) => status.source_id === "candidate_target_state")).toBe(
+      false,
+    );
+    const finalStatuses = resolveRuntimeSourceStatusesForAgent(loadedState, "cio", "cio_final");
+    expect(finalStatuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_id: "candidate_target_state",
+          status: "loaded",
+          snapshot_hash: "sha256:candidate",
+        }),
+        expect.objectContaining({ source_id: "cro_review_state", status: "loaded" }),
+        expect.objectContaining({ source_id: "execution_feasibility_state", status: "loaded" }),
+      ]),
     );
   });
 

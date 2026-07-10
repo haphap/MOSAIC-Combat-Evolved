@@ -2,15 +2,13 @@
  * Tests for the daily-cycle composite graph (Plan §11.2 sub-step 2E).
  *
  * Three test groups:
- *   1. ``checkCroVeto`` / ``getCandidatePoolSize`` unit tests — pure
- *      routing helpers, no graph required.
- *   2. ``buildDailyCycleGraph`` compiles successfully (validates the
+ *   1. ``buildDailyCycleGraph`` compiles successfully (validates the
  *      LangGraph topology is well-formed).
- *   3. End-to-end smoke: 25 mocked agents run via the composite graph,
- *      portfolio_actions populated, llm_calls = 25 (no duplication
+ *   2. End-to-end smoke: 25 mocked agents run across 26 runtime stages,
+ *      portfolio_actions populated, llm_calls = 26 (no duplication
  *      from subgraph composition — Plan §11.2 design decision #7).
- *   4. Veto loop: heavy cro rejection routes through layer4_replay,
- *      ending up with 25 + 3 (alpha + auto + cio replay) = 28 llm_calls.
+ *   3. Heavy CRO rejection remains in the single canonical chain; there is
+ *      no asymmetric replay that can bypass a second CRO review.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -51,12 +49,7 @@ import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
 import { applyBacktestPortfolioActionsToPositions } from "../src/cli/_backtest_helpers.js";
 import { submitPaperTargetDeltaOrders } from "../src/cli/commands/daily-cycle.js";
-import {
-  buildDailyCycleGraph,
-  checkCroVeto,
-  DAILY_CYCLE_LAYER_NODES,
-  getCandidatePoolSize,
-} from "../src/graph/daily_cycle.js";
+import { buildDailyCycleGraph, DAILY_CYCLE_LAYER_NODES } from "../src/graph/daily_cycle.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ helpers / shared
@@ -365,151 +358,6 @@ function emptyState(): DailyCycleStateType {
     llm_calls: [],
   };
 }
-
-// ============================================================ unit: routing helpers
-
-const druckPick = (ticker: string) => ({
-  ticker,
-  thesis: "x",
-  conviction: 0.5,
-  holding_period: "3M" as const,
-});
-
-describe("getCandidatePoolSize", () => {
-  it("returns 0 for empty L3", () => {
-    expect(getCandidatePoolSize(emptyState())).toBe(0);
-  });
-
-  it("dedupes tickers across superinvestors", () => {
-    const s = emptyState();
-    s.layer3_outputs = {
-      druckenmiller: {
-        agent: "druckenmiller",
-        picks: [druckPick("A"), druckPick("B"), druckPick("C")],
-        philosophy_note: "x",
-        key_drivers: ["d"],
-        confidence: 0.5,
-      },
-      ackman: {
-        agent: "ackman",
-        picks: [druckPick("A"), druckPick("D")],
-        philosophy_note: "x",
-        key_drivers: ["d"],
-        confidence: 0.5,
-      },
-    };
-    expect(getCandidatePoolSize(s)).toBe(4); // A, B, C, D
-  });
-});
-
-describe("checkCroVeto", () => {
-  it("end when cro is null", () => {
-    expect(checkCroVeto(emptyState())).toBe("end");
-  });
-
-  it("end when cro rejected zero", () => {
-    const s = emptyState();
-    s.layer4_outputs.cro = {
-      agent: "cro",
-      rejected_picks: [],
-      correlated_risks: [],
-      black_swan_scenarios: [],
-      confidence: 0.5,
-    };
-    expect(checkCroVeto(s)).toBe("end");
-  });
-
-  it("end when L3 pool is empty (defensive)", () => {
-    const s = emptyState();
-    s.layer4_outputs.cro = {
-      agent: "cro",
-      rejected_picks: [{ ticker: "X", reason: "y" }],
-      correlated_risks: [],
-      black_swan_scenarios: [],
-      confidence: 0.5,
-    };
-    expect(checkCroVeto(s)).toBe("end");
-  });
-
-  it("end when rejection rate is at threshold (strict >)", () => {
-    const s = emptyState();
-    s.layer3_outputs = {
-      druckenmiller: {
-        agent: "druckenmiller",
-        picks: [druckPick("A"), druckPick("B")],
-        philosophy_note: "x",
-        key_drivers: ["d"],
-        confidence: 0.5,
-      },
-    };
-    s.layer4_outputs.cro = {
-      agent: "cro",
-      rejected_picks: [{ ticker: "A", reason: "y" }],
-      correlated_risks: [],
-      black_swan_scenarios: [],
-      confidence: 0.5,
-    };
-    // 1 / 2 = 0.5, not strictly greater than 0.5 → end.
-    expect(checkCroVeto(s, 0.5)).toBe("end");
-  });
-
-  it("replay when rejection rate strictly exceeds threshold", () => {
-    const s = emptyState();
-    s.layer3_outputs = {
-      druckenmiller: {
-        agent: "druckenmiller",
-        picks: [druckPick("A"), druckPick("B"), druckPick("C")],
-        philosophy_note: "x",
-        key_drivers: ["d"],
-        confidence: 0.5,
-      },
-    };
-    s.layer4_outputs.cro = {
-      agent: "cro",
-      rejected_picks: [
-        { ticker: "A", reason: "y" },
-        { ticker: "B", reason: "y" },
-      ],
-      correlated_risks: [],
-      black_swan_scenarios: [],
-      confidence: 0.5,
-    };
-    // 2 / 3 = 0.66 > 0.5 → replay.
-    expect(checkCroVeto(s, 0.5)).toBe("replay");
-  });
-
-  it("dedupes rejected_picks by ticker (review hotfix #3)", () => {
-    // Pool = 3, but CRO rejects ticker A twice (regulatory + concentration)
-    // and B once. Raw count = 3 → 100% → would trip replay; deduped = 2/3 →
-    // 66% → still trips. Use a case where dedupe DOES change the outcome:
-    // pool = 5, CRO rejects A 3× (3 risks) + B 1× = 4 raw entries →
-    // 4/5 = 80% → replay. Deduped = 2 unique tickers / 5 = 40% → end.
-    const s = emptyState();
-    s.layer3_outputs = {
-      druckenmiller: {
-        agent: "druckenmiller",
-        picks: [druckPick("A"), druckPick("B"), druckPick("C"), druckPick("D"), druckPick("E")],
-        philosophy_note: "x",
-        key_drivers: ["d"],
-        confidence: 0.5,
-      },
-    };
-    s.layer4_outputs.cro = {
-      agent: "cro",
-      rejected_picks: [
-        { ticker: "A", reason: "regulatory" },
-        { ticker: "A", reason: "concentration" },
-        { ticker: "A", reason: "valuation" },
-        { ticker: "B", reason: "liquidity" },
-      ],
-      correlated_risks: [],
-      black_swan_scenarios: [],
-      confidence: 0.5,
-    };
-    // Raw count would be 4/5 = 0.8 → replay. Deduped is 2/5 = 0.4 → end.
-    expect(checkCroVeto(s, 0.5)).toBe("end");
-  });
-});
 
 // ============================================================ canned outputs for 25 agents
 
@@ -899,13 +747,7 @@ describe("buildDailyCycleGraph (compile-only)", () => {
   afterEach(() => clearPromptCache());
 
   it("compiles without throwing and exposes the canonical layer node names", () => {
-    expect([...DAILY_CYCLE_LAYER_NODES]).toEqual([
-      "layer1",
-      "layer2",
-      "layer3",
-      "layer4",
-      "layer4_replay",
-    ]);
+    expect([...DAILY_CYCLE_LAYER_NODES]).toEqual(["layer1", "layer2", "layer3", "layer4"]);
     const handle: LlmHandle = {
       llm: new ScriptedLlm25(makeCannedOutputs()) as unknown as LlmHandle["llm"],
       provider: "fake",
@@ -943,7 +785,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     clearPromptCache();
   });
 
-  it("runs all 25 agents through 4 layers, populates portfolio_actions, no veto", async () => {
+  it("runs all 25 agents through 26 stages and publishes a validated final target", async () => {
     const llm = new ScriptedLlm25(makeCannedOutputs({ croRejected: 0 }));
     const logs: string[] = [];
     const handle: LlmHandle = {
@@ -986,18 +828,36 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.portfolio_actions).toHaveLength(2);
     expect(final.portfolio_actions[0]?.ticker).toBe("688981.SH");
 
-    // 25 LLM structured calls (no duplication from subgraph composition).
-    expect(llm.structuredCalls).toBe(25);
-    // Each agent ran exactly once.
+    // 26 stage calls: all agents once, plus CIO proposal + CIO final.
+    expect(llm.structuredCalls).toBe(26);
     expect(Object.keys(llm.perAgentStructuredCount).length).toBe(25);
     for (const agent of ALL_AGENT_IDS) {
-      expect(llm.perAgentStructuredCount[agent]).toBe(1);
+      expect(llm.perAgentStructuredCount[agent]).toBe(agent === "cio" ? 2 : 1);
     }
 
-    // 25 LlmCallRecord appends (Plan §11.2 design decision #7).
-    expect(final.llm_calls).toHaveLength(25);
-    // R-A1: no veto → replay never ran.
+    expect(final.llm_calls).toHaveLength(26);
     expect(final.replay_triggered).toBe(false);
+    const runtime = final.layer4_outputs.runtime;
+    expect(runtime?.candidate_target_state?.frozen).toBe(true);
+    expect(runtime?.cro_review_state?.candidate_target_hash).toBe(
+      runtime?.candidate_target_state?.candidate_target_hash,
+    );
+    expect(runtime?.execution_feasibility_state?.candidate_target_hash).toBe(
+      runtime?.candidate_target_state?.candidate_target_hash,
+    );
+    expect(runtime?.final_target_state?.final_target_hash).toMatch(/^sha256:/);
+    expect(
+      runtime?.stage_trace
+        .filter((entry) => entry.operation === "agent_run")
+        .map((entry) => entry.stage),
+    ).toEqual([
+      "alpha_discovery",
+      "cio_proposal",
+      "cro_review",
+      "execution_feasibility",
+      "cio_final",
+    ]);
+    expect(runtime?.stage_trace.at(-1)?.stage).toBe("shared_validation");
     expect(logs).toContainEqual(
       expect.stringContaining("[agent:start] L1 central_bank timeout=off"),
     );
@@ -1006,9 +866,9 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
   });
 });
 
-// ============================================================ veto branch
+// ============================================================ canonical no-replay branch
 
-describe("buildDailyCycleGraph (veto loop triggers replay)", () => {
+describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
   let promptDir: string;
 
   beforeEach(() => {
@@ -1028,9 +888,7 @@ describe("buildDailyCycleGraph (veto loop triggers replay)", () => {
     clearPromptCache();
   });
 
-  it("re-runs alpha + auto + cio when cro vetoes > 50% of L3 candidates", async () => {
-    // L3 candidate pool de-duped = {688981.SH, 600519.SH, 002371.SZ, 600276.SH, 601318.SH} = 5.
-    // Reject 4 → rate 0.8 → strictly > 0.5 → replay.
+  it("keeps one hash-bound canonical pass when CRO rejects most candidates", async () => {
     const llm = new ScriptedLlm25(makeCannedOutputs({ croRejected: 4 }));
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
@@ -1048,21 +906,15 @@ describe("buildDailyCycleGraph (veto loop triggers replay)", () => {
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
 
-    // 25 first-pass + 3 replay (alpha + auto + cio) = 28.
-    expect(llm.structuredCalls).toBe(28);
-    // alpha / auto / cio each ran twice (first pass + replay); cro once.
+    expect(llm.structuredCalls).toBe(26);
     expect(llm.perAgentStructuredCount.cro).toBe(1);
-    expect(llm.perAgentStructuredCount.alpha_discovery).toBe(2);
-    expect(llm.perAgentStructuredCount.autonomous_execution).toBe(2);
+    expect(llm.perAgentStructuredCount.alpha_discovery).toBe(1);
+    expect(llm.perAgentStructuredCount.autonomous_execution).toBe(1);
     expect(llm.perAgentStructuredCount.cio).toBe(2);
-
-    // 28 llm_calls total.
-    expect(final.llm_calls).toHaveLength(28);
-
-    // portfolio_actions still populated by the replay's cio.
+    expect(final.llm_calls).toHaveLength(26);
     expect(final.portfolio_actions.length).toBeGreaterThan(0);
-    // R-A1: the replay node set the provenance flag.
-    expect(final.replay_triggered).toBe(true);
+    expect(final.replay_triggered).toBe(false);
+    expect(final.layer4_outputs.runtime?.cro_review_state?.output.rejected_picks).toHaveLength(4);
   });
 
   it("end branch (no replay) when cro rejects 0 picks even with full L3 pool", async () => {
@@ -1081,6 +933,6 @@ describe("buildDailyCycleGraph (veto loop triggers replay)", () => {
       promptsRoot: promptDir,
     });
     await graph.invoke(emptyState());
-    expect(llm.structuredCalls).toBe(25);
+    expect(llm.structuredCalls).toBe(26);
   });
 });

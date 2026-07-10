@@ -75,10 +75,7 @@ export function registerBacktestFill(program: Command): void {
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
-    .option(
-      "--veto-threshold <num>",
-      "CRO veto threshold (rejected/pool > this triggers replay; default 0.5)",
-    )
+    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--log-every <n>", "Print progress every N trade days (default 5)")
     .option("--prompts-root <path>", "Override prompts root directory (for worktree evaluation)")
     .option(

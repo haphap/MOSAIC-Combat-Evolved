@@ -28,6 +28,8 @@ export function emptyLayer4RuntimeState(): Layer4RuntimeState {
     cro_review_state: null,
     execution_feasibility_state: null,
     final_target_state: null,
+    cio_final_knob_snapshot: null,
+    resolved_source_statuses: [],
     stage_trace: [],
   };
 }
@@ -173,6 +175,25 @@ export function freezeFinalTarget(
     final_target_hash: stableHash(payload),
     frozen: true,
   };
+}
+
+export function withFrozenCandidatePositionCoverage(
+  state: DailyCycleStateType,
+  output: CioOutput,
+): CioOutput {
+  if (state.current_positions.snapshot_status !== "loaded") return output;
+  const candidateActions = new Map(
+    (state.layer4_outputs.runtime?.candidate_target_state?.portfolio_actions ?? []).map(
+      (action) => [action.ticker, action],
+    ),
+  );
+  const covered = new Set(output.portfolio_actions.map((action) => action.ticker));
+  const missing = state.current_positions.positions
+    .filter((position) => !covered.has(position.ticker))
+    .map((position) => candidateActions.get(position.ticker))
+    .filter((action): action is PortfolioAction => action !== undefined);
+  if (missing.length === 0) return output;
+  return { ...output, portfolio_actions: [...output.portfolio_actions, ...missing] };
 }
 
 export function updateLayer4Runtime(
