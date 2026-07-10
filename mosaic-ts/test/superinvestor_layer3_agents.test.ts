@@ -75,7 +75,14 @@ describe("each superinvestor spec wires the right factory inputs", () => {
     it(`${name}`, () => {
       expect(spec.agentId).toBe(name);
       expect(spec.requiredTools.length).toBeGreaterThanOrEqual(1);
-      expect(spec.fieldNames).toEqual(["picks", "philosophy_note", "key_drivers", "confidence"]);
+      expect(spec.fieldNames).toEqual([
+        "picks",
+        "philosophy_note",
+        "key_drivers",
+        "confidence",
+        "claims",
+        "claim_refs",
+      ]);
     });
   }
 

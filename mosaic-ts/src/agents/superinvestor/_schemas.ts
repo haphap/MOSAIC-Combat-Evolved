@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { LlmResearchClaimSchema } from "../evidence_contract.js";
 import type {
   AckmanOutput,
   BurryOutput,
@@ -39,6 +40,11 @@ const SUPER_PICK = z.object({
     ),
   conviction: z.number().min(0).max(1).describe("[0, 1] strength of conviction."),
   holding_period: HOLDING_PERIOD,
+  claim_refs: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .describe("Claim ids supporting this candidate."),
 });
 
 const KEY_DRIVERS = z
@@ -58,6 +64,15 @@ const KNOB_INFLUENCE_FIELDS = {
     .string()
     .optional()
     .describe("Optional short rationale for declared knob influence ids."),
+  claims: z
+    .array(LlmResearchClaimSchema)
+    .optional()
+    .describe("Claim declarations referencing only runtime-provided evidence ids."),
+  claim_refs: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .describe("Claim ids supporting the top-level philosophy recommendation."),
 };
 
 function buildSuperinvestorSchema<L extends string>(literal: L) {
@@ -100,6 +115,8 @@ export const SUPERINVESTOR_FIELD_NAMES = [
   "philosophy_note",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------

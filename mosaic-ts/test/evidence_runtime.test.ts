@@ -6,7 +6,12 @@ import {
 } from "../src/agents/helpers/evidence_runtime.js";
 import type { ResearchKnobsSnapshot } from "../src/agents/helpers/research_knobs.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
-import type { CentralBankOutput, CioOutput, SemiconductorOutput } from "../src/agents/types.js";
+import type {
+  CentralBankOutput,
+  CioOutput,
+  MungerOutput,
+  SemiconductorOutput,
+} from "../src/agents/types.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const MARKET_HASH = `sha256:${"2".repeat(64)}`;
@@ -388,6 +393,70 @@ describe("runtime evidence snapshots", () => {
         output_id: "long_candidate:0:600519.SH",
         output_type: "candidate",
         claim_refs: ["claim-sector-1"],
+      },
+    ]);
+  });
+
+  it("requires both philosophy-level and per-pick claim references", () => {
+    const runtime = buildRuntimeEvidenceSnapshot({
+      state: state(),
+      agent: "munger",
+      stage: "agent_run",
+      knobSnapshot: knobSnapshot(),
+    });
+    const evidenceId = runtime.evidenceLedger.find(
+      (entry) => entry.tool_or_source === "current_market_data",
+    )?.evidence_id;
+    const raw: MungerOutput = {
+      agent: "munger",
+      picks: [
+        {
+          ticker: "600519.SH",
+          thesis: "verified quality",
+          conviction: 0.5,
+          holding_period: "1Y",
+          claim_refs: ["claim-pick-1"],
+        },
+      ],
+      philosophy_note: "Current evidence supports quality exposure.",
+      key_drivers: ["Current evidence"],
+      confidence: 0.5,
+      claim_refs: ["claim-pick-1"],
+      claims: [
+        {
+          claim_id: "claim-pick-1",
+          claim_type: "inference",
+          statement: "Current evidence supports the philosophy-filtered pick.",
+          structured_conclusion: { philosophy: "quality" },
+          evidence_refs: [evidenceId ?? "missing"],
+          research_rule_refs: ["decision.cio.policy.001"],
+        },
+      ],
+    };
+
+    const selected = selectOutputByClaimEvidence(
+      raw,
+      (): MungerOutput => ({
+        agent: "munger",
+        picks: [],
+        philosophy_note: "fallback",
+        key_drivers: ["fallback"],
+        confidence: 0,
+      }),
+      runtime,
+    );
+
+    expect(selected.rawOutputAccepted).toBe(true);
+    expect(selected.graph.recommendation_claim_refs).toEqual([
+      {
+        output_id: "recommendation:0:munger",
+        output_type: "recommendation",
+        claim_refs: ["claim-pick-1"],
+      },
+      {
+        output_id: "pick:0:600519.SH",
+        output_type: "candidate",
+        claim_refs: ["claim-pick-1"],
       },
     ]);
   });
