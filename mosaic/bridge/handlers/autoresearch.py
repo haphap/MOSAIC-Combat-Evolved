@@ -14,6 +14,8 @@ Exposes the prompt-mutation lifecycle to the TS orchestrator:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -34,6 +36,22 @@ def _store():
     from mosaic.scorecard import get_store
 
     return get_store()
+
+
+def _canonical_hash(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _authorized_prompt_release_operators() -> set[str]:
+    raw = os.getenv("MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 def _repo_root() -> Path:
@@ -703,6 +721,118 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             })
 
     return {"results": results}
+
+
+# ---------------------------------------------------------------------------
+# autoresearch.review_domain_promotion
+# ---------------------------------------------------------------------------
+
+
+@method("autoresearch.review_domain_promotion")
+def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, Any]:
+    """Record an explicit operator keep/revert decision after holdout evaluation."""
+    version_id = _require_int(params, "version_id")
+    decision = _require_str(params, "decision")
+    if decision not in ("keep", "revert"):
+        raise RpcError(INVALID_PARAMS, "'decision' must be 'keep' or 'revert'")
+    approved_by = _require_str(params, "approved_by")
+    if approved_by not in _authorized_prompt_release_operators():
+        raise RpcError(INVALID_PARAMS, "'approved_by' is not an authorized prompt release operator")
+    approval_policy_id = _require_str(params, "approval_policy_id")
+    if approval_policy_id not in (
+        "domain_release_manual_v1",
+        "decision_release_manual_v1",
+    ):
+        raise RpcError(INVALID_PARAMS, "unsupported domain promotion approval policy")
+    review_reason = _require_str(params, "review_reason")
+    store = _store()
+    version = store.get_prompt_version(version_id)
+    if version is None:
+        raise RpcError(INVALID_PARAMS, f"prompt version {version_id} not found")
+    existing_decision = store.get_domain_promotion_decision(version_id)
+    if existing_decision is not None:
+        if (
+            existing_decision.get("decision") != decision
+            or existing_decision.get("approved_by") != approved_by
+            or existing_decision.get("approval_policy_id") != approval_policy_id
+            or existing_decision.get("review_reason") != review_reason
+        ):
+            raise RpcError(AUTORESEARCH_ERROR, "domain promotion decision already exists")
+        return {
+            "version_id": version_id,
+            "status": "kept" if decision == "keep" else "reverted",
+            "decision_hash": _canonical_hash(existing_decision),
+            "decision": existing_decision,
+            "created": False,
+        }
+    if version.get("mutation_lifecycle") != "eligible_for_promotion":
+        raise RpcError(AUTORESEARCH_ERROR, "domain mutation is not eligible for promotion")
+    metadata = store.get_version_mutation_metadata(version_id)
+    evaluation = store.get_domain_evaluation_result(version_id)
+    if not metadata or metadata.get("mutation_kind") != "domain_knob":
+        raise RpcError(AUTORESEARCH_ERROR, "prompt version is not a domain mutation")
+    if not evaluation or evaluation.get("status") != "eligible_for_promotion":
+        raise RpcError(AUTORESEARCH_ERROR, "eligible domain evaluation result is missing")
+    if evaluation.get("holdout_consumption_required") is not True:
+        raise RpcError(AUTORESEARCH_ERROR, "domain evaluation did not consume a holdout")
+    holdout = store.get_domain_holdout_consumption(evaluation.get("holdout_id"))
+    if (
+        not holdout
+        or holdout.get("mutation_id") != metadata.get("mutation_id")
+        or holdout.get("result_hash") != evaluation.get("result_hash")
+    ):
+        raise RpcError(AUTORESEARCH_ERROR, "holdout consumption evidence is not closed")
+    if not metadata.get("transaction_manifest_hash"):
+        raise RpcError(AUTORESEARCH_ERROR, "mutation transaction evidence is missing")
+    if not all(
+        version.get(field)
+        for field in (
+            "modification_commit_hash",
+            "prompt_sha256",
+            "code_commit_hash",
+        )
+    ):
+        raise RpcError(AUTORESEARCH_ERROR, "prompt/code release pin metadata is missing")
+    decided_at = datetime.now(timezone.utc).isoformat()
+    decision_evidence = {
+        "schema_version": "domain_promotion_decision_v1",
+        "version_id": version_id,
+        "mutation_id": metadata["mutation_id"],
+        "experiment_id": metadata["experiment_id"],
+        "decision": decision,
+        "approved_by": approved_by,
+        "approval_policy_id": approval_policy_id,
+        "review_reason": review_reason,
+        "evaluation_result_hash": evaluation["result_hash"],
+        "pit_audit_hash": evaluation["pit_audit_hash"],
+        "holdout_id": evaluation["holdout_id"],
+        "transaction_manifest_hash": metadata["transaction_manifest_hash"],
+        "prompt_commit_hash": version.get("modification_commit_hash"),
+        "prompt_sha256": version.get("prompt_sha256"),
+        "code_commit_hash": version.get("code_commit_hash"),
+        "decided_at": decided_at,
+    }
+    decision_hash = _canonical_hash(decision_evidence)
+    try:
+        created = store.record_domain_promotion_decision(
+            version_id,
+            decision_evidence,
+            decision_hash=decision_hash,
+        )
+    except ValueError as exc:
+        raise RpcError(AUTORESEARCH_ERROR, str(exc)) from exc
+    store.append_log(
+        version_id,
+        "kept" if decision == "keep" else "reverted",
+        f"promotion_decision={decision_hash}; approved_by={approved_by}",
+    )
+    return {
+        "version_id": version_id,
+        "status": "kept" if decision == "keep" else "reverted",
+        "decision_hash": decision_hash,
+        "decision": decision_evidence,
+        "created": created,
+    }
 
 
 # ---------------------------------------------------------------------------

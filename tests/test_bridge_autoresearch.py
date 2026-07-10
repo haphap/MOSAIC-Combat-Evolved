@@ -48,6 +48,7 @@ except Exception:
 autoresearch_trigger = _ar.autoresearch_trigger
 autoresearch_record_mutation = _ar.autoresearch_record_mutation
 autoresearch_evaluate_pending = _ar.autoresearch_evaluate_pending
+autoresearch_review_domain_promotion = _ar.autoresearch_review_domain_promotion
 autoresearch_get_log = _ar.autoresearch_get_log
 autoresearch_list_active_branches = _ar.autoresearch_list_active_branches
 autoresearch_prepare_worktree = _ar.autoresearch_prepare_worktree
@@ -342,6 +343,77 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
             self.store.get_prompt_version(vid)["mutation_lifecycle"], "needs_fill"
         )
         compute_delta.assert_not_called()
+
+    def test_domain_promotion_requires_operator_and_closed_holdout_evidence(self):
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-08",
+            base_commit_hash="a" * 40,
+        )
+        metadata = {
+            "mutation_id": "KM-domain-promote",
+            "transaction_id": "TX-KM-domain-promote",
+            "transaction_manifest_hash": f"sha256:{'1' * 64}",
+            "experiment_id": "EXP-KM-domain-promote",
+            "mutation_kind": "domain_knob",
+        }
+        self.store.set_version_mutation(
+            vid,
+            "b" * 40,
+            "domain mutation",
+            prompt_repo_id="private",
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+            mutation_metadata=metadata,
+        )
+        self.store.set_version_mutation_lifecycle(vid, "validated")
+        self.store.set_version_mutation_lifecycle(vid, "shadow_evaluating")
+        self.store.set_version_mutation_lifecycle(vid, "eligible_for_promotion")
+        holdout_id = f"sha256:{'2' * 64}"
+        result_hash = f"sha256:{'3' * 64}"
+        evaluation = {
+            "schema_version": "domain_evaluation_result_v1",
+            "mutation_id": metadata["mutation_id"],
+            "status": "eligible_for_promotion",
+            "result_hash": result_hash,
+            "pit_audit_hash": f"sha256:{'4' * 64}",
+            "holdout_id": holdout_id,
+            "holdout_consumption_required": True,
+        }
+        self.store.set_domain_evaluation_result(vid, evaluation)
+        self.store.consume_domain_holdout(
+            vid,
+            holdout_id=holdout_id,
+            mutation_id=metadata["mutation_id"],
+            result_hash=result_hash,
+        )
+        params = {
+            "version_id": vid,
+            "decision": "keep",
+            "approved_by": "operator:test",
+            "approval_policy_id": "domain_release_manual_v1",
+            "review_reason": "PIT holdout and operational guardrails passed.",
+        }
+
+        with patch.dict(
+            os.environ,
+            {"MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS": "operator:test"},
+        ):
+            result = autoresearch_review_domain_promotion(params)
+            repeated = autoresearch_review_domain_promotion(params)
+            rejected = {**params, "approved_by": "operator:unlisted"}
+            with self.assertRaises(RpcError):
+                autoresearch_review_domain_promotion(rejected)
+
+        self.assertEqual(result["status"], "kept")
+        self.assertTrue(result["created"])
+        self.assertFalse(repeated["created"])
+        self.assertEqual(self.store.get_prompt_version(vid)["status"], "keep")
+        self.assertEqual(
+            self.store.get_domain_promotion_decision(vid)["approved_by"],
+            "operator:test",
+        )
 
     def test_needs_fill_reports_private_prompt_metadata(self):
         class FakePrivateGit:

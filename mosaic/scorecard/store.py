@@ -21,6 +21,7 @@ columns once they're populated).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -186,6 +187,10 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
     mutation_metadata_json TEXT,                -- hash-bound knob/card/evaluation policy
     mutation_lifecycle TEXT,                    -- proposed/validated/shadow_evaluating/...
     evaluation_result_json TEXT,                -- card-bound PIT EvaluationResult
+    promotion_decision_json TEXT,               -- authorized keep/revert evidence
+    promotion_decision_hash TEXT,
+    promotion_approved_by TEXT,
+    promotion_approval_policy_id TEXT,
     created_at TEXT NOT NULL,                   -- ISO-8601
     status TEXT NOT NULL,                       -- pending / keep / revert
     decided_at TEXT,                            -- ISO-8601, set when status leaves pending
@@ -822,6 +827,12 @@ class ScorecardStore:
             self._ensure_column(conn, "prompt_versions", "mutation_metadata_json", "TEXT")
             self._ensure_column(conn, "prompt_versions", "mutation_lifecycle", "TEXT")
             self._ensure_column(conn, "prompt_versions", "evaluation_result_json", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "promotion_decision_json", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "promotion_decision_hash", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "promotion_approved_by", "TEXT")
+            self._ensure_column(
+                conn, "prompt_versions", "promotion_approval_policy_id", "TEXT"
+            )
             self._ensure_column(conn, "backtest_runs", "prompt_commit_ref", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_sha256", "TEXT")
@@ -2219,6 +2230,95 @@ class ScorecardStore:
         if row is None or row["evaluation_result_json"] is None:
             return None
         value = json.loads(row["evaluation_result_json"])
+        return value if isinstance(value, dict) else None
+
+    def record_domain_promotion_decision(
+        self,
+        version_id: int,
+        decision: dict[str, Any],
+        *,
+        decision_hash: str,
+    ) -> bool:
+        """Atomically persist one authorized promotion decision."""
+        encoded = _json_object_or_none(decision)
+        if encoded is None:
+            raise ValueError("domain promotion decision must be an object")
+        if (
+            not isinstance(decision_hash, str)
+            or len(decision_hash) != 71
+            or not decision_hash.startswith("sha256:")
+            or any(
+                character not in "0123456789abcdef" for character in decision_hash[7:]
+            )
+        ):
+            raise ValueError("domain promotion decision_hash must be a sha256 digest")
+        action = decision.get("decision")
+        if action not in ("keep", "revert"):
+            raise ValueError("domain promotion decision must be keep or revert")
+        approved_by = decision.get("approved_by")
+        approval_policy_id = decision.get("approval_policy_id")
+        if not isinstance(approved_by, str) or not approved_by:
+            raise ValueError("domain promotion approved_by is required")
+        if not isinstance(approval_policy_id, str) or not approval_policy_id:
+            raise ValueError("domain promotion approval_policy_id is required")
+        canonical = json.dumps(
+            decision,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        expected_hash = f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+        if decision_hash != expected_hash:
+            raise ValueError("domain promotion decision_hash does not match decision")
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT mutation_lifecycle, promotion_decision_json, "
+                "promotion_decision_hash FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"prompt_version {version_id} not found")
+            if row["promotion_decision_json"] is not None:
+                if (
+                    row["promotion_decision_json"] == encoded
+                    and row["promotion_decision_hash"] == decision_hash
+                ):
+                    return False
+                raise ValueError("domain promotion decision already exists")
+            if row["mutation_lifecycle"] != "eligible_for_promotion":
+                raise ValueError("domain mutation is not eligible for promotion review")
+            conn.execute(
+                """
+                UPDATE prompt_versions
+                SET mutation_lifecycle = ?, status = ?, decided_at = ?,
+                    promotion_decision_json = ?, promotion_decision_hash = ?,
+                    promotion_approved_by = ?, promotion_approval_policy_id = ?
+                WHERE id = ?
+                """,
+                (
+                    "kept" if action == "keep" else "reverted",
+                    action,
+                    decision.get("decided_at") or _utcnow_iso(),
+                    encoded,
+                    decision_hash,
+                    approved_by,
+                    approval_policy_id,
+                    version_id,
+                ),
+            )
+        return True
+
+    def get_domain_promotion_decision(self, version_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT promotion_decision_json FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+        if row is None or row["promotion_decision_json"] is None:
+            return None
+        value = json.loads(row["promotion_decision_json"])
         return value if isinstance(value, dict) else None
 
     def decide_version(

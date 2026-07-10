@@ -590,6 +590,9 @@ export interface PromptReleaseCheckResult {
     prompt_repo_id?: string | null;
     prompt_commit_hash?: string | null;
     prompt_sha256?: string | null;
+    keep_decision_hash?: string | null;
+    evaluation_result_hash?: string | null;
+    transaction_manifest_hash?: string | null;
   };
 }
 
@@ -1268,6 +1271,14 @@ export interface AutoresearchEvalResult {
   missing_runs?: AutoresearchMissingRun[];
   missing_domain_samples?: boolean;
   evaluation_result?: Record<string, unknown> | null;
+}
+
+export interface AutoresearchDomainPromotionResult {
+  version_id: number;
+  status: "kept" | "reverted";
+  decision_hash: string;
+  decision: Record<string, unknown>;
+  created: boolean;
 }
 
 /** A single autoresearch log row from ``autoresearch.get_log``. */
@@ -2265,6 +2276,19 @@ export class BridgeApi {
     return this.client.call<{ results: AutoresearchEvalResult[] }>(
       "autoresearch.evaluate_pending",
       params ?? {},
+    );
+  }
+
+  autoresearchReviewDomainPromotion(params: {
+    version_id: number;
+    decision: "keep" | "revert";
+    approved_by: string;
+    approval_policy_id: "domain_release_manual_v1" | "decision_release_manual_v1";
+    review_reason: string;
+  }): Promise<AutoresearchDomainPromotionResult> {
+    return this.client.call<AutoresearchDomainPromotionResult>(
+      "autoresearch.review_domain_promotion",
+      params,
     );
   }
 

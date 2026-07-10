@@ -35,6 +35,14 @@ interface EvaluateOptions {
   cohort?: string;
 }
 
+interface PromotionOptions {
+  versionId: string;
+  decision: "keep" | "revert";
+  approvedBy: string;
+  approvalPolicy: "domain_release_manual_v1" | "decision_release_manual_v1";
+  reason: string;
+}
+
 interface LogOptions {
   cohort?: string;
   days?: string;
@@ -168,6 +176,51 @@ export function registerAutoresearch(program: Command): void {
             );
           }
         }
+      } catch (err) {
+        handleError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
+
+  // ── autoresearch domain promotion review ──────────────────────────────
+
+  cmd
+    .command("review-domain")
+    .description("Record an authorized domain-mutation promotion decision.")
+    .requiredOption("--version-id <id>", "Prompt version id")
+    .requiredOption("--decision <decision>", "keep | revert")
+    .requiredOption("--approved-by <operator>", "Operator identity, prefixed with operator:")
+    .requiredOption(
+      "--approval-policy <policy>",
+      "domain_release_manual_v1 | decision_release_manual_v1",
+    )
+    .requiredOption("--reason <text>", "Review rationale")
+    .action(async (opts: PromotionOptions) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        if (!(["keep", "revert"] as const).includes(opts.decision)) {
+          throw new Error("--decision must be keep or revert");
+        }
+        if (
+          !(["domain_release_manual_v1", "decision_release_manual_v1"] as const).includes(
+            opts.approvalPolicy,
+          )
+        ) {
+          throw new Error("--approval-policy is unsupported");
+        }
+        const result = await api.autoresearchReviewDomainPromotion({
+          version_id: Number.parseInt(opts.versionId, 10),
+          decision: opts.decision,
+          approved_by: opts.approvedBy,
+          approval_policy_id: opts.approvalPolicy,
+          review_reason: opts.reason,
+        });
+        console.log(
+          `${result.status} version=${result.version_id} decision=${result.decision_hash}`,
+        );
       } catch (err) {
         handleError(err, client);
       } finally {

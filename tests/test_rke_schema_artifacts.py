@@ -52,6 +52,7 @@ REQUIRED_SCHEMA_FILES = {
     "domain_evaluation_preregistration_v1.schema.json",
     "domain_evaluation_sample_manifest_v1.schema.json",
     "domain_evaluation_result_v1.schema.json",
+    "domain_promotion_decision_v1.schema.json",
     "l4_run_snapshot_bundle_v1.schema.json",
     "domain_knob_values_v1.schema.json",
     "confidence_policy.schema.yaml",

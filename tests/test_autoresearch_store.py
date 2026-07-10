@@ -8,6 +8,8 @@ get_store() singleton (§14 R-T4) + update_scoring no-op warning (§14 R-T5).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from pathlib import Path
 
@@ -65,6 +67,10 @@ class TestSchema:
             "mutation_metadata_json",
             "mutation_lifecycle",
             "evaluation_result_json",
+            "promotion_decision_json",
+            "promotion_decision_hash",
+            "promotion_approved_by",
+            "promotion_approval_policy_id",
         }.issubset(prompt_version_cols)
 
     def test_reinstantiate_is_idempotent(self, store: ScorecardStore):
@@ -249,6 +255,48 @@ class TestPromptVersionLifecycle:
                 mutation_id="KM-2",
                 result_hash=f"sha256:{'3' * 64}",
             )
+
+    def test_domain_promotion_decision_is_atomic_and_idempotent(
+        self, store: ScorecardStore
+    ):
+        vid = _new_version(store)
+        metadata = {
+            "mutation_id": "KM-1",
+            "transaction_id": "TX-KM-1",
+            "experiment_id": "EXP-KM-1",
+        }
+        store.set_version_mutation(vid, "b" * 40, mutation_metadata=metadata)
+        store.set_version_mutation_lifecycle(vid, "validated")
+        store.set_version_mutation_lifecycle(vid, "shadow_evaluating")
+        store.set_version_mutation_lifecycle(vid, "eligible_for_promotion")
+        decision = {
+            "schema_version": "domain_promotion_decision_v1",
+            "decision": "keep",
+            "approved_by": "operator:test",
+            "approval_policy_id": "domain_release_manual_v1",
+            "decided_at": "2026-07-10T00:00:00+00:00",
+        }
+        decision_hash = "sha256:" + hashlib.sha256(
+            json.dumps(
+                decision,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+        assert store.record_domain_promotion_decision(
+            vid, decision, decision_hash=decision_hash
+        )
+        assert not store.record_domain_promotion_decision(
+            vid, decision, decision_hash=decision_hash
+        )
+        assert store.get_domain_promotion_decision(vid) == decision
+        version = store.get_prompt_version(vid)
+        assert version["mutation_lifecycle"] == "kept"
+        assert version["status"] == "keep"
+        assert version["promotion_decision_hash"] == decision_hash
 
     def test_decide_keep(self, store: ScorecardStore):
         vid = _new_version(store)

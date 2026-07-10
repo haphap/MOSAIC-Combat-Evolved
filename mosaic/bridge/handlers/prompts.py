@@ -375,6 +375,17 @@ def _safe_str(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _canonical_json_hash(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
 def _research_knobs_enabled_agents() -> set[str]:
     raw = os.getenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "")
     return {item.strip() for item in raw.split(",") if item.strip()}
@@ -1266,10 +1277,39 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
 
     version_id = _require_int(params, "version_id")
     require_kept = bool(params.get("require_kept", True))
-    version = _store().get_prompt_version(version_id)
+    store = _store()
+    version = store.get_prompt_version(version_id)
     if version is None:
         raise RpcError(INVALID_PARAMS, f"prompt version {version_id} not found")
 
+    mutation_metadata = store.get_version_mutation_metadata(version_id)
+    promotion_decision = store.get_domain_promotion_decision(version_id)
+    evaluation_result = store.get_domain_evaluation_result(version_id)
+    domain_mutation = bool(
+        mutation_metadata and mutation_metadata.get("mutation_kind") == "domain_knob"
+    )
+    promotion_ok = not domain_mutation
+    if domain_mutation and mutation_metadata and promotion_decision and evaluation_result:
+        promotion_ok = bool(
+            version.get("mutation_lifecycle") == "kept"
+            and promotion_decision.get("decision") == "keep"
+            and version.get("promotion_decision_hash")
+            == _canonical_json_hash(promotion_decision)
+            and promotion_decision.get("mutation_id")
+            == mutation_metadata.get("mutation_id")
+            and promotion_decision.get("experiment_id")
+            == mutation_metadata.get("experiment_id")
+            and promotion_decision.get("transaction_manifest_hash")
+            == mutation_metadata.get("transaction_manifest_hash")
+            and promotion_decision.get("evaluation_result_hash")
+            == evaluation_result.get("result_hash")
+            and promotion_decision.get("prompt_commit_hash")
+            == version.get("modification_commit_hash")
+            and promotion_decision.get("prompt_sha256")
+            == version.get("prompt_sha256")
+            and promotion_decision.get("code_commit_hash")
+            == version.get("code_commit_hash")
+        )
     checks: dict[str, Any] = {
         "status_ok": (not require_kept) or version.get("status") == "keep",
         "metadata_ok": bool(
@@ -1280,6 +1320,7 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
         ),
         "sha_ok": False,
         "compatible": False,
+        "promotion_ok": promotion_ok,
     }
     details: dict[str, Any] = {}
     try:
@@ -1300,6 +1341,11 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_id": version.get("prompt_repo_id"),
                 "prompt_commit_hash": version.get("modification_commit_hash"),
                 "prompt_sha256": version.get("prompt_sha256"),
+                "keep_decision_hash": version.get("promotion_decision_hash"),
+                "evaluation_result_hash": (evaluation_result or {}).get("result_hash"),
+                "transaction_manifest_hash": (mutation_metadata or {}).get(
+                    "transaction_manifest_hash"
+                ),
             },
         }
 
@@ -1336,5 +1382,10 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_repo_id": version.get("prompt_repo_id"),
             "prompt_commit_hash": version.get("modification_commit_hash"),
             "prompt_sha256": version.get("prompt_sha256"),
+            "keep_decision_hash": version.get("promotion_decision_hash"),
+            "evaluation_result_hash": (evaluation_result or {}).get("result_hash"),
+            "transaction_manifest_hash": (mutation_metadata or {}).get(
+                "transaction_manifest_hash"
+            ),
         },
     }

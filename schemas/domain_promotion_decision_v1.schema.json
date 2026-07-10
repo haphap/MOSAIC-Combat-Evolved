@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Domain Promotion Decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "version_id",
+    "mutation_id",
+    "experiment_id",
+    "decision",
+    "approved_by",
+    "approval_policy_id",
+    "review_reason",
+    "evaluation_result_hash",
+    "pit_audit_hash",
+    "holdout_id",
+    "transaction_manifest_hash",
+    "prompt_commit_hash",
+    "prompt_sha256",
+    "code_commit_hash",
+    "decided_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "domain_promotion_decision_v1"
+    },
+    "version_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "mutation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "experiment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision": {
+      "enum": ["keep", "revert"]
+    },
+    "approved_by": {
+      "type": "string",
+      "pattern": "^operator:.+$"
+    },
+    "approval_policy_id": {
+      "enum": ["domain_release_manual_v1", "decision_release_manual_v1"]
+    },
+    "review_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evaluation_result_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "pit_audit_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "holdout_id": {
+      "$ref": "#/$defs/sha256"
+    },
+    "transaction_manifest_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "prompt_commit_hash": {
+      "type": "string",
+      "minLength": 7
+    },
+    "prompt_sha256": {
+      "type": "string",
+      "minLength": 1
+    },
+    "code_commit_hash": {
+      "type": "string",
+      "minLength": 7
+    },
+    "decided_at": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
