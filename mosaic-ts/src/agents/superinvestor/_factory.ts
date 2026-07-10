@@ -85,6 +85,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
+    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
     onLog(
       formatAgentEvent("start", "L3", spec.agentId, [
         `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
@@ -148,6 +149,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 knobSnapshot,
               })
             : null;
+          fallbackRuntimeEvidence = runtimeEvidence;
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
@@ -171,6 +173,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               knobSnapshot,
               toolStatuses: loopResult.toolStatuses,
             });
+            fallbackRuntimeEvidence = runtimeEvidence;
           }
 
           onLog(
@@ -268,7 +271,18 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
       );
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
-        const output = spec.fallback("", state.layer1_consensus);
+        if (isResearchKnobsStageEnabled(spec.agentId, "agent_run") && !fallbackRuntimeEvidence) {
+          throw err;
+        }
+        const fallback = spec.fallback("", state.layer1_consensus);
+        const output = fallbackRuntimeEvidence
+          ? attachDeterministicFallbackClaimGraph(
+              fallback,
+              fallbackRuntimeEvidence,
+              ["agent_timeout"],
+              "AGENT_TIMEOUT",
+            ).output
+          : fallback;
         onLog(
           formatAgentEvent("timeout", "L3", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,

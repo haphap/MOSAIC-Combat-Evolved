@@ -135,6 +135,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
+    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
     onLog(
       formatAgentEvent("start", "L4", spec.agentId, [
         `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
@@ -193,6 +194,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 knobSnapshot,
               })
             : null;
+          fallbackRuntimeEvidence = runtimeEvidence;
           const evidenceAugmentedContext = runtimeEvidence
             ? `${augmentedContext}\n\n${runtimeEvidence.visibleCatalog}`
             : augmentedContext;
@@ -238,6 +240,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 knobSnapshot,
                 toolStatuses,
               });
+              fallbackRuntimeEvidence = runtimeEvidence;
             }
           } else {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
@@ -342,7 +345,21 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
       );
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
-        const output = spec.fallback("");
+        if (
+          isResearchKnobsStageEnabled(spec.agentId, spec.runtimeStage) &&
+          !fallbackRuntimeEvidence
+        ) {
+          throw err;
+        }
+        const fallback = spec.fallback("");
+        const output = fallbackRuntimeEvidence
+          ? attachDeterministicFallbackClaimGraph(
+              fallback,
+              fallbackRuntimeEvidence,
+              ["agent_timeout"],
+              "AGENT_TIMEOUT",
+            ).output
+          : fallback;
         onLog(
           formatAgentEvent("timeout", "L4", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,

@@ -130,6 +130,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
+    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
     onLog(
       formatAgentEvent("start", "L1", spec.agentId, [
         `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
@@ -190,6 +191,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                 knobSnapshot,
               })
             : null;
+          fallbackRuntimeEvidence = runtimeEvidence;
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
@@ -211,6 +213,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
               knobSnapshot,
               toolStatuses: loopResult.toolStatuses,
             });
+            fallbackRuntimeEvidence = runtimeEvidence;
           }
 
           // Phase 2: structured extraction from the analysis text.
@@ -305,7 +308,18 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
       );
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
-        const output = spec.fallback("");
+        if (isResearchKnobsStageEnabled(spec.agentId, "agent_run") && !fallbackRuntimeEvidence) {
+          throw err;
+        }
+        const fallback = spec.fallback("");
+        const output = fallbackRuntimeEvidence
+          ? attachDeterministicFallbackClaimGraph(
+              fallback,
+              fallbackRuntimeEvidence,
+              ["agent_timeout"],
+              "AGENT_TIMEOUT",
+            ).output
+          : fallback;
         onLog(
           formatAgentEvent("timeout", "L1", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
