@@ -26,6 +26,7 @@ import type { AutoresearchMissingRun, BridgeApi, PromptWriteResult } from "../br
 import { redactSensitiveText } from "../security/redaction.js";
 import {
   appendKnobMutationMetadataLog,
+  assignDomainEvaluationAttemptIndex,
   buildKnobMutationMetadata,
   type KnobMutationMetadata,
   mutate,
@@ -502,6 +503,32 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
             decision: "applied",
           })
         : null;
+    if (knobMutationMetadata?.evaluation_policy.preregistration) {
+      const logPath = knobMutationLogPath();
+      if (!logPath) {
+        results.push({
+          agent: triggerResult.agent,
+          version_id: versionId,
+          status: "error",
+          error: "private knob mutation metadata log is not configured",
+        });
+        continue;
+      }
+      try {
+        knobMutationMetadata = await assignDomainEvaluationAttemptIndex({
+          logPath,
+          metadata: knobMutationMetadata,
+        });
+      } catch (error) {
+        results.push({
+          agent: triggerResult.agent,
+          version_id: versionId,
+          status: "error",
+          error: redactSensitiveText((error as Error).message),
+        });
+        continue;
+      }
+    }
 
     // 4-5. Commit and durably record the candidate. Knob mutations use the
     // transaction journal; legacy prose rewrites retain the existing path.

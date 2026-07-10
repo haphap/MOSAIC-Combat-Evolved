@@ -104,9 +104,8 @@ def _metadata(contract, binding, metric, calculator):
             "max_degradation": 0.02,
         },
         "multiple_testing": {
-            "method": "benjamini_hochberg",
+            "method": "bonferroni",
             "family_size": 20,
-            "candidate_rank": 1,
             "attempt_index": 1,
             "alpha": 0.05,
             "adjusted_alpha": 0.0025,

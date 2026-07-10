@@ -215,9 +215,8 @@ export interface DomainEvaluationPreregistration {
     max_degradation: number;
   };
   multiple_testing: {
-    method: "benjamini_hochberg";
+    method: "bonferroni";
     family_size: number;
-    candidate_rank: number;
     attempt_index: number;
     alpha: number;
     adjusted_alpha: number;
@@ -694,12 +693,11 @@ function buildDomainEvaluationPreregistration(opts: {
       max_degradation: guardrailMaxDegradation(opts.metricId),
     },
     multiple_testing: {
-      method: "benjamini_hochberg",
+      method: "bonferroni",
       family_size: opts.familySize,
-      candidate_rank: opts.attemptIndex,
       attempt_index: opts.attemptIndex,
       alpha,
-      adjusted_alpha: (alpha * opts.attemptIndex) / opts.familySize,
+      adjusted_alpha: alpha / opts.familySize,
     },
   };
 }
@@ -742,19 +740,20 @@ export function buildKnobMutationMetadata(opts: {
   const baseKnobsSha256 = hashKnobs(opts.baseKnobs);
   const createdAt = opts.createdAt ?? new Date().toISOString();
   const experimentId = opts.experimentId ?? `EXP-${opts.mutationId}`;
-  const preregistration = firstDomainCard
-    ? buildDomainEvaluationPreregistration({
-        experimentId,
-        agent: opts.agent,
-        cohort: opts.cohort,
-        changedPaths,
-        metricId: opts.mutation.evaluation_metric,
-        card: firstDomainCard,
-        registeredAt: createdAt,
-        attemptIndex: opts.attemptIndex ?? 1,
-        familySize: opts.experimentFamilySize ?? 20,
-      })
-    : null;
+  const preregistration =
+    firstDomainCard && opts.decision === "applied"
+      ? buildDomainEvaluationPreregistration({
+          experimentId,
+          agent: opts.agent,
+          cohort: opts.cohort,
+          changedPaths,
+          metricId: opts.mutation.evaluation_metric,
+          card: firstDomainCard,
+          registeredAt: createdAt,
+          attemptIndex: opts.attemptIndex ?? 1,
+          familySize: opts.experimentFamilySize ?? 20,
+        })
+      : null;
   return {
     schema_version: "knob_mutation_metadata_v1",
     mutation_id: opts.mutationId,
@@ -807,6 +806,111 @@ export function buildKnobMutationMetadata(opts: {
   };
 }
 
+function preregistrationOf(metadata: KnobMutationMetadata): DomainEvaluationPreregistration | null {
+  return metadata.evaluation_policy.preregistration ?? null;
+}
+
+function familyAttemptRows(
+  rows: ReadonlyArray<KnobMutationMetadata>,
+  familyId: string,
+): Array<{ mutationId: string; attemptIndex: number; familySize: number }> {
+  return rows.flatMap((row) => {
+    const preregistration = preregistrationOf(row);
+    if (!preregistration || preregistration.experiment_family_id !== familyId) return [];
+    return [
+      {
+        mutationId: row.mutation_id,
+        attemptIndex: preregistration.multiple_testing.attempt_index,
+        familySize: preregistration.multiple_testing.family_size,
+      },
+    ];
+  });
+}
+
+function parseMetadataRows(value: string): KnobMutationMetadata[] {
+  return value
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as KnobMutationMetadata);
+}
+
+async function readMetadataRows(logPath: string): Promise<KnobMutationMetadata[]> {
+  try {
+    return parseMetadataRows(await readFile(logPath, "utf-8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function assignDomainEvaluationAttemptIndex(opts: {
+  logPath: string;
+  metadata: KnobMutationMetadata;
+}): Promise<KnobMutationMetadata> {
+  const preregistration = preregistrationOf(opts.metadata);
+  if (!preregistration) return opts.metadata;
+  const rows = await readMetadataRows(opts.logPath);
+  const familyRows = familyAttemptRows(rows, preregistration.experiment_family_id);
+  const familySizes = new Set(familyRows.map((row) => row.familySize));
+  if (
+    familySizes.size > 1 ||
+    (familySizes.size === 1 && !familySizes.has(preregistration.multiple_testing.family_size))
+  ) {
+    throw new Error("domain evaluation family_size drift");
+  }
+  const usedAttempts = new Set(familyRows.map((row) => row.attemptIndex));
+  if (usedAttempts.size !== familyRows.length) {
+    throw new Error("domain evaluation attempt history is not unique");
+  }
+  if (
+    [...usedAttempts]
+      .sort((left, right) => left - right)
+      .some((value, index) => value !== index + 1)
+  ) {
+    throw new Error("domain evaluation attempt history is not contiguous");
+  }
+  const attemptIndex = familyRows.length + 1;
+  const familySize = preregistration.multiple_testing.family_size;
+  if (attemptIndex > familySize) {
+    throw new Error("domain evaluation experiment family attempt budget exhausted");
+  }
+  const nextPreregistration: DomainEvaluationPreregistration = {
+    ...preregistration,
+    multiple_testing: {
+      ...preregistration.multiple_testing,
+      attempt_index: attemptIndex,
+      adjusted_alpha: preregistration.multiple_testing.alpha / familySize,
+    },
+  };
+  return {
+    ...opts.metadata,
+    evaluation_policy: {
+      ...opts.metadata.evaluation_policy,
+      preregistration: nextPreregistration,
+      preregistration_hash: hashCanonicalJson(nextPreregistration),
+    },
+  };
+}
+
+function assertFamilyAttemptCanAppend(
+  rows: ReadonlyArray<KnobMutationMetadata>,
+  metadata: KnobMutationMetadata,
+): void {
+  const preregistration = preregistrationOf(metadata);
+  if (!preregistration) return;
+  const familyRows = familyAttemptRows(rows, preregistration.experiment_family_id);
+  const expectedAttempt = familyRows.length + 1;
+  if (preregistration.multiple_testing.attempt_index !== expectedAttempt) {
+    throw new Error(
+      `domain evaluation attempt conflict: expected ${expectedAttempt}, got ` +
+        preregistration.multiple_testing.attempt_index,
+    );
+  }
+  if (familyRows.some((row) => row.familySize !== preregistration.multiple_testing.family_size)) {
+    throw new Error("domain evaluation family_size drift");
+  }
+}
+
 export async function appendKnobMutationMetadataLog(opts: {
   logPath: string;
   metadata: KnobMutationMetadata;
@@ -831,14 +935,16 @@ export async function appendKnobMutationMetadataLog(opts: {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    for (const line of existing.split("\n").filter(Boolean)) {
-      const row = JSON.parse(line) as { mutation_id?: unknown };
+    const existingLines = existing.split("\n").filter(Boolean);
+    const existingRows = parseMetadataRows(existing);
+    for (const [index, row] of existingRows.entries()) {
       if (row.mutation_id !== opts.metadata.mutation_id) continue;
-      if (line !== JSON.stringify(opts.metadata)) {
+      if (existingLines[index] !== JSON.stringify(opts.metadata)) {
         throw new Error(`mutation metadata conflict: ${opts.metadata.mutation_id}`);
       }
       return;
     }
+    assertFamilyAttemptCanAppend(existingRows, opts.metadata);
     const file = await open(opts.logPath, "a", 0o600);
     try {
       await file.writeFile(`${JSON.stringify(opts.metadata)}\n`, "utf-8");

@@ -27,6 +27,7 @@ import {
   applyKnobPatchesToPromptPair,
   assertPromptInvariants,
   assertPromptPairInvariants,
+  assignDomainEvaluationAttemptIndex,
   buildKnobMutationMetadata,
   buildKnobTargetRegistry,
   type KnobMutation,
@@ -1260,7 +1261,7 @@ describe("knob mutation validation", () => {
     }
   });
 
-  it("preregisters purged evaluation and single-use holdout before domain evaluation", () => {
+  it("preregisters purged splits and counts attempts within an experiment family", async () => {
     const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
     expect(spec).toBeDefined();
     if (!spec) return;
@@ -1299,9 +1300,8 @@ describe("knob mutation validation", () => {
       baseKnobs,
       newKnobs,
       mutation,
-      decision: "dry_run",
+      decision: "applied",
       createdAt: "2026-07-10T00:00:00.000Z",
-      attemptIndex: 2,
       experimentFamilySize: 20,
     });
 
@@ -1313,10 +1313,10 @@ describe("knob mutation validation", () => {
       primary_metric: "confidence_calibration_error",
       common_support_required: true,
       multiple_testing: {
-        method: "benjamini_hochberg",
-        attempt_index: 2,
+        method: "bonferroni",
+        attempt_index: 1,
         family_size: 20,
-        adjusted_alpha: 0.005,
+        adjusted_alpha: 0.0025,
       },
     });
     expect(preregistration?.split_policy.holdout.reuse_budget).toBe(1);
@@ -1324,6 +1324,36 @@ describe("knob mutation validation", () => {
       expect.arrayContaining(["fallback_rate", "missing_rate"]),
     );
     expect(metadata.evaluation_policy.preregistration_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+
+    const dir = mkdtempSync(join(tmpdir(), "mosaic-domain-attempts-"));
+    try {
+      const logPath = join(dir, "knob_mutations.jsonl");
+      const first = await assignDomainEvaluationAttemptIndex({ logPath, metadata });
+      await appendKnobMutationMetadataLog({ logPath, metadata: first });
+      const secondCandidate = buildKnobMutationMetadata({
+        mutationId: "KM-domain-preregistered-2",
+        experimentId: "EXP-domain-preregistered-2",
+        agent: "central_bank",
+        cohort: "cohort_default",
+        baseKnobs,
+        newKnobs,
+        mutation,
+        decision: "applied",
+        createdAt: "2026-07-11T00:00:00.000Z",
+        experimentFamilySize: 20,
+      });
+      const second = await assignDomainEvaluationAttemptIndex({
+        logPath,
+        metadata: secondCandidate,
+      });
+      expect(second.evaluation_policy.preregistration?.multiple_testing.attempt_index).toBe(2);
+      expect(second.evaluation_policy.preregistration?.multiple_testing.adjusted_alpha).toBe(
+        0.0025,
+      );
+      await appendKnobMutationMetadataLog({ logPath, metadata: second });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

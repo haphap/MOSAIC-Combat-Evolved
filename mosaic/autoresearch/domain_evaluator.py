@@ -377,23 +377,20 @@ def _validate_preregistration(
     multiple_testing = _mapping(
         preregistration.get("multiple_testing"), "multiple_testing"
     )
-    if multiple_testing.get("method") != "benjamini_hochberg":
+    if multiple_testing.get("method") != "bonferroni":
         raise DomainEvaluationError("multiple-testing method is unsupported")
     family_size = multiple_testing.get("family_size")
-    candidate_rank = multiple_testing.get("candidate_rank")
     attempt_index = multiple_testing.get("attempt_index")
     if any(
         isinstance(value, bool) or not isinstance(value, int) or value < 1
-        for value in (family_size, candidate_rank, attempt_index)
-    ) or candidate_rank > family_size or attempt_index > family_size:
+        for value in (family_size, attempt_index)
+    ) or attempt_index > family_size:
         raise DomainEvaluationError("multiple-testing family/rank/attempt is invalid")
-    if candidate_rank != attempt_index:
-        raise DomainEvaluationError("multiple-testing candidate rank must match attempt index")
     alpha = _finite_number(multiple_testing.get("alpha"), "multiple_testing.alpha")
     adjusted_alpha = _finite_number(
         multiple_testing.get("adjusted_alpha"), "multiple_testing.adjusted_alpha"
     )
-    expected_adjusted_alpha = alpha * candidate_rank / family_size
+    expected_adjusted_alpha = alpha / family_size
     if not 0 < alpha < 1 or not math.isclose(
         adjusted_alpha, expected_adjusted_alpha, rel_tol=0, abs_tol=1e-12
     ):

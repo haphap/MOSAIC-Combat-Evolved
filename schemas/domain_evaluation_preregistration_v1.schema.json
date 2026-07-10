@@ -146,20 +146,15 @@
       "required": [
         "method",
         "family_size",
-        "candidate_rank",
         "attempt_index",
         "alpha",
         "adjusted_alpha"
       ],
       "properties": {
         "method": {
-          "const": "benjamini_hochberg"
+          "const": "bonferroni"
         },
         "family_size": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "candidate_rank": {
           "type": "integer",
           "minimum": 1
         },
