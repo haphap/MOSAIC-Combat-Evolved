@@ -42,7 +42,7 @@ If `pytest tests/ -q` looks stuck locally, profile the slow tests before
 changing code:
 
 ```bash
-MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+rtk env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
   uv run python -m pytest tests/ -q --durations=80 --durations-min=0.1 \
   --basetemp .mosaic/tmp/pytest-rke-full-profile
 ```
@@ -50,8 +50,8 @@ MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
 Also check local private registry size:
 
 ```bash
-du -sh registry
-du -ah registry/report_intelligence | sort -hr | head
+rtk du -sh registry
+rtk du -ah registry/report_intelligence
 ```
 
 On a checkout with ignored private `registry/report_intelligence/` artifacts,
@@ -72,6 +72,17 @@ per deep handoff case. If a full local run is still slow, prefer the targeted
 commands above or the CI-style per-file RKE split instead of a monolithic
 `pytest tests/ -q`.
 
+The 2026-07-10 schema profile found a separate hotspot:
+`test_schema_status_cli_reports_malformed_artifact` took about 120s because a
+single malformed-input assertion copied the full local registry and ran the
+full schema pipeline three times. Replacing that redundant integration setup
+with a minimal mocked report, copying only the report-intelligence fixtures a
+test actually validates, and excluding private report artifacts from manual
+review fixtures reduced `tests/test_rke_schema_artifacts.py` from about 292s to
+about 128s. Its slowest test is now under 5s, and the file is below the 180s
+budget in the evolution plan. A regression toward full-tree copies in a focused
+malformed-artifact or CLI-format test should fail review.
+
 ## Prompt IR And Domain Knob Catalog
 
 Position-aware prompt evolution uses Prompt IR, the runtime source registry, and
@@ -81,6 +92,8 @@ parameters. Do not hand-maintain a second knob list in docs or prompts.
 ```bash
 rtk pnpm --dir mosaic-ts dev prompts export-domain-knob-catalog \
   --out ../registry/prompt_checks/domain_knob_catalog_v1.json
+rtk pnpm --dir mosaic-ts dev prompts export-domain-knob-evaluation-contract \
+  --out ../registry/prompt_checks/domain_knob_evaluation_contract_v1.json
 rtk pnpm --dir mosaic-ts dev prompts check-research-knobs \
   --cohort cohort_default \
   --enabled-agents '*'
@@ -100,12 +113,16 @@ Acceptance checks:
 - bucket assignment is explicit catalog behavior, not a suffix convention:
   quarter-count history windows such as `financial_statement_quarters`,
   `inventory_cycle_quarters`, and `capex_cycle_quarters` are `lookbacks`;
+- every card declares `activation_state`: only `active` cards enter
+  `mutation_targets` and active coverage counts; `read_only` cards keep their
+  versioned defaults visible to runtime but cannot be mutated; `backlog` cards
+  remain metadata-only and do not enter effective projection buckets;
 - decision-layer domain cards are locked to the PR3 owner lists: CIO has the
   four position-review cards plus four MiroFish portfolio-stress cards, CRO has
   the four risk cards plus four MiroFish tail-risk cards, and autonomous
   execution has the four execution cards plus four MiroFish path-sizing cards;
-  broader portfolio-construction defaults remain read-only/backlog until they
-  get their own card, metric, and tests;
+  the broader CIO/CRO/execution defaults remain explicit `read_only` cards and
+  are rejected if they appear in `mutation_targets`;
 - source binding is coverage-level specific: `direct_tool` and `derived_proxy`
   cards must carry matching `evidence_dependencies`, while `runtime_state`
   cards must declare runtime input sources;
@@ -118,6 +135,10 @@ Acceptance checks:
   lookahead risk, and incomplete fills;
   signed-return metrics must be higher-is-better, while loss/cost conventions
   must be lower-is-better;
+- the generated language-neutral evaluation contract carries each binding's
+  `activation_state`; downstream evaluators must reject proposals for a
+  non-active binding instead of treating catalog presence as mutation
+  eligibility;
 - domain knob mutations may use only the card's metric closure: its primary
   evaluation metric, rollback metric, or a registered `secondary_metrics`
   entry; unrelated evaluation or rollback metrics must be rejected;
@@ -146,6 +167,23 @@ Acceptance checks:
 - private zh/en prompts have exactly one canonical `research-knobs` fence for
   enabled agents;
 - historical runtime-source aliases are rejected in production catalog files.
+
+To synchronize the private prompt repository after a catalog change, run from
+`mosaic-ts/`:
+
+```bash
+rtk pnpm dev prompts sync-research-knobs \
+  --private-prompts-root /home/hap/Project/MOSAIC-Prompts/prompts/mosaic \
+  --cohort cohort_default --write
+rtk pnpm dev prompts check-research-knobs \
+  --private-prompts-root /home/hap/Project/MOSAIC-Prompts \
+  --cohort cohort_default --enabled-stages '*'
+```
+
+The sync is idempotent. A second run must report zero updated files, and the
+checker must report 26 ready stages with no legacy stage before the prompt
+commit is published. Never stage local `mutation_patches/knob_mutations.jsonl`
+as part of this synchronization.
 
 ## Daily-Cycle Smoke
 

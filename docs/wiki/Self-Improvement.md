@@ -4,13 +4,13 @@ MOSAIC's self-improvement stack has four parts: **Autoresearch** (prompt evoluti
 
 ## Autoresearch — prompt self-evolution
 
-`mosaic/autoresearch/` — selects an agent, has an LLM rewrite its prompt, commits the mutation on a git feature branch, runs a two-stage backtest to compute **ΔSharpe**, then keeps (merge to main) or reverts (delete branch) by threshold.
+`mosaic/autoresearch/` currently supports the legacy prompt-rewrite loop: select an agent, commit an isolated mutation, run a two-stage backtest, and make a **Delta Sharpe** keep/revert decision. That global metric remains valid only for the legacy path. Domain-knob promotion is blocked until the Python evaluator consumes the generated card-bound evaluation contract; catalog presence alone is not evidence that a knob improved.
 
 - **`git_ops.py`** (`GitOps`) — thin, fail-loud wrapper over `git`. Mutations are committed inside a throwaway `git worktree` so the operator's working tree is never touched. Keep = `merge_to_main`, revert = `delete_branch`.
 - **`constraints.py`** — `check_cooldown` (24h per agent), `check_monthly_cap` (≤100/cohort/month), `check_keep_lockout` (3 days after a keep).
 - **`evaluator.py`** — computes ΔSharpe over the evaluation horizon (default 5 trading days).
 - **`decider.py`** — keep iff `delta_sharpe ≥ keep_threshold_delta_sharpe` (default 0.1).
-- **`knob_patch` mode** — mutates Prompt IR/domain-knob paths, including position-aware and MiroFish cards, without rewriting prompt prose.
+- **`knob_patch` mode** — mutates governed Prompt IR/domain-knob paths without rewriting prompt prose. Only cards with `activation_state: active` are eligible; `read_only` and `backlog` paths must be rejected.
 
 Branch naming: `cohort/{name}/auto/{agent}/{YYYY-MM-DD}`.
 
@@ -19,6 +19,22 @@ Branch naming: `cohort/{name}/auto/{agent}/{YYYY-MM-DD}`.
 `autoresearch.git` config (default **OFF**): when `push: true`, the keep-path runs `git push <remote> main` after a successful merge. A push failure is logged and swallowed (the keep decision still stands locally); a failed merge skips push. Credentials are the operator's responsibility (SSH key / credential helper). Config: `{ "push": false, "remote": "origin" }`.
 
 Defaults (`mosaic/default_config.py` → `autoresearch`): `agent_mutation_cooldown_hours: 24`, `keep_revert_lockout_days: 3`, `keep_threshold_delta_sharpe: 0.1`, `monthly_modification_cap_per_cohort: 100`, `evaluation_horizon_trading_days: 5`.
+
+### Governed research knobs
+
+The domain-knob catalog is the typed source for prompt projections. Every card
+has one activation state:
+
+- `active`: projected, counted by the coverage gate, and exposed as a mutation target.
+- `read_only`: projected with a versioned value for runtime use, but excluded from mutation targets and active coverage.
+- `backlog`: retained as authoring metadata and excluded from effective prompt buckets.
+
+The generated catalog and evaluation contract live under
+`registry/prompt_checks/`. Each evaluation binding includes the activation
+state, metric, horizon, and rollback policy; the same contract carries the
+metric-to-calculator registry. The bilingual private prompt
+checker validates 25 agents across 26 runtime stages; it does not activate a
+card or a release pointer.
 
 ## PRISM — multi-regime training
 

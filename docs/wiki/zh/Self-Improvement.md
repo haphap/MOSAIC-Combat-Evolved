@@ -4,13 +4,13 @@ MOSAIC 的自我改进栈有四部分:**Autoresearch**(提示词进化)、**PRIS
 
 ## Autoresearch —— 提示词自进化
 
-`mosaic/autoresearch/` —— 选一个 agent,让 LLM 改写其提示词,在 git feature 分支上提交该变更,跑两段式回测算 **ΔSharpe**,再按阈值 keep(合并到 main)或 revert(删分支)。
+`mosaic/autoresearch/` 当前支持旧版提示词改写闭环:选择 agent,在隔离分支提交 mutation,运行两段式回测,再按 **Delta Sharpe** 做 keep/revert。这个全局指标只适用于旧路径。Domain-knob promotion 必须等 Python evaluator 消费生成的 card-bound evaluation contract;仅有 catalog/card 不代表参数效果已经改善。
 
 - **`git_ops.py`**(`GitOps`)—— `git` 的薄、fail-loud 封装。变更在一个一次性 `git worktree` 内提交,使操作者的工作树不被触碰。keep = `merge_to_main`,revert = `delete_branch`。
 - **`constraints.py`** —— `check_cooldown`(每 agent 24h)、`check_monthly_cap`(≤100/cohort/月)、`check_keep_lockout`(keep 后 3 天)。
 - **`evaluator.py`** —— 在评估窗口(默认 5 交易日)上算 ΔSharpe。
 - **`decider.py`** —— `delta_sharpe ≥ keep_threshold_delta_sharpe`(默认 0.1)则 keep。
-- **`knob_patch` 模式** —— 修改 Prompt IR / domain-knob 路径,包括持仓感知和 MiroFish 卡片,不改写提示词正文。
+- **`knob_patch` 模式** —— 修改受治理的 Prompt IR/domain-knob 路径,不改写提示词正文。只有 `activation_state: active` 的 card 可以 mutation;`read_only` 和 `backlog` path 必须拒绝。
 
 分支命名:`cohort/{name}/auto/{agent}/{YYYY-MM-DD}`。
 
@@ -19,6 +19,16 @@ MOSAIC 的自我改进栈有四部分:**Autoresearch**(提示词进化)、**PRIS
 `autoresearch.git` 配置(默认**关闭**):当 `push: true`,keep 路径在成功合并后运行 `git push <remote> main`。push 失败只记录并吞掉(keep 决策本地仍成立);合并失败则跳过 push。凭证由操作者负责(SSH key / credential helper)。配置:`{ "push": false, "remote": "origin" }`。
 
 默认值(`mosaic/default_config.py` → `autoresearch`):`agent_mutation_cooldown_hours: 24`、`keep_revert_lockout_days: 3`、`keep_threshold_delta_sharpe: 0.1`、`monthly_modification_cap_per_cohort: 100`、`evaluation_horizon_trading_days: 5`。
+
+### 受治理的 research knobs
+
+Domain-knob catalog 是 prompt projection 的 typed source。每张 card 只有一种 activation state:
+
+- `active`:进入 projection、active coverage count 和 `mutation_targets`。
+- `read_only`:以 versioned value 投影供 runtime 使用,但不进入 mutation target 或 active coverage。
+- `backlog`:只保留 authoring metadata,不进入 effective prompt bucket。
+
+生成的 catalog 和 evaluation contract 位于 `registry/prompt_checks/`。每条 evaluation binding 包含 activation state、metric、horizon 和 rollback policy;同一 contract 还携带 metric-to-calculator registry。私有双语 prompt checker 覆盖 25 个 agent、26 个 runtime stage;checker 通过不等于 card 或 release pointer 已激活。
 
 ## PRISM —— 多周期训练
 
