@@ -45,6 +45,7 @@ REQUIRED_SCHEMA_FILES = {
     "domain_knob_catalog_v1.schema.json",
     "runtime_agent_manifest_v1.schema.json",
     "domain_knob_evaluation_contract_v1.schema.json",
+    "evidence_claim_graph_v1.schema.json",
     "domain_knob_values_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
@@ -6846,6 +6847,78 @@ def test_runtime_agent_manifest_schema_requires_fallback_factory(tmp_path: Path)
 
     assert not record.accepted
     assert any("fallback_factory_id: required" in failure for failure in record.failures)
+
+
+def test_evidence_claim_graph_schema_accepts_contract_shape(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/evidence_claim_graph_v1.schema.json",
+        schema_dir / "evidence_claim_graph_v1.schema.json",
+    )
+    snapshot_hash = f"sha256:{'1' * 64}"
+    source_hash = f"sha256:{'2' * 64}"
+    (artifact_dir / "evidence_claim_graph_v1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "evidence_claim_graph_v1",
+                "run_id": "run-1",
+                "snapshot_hash": snapshot_hash,
+                "evidence_ledger": [
+                    {
+                        "evidence_id": "ev-1",
+                        "run_id": "run-1",
+                        "snapshot_hash": snapshot_hash,
+                        "source_kind": "tool",
+                        "tool_or_source": "get_stock_data",
+                        "metric": "close_return_20d",
+                        "value": 0.08,
+                        "unit": "ratio",
+                        "as_of": "2026-07-10",
+                        "lookback": "20d",
+                        "freshness": "current",
+                        "fallback": False,
+                        "source_fingerprint": source_hash,
+                        "direction": "positive",
+                        "privacy_class": "public_structured",
+                    }
+                ],
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "claim_type": "inference",
+                        "statement": "Current price evidence supports a positive signal.",
+                        "structured_conclusion": {"signal": "positive"},
+                        "evidence_refs": ["ev-1"],
+                        "research_rule_refs": ["sector.semiconductor.soft.001"],
+                        "snapshot_hash": snapshot_hash,
+                    }
+                ],
+                "recommendation_claim_refs": [
+                    {
+                        "output_id": "action-1",
+                        "output_type": "portfolio_action",
+                        "claim_refs": ["claim-1"],
+                    }
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/evidence_claim_graph_v1.schema.json",
+        artifact_path="registry/prompt_checks/evidence_claim_graph_v1.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+    assert record.item_count == 1
 
 
 def _domain_knob_catalog_fixture() -> dict:
