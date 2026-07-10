@@ -11,7 +11,14 @@
 
 import { z } from "zod";
 import { LlmResearchClaimSchema } from "../evidence_contract.js";
-import type { AlphaDiscoveryOutput, AutoExecOutput, CioOutput, CroOutput } from "../types.js";
+import type {
+  AlphaDiscoveryOutput,
+  AutoExecOutput,
+  CioFinalOutput,
+  CioOutput,
+  CioProposalOutput,
+  CroOutput,
+} from "../types.js";
 
 const KEY_DRIVERS_OPTIONAL_NOTE = "key_drivers may be omitted on Layer 4 (synthesis-only).";
 
@@ -200,58 +207,99 @@ export const AUTONOMOUS_EXECUTION_FIELD_NAMES = ["trades", "confidence", "claims
 // 4. cio (most strict)
 // ---------------------------------------------------------------------------
 
-export const CioSchema = z
-  .object({
-    agent: z.literal("cio"),
-    portfolio_actions: z
-      .array(
-        z.object({
-          ticker: z.string().min(1),
-          action: z.enum(["BUY", "SELL", "HOLD", "REDUCE"]),
-          sector: z.string().min(1).optional(),
-          position_decision: z.enum(["HOLD", "ADD", "REDUCE", "EXIT"]).optional(),
-          current_weight: z.number().min(0).max(1).optional(),
-          target_weight: z
-            .number()
-            .min(0)
-            .max(1)
-            .describe("[0, 1] target portfolio weight after this action."),
-          delta_weight: z.number().min(-1).max(1).optional(),
-          holding_period: HOLDING_PERIOD,
-          position_decision_reason: z.string().optional(),
-          override_reason: z.string().optional(),
-          thesis_status: z.enum(["intact", "weakened", "broken", "expired"]).optional(),
-          risk_flags: z.array(z.string().min(1)).optional(),
-          dissent_notes: z
-            .string()
-            .describe(
-              "Empty when CIO matches autonomous_execution; non-empty when CIO overrides " +
-                "(must explain why).",
-            ),
-          claim_refs: CLAIM_REFS,
-        }),
-      )
-      .max(15),
-    confidence: z.number().min(0).max(1),
-    ...KNOB_INFLUENCE_FIELDS,
-  })
-  .describe(
-    "Layer-4 CIO final decision. portfolio_actions weights should sum to 1.0 ± 0.05 unless " +
-      "the CIO is intentionally holding cash (acceptable when regime BEARISH + low confidence).",
-  )
-  .superRefine((val, ctx) => {
-    const total = val.portfolio_actions.reduce((sum, a) => sum + a.target_weight, 0);
-    // Allow cash holdings: total < 1 is OK (CIO chose to hold cash).
-    // But total > 1.05 is over-allocation → invalid.
-    if (total > 1.05) {
-      ctx.addIssue({
-        code: "custom",
-        message: `portfolio_actions target_weight sum ${total.toFixed(3)} exceeds 1.05; reduce allocations.`,
-      });
-    }
-  });
+const POSITION_REVIEW_SCHEMA = z.object({
+  ticker: z.string().min(1),
+  decision: z.enum(["HOLD", "ADD", "REDUCE", "EXIT"]),
+  target_weight: z.number().min(0).max(1),
+  reason: z.string().min(1),
+  thesis_status: z.enum(["intact", "weakened", "broken", "expired"]),
+  risk_flags: z.array(z.string().min(1)),
+  confidence: z.number().min(0).max(1),
+  review_source: z.enum(["llm", "runtime_safety_fallback"]).optional(),
+  claim_refs: CLAIM_REFS,
+});
 
-export const CIO_FIELD_NAMES = ["portfolio_actions", "confidence", "claims"] as const;
+const DISSENT_REF_SCHEMA = z.object({
+  ticker: z.string().min(1),
+  source: z.enum(["cro_review", "execution_feasibility"]),
+  source_hash: z.string().min(1),
+  reason: z.string().min(1),
+});
+
+const CIO_BASE_SCHEMA = z.object({
+  agent: z.literal("cio"),
+  portfolio_actions: z
+    .array(
+      z.object({
+        ticker: z.string().min(1),
+        action: z.enum(["BUY", "SELL", "HOLD", "REDUCE"]),
+        sector: z.string().min(1).optional(),
+        position_decision: z.enum(["HOLD", "ADD", "REDUCE", "EXIT"]).optional(),
+        current_weight: z.number().min(0).max(1).optional(),
+        target_weight: z
+          .number()
+          .min(0)
+          .max(1)
+          .describe("[0, 1] target portfolio weight after this action."),
+        delta_weight: z.number().min(-1).max(1).optional(),
+        holding_period: HOLDING_PERIOD,
+        position_decision_reason: z.string().optional(),
+        override_reason: z.string().optional(),
+        thesis_status: z.enum(["intact", "weakened", "broken", "expired"]).optional(),
+        risk_flags: z.array(z.string().min(1)).optional(),
+        dissent_notes: z
+          .string()
+          .describe(
+            "Empty when CIO matches autonomous_execution; non-empty when CIO overrides " +
+              "(must explain why).",
+          ),
+        claim_refs: CLAIM_REFS,
+      }),
+    )
+    .max(15),
+  confidence: z.number().min(0).max(1),
+  ...KNOB_INFLUENCE_FIELDS,
+});
+
+function validateCioWeights(
+  val: { portfolio_actions: Array<{ target_weight: number }> },
+  ctx: z.RefinementCtx,
+): void {
+  const total = val.portfolio_actions.reduce((sum, action) => sum + action.target_weight, 0);
+  if (total > 1.05) {
+    ctx.addIssue({
+      code: "custom",
+      message: `portfolio_actions target_weight sum ${total.toFixed(3)} exceeds 1.05; reduce allocations.`,
+    });
+  }
+}
+
+export const CioSchema = CIO_BASE_SCHEMA.superRefine(validateCioWeights).describe(
+  "Layer-4 CIO final decision. portfolio_actions weights should sum to 1.0 ± 0.05 unless " +
+    "the CIO is intentionally holding cash (acceptable when regime BEARISH + low confidence).",
+);
+
+export const CioProposalSchema = CIO_BASE_SCHEMA.extend({
+  position_reviews: z.array(POSITION_REVIEW_SCHEMA),
+  dissent_refs: z.array(DISSENT_REF_SCHEMA).optional(),
+})
+  .superRefine(validateCioWeights)
+  .describe("CIO proposal with an explicit review for every current position.");
+
+export const CioFinalSchema = CIO_BASE_SCHEMA.extend({
+  dissent_refs: z.array(DISSENT_REF_SCHEMA).default([]),
+  position_reviews: z.array(POSITION_REVIEW_SCHEMA).optional(),
+})
+  .superRefine(validateCioWeights)
+  .describe("CIO final target with structured CRO/execution dissent references.");
+
+export const CIO_FIELD_NAMES = [
+  "portfolio_actions",
+  "position_reviews",
+  "dissent_refs",
+  "confidence",
+  "claims",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Type-check guards
@@ -263,9 +311,13 @@ const _croCheck: _GuardEqShape<z.infer<typeof CroSchema>, CroOutput> = true;
 const _alphaCheck: _GuardEqShape<z.infer<typeof AlphaDiscoverySchema>, AlphaDiscoveryOutput> = true;
 const _autoCheck: _GuardEqShape<z.infer<typeof AutonomousExecutionSchema>, AutoExecOutput> = true;
 const _cioCheck: _GuardEqShape<z.infer<typeof CioSchema>, CioOutput> = true;
+const _cioProposalCheck: _GuardEqShape<z.infer<typeof CioProposalSchema>, CioProposalOutput> = true;
+const _cioFinalCheck: _GuardEqShape<z.infer<typeof CioFinalSchema>, CioFinalOutput> = true;
 
 void _croCheck;
 void _alphaCheck;
 void _autoCheck;
 void _cioCheck;
+void _cioProposalCheck;
+void _cioFinalCheck;
 void KEY_DRIVERS_OPTIONAL_NOTE;

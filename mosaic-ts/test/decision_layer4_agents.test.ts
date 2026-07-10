@@ -126,7 +126,13 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(cioProposalSpec.runtimeStage).toBe("cio_proposal");
     expect(cioSpec.runtimeStage).toBe("cio_final");
     expect(cioSpec.stateUpdateField).toBe("cio");
-    expect(cioSpec.fieldNames).toEqual(["portfolio_actions", "confidence", "claims"]);
+    expect(cioSpec.fieldNames).toEqual([
+      "portfolio_actions",
+      "position_reviews",
+      "dissent_refs",
+      "confidence",
+      "claims",
+    ]);
     expect(cioSpec.requiredTools).toContain("get_rke_research_context");
   });
 });
@@ -162,6 +168,20 @@ describe("renderers + fallbacks", () => {
 // ============================================================ schema rejects
 
 describe("schemas reject malformations", () => {
+  it("uses distinct CIO proposal and final contracts", () => {
+    const base = {
+      agent: "cio" as const,
+      portfolio_actions: [],
+      confidence: 0.4,
+    };
+
+    expect(() => cioProposalSpec.schema.parse(base)).toThrow(/position_reviews/);
+    expect(
+      cioProposalSpec.schema.parse({ ...base, position_reviews: [] }).position_reviews,
+    ).toEqual([]);
+    expect(cioSpec.schema.parse(base).dissent_refs).toEqual([]);
+  });
+
   it("cro rejects non-string ticker in rejected_picks", () => {
     expect(() =>
       croSpec.schema.parse({
@@ -573,21 +593,34 @@ describe("Layer-4 runtime source envelopes", () => {
       portfolio_actions: [],
       source_error_code: null,
     };
-    const proposal = cioOutput([
-      {
-        ticker: "600519.SH",
-        action: "HOLD",
-        position_decision: "HOLD",
-        current_weight: 0.2,
-        target_weight: 0.2,
-        delta_weight: 0,
-        holding_period: "3M",
-        position_decision_reason: "thesis remains intact",
-        thesis_status: "intact",
-        risk_flags: [],
-        dissent_notes: "",
-      },
-    ]);
+    const proposal = {
+      ...cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "HOLD",
+          position_decision: "HOLD",
+          current_weight: 0.2,
+          target_weight: 0.2,
+          delta_weight: 0,
+          holding_period: "3M",
+          position_decision_reason: "thesis remains intact",
+          thesis_status: "intact",
+          risk_flags: [],
+          dissent_notes: "",
+        },
+      ]),
+      position_reviews: [
+        {
+          ticker: "600519.SH",
+          decision: "HOLD" as const,
+          target_weight: 0.2,
+          reason: "thesis remains intact",
+          thesis_status: "intact" as const,
+          risk_flags: [],
+          confidence: 0.61,
+        },
+      ],
+    };
 
     const first = freezeCioProposal(state, proposal);
     const second = freezeCioProposal(state, proposal);
@@ -606,6 +639,39 @@ describe("Layer-4 runtime source envelopes", () => {
       review_source: "runtime_safety_fallback",
       risk_flags: ["position_review_missing"],
     });
+  });
+
+  it("does not grant model-review credit to an action without explicit position_reviews", () => {
+    const state = baseState();
+    state.current_positions = loadedPositions([heldPosition]);
+    const frozen = freezeCioProposal(
+      state,
+      cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          position_decision: "ADD",
+          current_weight: 0.2,
+          target_weight: 0.3,
+          delta_weight: 0.1,
+          holding_period: "3M",
+          position_decision_reason: "add without formal review",
+          dissent_notes: "",
+        },
+      ]),
+    );
+
+    expect(frozen.candidate.portfolio_actions).toEqual([
+      expect.objectContaining({
+        ticker: "600519.SH",
+        action: "HOLD",
+        target_weight: 0.2,
+        delta_weight: 0,
+        review_source: "runtime_safety_fallback",
+      }),
+    ]);
+    expect(frozen.reviews.llm_reviewed_tickers).toEqual([]);
+    expect(frozen.reviews.fallback_tickers).toEqual(["600519.SH"]);
   });
 
   it("binds CRO, execution, and final target envelopes to the same candidate hash", () => {
@@ -1811,6 +1877,18 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
                     claim_refs: ["claim-hold"],
                   },
                 ],
+                position_reviews: [
+                  {
+                    ticker: "600519.SH",
+                    decision: "HOLD",
+                    target_weight: 0.1,
+                    reason: "Current position evidence remains valid.",
+                    thesis_status: "intact",
+                    risk_flags: [],
+                    confidence: 0.6,
+                    claim_refs: ["claim-hold"],
+                  },
+                ],
                 confidence: 0.6,
                 claims: [
                   {
@@ -1871,6 +1949,11 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
         {
           output_id: "portfolio_action:0:600519.SH",
           output_type: "portfolio_action",
+          claim_refs: ["claim-hold"],
+        },
+        {
+          output_id: "position_review:0:600519.SH",
+          output_type: "position_decision",
           claim_refs: ["claim-hold"],
         },
       ]);

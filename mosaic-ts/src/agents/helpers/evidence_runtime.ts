@@ -19,6 +19,7 @@ import type {
 export interface RuntimeEvidenceSnapshot {
   runId: string;
   agentInvocationId: string;
+  stage: RuntimeAgentStageId;
   snapshotHash: string;
   evidenceLedger: EvidenceLedgerEntry[];
   evidenceById: ReadonlyMap<string, EvidenceLedgerEntry>;
@@ -114,6 +115,7 @@ export function buildRuntimeEvidenceSnapshot(input: {
   return {
     runId,
     agentInvocationId,
+    stage: input.stage,
     snapshotHash: input.knobSnapshot.hash,
     evidenceLedger,
     evidenceById,
@@ -284,7 +286,7 @@ function claimGraphFromOutput(
       ),
     };
   }
-  const references = outputClaimReferences(record);
+  const references = outputClaimReferences(record, runtime.stage);
   const claims: ResearchClaim[] = parsedClaims.data.map((claim) => ({
     ...claim,
     snapshot_hash: runtime.snapshotHash,
@@ -303,45 +305,66 @@ function claimGraphFromOutput(
   };
 }
 
-function outputClaimReferences(record: Record<string, unknown>): {
+function outputClaimReferences(
+  record: Record<string, unknown>,
+  stage: RuntimeAgentStageId,
+): {
   references: RecommendationClaimReference[];
   requiredOutputIds: ReadonlySet<string>;
 } {
   const agent = typeof record.agent === "string" ? record.agent : "unknown";
-  const config =
+  const configs =
     agent === "alpha_discovery"
-      ? { field: "novel_picks", prefix: "novel_pick", type: "candidate" as const }
+      ? [{ field: "novel_picks", prefix: "novel_pick", type: "candidate" as const }]
       : agent === "cro"
-        ? { field: "rejected_picks", prefix: "rejected_pick", type: "recommendation" as const }
+        ? [
+            {
+              field: "rejected_picks",
+              prefix: "rejected_pick",
+              type: "recommendation" as const,
+            },
+          ]
         : agent === "autonomous_execution"
-          ? { field: "trades", prefix: "trade", type: "portfolio_action" as const }
+          ? [{ field: "trades", prefix: "trade", type: "portfolio_action" as const }]
           : agent === "cio"
-            ? {
-                field: "portfolio_actions",
-                prefix: "portfolio_action",
-                type: "portfolio_action" as const,
-              }
-            : null;
-  if (!config) return { references: [], requiredOutputIds: new Set() };
-  const candidateEntries = record[config.field];
-  const entries: unknown[] = Array.isArray(candidateEntries) ? candidateEntries : [];
+            ? [
+                {
+                  field: "portfolio_actions",
+                  prefix: "portfolio_action",
+                  type: "portfolio_action" as const,
+                },
+                ...(stage === "cio_proposal"
+                  ? [
+                      {
+                        field: "position_reviews",
+                        prefix: "position_review",
+                        type: "position_decision" as const,
+                      },
+                    ]
+                  : []),
+              ]
+            : [];
   const references: RecommendationClaimReference[] = [];
   const requiredOutputIds = new Set<string>();
-  entries.forEach((entry, index) => {
-    const item =
-      entry !== null && typeof entry === "object" && !Array.isArray(entry)
-        ? (entry as Record<string, unknown>)
-        : {};
-    const ticker = typeof item.ticker === "string" ? item.ticker : "unknown";
-    const outputId = `${config.prefix}:${index}:${ticker}`;
-    requiredOutputIds.add(outputId);
-    const claimRefs = Array.isArray(item.claim_refs)
-      ? item.claim_refs.filter((claimId): claimId is string => typeof claimId === "string")
-      : [];
-    if (claimRefs.length > 0) {
-      references.push({ output_id: outputId, output_type: config.type, claim_refs: claimRefs });
-    }
-  });
+  for (const config of configs) {
+    const candidateEntries = record[config.field];
+    const entries: unknown[] = Array.isArray(candidateEntries) ? candidateEntries : [];
+    entries.forEach((entry, index) => {
+      const item =
+        entry !== null && typeof entry === "object" && !Array.isArray(entry)
+          ? (entry as Record<string, unknown>)
+          : {};
+      const ticker = typeof item.ticker === "string" ? item.ticker : "unknown";
+      const outputId = `${config.prefix}:${index}:${ticker}`;
+      requiredOutputIds.add(outputId);
+      const claimRefs = Array.isArray(item.claim_refs)
+        ? item.claim_refs.filter((claimId): claimId is string => typeof claimId === "string")
+        : [];
+      if (claimRefs.length > 0) {
+        references.push({ output_id: outputId, output_type: config.type, claim_refs: claimRefs });
+      }
+    });
+  }
   return { references, requiredOutputIds };
 }
 
@@ -395,7 +418,13 @@ function withFallbackClaimRefs<T>(output: T, claimId: string): T {
       research_rule_refs: [],
     },
   ];
-  for (const field of ["novel_picks", "rejected_picks", "trades", "portfolio_actions"]) {
+  for (const field of [
+    "novel_picks",
+    "rejected_picks",
+    "trades",
+    "portfolio_actions",
+    "position_reviews",
+  ]) {
     if (!Array.isArray(record[field])) continue;
     record[field] = record[field].map((entry) =>
       entry !== null && typeof entry === "object" && !Array.isArray(entry)

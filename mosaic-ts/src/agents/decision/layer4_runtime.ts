@@ -5,6 +5,7 @@ import type {
   AutoExecOutput,
   CandidateTargetState,
   CioOutput,
+  CioProposalOutput,
   CroOutput,
   CroReviewState,
   CurrentPosition,
@@ -80,12 +81,32 @@ export function freezeCioProposal(
   const runId = state.trace_id || state.as_of_date || "current_run";
   const cohort = state.active_cohort || "cohort_default";
   const asOfDate = state.as_of_date || "live";
-  const llmActions = proposal.portfolio_actions.map((action) => ({
-    ...action,
-    review_source: "llm" as const,
-  }));
+  const explicitReviews = isCioProposalOutput(proposal) ? proposal.position_reviews : [];
+  const positionsByTicker = new Map(
+    state.current_positions.positions.map((position) => [position.ticker, position]),
+  );
+  const reviewsByTicker = new Map(explicitReviews.map((review) => [review.ticker, review]));
+  const llmActions = proposal.portfolio_actions.map((action) => {
+    const position = positionsByTicker.get(action.ticker);
+    const review = reviewsByTicker.get(action.ticker);
+    if (position && (!review || !reviewMatchesAction(review, action))) {
+      return runtimeSafetyHold(position);
+    }
+    return { ...action, review_source: "llm" as const };
+  });
   const actions = appendFallbackHolds(llmActions, state.current_positions.positions);
-  const frozenProposal: CioOutput = { ...proposal, portfolio_actions: actions };
+  const positionReviews = buildPositionReviewState(
+    runId,
+    "pending_candidate_hash",
+    actions,
+    state.current_positions.positions,
+    explicitReviews,
+  );
+  const frozenProposal: CioOutput = {
+    ...proposal,
+    portfolio_actions: actions,
+    ...(isCioProposalOutput(proposal) ? { position_reviews: positionReviews.reviews } : {}),
+  };
   const proposalHash = stableHash(proposal);
   const candidatePayload = {
     run_id: runId,
@@ -109,17 +130,17 @@ export function freezeCioProposal(
     candidate_target_hash: stableHash(candidatePayload),
     frozen: true,
   };
-  const positionReviews = buildPositionReviewState(
+  const finalizedPositionReviews = buildPositionReviewState(
     runId,
     candidate.candidate_target_hash,
     actions,
     state.current_positions.positions,
-    proposal.confidence,
+    explicitReviews,
   );
   return {
     proposal: frozenProposal,
     candidate,
-    reviews: positionReviews,
+    reviews: finalizedPositionReviews,
     exposure: buildPortfolioExposureState(candidate, state.current_positions.positions),
   };
 }
@@ -303,25 +324,27 @@ function appendFallbackHolds(
     ...actions,
     ...positions
       .filter((position) => !covered.has(position.ticker))
-      .map(
-        (position): PortfolioAction => ({
-          ticker: position.ticker,
-          action: "HOLD",
-          ...(position.sector ? { sector: position.sector } : {}),
-          position_decision: "HOLD",
-          current_weight: position.current_weight,
-          target_weight: position.current_weight,
-          delta_weight: 0,
-          holding_period: "1M",
-          position_decision_reason:
-            "position omitted by CIO proposal; runtime preserved current target",
-          thesis_status: "intact",
-          risk_flags: ["position_review_missing"],
-          dissent_notes: "",
-          review_source: "runtime_safety_fallback",
-        }),
-      ),
+      .map((position) => runtimeSafetyHold(position)),
   ];
+}
+
+function runtimeSafetyHold(position: CurrentPosition): PortfolioAction {
+  return {
+    ticker: position.ticker,
+    action: "HOLD",
+    ...(position.sector ? { sector: position.sector } : {}),
+    position_decision: "HOLD",
+    current_weight: position.current_weight,
+    target_weight: position.current_weight,
+    delta_weight: 0,
+    holding_period: "1M",
+    position_decision_reason:
+      "position omitted from a valid CIO review; runtime preserved current target",
+    thesis_status: "intact",
+    risk_flags: ["position_review_missing"],
+    dissent_notes: "",
+    review_source: "runtime_safety_fallback",
+  };
 }
 
 function buildPositionReviewState(
@@ -329,23 +352,28 @@ function buildPositionReviewState(
   candidateTargetHash: string,
   actions: ReadonlyArray<PortfolioAction>,
   positions: ReadonlyArray<CurrentPosition>,
-  confidence: number,
+  explicitReviews: ReadonlyArray<PositionReview>,
 ): PositionReviewState {
   const currentTickers = new Set(positions.map((position) => position.ticker));
+  const explicitByTicker = new Map(explicitReviews.map((review) => [review.ticker, review]));
   const reviews = actions
     .filter((action) => currentTickers.has(action.ticker))
-    .map(
-      (action): PositionReview => ({
+    .map((action): PositionReview => {
+      const explicit = explicitByTicker.get(action.ticker);
+      if (action.review_source !== "runtime_safety_fallback" && explicit) {
+        return { ...explicit, review_source: "llm" };
+      }
+      return {
         ticker: action.ticker,
-        decision: action.position_decision ?? inferPositionDecision(action),
+        decision: "HOLD",
         target_weight: action.target_weight,
-        reason: action.position_decision_reason ?? "position target supplied without review reason",
+        reason: action.position_decision_reason ?? "position target lacks a valid explicit review",
         thesis_status: action.thesis_status ?? "weakened",
-        risk_flags: [...(action.risk_flags ?? [])],
-        confidence: action.review_source === "runtime_safety_fallback" ? 0 : confidence,
-        review_source: action.review_source ?? "llm",
-      }),
-    );
+        risk_flags: [...(action.risk_flags ?? ["position_review_missing"])],
+        confidence: 0,
+        review_source: "runtime_safety_fallback",
+      };
+    });
   const llmReviewedTickers = reviews
     .filter((review) => review.review_source === "llm")
     .map((review) => review.ticker)
@@ -367,6 +395,19 @@ function buildPositionReviewState(
     position_review_hash: stableHash(payload),
     frozen: true,
   };
+}
+
+function isCioProposalOutput(proposal: CioOutput): proposal is CioProposalOutput {
+  return Array.isArray((proposal as Partial<CioProposalOutput>).position_reviews);
+}
+
+function reviewMatchesAction(review: PositionReview, action: PortfolioAction): boolean {
+  return (
+    review.ticker === action.ticker &&
+    review.decision === inferPositionDecision(action) &&
+    Math.abs(review.target_weight - action.target_weight) <= 1e-9 &&
+    review.review_source !== "runtime_safety_fallback"
+  );
 }
 
 function buildPortfolioExposureState(

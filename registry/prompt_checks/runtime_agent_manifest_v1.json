@@ -799,6 +799,8 @@
       ],
       "output_schema_fields": [
         "portfolio_actions",
+        "position_reviews",
+        "dissent_refs",
         "confidence",
         "claims"
       ],

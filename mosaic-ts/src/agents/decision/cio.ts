@@ -6,14 +6,14 @@
  */
 
 import type { DailyCycleStateType } from "../state.js";
-import type { CioOutput } from "../types.js";
+import type { CioFinalOutput, CioOutput, CioProposalOutput } from "../types.js";
 import {
   buildLayerFourAgentNode,
   type LayerFourAgentDeps,
   type LayerFourAgentNode,
   type LayerFourAgentSpec,
 } from "./_factory.js";
-import { CIO_FIELD_NAMES, CioSchema } from "./_schemas.js";
+import { CIO_FIELD_NAMES, CioFinalSchema, CioProposalSchema, CioSchema } from "./_schemas.js";
 import {
   renderCurrentPositionsContext,
   renderJanusRegimeStub,
@@ -62,24 +62,30 @@ function buildFinalUserContext(state: DailyCycleStateType): string {
   );
 }
 
-export const cioProposalSpec: LayerFourAgentSpec<CioOutput> = {
+export const cioProposalSpec: LayerFourAgentSpec<CioProposalOutput> = {
   agentId: "cio",
   runtimeStage: "cio_proposal",
   stateWriteMode: "cio_proposal",
-  schema: CioSchema,
+  schema: CioProposalSchema,
   fieldNames: CIO_FIELD_NAMES,
   stateUpdateField: "cio",
   requiredTools: REQUIRED_TOOLS,
   buildUserContext: buildProposalUserContext,
   render: renderCio,
-  fallback: fallbackCio,
+  fallback: fallbackCioProposal,
 };
 
-export const cioSpec: LayerFourAgentSpec<CioOutput> = {
-  ...cioProposalSpec,
+export const cioSpec: LayerFourAgentSpec<CioFinalOutput> = {
+  agentId: "cio",
   runtimeStage: "cio_final",
   stateWriteMode: "cio_final",
+  schema: CioFinalSchema,
+  fieldNames: CIO_FIELD_NAMES,
+  stateUpdateField: "cio",
+  requiredTools: REQUIRED_TOOLS,
   buildUserContext: buildFinalUserContext,
+  render: renderCio,
+  fallback: fallbackCioFinal,
 };
 
 export function buildCioProposalNode(deps: LayerFourAgentDeps): LayerFourAgentNode {
@@ -113,4 +119,12 @@ export function fallbackCio(text: string): CioOutput {
   };
 }
 
-export { CIO_FIELD_NAMES, CioSchema };
+export function fallbackCioProposal(text: string): CioProposalOutput {
+  return { ...fallbackCio(text), position_reviews: [] };
+}
+
+export function fallbackCioFinal(text: string): CioFinalOutput {
+  return { ...fallbackCio(text), dissent_refs: [] };
+}
+
+export { CIO_FIELD_NAMES, CioFinalSchema, CioProposalSchema, CioSchema };

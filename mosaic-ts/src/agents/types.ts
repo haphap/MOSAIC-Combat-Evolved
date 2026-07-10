@@ -354,8 +354,25 @@ export interface PortfolioAction {
 export interface CioOutput extends KnobInfluenceDeclaration {
   agent: "cio";
   portfolio_actions: PortfolioAction[];
+  position_reviews?: PositionReview[] | undefined;
+  dissent_refs?: CioDissentReference[] | undefined;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
+}
+
+export interface CioDissentReference {
+  ticker: string;
+  source: "cro_review" | "execution_feasibility";
+  source_hash: string;
+  reason: string;
+}
+
+export interface CioProposalOutput extends CioOutput {
+  position_reviews: PositionReview[];
+}
+
+export interface CioFinalOutput extends CioOutput {
+  dissent_refs: CioDissentReference[];
 }
 
 export interface CurrentPosition {
@@ -407,6 +424,7 @@ export interface PositionReview {
   risk_flags: string[];
   confidence: number;
   review_source?: "llm" | "runtime_safety_fallback" | undefined;
+  claim_refs?: string[] | undefined;
 }
 
 export interface CandidateTargetState {
