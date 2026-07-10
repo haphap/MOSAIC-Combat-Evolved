@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -719,6 +720,18 @@ describe("checkResearchKnobsPrompts", () => {
 
     expect(validateDomainKnobEvaluationContractArtifact(contract, catalog)).toEqual([]);
     expect(contract.contract_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(contract.schema_hash).toBe(
+      `sha256:${createHash("sha256")
+        .update(
+          readFileSync(
+            new URL(
+              "../../schemas/domain_knob_evaluation_contract_v1.schema.json",
+              import.meta.url,
+            ),
+          ),
+        )
+        .digest("hex")}`,
+    );
     expect(contract.catalog_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(contract.card_bindings).toHaveLength(
       catalog.agents.reduce((count, agent) => count + agent.cards.length, 0),
@@ -743,6 +756,15 @@ describe("checkResearchKnobsPrompts", () => {
       expect.arrayContaining([
         "evaluation_contract_hash_mismatch:contract_hash",
         `evaluation_contract_card_binding_mismatch:${tampered.card_bindings[0]?.path}`,
+      ]),
+    );
+
+    const schemaDrift = structuredClone(contract);
+    schemaDrift.schema_hash = `sha256:${"0".repeat(64)}`;
+    expect(validateDomainKnobEvaluationContractArtifact(schemaDrift, catalog)).toEqual(
+      expect.arrayContaining([
+        "evaluation_contract_hash_mismatch:contract_hash",
+        "evaluation_contract_hash_mismatch:schema_hash",
       ]),
     );
   });

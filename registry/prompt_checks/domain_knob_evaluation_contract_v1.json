@@ -2,6 +2,7 @@
   "schema_version": "domain_knob_evaluation_contract_v1",
   "contract_version": "domain_knob_evaluation_contract_v1",
   "catalog_version": "domain_knob_catalog_v1",
+  "schema_hash": "sha256:03b9b4e5d99717d4aca18eee6295b323b11fbe6541b59d201a7777f4092d8e5c",
   "catalog_hash": "sha256:b1bc337168870b706d6caf1e187d4b9e2f071305fb72988459ba5a471788d109",
   "metric_registry_hash": "sha256:aafb67d08764b43316c4732500d7e9d9eca481f53741591cd720a1ae01c1194a",
   "calculator_registry_hash": "sha256:f76785cc56ed7361bf9bf0f2e29ccd6d06bc19163f63917bbdb05e6c46406cc4",
@@ -4677,5 +4678,5 @@
       }
     }
   ],
-  "contract_hash": "sha256:116f0f1e40663dd140f99a05b1b9dbd2444ebfa273fbc5576aebbcfaec3791d6"
+  "contract_hash": "sha256:a4ff8ae9c36958e4674d2abe481f8f5959a54da5a857d817e3132fef624be0c6"
 }

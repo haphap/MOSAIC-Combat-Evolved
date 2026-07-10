@@ -7330,11 +7330,15 @@ def test_domain_knob_evaluation_contract_schema_accepts_generated_contract(tmp_p
             encoding="utf-8"
         )
     )
+    expected_schema_hash = "sha256:" + sha256(
+        Path("schemas/domain_knob_evaluation_contract_v1.schema.json").read_bytes()
+    ).hexdigest()
 
     record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
 
     assert record.accepted
     assert record.item_count == 1
+    assert contract["schema_hash"] == expected_schema_hash
 
 
 def test_domain_knob_evaluation_contract_schema_requires_contract_hash(tmp_path: Path):

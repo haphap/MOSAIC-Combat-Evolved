@@ -7,6 +7,7 @@
     "schema_version",
     "contract_version",
     "catalog_version",
+    "schema_hash",
     "catalog_hash",
     "metric_registry_hash",
     "calculator_registry_hash",
@@ -24,6 +25,9 @@
     },
     "catalog_version": {
       "const": "domain_knob_catalog_v1"
+    },
+    "schema_hash": {
+      "$ref": "#/$defs/sha256"
     },
     "catalog_hash": {
       "$ref": "#/$defs/sha256"

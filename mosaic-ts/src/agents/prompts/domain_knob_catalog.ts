@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { ResearchKnobs } from "../helpers/research_knobs.js";
 import type { Layer } from "./cohorts.js";
 import type { DomainKnobValueRegistry } from "./domain_knob_registry.js";
@@ -189,6 +190,7 @@ export interface DomainKnobEvaluationContractArtifact {
   schema_version: typeof DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION;
   contract_version: typeof DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION;
   catalog_version: typeof DOMAIN_KNOB_CATALOG_VERSION;
+  schema_hash: string;
   catalog_hash: string;
   metric_registry_hash: string;
   calculator_registry_hash: string;
@@ -1047,6 +1049,7 @@ export function buildDomainKnobEvaluationContractArtifact(
     schema_version: DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION,
     contract_version: DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION,
     catalog_version: DOMAIN_KNOB_CATALOG_VERSION,
+    schema_hash: domainKnobEvaluationContractSchemaHash(),
     catalog_hash: sha256Json(canonicalCatalog),
     metric_registry_hash: sha256Json(evaluationMetrics),
     calculator_registry_hash: sha256Json(evaluationCalculators),
@@ -1083,6 +1086,7 @@ export function validateDomainKnobEvaluationContractArtifact(
   }
   const expected = buildDomainKnobEvaluationContractArtifact(catalog);
   for (const field of [
+    "schema_hash",
     "catalog_hash",
     "metric_registry_hash",
     "calculator_registry_hash",
@@ -2500,4 +2504,11 @@ function sortObjectRecord<T>(record: Record<string, T>): Record<string, T> {
 
 function sha256Json(value: unknown): string {
   return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+}
+
+function domainKnobEvaluationContractSchemaHash(): string {
+  const schema = readFileSync(
+    new URL("../../../../schemas/domain_knob_evaluation_contract_v1.schema.json", import.meta.url),
+  );
+  return `sha256:${createHash("sha256").update(schema).digest("hex")}`;
 }
