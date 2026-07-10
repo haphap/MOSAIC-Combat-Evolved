@@ -97,7 +97,7 @@ interface SyncResearchKnobsOpts {
 }
 
 interface SyncPromptIrOpts {
-  cohort?: string;
+  cohortScope?: string;
   privatePromptsRoot: string;
   agents?: string;
   write?: boolean;
@@ -312,7 +312,7 @@ export function registerPrompts(program: Command): void {
     .option("--private-prompts-root <path>", "Private prompts root override")
     .option(
       "--enabled-agents <list>",
-      "Comma-separated agent ids to fail-closed check; '*' checks all 25. Defaults to all agents for private prompts, otherwise MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS.",
+      "Comma-separated agent ids to fail-closed check; '*' checks all 25. Defaults to the cohort rollout manifest.",
     )
     .option(
       "--enabled-stages <list>",
@@ -462,11 +462,13 @@ export function registerPrompts(program: Command): void {
     .command("sync-prompt-ir")
     .description("Generate/update Prompt IR contracts from runtime agent specs.")
     .requiredOption("--private-prompts-root <path>", "Private prompts root to update")
-    .option("--cohort <name>", "Cohort to update (default cohort_default)")
+    .option("--cohort-scope <scope>", "Prompt IR cohort scope; v1 requires *", "*")
     .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
     .option("--write", "Write changes. Without this, only reports pending updates.", false)
     .action(async (opts: SyncPromptIrOpts) => {
-      const cohort = opts.cohort ?? "cohort_default";
+      if (opts.cohortScope !== "*") {
+        throw new Error("prompt IR v1 only supports --cohort-scope '*'");
+      }
       const selected = opts.agents
         ? new Set(
             opts.agents
@@ -480,8 +482,8 @@ export function registerPrompts(program: Command): void {
       for (const spec of specs) {
         const path = promptIrPathForSpec({ privatePromptsRoot: opts.privatePromptsRoot, spec });
         const existing = await readPromptIrContractFile(path).catch(() => null);
-        const contract = buildPromptIrContract(spec, cohort);
-        const reasons = validatePromptIrContractForSpec(contract, spec, cohort);
+        const contract = buildPromptIrContract(spec);
+        const reasons = validatePromptIrContractForSpec(contract, spec);
         if (reasons.length > 0) {
           throw new Error(`${spec.agent}: ${reasons.join("; ")}`);
         }

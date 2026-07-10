@@ -2,6 +2,41 @@
   "schema_version": "runtime_agent_manifest_v1",
   "runtime_agent_count": 25,
   "runtime_stage_count": 26,
+  "default_cohort": "cohort_default",
+  "research_knobs_cohort_enablement": [
+    {
+      "cohort": "cohort_default",
+      "enabled_agent_stages": [
+        "central_bank:agent_run",
+        "geopolitical:agent_run",
+        "china:agent_run",
+        "dollar:agent_run",
+        "yield_curve:agent_run",
+        "commodities:agent_run",
+        "volatility:agent_run",
+        "emerging_markets:agent_run",
+        "news_sentiment:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "financials:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "legacy_agent_stages": []
+    }
+  ],
   "canonical_l4_sequence": [
     "alpha_discovery",
     "cio_proposal",

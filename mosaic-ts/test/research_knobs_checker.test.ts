@@ -156,6 +156,17 @@ describe("checkResearchKnobsPrompts", () => {
     clearPromptCache();
   });
 
+  it("does not inherit default-cohort enablement for an unadvertised cohort", async () => {
+    const report = await checkResearchKnobsPrompts({
+      cohort: "crisis_2008",
+      promptsRoot: fake.root,
+    });
+
+    expect(report.ready).toBe(false);
+    expect(report.enabled_agent_stages).toEqual([]);
+    expect(report.legacy_agent_stages).toHaveLength(26);
+  });
+
   it("checks enabled runtime agents and reports legacy agents explicitly", async () => {
     writePrompt(
       fake.root,
@@ -840,11 +851,7 @@ describe("checkResearchKnobsPrompts", () => {
       writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
       const promptIrPath = promptIrPathForSpec({ privatePromptsRoot: promptsRoot, spec });
       mkdirSync(join(repo.root, "prompt_ir"), { recursive: true });
-      writeFileSync(
-        promptIrPath,
-        renderPromptIrContract(buildPromptIrContract(spec, "cohort_default")),
-        "utf-8",
-      );
+      writeFileSync(promptIrPath, renderPromptIrContract(buildPromptIrContract(spec)), "utf-8");
       const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
       for (const lang of ["zh", "en"] as const) {
         writePrompt(
@@ -917,7 +924,7 @@ describe("checkResearchKnobsPrompts", () => {
         missing.rows.find((row) => row.agent === "central_bank")?.reasons.join("\n"),
       ).toContain("prompt_ir_missing:");
 
-      const promptIr = buildPromptIrContract(spec, "cohort_default");
+      const promptIr = buildPromptIrContract(spec);
       promptIr.required_tools = promptIr.required_tools.filter(
         (tool) => tool.name !== "get_pboc_ops",
       );

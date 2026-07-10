@@ -158,7 +158,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let systemPrompt: string;
           let promptSourceHash: string;
-          if (isResearchKnobsStageEnabled(spec.agentId, spec.runtimeStage)) {
+          if (isResearchKnobsStageEnabled(spec.agentId, spec.runtimeStage, undefined, cohort)) {
             const runtimeSourceStatuses = [
               ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId, spec.runtimeStage),
               ...(mirofish.status ? [mirofish.status] : []),
@@ -363,7 +363,12 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
         if (
-          isResearchKnobsStageEnabled(spec.agentId, spec.runtimeStage) &&
+          isResearchKnobsStageEnabled(
+            spec.agentId,
+            spec.runtimeStage,
+            undefined,
+            state.active_cohort || "cohort_default",
+          ) &&
           !fallbackRuntimeEvidence
         ) {
           throw err;

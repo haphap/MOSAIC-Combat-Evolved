@@ -15,6 +15,15 @@ describe("stage-aware runtime agent manifest", () => {
 
     expect(artifact.runtime_agent_count).toBe(25);
     expect(artifact.runtime_stage_count).toBe(26);
+    expect(artifact.default_cohort).toBe("cohort_default");
+    expect(artifact.research_knobs_cohort_enablement).toEqual([
+      {
+        cohort: "cohort_default",
+        enabled_agent_stages: expect.any(Array),
+        legacy_agent_stages: [],
+      },
+    ]);
+    expect(artifact.research_knobs_cohort_enablement[0]?.enabled_agent_stages).toHaveLength(26);
     expect(artifact.canonical_l4_sequence).toEqual(CANONICAL_L4_STAGE_SEQUENCE);
     expect(validateRuntimeAgentManifestArtifact(artifact)).toEqual([]);
     expect(

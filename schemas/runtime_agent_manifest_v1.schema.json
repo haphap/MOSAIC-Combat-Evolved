@@ -7,6 +7,8 @@
     "schema_version",
     "runtime_agent_count",
     "runtime_stage_count",
+    "default_cohort",
+    "research_knobs_cohort_enablement",
     "canonical_l4_sequence",
     "agents"
   ],
@@ -21,6 +23,40 @@
     "runtime_stage_count": {
       "type": "integer",
       "minimum": 1
+    },
+    "default_cohort": {
+      "const": "cohort_default"
+    },
+    "research_knobs_cohort_enablement": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cohort", "enabled_agent_stages", "legacy_agent_stages"],
+        "properties": {
+          "cohort": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled_agent_stages": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*:(agent_run|alpha_discovery|cio_proposal|cro_review|execution_feasibility|cio_final)$"
+            }
+          },
+          "legacy_agent_stages": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*:(agent_run|alpha_discovery|cio_proposal|cro_review|execution_feasibility|cio_final)$"
+            }
+          }
+        }
+      }
     },
     "canonical_l4_sequence": {
       "const": [

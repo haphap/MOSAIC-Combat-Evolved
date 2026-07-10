@@ -7,7 +7,7 @@
     "schema_version",
     "agent_id",
     "layer",
-    "cohort",
+    "cohort_scope",
     "prompt_version",
     "role_contract",
     "required_tools",
@@ -35,9 +35,8 @@
     "layer": {
       "enum": ["macro", "sector", "superinvestor", "decision"]
     },
-    "cohort": {
-      "type": "string",
-      "minLength": 1
+    "cohort_scope": {
+      "const": "*"
     },
     "prompt_version": {
       "type": "string",

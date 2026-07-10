@@ -6753,7 +6753,7 @@ def test_prompt_ir_runtime_contract_schema_accepts_runtime_contract(tmp_path: Pa
                 "schema_version": "prompt_ir_runtime_contract_v1",
                 "agent_id": "macro.central_bank",
                 "layer": "macro",
-                "cohort": "cohort_default",
+                "cohort_scope": "*",
                 "prompt_version": "0.4.0-research-knobs",
                 "role_contract": {
                     "responsibility": "Generate central-bank research output.",
@@ -6832,7 +6832,7 @@ def test_prompt_ir_runtime_contract_schema_requires_output_fields(tmp_path: Path
                 "schema_version": "prompt_ir_runtime_contract_v1",
                 "agent_id": "macro.central_bank",
                 "layer": "macro",
-                "cohort": "cohort_default",
+                "cohort_scope": "*",
                 "prompt_version": "0.4.0-research-knobs",
                 "role_contract": {
                     "responsibility": "Generate central-bank research output.",
@@ -6883,6 +6883,14 @@ def _runtime_agent_manifest_fixture() -> dict:
         "schema_version": "runtime_agent_manifest_v1",
         "runtime_agent_count": 1,
         "runtime_stage_count": 2,
+        "default_cohort": "cohort_default",
+        "research_knobs_cohort_enablement": [
+            {
+                "cohort": "cohort_default",
+                "enabled_agent_stages": ["cio:cio_proposal"],
+                "legacy_agent_stages": ["cio:cio_final"],
+            }
+        ],
         "canonical_l4_sequence": [
             "alpha_discovery",
             "cio_proposal",

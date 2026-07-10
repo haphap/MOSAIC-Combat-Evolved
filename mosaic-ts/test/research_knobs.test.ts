@@ -91,6 +91,10 @@ describe("research knob cap enforcement", () => {
 
     expect(researchKnobsEnabledAgentStages("", "").size).toBe(26);
     expect(researchKnobsEnabledAgentStages("unknown:*", "").size).toBe(0);
+    expect(researchKnobsEnabledAgentStages("*", "", "crisis_2008").size).toBe(0);
+    expect(isResearchKnobsStageEnabled("central_bank", "agent_run", undefined, "crisis_2008")).toBe(
+      false,
+    );
   });
 
   it("rejects extra fields in the prompt projection schema", () => {

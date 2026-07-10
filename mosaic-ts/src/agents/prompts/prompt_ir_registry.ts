@@ -34,7 +34,7 @@ const PromptIrContractSchema = z
     schema_version: z.literal(PROMPT_IR_VERSION),
     agent_id: z.string().min(1),
     layer: z.enum(["macro", "sector", "superinvestor", "decision"]),
-    cohort: z.string().min(1),
+    cohort_scope: z.literal("*"),
     prompt_version: z.string().min(1),
     role_contract: z
       .object({
@@ -148,12 +148,12 @@ export async function writePromptIrContractFile(
   await rename(tmpPath, path);
 }
 
-export function buildPromptIrContract(spec: RuntimeAgentSpec, cohort: string): PromptIrContract {
+export function buildPromptIrContract(spec: RuntimeAgentSpec): PromptIrContract {
   return {
     schema_version: PROMPT_IR_VERSION,
     agent_id: spec.promptIrAgentId,
     layer: spec.layer,
-    cohort,
+    cohort_scope: "*",
     prompt_version: "0.4.0-research-knobs",
     role_contract: roleContractForSpec(spec),
     required_tools: spec.requiredTools.map((tool) => ({
@@ -211,7 +211,6 @@ export function renderPromptIrContract(contract: PromptIrContract): string {
 export function validatePromptIrContractForSpec(
   contract: PromptIrContract,
   spec: RuntimeAgentSpec,
-  cohort: string,
 ): string[] {
   const reasons: string[] = [];
   if (contract.schema_version !== PROMPT_IR_VERSION) {
@@ -223,8 +222,8 @@ export function validatePromptIrContractForSpec(
   if (contract.layer !== spec.layer) {
     reasons.push(`prompt_ir_layer_mismatch:${contract.layer}:expected:${spec.layer}`);
   }
-  if (contract.cohort !== cohort) {
-    reasons.push(`prompt_ir_cohort_mismatch:${contract.cohort}:expected:${cohort}`);
+  if (contract.cohort_scope !== "*") {
+    reasons.push(`prompt_ir_cohort_scope_mismatch:${contract.cohort_scope}:expected:*`);
   }
   const promptIrTools = contract.required_tools.map((tool) => tool.name).sort();
   const runtimeTools = [...spec.requiredTools].sort();
@@ -290,7 +289,7 @@ function canonicalPromptIrContract(contract: PromptIrContract): PromptIrContract
     schema_version: contract.schema_version,
     agent_id: contract.agent_id,
     layer: contract.layer,
-    cohort: contract.cohort,
+    cohort_scope: contract.cohort_scope,
     prompt_version: contract.prompt_version,
     role_contract: {
       responsibility: contract.role_contract.responsibility,

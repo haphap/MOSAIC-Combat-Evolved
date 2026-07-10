@@ -24,7 +24,12 @@ import { burrySpec } from "../superinvestor/burry.js";
 import { druckenmillerSpec } from "../superinvestor/druckenmiller.js";
 import { mungerSpec } from "../superinvestor/munger.js";
 import type { Layer } from "./cohorts.js";
-import { runtimeResearchKnobsStageEnablement } from "./runtime_stage_enablement.js";
+import {
+  configuredRuntimeResearchKnobsCohorts,
+  configuredRuntimeResearchKnobsStageKeys,
+  DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+  runtimeResearchKnobsStageEnablement,
+} from "./runtime_stage_enablement.js";
 
 export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v1";
 
@@ -91,6 +96,12 @@ export interface RuntimeAgentManifestArtifact {
   schema_version: typeof RUNTIME_AGENT_MANIFEST_VERSION;
   runtime_agent_count: number;
   runtime_stage_count: number;
+  default_cohort: string;
+  research_knobs_cohort_enablement: ReadonlyArray<{
+    cohort: string;
+    enabled_agent_stages: ReadonlyArray<string>;
+    legacy_agent_stages: ReadonlyArray<string>;
+  }>;
   canonical_l4_sequence: ReadonlyArray<RuntimeAgentStageId>;
   agents: ReadonlyArray<{
     agent: string;
@@ -149,7 +160,11 @@ function stagesForAgent(
         `${promptIrAgentId}.output.v1`,
         [],
         ["upstream_agent_outputs"],
-        runtimeResearchKnobsStageEnablement(agent, "agent_run"),
+        runtimeResearchKnobsStageEnablement(
+          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+          agent,
+          "agent_run",
+        ),
         promptIrAgentId,
       ),
     ];
@@ -161,7 +176,11 @@ function stagesForAgent(
         "decision.alpha_discovery.output.v1",
         ["upstream_agent_outputs", "current_position_snapshot", "current_market_data"],
         ["upstream_agent_outputs"],
-        runtimeResearchKnobsStageEnablement(agent, "alpha_discovery"),
+        runtimeResearchKnobsStageEnablement(
+          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+          agent,
+          "alpha_discovery",
+        ),
         promptIrAgentId,
       ),
     ];
@@ -179,7 +198,11 @@ function stagesForAgent(
           "portfolio_exposure_state",
         ],
         ["cro_review_state"],
-        runtimeResearchKnobsStageEnablement(agent, "cro_review"),
+        runtimeResearchKnobsStageEnablement(
+          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+          agent,
+          "cro_review",
+        ),
         promptIrAgentId,
       ),
     ];
@@ -197,7 +220,11 @@ function stagesForAgent(
           "execution_liquidity_state",
         ],
         ["execution_feasibility_state"],
-        runtimeResearchKnobsStageEnablement(agent, "execution_feasibility"),
+        runtimeResearchKnobsStageEnablement(
+          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+          agent,
+          "execution_feasibility",
+        ),
         promptIrAgentId,
       ),
     ];
@@ -215,7 +242,11 @@ function stagesForAgent(
           "position_thesis_state",
         ],
         ["candidate_target_state", "position_review_state"],
-        runtimeResearchKnobsStageEnablement(agent, "cio_proposal"),
+        runtimeResearchKnobsStageEnablement(
+          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+          agent,
+          "cio_proposal",
+        ),
         promptIrAgentId,
       ),
       stageSpec(
@@ -230,7 +261,11 @@ function stagesForAgent(
           "current_market_data",
         ],
         [],
-        runtimeResearchKnobsStageEnablement(agent, "cio_final"),
+        runtimeResearchKnobsStageEnablement(
+          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+          agent,
+          "cio_final",
+        ),
         promptIrAgentId,
       ),
     ];
@@ -311,10 +346,22 @@ export const RUNTIME_AGENT_STAGE_SPEC_BY_KEY = new Map(
 export function buildRuntimeAgentManifestArtifact(
   specs: ReadonlyArray<RuntimeAgentSpec> = RUNTIME_AGENT_SPECS,
 ): RuntimeAgentManifestArtifact {
+  const allStageKeys = specs.flatMap((spec) =>
+    spec.stages.map((stage) => runtimeAgentStageKey(spec.agent, stage.stage)),
+  );
   return {
     schema_version: RUNTIME_AGENT_MANIFEST_VERSION,
     runtime_agent_count: specs.length,
     runtime_stage_count: specs.reduce((count, spec) => count + spec.stages.length, 0),
+    default_cohort: DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
+    research_knobs_cohort_enablement: configuredRuntimeResearchKnobsCohorts().map((cohort) => {
+      const enabled = configuredRuntimeResearchKnobsStageKeys(cohort);
+      return {
+        cohort,
+        enabled_agent_stages: allStageKeys.filter((key) => enabled.has(key)),
+        legacy_agent_stages: allStageKeys.filter((key) => !enabled.has(key)),
+      };
+    }),
     canonical_l4_sequence: [...CANONICAL_L4_STAGE_SEQUENCE],
     agents: specs.map((spec) => ({
       agent: spec.agent,
@@ -362,6 +409,11 @@ export function validateRuntimeAgentManifestArtifact(
   if (artifact.canonical_l4_sequence.join(",") !== CANONICAL_L4_STAGE_SEQUENCE.join(",")) {
     reasons.push("runtime_manifest_l4_sequence_mismatch");
   }
+  if (artifact.default_cohort !== DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT) {
+    reasons.push(
+      `runtime_manifest_default_cohort_mismatch:${artifact.default_cohort}:expected:${DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT}`,
+    );
+  }
   const seenStages = new Set<string>();
   for (const agent of artifact.agents) {
     for (const stage of agent.stages) {
@@ -373,6 +425,34 @@ export function validateRuntimeAgentManifestArtifact(
         reasons.push(`runtime_manifest_fallback_factory_missing:${key}`);
       }
     }
+  }
+  const seenCohorts = new Set<string>();
+  for (const cohort of artifact.research_knobs_cohort_enablement) {
+    if (seenCohorts.has(cohort.cohort)) {
+      reasons.push(`runtime_manifest_duplicate_cohort:${cohort.cohort}`);
+    }
+    seenCohorts.add(cohort.cohort);
+    const expectedEnabled = configuredRuntimeResearchKnobsStageKeys(cohort.cohort);
+    const declaredEnabled = new Set(cohort.enabled_agent_stages);
+    const declaredLegacy = new Set(cohort.legacy_agent_stages);
+    for (const key of declaredEnabled) {
+      if (!seenStages.has(key))
+        reasons.push(`runtime_manifest_enabled_stage_unknown:${cohort.cohort}:${key}`);
+      if (declaredLegacy.has(key)) {
+        reasons.push(`runtime_manifest_stage_enabled_and_legacy:${cohort.cohort}:${key}`);
+      }
+    }
+    for (const key of seenStages) {
+      if (declaredEnabled.has(key) === declaredLegacy.has(key)) {
+        reasons.push(`runtime_manifest_cohort_stage_partition_invalid:${cohort.cohort}:${key}`);
+      }
+      if (declaredEnabled.has(key) !== expectedEnabled.has(key)) {
+        reasons.push(`runtime_manifest_cohort_enablement_drift:${cohort.cohort}:${key}`);
+      }
+    }
+  }
+  for (const cohort of configuredRuntimeResearchKnobsCohorts()) {
+    if (!seenCohorts.has(cohort)) reasons.push(`runtime_manifest_cohort_missing:${cohort}`);
   }
   const cio = artifact.agents.find((agent) => agent.agent === "cio");
   const cioStages = new Set(cio?.stages.map((stage) => stage.stage) ?? []);

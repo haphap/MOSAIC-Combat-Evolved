@@ -149,7 +149,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           // between prompt injection and runtime cap enforcement.
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let systemPrompt: string;
-          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run")) {
+          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run", undefined, cohort)) {
             const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
               state,
               spec.agentId,
@@ -308,7 +308,15 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
       );
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
-        if (isResearchKnobsStageEnabled(spec.agentId, "agent_run") && !fallbackRuntimeEvidence) {
+        if (
+          isResearchKnobsStageEnabled(
+            spec.agentId,
+            "agent_run",
+            undefined,
+            state.active_cohort || "cohort_default",
+          ) &&
+          !fallbackRuntimeEvidence
+        ) {
           throw err;
         }
         const fallback = spec.fallback("");

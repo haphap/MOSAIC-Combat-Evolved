@@ -39,6 +39,7 @@ import {
   type RuntimeAgentStageId,
   runtimeAgentStageKey,
 } from "./runtime_agent_spec.js";
+import { configuredRuntimeResearchKnobsStageKeys } from "./runtime_stage_enablement.js";
 
 export interface ResearchKnobsCheckRow {
   agent: string;
@@ -71,9 +72,10 @@ export async function checkResearchKnobsPrompts(opts: {
   enabledAgents?: ReadonlySet<string>;
   enabledAgentStages?: ReadonlySet<string>;
 }): Promise<ResearchKnobsCheckReport> {
-  const enabled =
-    opts.enabledAgents ?? (opts.privatePromptsRoot ? new Set(["*"]) : researchKnobsEnabledAgents());
-  const enabledStages = opts.enabledAgentStages;
+  const enabled = opts.enabledAgents ?? researchKnobsEnabledAgents(undefined, opts.cohort);
+  const enabledStages =
+    opts.enabledAgentStages ??
+    (opts.enabledAgents ? undefined : configuredRuntimeResearchKnobsStageKeys(opts.cohort));
   const rows: ResearchKnobsCheckRow[] = [];
   const runtimeAgents = new Set(RUNTIME_AGENT_SPECS.map((spec) => spec.agent));
   const manifestDrift = ALL_AGENTS.filter((agent) => !runtimeAgents.has(agent));
@@ -390,7 +392,7 @@ async function loadPromptIrForCheck(
   if (!contract) {
     return { reasons: [`prompt_ir_missing:${path}`] };
   }
-  return { reasons: validatePromptIrContractForSpec(contract, spec, opts.cohort) };
+  return { reasons: validatePromptIrContractForSpec(contract, spec) };
 }
 
 function ruleIdFromTargetPath(path: string): string | null {

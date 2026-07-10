@@ -101,7 +101,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
 
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let baseSystemPrompt: string;
-          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run")) {
+          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run", undefined, cohort)) {
             const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
               state,
               spec.agentId,
@@ -271,7 +271,15 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
       );
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
-        if (isResearchKnobsStageEnabled(spec.agentId, "agent_run") && !fallbackRuntimeEvidence) {
+        if (
+          isResearchKnobsStageEnabled(
+            spec.agentId,
+            "agent_run",
+            undefined,
+            state.active_cohort || "cohort_default",
+          ) &&
+          !fallbackRuntimeEvidence
+        ) {
           throw err;
         }
         const fallback = spec.fallback("", state.layer1_consensus);

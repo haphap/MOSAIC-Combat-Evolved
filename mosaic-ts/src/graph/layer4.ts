@@ -156,7 +156,7 @@ export function buildL4SnapshotFreezeNode(
     const language = pickPromptLanguage(deps.config);
     const promptSnapshots = await Promise.all(
       L4_PROMPT_INVOCATIONS.map(async ({ agent, stage }): Promise<L4RunPromptSnapshot> => {
-        if (isResearchKnobsStageEnabled(agent, stage)) {
+        if (isResearchKnobsStageEnabled(agent, stage, undefined, cohort)) {
           const loaded = await loadPromptWithKnobs({
             agent,
             cohort,
