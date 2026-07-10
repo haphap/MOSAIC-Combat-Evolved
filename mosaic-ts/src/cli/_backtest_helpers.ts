@@ -17,6 +17,10 @@ import { createHash } from "node:crypto";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { AIMessage } from "@langchain/core/messages";
 import {
+  missingPreviousTargetState,
+  previousTargetStateFromFinal,
+} from "../agents/decision/layer4_runtime.js";
+import {
   type DailyCycleStateType,
   emptyCurrentPositions,
   emptyPositionAudit,
@@ -90,6 +94,7 @@ export function makeInitialState(cohort: string, asOfDate: string): DailyCycleSt
       alpha_discovery: null,
       autonomous_execution: null,
       cio: null,
+      previous_target_state: missingPreviousTargetState(),
     },
     current_positions: emptyCurrentPositions(),
     position_reviews: [],
@@ -98,6 +103,10 @@ export function makeInitialState(cohort: string, asOfDate: string): DailyCycleSt
     replay_triggered: false,
     llm_calls: [],
   };
+}
+
+export function carryPreviousTargetState(final: DailyCycleStateType) {
+  return previousTargetStateFromFinal(final.layer4_outputs.runtime?.final_target_state);
 }
 
 export function applyBacktestPortfolioActionsToPositions(

@@ -32,6 +32,7 @@ import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import {
   applyBacktestPortfolioActionsToPositions,
   buildFakeLlmHandle,
+  carryPreviousTargetState,
   enumerateTradingDays,
   makeInitialState,
 } from "../_backtest_helpers.js";
@@ -212,11 +213,14 @@ async function fillStage1(
 
   let completed = 0;
   let totalActions = 0;
-  let currentPositions = makeInitialState(cohort, opts.start).current_positions;
+  const firstState = makeInitialState(cohort, opts.start);
+  let currentPositions = firstState.current_positions;
+  let previousTarget = firstState.layer4_outputs.previous_target_state;
   for (const tradeDate of tradeDays) {
     const tStart = Date.now();
     const initialState = makeInitialState(cohort, tradeDate);
     initialState.current_positions = currentPositions;
+    initialState.layer4_outputs.previous_target_state = previousTarget;
     const final = (await graph.invoke(initialState)) as DailyCycleStateType;
     const actions = (final.portfolio_actions ?? []).map((a) => ({
       ticker: a.ticker,
@@ -231,6 +235,7 @@ async function fillStage1(
       final.portfolio_actions ?? [],
       tradeDate,
     );
+    previousTarget = carryPreviousTargetState(final);
     totalActions += actions.length;
     completed += 1;
     const elapsed = ((Date.now() - tStart) / 1000).toFixed(1);

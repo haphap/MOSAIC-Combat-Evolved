@@ -47,6 +47,8 @@ import {
   freezeExecutionFeasibility,
   freezeFinalTarget,
   Layer4RuntimeContractError,
+  missingPreviousTargetState,
+  previousTargetStateFromFinal,
   updateLayer4Runtime,
 } from "../src/agents/decision/layer4_runtime.js";
 import {
@@ -559,6 +561,14 @@ describe("Layer-4 runtime source envelopes", () => {
       heldPosition,
       { ...heldPosition, ticker: "688981.SH", entry_thesis_id: "thesis-688981" },
     ]);
+    state.layer4_outputs.previous_target_state = {
+      schema_version: "portfolio.previous_target_state.v1",
+      snapshot_status: "loaded",
+      final_target_hash: "sha256:prior-final",
+      as_of_date: "2026-07-08",
+      portfolio_actions: [],
+      source_error_code: null,
+    };
     const proposal = cioOutput([
       {
         ticker: "600519.SH",
@@ -580,6 +590,7 @@ describe("Layer-4 runtime source envelopes", () => {
 
     expect(first.candidate.candidate_target_hash).toBe(second.candidate.candidate_target_hash);
     expect(first.candidate.market_data_vintage_hash).toMatch(/^sha256:/);
+    expect(first.candidate.previous_target_hash).toBe("sha256:prior-final");
     expect(first.candidate.frozen).toBe(true);
     expect(first.candidate.portfolio_actions).toHaveLength(2);
     expect(first.reviews.llm_reviewed_tickers).toEqual(["600519.SH"]);
@@ -630,6 +641,15 @@ describe("Layer-4 runtime source envelopes", () => {
     expect(final.market_data_vintage_hash).toBe(frozen.candidate.market_data_vintage_hash);
     expect(final.liquidity_vintage_hash).toBe(execution.liquidity_vintage_hash);
     expect(final.validator_hashes).toEqual(["validator:portfolio.v1"]);
+    expect(previousTargetStateFromFinal(final)).toMatchObject({
+      snapshot_status: "loaded",
+      final_target_hash: final.final_target_hash,
+      as_of_date: final.as_of_date,
+    });
+    expect(missingPreviousTargetState()).toMatchObject({
+      snapshot_status: "missing",
+      final_target_hash: null,
+    });
   });
 
   it("fails closed when a stage reads before its required source is frozen", () => {

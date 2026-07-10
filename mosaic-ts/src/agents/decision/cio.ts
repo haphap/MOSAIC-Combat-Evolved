@@ -22,6 +22,7 @@ import {
   renderLayer3Context,
   renderLayer4PeerContext,
   renderLayer4RuntimeContext,
+  renderPreviousTargetContext,
 } from "./_user_context.js";
 
 const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
@@ -37,6 +38,7 @@ function buildProposalUserContext(state: DailyCycleStateType): string {
     `${renderLayer3Context(state)}\n` +
     `${renderLayer4PeerContext(state, ["cro", "autonomous_execution", "cio"])}\n\n` +
     `${renderCurrentPositionsContext(state)}\n\n` +
+    `${renderPreviousTargetContext(state)}\n\n` +
     `${renderJanusRegimeStub()}\n\n` +
     `Build the candidate target portfolio before CRO and execution review. Include every current ` +
     `position with a HOLD, ADD, REDUCE, or EXIT decision and consider alpha_discovery's novel picks. ` +

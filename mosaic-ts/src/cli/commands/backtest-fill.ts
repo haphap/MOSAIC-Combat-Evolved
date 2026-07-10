@@ -30,6 +30,7 @@ import { redactSensitiveText } from "../../security/redaction.js";
 import {
   applyBacktestPortfolioActionsToPositions,
   buildFakeLlmHandle,
+  carryPreviousTargetState,
   enumerateTradingDays,
   makeInitialState,
 } from "../_backtest_helpers.js";
@@ -192,13 +193,16 @@ export function registerBacktestFill(program: Command): void {
         let totalActions = 0;
         const errors: Array<{ date: string; err: string }> = [];
         const succeededDates: string[] = [];
-        let currentPositions = makeInitialState(cohort, opts.start).current_positions;
+        const firstState = makeInitialState(cohort, opts.start);
+        let currentPositions = firstState.current_positions;
+        let previousTarget = firstState.layer4_outputs.previous_target_state;
 
         for (const tradeDate of daysToRun) {
           const tStart = Date.now();
           try {
             const initialState: DailyCycleStateType = makeInitialState(cohort, tradeDate);
             initialState.current_positions = currentPositions;
+            initialState.layer4_outputs.previous_target_state = previousTarget;
             const final = (await graph.invoke(initialState)) as DailyCycleStateType;
 
             const actions = (final.portfolio_actions ?? []).map((a) => ({
@@ -215,6 +219,7 @@ export function registerBacktestFill(program: Command): void {
               final.portfolio_actions ?? [],
               tradeDate,
             );
+            previousTarget = carryPreviousTargetState(final);
             totalActions += actions.length;
             succeededDates.push(tradeDate);
           } catch (err) {

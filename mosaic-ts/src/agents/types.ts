@@ -394,6 +394,7 @@ export interface CandidateTargetState {
   proposal_hash: string;
   candidate_target_hash: string;
   position_snapshot_hash: string | null;
+  previous_target_hash: string | null;
   market_data_vintage_hash: string;
   portfolio_actions: PortfolioAction[];
   confidence: number;
@@ -453,12 +454,22 @@ export interface FinalTargetState {
   execution_feasibility_hash: string;
   final_target_hash: string;
   position_snapshot_hash: string | null;
+  previous_target_hash: string | null;
   market_data_vintage_hash: string;
   liquidity_vintage_hash: string;
   portfolio_actions: PortfolioAction[];
   confidence: number;
   validator_hashes: string[];
   frozen: true;
+}
+
+export interface PreviousTargetState {
+  schema_version: "portfolio.previous_target_state.v1";
+  snapshot_status: "loaded" | "empty_confirmed" | "missing";
+  final_target_hash: string | null;
+  as_of_date: string | null;
+  portfolio_actions: PortfolioAction[];
+  source_error_code: string | null;
 }
 
 export interface Layer4RuntimeTraceEntry {
@@ -517,6 +528,8 @@ export interface Layer4Outputs {
   cio: CioOutput | null;
   /** Runtime-owned cross-stage envelopes; LLMs never author these hashes. */
   runtime?: Layer4RuntimeState | undefined;
+  /** Prior cycle final target supplied as an explicit cycle input. */
+  previous_target_state?: PreviousTargetState | undefined;
 }
 
 export type Layer4AgentOutputKey = "cro" | "alpha_discovery" | "autonomous_execution" | "cio";

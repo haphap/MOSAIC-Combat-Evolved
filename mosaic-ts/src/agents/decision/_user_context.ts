@@ -162,6 +162,24 @@ export function renderCurrentPositionsContext(state: DailyCycleStateType): strin
   return lines.join("\n");
 }
 
+export function renderPreviousTargetContext(state: DailyCycleStateType): string {
+  const previous = state.layer4_outputs?.previous_target_state;
+  const lines = ["## Previous final target"];
+  if (!previous) {
+    lines.push("* snapshot_status: missing", "* source_error: previous_target_state_not_supplied");
+    return lines.join("\n");
+  }
+  lines.push(
+    `* snapshot_status: ${previous.snapshot_status}`,
+    `* final_target_hash: ${previous.final_target_hash ?? "(missing)"}`,
+    `* as_of_date: ${previous.as_of_date ?? "(missing)"}`,
+  );
+  for (const action of previous.portfolio_actions) {
+    lines.push(`* ${action.ticker}: ${action.action}, target=${action.target_weight.toFixed(4)}`);
+  }
+  return lines.join("\n");
+}
+
 export function renderLayer4RuntimeContext(state: DailyCycleStateType): string {
   const runtime = state.layer4_outputs.runtime;
   const lines = ["## Frozen Layer-4 runtime state"];

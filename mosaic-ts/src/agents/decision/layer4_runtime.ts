@@ -16,6 +16,7 @@ import type {
   PortfolioExposureState,
   PositionReview,
   PositionReviewState,
+  PreviousTargetState,
 } from "../types.js";
 
 export class Layer4RuntimeContractError extends Error {}
@@ -32,6 +33,33 @@ export function emptyLayer4RuntimeState(): Layer4RuntimeState {
     cio_final_knob_snapshot: null,
     resolved_source_statuses: [],
     stage_trace: [],
+  };
+}
+
+export function missingPreviousTargetState(
+  reason = "previous_target_state_not_supplied",
+): PreviousTargetState {
+  return {
+    schema_version: "portfolio.previous_target_state.v1",
+    snapshot_status: "missing",
+    final_target_hash: null,
+    as_of_date: null,
+    portfolio_actions: [],
+    source_error_code: reason,
+  };
+}
+
+export function previousTargetStateFromFinal(
+  finalTarget: FinalTargetState | null | undefined,
+): PreviousTargetState {
+  if (!finalTarget) return missingPreviousTargetState("prior_final_target_missing");
+  return {
+    schema_version: "portfolio.previous_target_state.v1",
+    snapshot_status: finalTarget.portfolio_actions.length > 0 ? "loaded" : "empty_confirmed",
+    final_target_hash: finalTarget.final_target_hash,
+    as_of_date: finalTarget.as_of_date,
+    portfolio_actions: finalTarget.portfolio_actions.map((action) => ({ ...action })),
+    source_error_code: null,
   };
 }
 
@@ -64,6 +92,7 @@ export function freezeCioProposal(
     as_of_date: asOfDate,
     proposal_hash: proposalHash,
     position_snapshot_hash: state.current_positions.position_snapshot_hash ?? null,
+    previous_target_hash: state.layer4_outputs.previous_target_state?.final_target_hash ?? null,
     market_data_vintage_hash: runtimeSourceVintageHash(
       state.layer4_outputs.runtime?.resolved_source_statuses ?? [],
       "current_market_data",
@@ -182,6 +211,7 @@ export function freezeFinalTarget(
     cro_review_hash: croReview.review_hash,
     execution_feasibility_hash: execution.feasibility_hash,
     position_snapshot_hash: state.current_positions.position_snapshot_hash ?? null,
+    previous_target_hash: candidate.previous_target_hash,
     market_data_vintage_hash: candidate.market_data_vintage_hash,
     liquidity_vintage_hash: execution.liquidity_vintage_hash,
     portfolio_actions: output.portfolio_actions,

@@ -823,6 +823,39 @@ research-knobs:
     expect(proposalStatuses.some((status) => status.source_id === "candidate_target_state")).toBe(
       false,
     );
+    expect(proposalStatuses).toContainEqual(
+      expect.objectContaining({
+        source_id: "previous_target_state",
+        status: "missing",
+        error_code: "previous_target_state_adapter_not_resolved",
+      }),
+    );
+    const carriedStatuses = resolveRuntimeSourceStatusesForAgent(
+      {
+        ...loadedState,
+        layer4_outputs: {
+          ...loadedState.layer4_outputs,
+          previous_target_state: {
+            schema_version: "portfolio.previous_target_state.v1",
+            snapshot_status: "loaded",
+            final_target_hash: "sha256:prior-final",
+            as_of_date: "2026-07-08",
+            portfolio_actions: [],
+            source_error_code: null,
+          },
+        },
+      },
+      "cio",
+      "cio_proposal",
+    );
+    expect(carriedStatuses).toContainEqual(
+      expect.objectContaining({
+        source_id: "previous_target_state",
+        status: "loaded",
+        snapshot_hash: "sha256:prior-final",
+        as_of: "2026-07-08",
+      }),
+    );
     const finalStatuses = resolveRuntimeSourceStatusesForAgent(loadedState, "cio", "cio_final");
     expect(finalStatuses).toEqual(
       expect.arrayContaining([

@@ -11,7 +11,12 @@ import type { BridgeApi, RkeDeliveryReadinessResult } from "../../bridge/types.j
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
-import { buildFakeLlmHandle, makeInitialState } from "../_backtest_helpers.js";
+import {
+  applyBacktestPortfolioActionsToPositions,
+  buildFakeLlmHandle,
+  carryPreviousTargetState,
+  makeInitialState,
+} from "../_backtest_helpers.js";
 import { applyPromptSourceOverrides } from "../prompt-source.js";
 import {
   buildPromptPinsByAgent,
@@ -160,10 +165,21 @@ export async function runRkeShadowReplay(
   };
 
   mkdirSync(join(findRepoRoot(), PRIVATE_OUTPUT_DIR), { recursive: true });
+  const firstState = makeInitialState(cohort, asOfDates[0] ?? "");
+  let currentPositions = firstState.current_positions;
+  let previousTarget = firstState.layer4_outputs.previous_target_state;
   for (const asOfDate of asOfDates.slice(0, maxRuns)) {
     const initialState = makeInitialState(cohort, asOfDate);
     initialState.trace_id = `${benchmarkRunId}:${replayRunId}:${asOfDate}`;
+    initialState.current_positions = currentPositions;
+    initialState.layer4_outputs.previous_target_state = previousTarget;
     const final = (await graph.invoke(initialState)) as DailyCycleStateType;
+    currentPositions = applyBacktestPortfolioActionsToPositions(
+      currentPositions,
+      final.portfolio_actions,
+      asOfDate,
+    );
+    previousTarget = carryPreviousTargetState(final);
     const footprintRows = await buildDailyCycleRkeFootprintRows(api, final, {
       currentDataConfirmed: !opts.fakeLlm,
       replayRunId,

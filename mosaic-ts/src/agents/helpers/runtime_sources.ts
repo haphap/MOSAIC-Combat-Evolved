@@ -53,22 +53,37 @@ export function resolveRuntimeSourceStatusesForAgent(
       );
     }
     if (agentId === "cio" && stage === "cio_proposal") {
-      const previousTarget = runtime?.resolved_source_statuses.find(
-        (status) => status.source_id === "previous_target_state",
-      );
+      const previousTarget = state.layer4_outputs?.previous_target_state;
       statuses.push(
-        previousTarget ??
-          runtimeStatus(
-            "previous_target_state",
-            `account:default|cohort:${cohort}`,
-            "missing",
-            asOf,
-            {
-              error_code: "previous_target_state_adapter_not_resolved",
-              ...(stage ? { resolved_at_stage: stage } : {}),
-              adapter_id: "portfolio.previous_target_adapter.v1",
-            },
-          ),
+        previousTarget
+          ? runtimeStatus(
+              "previous_target_state",
+              `account:default|cohort:${cohort}`,
+              previousTarget.snapshot_status,
+              previousTarget.as_of_date ?? asOf,
+              {
+                ...(previousTarget.final_target_hash
+                  ? { snapshot_hash: previousTarget.final_target_hash }
+                  : {}),
+                ...(previousTarget.source_error_code
+                  ? { error_code: previousTarget.source_error_code }
+                  : {}),
+                producer_stage: "cycle_input",
+                ...(stage ? { resolved_at_stage: stage } : {}),
+                adapter_id: "portfolio.previous_target_adapter.v1",
+              },
+            )
+          : runtimeStatus(
+              "previous_target_state",
+              `account:default|cohort:${cohort}`,
+              "missing",
+              asOf,
+              {
+                error_code: "previous_target_state_adapter_not_resolved",
+                ...(stage ? { resolved_at_stage: stage } : {}),
+                adapter_id: "portfolio.previous_target_adapter.v1",
+              },
+            ),
       );
     }
     const marketScopes = scopedTickers(decisionMarketTickers(state, agentId, stage));
