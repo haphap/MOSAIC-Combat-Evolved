@@ -33,10 +33,10 @@ import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import {
-  applyResearchKnobCaps,
+  applyResearchKnobCapsWithFallback,
   assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
-  isResearchKnobsEnabled,
+  isResearchKnobsStageEnabled,
   type ResearchKnobsSnapshot,
 } from "../helpers/research_knobs.js";
 import {
@@ -142,11 +142,16 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           // between prompt injection and runtime cap enforcement.
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let systemPrompt: string;
-          if (isResearchKnobsEnabled(spec.agentId)) {
-            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(state, spec.agentId);
+          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run")) {
+            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
+              state,
+              spec.agentId,
+              "agent_run",
+            );
             const loaded = await loadPromptWithKnobs({
               agent: spec.agentId,
               cohort,
+              stage: "agent_run",
               runtimeSourceStatuses,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
@@ -207,7 +212,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           // Phase 3: assemble state update.
           const rawOutput = extractor.structured ?? spec.fallback(loopResult.analysisText);
           const capped = knobSnapshot
-            ? applyResearchKnobCaps(rawOutput, knobSnapshot, {
+            ? applyResearchKnobCapsWithFallback(rawOutput, () => spec.fallback(""), knobSnapshot, {
                 toolStatuses: loopResult.toolStatuses,
               })
             : null;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { emptyLayer4RuntimeState } from "../src/agents/decision/layer4_runtime.js";
 import {
   applyResearchKnobCaps,
+  applyResearchKnobCapsWithFallback,
   assertResearchKnobCappedOutputSchema,
   assertResearchKnobsParity,
   buildResearchKnobsSnapshot,
@@ -1032,6 +1033,51 @@ research-knobs:
     expect(output.verified_knob_audit.unsupported_knob_influence_ids).toEqual(
       result.audit.unsupported_knob_influence_ids,
     );
+  });
+
+  it("rejects unsupported raw output and selects deterministic fallback", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const snapshot = buildResearchKnobsSnapshot({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      knobs: buildRuntimeResearchKnobs(spec),
+    });
+    const rawOutput = {
+      confidence: 0.8,
+      recommendation: "RISK_ON",
+      declared_knob_influence_ids: ["pboc_fed_policy_weight"],
+    };
+
+    const result = applyResearchKnobCapsWithFallback(
+      rawOutput,
+      () => ({
+        confidence: 0,
+        recommendation: "NO_RECOMMENDATION",
+        declared_knob_influence_ids: [],
+      }),
+      snapshot,
+      {
+        toolStatuses: [],
+        evidenceDependencyStatuses: [
+          {
+            card_id: "pboc_fed_policy_weight",
+            dependency_id: "macro.central_bank.pboc_fed_policy_weight.primary",
+            evidence_key: "pboc_ops",
+            scope: "cohort_default",
+            status: "tool_failed",
+            coverage_ratio: 0,
+          },
+        ],
+      },
+    );
+
+    expect(result.output.recommendation).toBe("NO_RECOMMENDATION");
+    expect(result.output.confidence).toBe(0);
+    expect(result.audit.output_selection).toBe("deterministic_fallback");
+    expect(result.audit.fallback_reason_code).toContain("unsupported_knob_influence");
+    expect(result.audit.unsupported_knob_influence_ids).toEqual(["pboc_fed_policy_weight"]);
   });
 
   it("derives post-run evidence dependency statuses from tool statuses", () => {

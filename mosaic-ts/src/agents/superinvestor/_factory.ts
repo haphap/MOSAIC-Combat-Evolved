@@ -22,10 +22,10 @@ import type { LlmHandle } from "../../llm/factory.js";
 import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
-  applyResearchKnobCaps,
+  applyResearchKnobCapsWithFallback,
   assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
-  isResearchKnobsEnabled,
+  isResearchKnobsStageEnabled,
   type ResearchKnobsSnapshot,
 } from "../helpers/research_knobs.js";
 import {
@@ -94,11 +94,16 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
 
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let baseSystemPrompt: string;
-          if (isResearchKnobsEnabled(spec.agentId)) {
-            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(state, spec.agentId);
+          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run")) {
+            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
+              state,
+              spec.agentId,
+              "agent_run",
+            );
             const loaded = await loadPromptWithKnobs({
               agent: spec.agentId,
               cohort,
+              stage: "agent_run",
               runtimeSourceStatuses,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
@@ -166,9 +171,12 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const rawOutput =
             extractor.structured ?? spec.fallback(loopResult.analysisText, state.layer1_consensus);
           const capped = knobSnapshot
-            ? applyResearchKnobCaps(rawOutput, knobSnapshot, {
-                toolStatuses: loopResult.toolStatuses,
-              })
+            ? applyResearchKnobCapsWithFallback(
+                rawOutput,
+                () => spec.fallback("", state.layer1_consensus),
+                knobSnapshot,
+                { toolStatuses: loopResult.toolStatuses },
+              )
             : null;
           const output = capped
             ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)

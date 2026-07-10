@@ -31,10 +31,10 @@ import { formatMirofishContext } from "../../mirofish/context.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
-  applyResearchKnobCaps,
+  applyResearchKnobCapsWithFallback,
   assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
-  isResearchKnobsEnabled,
+  isResearchKnobsStageEnabled,
   type ResearchKnobsSnapshot,
   type RuntimeSourceStatus,
   type ToolStatus,
@@ -145,7 +145,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           // Phase 0: load prompt.
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let systemPrompt: string;
-          if (isResearchKnobsEnabled(spec.agentId)) {
+          if (isResearchKnobsStageEnabled(spec.agentId, spec.runtimeStage)) {
             const runtimeSourceStatuses = [
               ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId, spec.runtimeStage),
               ...(mirofish.status ? [mirofish.status] : []),
@@ -251,7 +251,9 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
 
           const rawOutput = extractor.structured ?? spec.fallback(analysisText);
           const capped = knobSnapshot
-            ? applyResearchKnobCaps(rawOutput, knobSnapshot, { toolStatuses })
+            ? applyResearchKnobCapsWithFallback(rawOutput, () => spec.fallback(""), knobSnapshot, {
+                toolStatuses,
+              })
             : null;
           let output = capped
             ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)

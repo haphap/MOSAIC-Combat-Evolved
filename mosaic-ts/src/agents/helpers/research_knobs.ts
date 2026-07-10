@@ -281,6 +281,8 @@ export interface ResearchKnobCapAudit {
   missing_scopes: string[];
   fallback_scopes: string[];
   sample_exclusion_reason: string | null;
+  output_selection: "raw" | "deterministic_fallback";
+  fallback_reason_code: string | null;
 }
 
 export function formatResearchKnobAuditFields(audit: ResearchKnobCapAudit): string[] {
@@ -303,6 +305,8 @@ export function formatResearchKnobAuditFields(audit: ResearchKnobCapAudit): stri
     `missing_scopes=${audit.missing_scopes.length}`,
     `fallback_scopes=${audit.fallback_scopes.length}`,
     `sample_exclusion=${audit.sample_exclusion_reason ?? "none"}`,
+    `output_selection=${audit.output_selection}`,
+    `fallback_reason=${audit.fallback_reason_code ?? "none"}`,
   ];
 }
 
@@ -591,11 +595,84 @@ export function applyResearchKnobCaps<T>(
     missing_scopes: missingScopes,
     fallback_scopes: fallbackScopes,
     sample_exclusion_reason: sampleExclusionReason,
+    output_selection: "raw",
+    fallback_reason_code: null,
   };
   return {
     output: attachVerifiedKnobAudit(cappedOutput, audit),
     audit,
   };
+}
+
+export function applyResearchKnobCapsWithFallback<T>(
+  rawOutput: T,
+  fallbackFactory: () => T,
+  snapshot: ResearchKnobsSnapshot,
+  context: KnobConsumptionContext,
+): { output: T; audit: ResearchKnobCapAudit } {
+  let rawResult: ReturnType<typeof applyResearchKnobCaps<T>>;
+  try {
+    rawResult = applyResearchKnobCaps(rawOutput, snapshot, context);
+  } catch (error) {
+    const disabledIds = disabledInfluenceIdsFromError(error);
+    if (!disabledIds) throw error;
+    return deterministicFallbackResult(
+      fallbackFactory,
+      snapshot,
+      context,
+      disabledIds,
+      `disabled_knob_influence:${disabledIds.join(",")}`,
+      null,
+    );
+  }
+  if (rawResult.audit.unsupported_knob_influence_ids.length === 0) return rawResult;
+  return deterministicFallbackResult(
+    fallbackFactory,
+    snapshot,
+    context,
+    rawResult.audit.unsupported_knob_influence_ids,
+    rawResult.audit.sample_exclusion_reason ?? "unsupported_knob_influence",
+    rawResult.audit,
+  );
+}
+
+function deterministicFallbackResult<T>(
+  fallbackFactory: () => T,
+  snapshot: ResearchKnobsSnapshot,
+  context: KnobConsumptionContext,
+  rejectedInfluenceIds: string[],
+  fallbackReasonCode: string,
+  rejectedAudit: ResearchKnobCapAudit | null,
+): { output: T; audit: ResearchKnobCapAudit } {
+  const fallbackResult = applyResearchKnobCaps(fallbackFactory(), snapshot, context);
+  if (fallbackResult.audit.unsupported_knob_influence_ids.length > 0) {
+    throw new Error(
+      `deterministic_fallback_unsupported_knob_influence:${fallbackResult.audit.unsupported_knob_influence_ids.join(",")}`,
+    );
+  }
+  const audit: ResearchKnobCapAudit = {
+    ...(rejectedAudit ?? fallbackResult.audit),
+    post_cap_confidence: fallbackResult.audit.post_cap_confidence,
+    unsupported_knob_influence_ids: [...rejectedInfluenceIds],
+    sample_exclusion_reason: fallbackReasonCode,
+    output_selection: "deterministic_fallback",
+    fallback_reason_code: fallbackReasonCode,
+  };
+  return {
+    output: attachVerifiedKnobAudit(fallbackResult.output, audit),
+    audit,
+  };
+}
+
+function disabledInfluenceIdsFromError(error: unknown): string[] | null {
+  if (!(error instanceof Error)) return null;
+  const prefix = "disabled_knob_influence_declared:";
+  if (!error.message.startsWith(prefix)) return null;
+  return error.message
+    .slice(prefix.length)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export function assertResearchKnobCappedOutputSchema<T>(
