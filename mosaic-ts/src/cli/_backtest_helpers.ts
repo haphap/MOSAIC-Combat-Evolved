@@ -113,50 +113,82 @@ export function applyBacktestPortfolioActionsToPositions(
   previous: CurrentPositionsSnapshot,
   actions: ReadonlyArray<PortfolioAction>,
   asOfDate: string,
+  opts: {
+    executionByTicker?: Readonly<
+      Record<
+        string,
+        {
+          status: "filled" | "partial" | "rejected";
+          fill_ratio: number;
+          slippage_bps?: number;
+          price_return?: number;
+        }
+      >
+    >;
+    commissionBps?: number;
+  } = {},
 ): CurrentPositionsSnapshot {
   const previousByTicker = new Map(
     previous.positions.map((position) => [position.ticker, position]),
   );
-  const closedPositions: ClosedPosition[] = [
-    ...(previous.closed_positions ?? []),
-    ...actions
-      .filter((action) => action.target_weight <= 0 || action.action === "SELL")
-      .flatMap((action) => {
-        const prior = previousByTicker.get(action.ticker);
-        if (!prior) return [];
-        return [
-          {
-            ticker: action.ticker,
-            exit_date: asOfDate,
-            exit_reason:
-              action.position_decision_reason || action.dissent_notes || `${action.action} target`,
-            realized_pnl_pct: prior.unrealized_pnl_pct,
-            residual_drift_pct: 0,
-            entry_thesis_id: prior.entry_thesis_id,
-            holding_days: prior.holding_days,
-          },
-        ];
-      }),
-  ];
-  const positions = actions
-    .filter((action) => action.target_weight > 0 && action.action !== "SELL")
-    .map((action) => {
-      const prior = previousByTicker.get(action.ticker);
-      return {
-        ticker: action.ticker,
-        current_weight: action.target_weight,
-        cost_basis: prior?.cost_basis ?? 1,
-        market_price: prior?.market_price ?? 1,
-        unrealized_pnl_pct: prior?.unrealized_pnl_pct ?? 0,
-        realized_pnl_pct: prior?.realized_pnl_pct ?? 0,
-        residual_drift_pct: 0,
-        holding_days: prior ? prior.holding_days + 1 : 0,
-        entry_date: prior?.entry_date ?? asOfDate,
-        source_agent: prior?.source_agent ?? "cio",
-        entry_thesis_id: prior?.entry_thesis_id ?? `backtest:${action.ticker}:${asOfDate}`,
-        last_review_date: asOfDate,
-      };
+  const closedPositions: ClosedPosition[] = [...(previous.closed_positions ?? [])];
+  const positions: CurrentPositionsSnapshot["positions"] = [];
+  for (const action of actions) {
+    const prior = previousByTicker.get(action.ticker);
+    const priorWeight = prior?.current_weight ?? action.current_weight ?? 0;
+    const execution = opts.executionByTicker?.[action.ticker];
+    const fillRatio = execution?.status === "rejected" ? 0 : (execution?.fill_ratio ?? 1);
+    if (!Number.isFinite(fillRatio) || fillRatio < 0 || fillRatio > 1) {
+      throw new Error(`${action.ticker}: backtest fill_ratio must be in [0, 1]`);
+    }
+    const requestedDelta = action.target_weight - priorWeight;
+    const costRate = ((execution?.slippage_bps ?? 0) + (opts.commissionBps ?? 0)) / 10_000;
+    const executedDelta = requestedDelta * fillRatio;
+    const costAdjustedDelta =
+      executedDelta > 0 ? executedDelta * Math.max(0, 1 - costRate) : executedDelta;
+    const preReturnWeight = Math.max(0, priorWeight + costAdjustedDelta);
+    const priceReturn = execution?.price_return ?? 0;
+    if (!Number.isFinite(priceReturn) || priceReturn <= -1) {
+      throw new Error(`${action.ticker}: backtest price_return must be finite and above -1`);
+    }
+    const actualWeight = Math.max(0, preReturnWeight * (1 + priceReturn));
+    const residualDrift = action.target_weight - actualWeight;
+    if (actualWeight <= 1e-12) {
+      if (prior) {
+        closedPositions.push({
+          ticker: action.ticker,
+          exit_date: asOfDate,
+          exit_reason:
+            action.position_decision_reason || action.dissent_notes || `${action.action} target`,
+          realized_pnl_pct: prior.unrealized_pnl_pct,
+          residual_drift_pct: residualDrift,
+          entry_thesis_id: prior.entry_thesis_id,
+          holding_days: prior.holding_days,
+        });
+      }
+      continue;
+    }
+    const priorMarketPrice = prior?.market_price ?? 1;
+    const marketPrice = priorMarketPrice * (1 + priceReturn);
+    positions.push({
+      ticker: action.ticker,
+      current_weight: actualWeight,
+      cost_basis:
+        prior?.cost_basis ?? priorMarketPrice * (1 + (execution?.slippage_bps ?? 0) / 10_000),
+      market_price: marketPrice,
+      unrealized_pnl_pct:
+        prior?.cost_basis && prior.cost_basis > 0
+          ? marketPrice / prior.cost_basis - 1
+          : (prior?.unrealized_pnl_pct ?? priceReturn),
+      realized_pnl_pct: prior?.realized_pnl_pct ?? 0,
+      residual_drift_pct: residualDrift,
+      holding_days: prior ? prior.holding_days + 1 : 0,
+      entry_date: prior?.entry_date ?? asOfDate,
+      source_agent: prior?.source_agent ?? "cio",
+      entry_thesis_id: prior?.entry_thesis_id ?? `backtest:${action.ticker}:${asOfDate}`,
+      last_review_date: asOfDate,
     });
+  }
   if (positions.length === 0) {
     return {
       ...emptyCurrentPositions(),

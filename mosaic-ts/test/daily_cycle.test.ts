@@ -145,6 +145,57 @@ describe("backtest position carry-over", () => {
     ]);
   });
 
+  it("carries partial fills and residual target drift into the next cycle", () => {
+    const previous: CurrentPositionsSnapshot = {
+      snapshot_status: "loaded",
+      position_source: "backtest_replay",
+      source_error_code: null,
+      position_snapshot_hash: "sha256:prev",
+      positions: [
+        {
+          ticker: "600519.SH",
+          current_weight: 0.1,
+          cost_basis: 100,
+          market_price: 100,
+          unrealized_pnl_pct: 0,
+          holding_days: 10,
+          entry_date: "2024-06-01",
+          source_agent: "cio",
+          entry_thesis_id: "thesis-1",
+          last_review_date: "2024-06-23",
+        },
+      ],
+    };
+
+    const next = applyBacktestPortfolioActionsToPositions(
+      previous,
+      [
+        {
+          ticker: "600519.SH",
+          action: "SELL",
+          target_weight: 0,
+          delta_weight: -0.1,
+          holding_period: "1M",
+          dissent_notes: "",
+        },
+      ],
+      "2024-06-24",
+      {
+        executionByTicker: {
+          "600519.SH": { status: "partial", fill_ratio: 0.5 },
+        },
+      },
+    );
+
+    expect(next.positions[0]).toMatchObject({
+      ticker: "600519.SH",
+      current_weight: 0.05,
+      residual_drift_pct: -0.05,
+      holding_days: 11,
+    });
+    expect(next.closed_positions).toBeUndefined();
+  });
+
   it("carries target positions across a 10-day replay loop", () => {
     const actions: PortfolioAction[] = [
       {
@@ -239,8 +290,142 @@ describe("paper target-delta execution", () => {
     expect(api.paperBuy).toHaveBeenCalledWith(
       expect.objectContaining({ ticker: "600519.SH", quantity: 100, analysis_id: "trace-1" }),
     );
+    expect(api.paperBuy).toHaveBeenCalledWith(
+      expect.not.objectContaining({ order_intent_key: expect.anything() }),
+    );
     expect(api.paperSell).not.toHaveBeenCalled();
     expect(result[0]?.suggested_order?.quantity).toBe(100);
+  });
+
+  it("binds order intents to the frozen target and rejects a stale account snapshot", async () => {
+    const baseHash = `sha256:${"1".repeat(64)}`;
+    const changedHash = `sha256:${"2".repeat(64)}`;
+    const finalTargetHash = `sha256:${"3".repeat(64)}`;
+    const account = {
+      user_id: "default",
+      cash: 1_000_000,
+      market_value: 0,
+      total_assets: 1_000_000,
+      realized_pnl: 0,
+      unrealized_pnl: 0,
+      total_commission: 0,
+      updated_at: "2024-06-24T00:00:00Z",
+    };
+    const staleApi = {
+      paperGetPortfolioSnapshot: vi.fn().mockResolvedValue({
+        account,
+        positions: [],
+        snapshot_hash: changedHash,
+      }),
+      paperSuggestOrderFromSignal: vi.fn(),
+      paperBuy: vi.fn(),
+      paperSell: vi.fn(),
+    };
+
+    const stale = await submitPaperTargetDeltaOrders(
+      staleApi as unknown as Parameters<typeof submitPaperTargetDeltaOrders>[0],
+      [
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          current_weight: 0.05,
+          target_weight: 0.08,
+          delta_weight: 0.03,
+          holding_period: "6M",
+          dissent_notes: "",
+        },
+      ],
+      {
+        runId: "run-1",
+        finalTargetHash,
+        expectedAccountSnapshotHash: baseHash,
+      },
+    );
+
+    expect(stale[0]).toMatchObject({
+      skipped_reason: "STALE_FINAL_TARGET",
+      residual_drift_weight: 0.03,
+      submitted_order: null,
+    });
+    expect(staleApi.paperSuggestOrderFromSignal).not.toHaveBeenCalled();
+  });
+
+  it("submits a hash-bound intent and reports post-fill residual drift", async () => {
+    const baseHash = `sha256:${"1".repeat(64)}`;
+    const postHash = `sha256:${"2".repeat(64)}`;
+    const finalTargetHash = `sha256:${"3".repeat(64)}`;
+    const account = {
+      user_id: "default",
+      cash: 920_000,
+      market_value: 80_000,
+      total_assets: 1_000_000,
+      realized_pnl: 0,
+      unrealized_pnl: 0,
+      total_commission: 0,
+      updated_at: "2024-06-24T00:00:00Z",
+    };
+    const api = {
+      paperGetPortfolioSnapshot: vi
+        .fn()
+        .mockResolvedValueOnce({
+          account: { ...account, cash: 1_000_000 },
+          positions: [],
+          snapshot_hash: baseHash,
+        })
+        .mockResolvedValueOnce({
+          account,
+          positions: [{ ticker: "600519.SH", market_value: 75_000 }],
+          snapshot_hash: postHash,
+        }),
+      paperSuggestOrderFromSignal: vi.fn().mockResolvedValue({
+        ticker: "600519.SH",
+        side: "buy",
+        quantity: 100,
+        price: 750,
+        target_weight_pct: 8,
+        rating: "BUY",
+      }),
+      paperBuy: vi.fn().mockResolvedValue({
+        ticker: "600519.SH",
+        side: "buy",
+        quantity: 100,
+        price: 750,
+        amount: 75_000,
+        commission: 22.5,
+        fill_status: "filled",
+      }),
+      paperSell: vi.fn(),
+    };
+
+    const result = await submitPaperTargetDeltaOrders(
+      api as unknown as Parameters<typeof submitPaperTargetDeltaOrders>[0],
+      [
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          current_weight: 0.05,
+          target_weight: 0.08,
+          delta_weight: 0.03,
+          holding_period: "6M",
+          dissent_notes: "",
+        },
+      ],
+      {
+        runId: "run-1",
+        finalTargetHash,
+        expectedAccountSnapshotHash: baseHash,
+      },
+    );
+
+    expect(api.paperBuy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expected_account_snapshot_hash: baseHash,
+        final_target_hash: finalTargetHash,
+        order_intent_key: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      }),
+    );
+    expect(result[0]?.post_submit_snapshot_hash).toBe(postHash);
+    expect(result[0]?.residual_drift_weight).toBeCloseTo(0.005);
   });
 });
 

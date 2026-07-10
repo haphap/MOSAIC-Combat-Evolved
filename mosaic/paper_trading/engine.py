@@ -9,6 +9,7 @@ with the ``mosaic.backtest.signals`` port.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import os
@@ -144,41 +145,24 @@ class PaperTradingEngine:
     # ---------------------------------------------------------------- account
 
     def get_account(self, user_id: str | None = None) -> dict:
+        return self.get_portfolio_snapshot(user_id=user_id)["account"]
+
+    def get_portfolio_snapshot(self, user_id: str | None = None) -> dict:
+        """Return one hash-bound account/position snapshot for order CAS checks."""
         uid = self._require_user(user_id)
+        self._update_day_barrier(uid)
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT cash, realized_pnl, total_commission, updated_at "
-                "FROM account WHERE user_id = ?",
-                (uid,),
-            ).fetchone()
-            if row is None:
-                user = conn.execute(
-                    "SELECT username FROM users WHERE username = ?",
-                    (uid,),
-                ).fetchone()
-                if user is None:
-                    raise RuntimeError(f"Account not found for user '{uid}'. Register first.")
-                conn.execute(
-                    "INSERT OR IGNORE INTO account (user_id) VALUES (?)",
-                    (uid,),
-                )
-                row = conn.execute(
-                    "SELECT cash, realized_pnl, total_commission, updated_at "
-                    "FROM account WHERE user_id = ?",
-                    (uid,),
-                ).fetchone()
-                if row is None:
-                    raise RuntimeError(
-                        f"Account not found for user '{uid}'. Register first."
-                    )
+            conn.execute("BEGIN")
+            row, position_rows = self._portfolio_state_rows(conn, uid)
+            snapshot_hash = self._portfolio_state_hash(uid, row, position_rows)
+        positions = self._render_positions(position_rows)
         cash = row["cash"]
         realized_pnl = row["realized_pnl"]
         total_commission = row["total_commission"]
         updated_at = row["updated_at"]
-        positions = self.get_positions(user_id=uid)
         market_value = sum(p["market_value"] for p in positions)
         unrealized_pnl = sum(p["unrealized_pnl"] for p in positions)
-        return {
+        account = {
             "cash": cash,
             "realized_pnl": realized_pnl,
             "total_commission": total_commission,
@@ -187,6 +171,11 @@ class PaperTradingEngine:
             "unrealized_pnl": unrealized_pnl,
             "updated_at": updated_at,
             "user_id": uid,
+        }
+        return {
+            "account": account,
+            "positions": positions,
+            "snapshot_hash": snapshot_hash,
         }
 
     def reset_account(self, user_id: str | None = None,
@@ -210,27 +199,60 @@ class PaperTradingEngine:
 
     # ------------------------------------------------------------------ trade
 
-    def buy(self, ticker: str, quantity: int, user_id: str | None = None,
-            analysis_id: str | None = None) -> dict:
+    def buy(
+        self,
+        ticker: str,
+        quantity: int,
+        user_id: str | None = None,
+        analysis_id: str | None = None,
+        order_intent_key: str | None = None,
+        expected_account_snapshot_hash: str | None = None,
+        final_target_hash: str | None = None,
+    ) -> dict:
         uid = self._require_user(user_id)
         validate_quantity(quantity)
-        self._update_day_barrier(uid)
+        replay = self._existing_order_intent(
+            uid,
+            order_intent_key,
+            ticker=ticker,
+            side="buy",
+            final_target_hash=final_target_hash,
+        )
+        if replay is not None:
+            return replay
         price = self._get_current_price(ticker)
+        name = self._auto_fill_name(ticker)
         amount = price * quantity
         commission = calc_commission(amount)
         total_cost = amount + commission
 
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing_intent = self._existing_order_intent(
+                uid,
+                order_intent_key,
+                conn=conn,
+                ticker=ticker,
+                side="buy",
+                final_target_hash=final_target_hash,
+            )
+            if existing_intent is not None:
+                return existing_intent
+            self._update_day_barrier(uid, conn=conn)
+            self._assert_account_snapshot(
+                uid, expected_account_snapshot_hash, conn=conn
+            )
             account = conn.execute(
                 "SELECT cash FROM account WHERE user_id = ?", (uid,)
             ).fetchone()
             if account is None:
-                raise RuntimeError(f"Account not found for user '{uid}'. Register first.")
+                raise RuntimeError(
+                    f"Account not found for user '{uid}'. Register first."
+                )
             if account["cash"] < total_cost:
                 raise ValueError(
                     f"Insufficient cash: need {total_cost:.2f}, have {account['cash']:.2f}"
                 )
-            name = self._auto_fill_name(ticker)
             # Update or insert position
             existing = conn.execute(
                 "SELECT quantity, avg_cost FROM positions WHERE user_id = ? AND ticker = ?",
@@ -262,8 +284,23 @@ class PaperTradingEngine:
             # Record trade
             conn.execute(
                 "INSERT INTO trades (user_id, ticker, name, side, quantity, price, amount, "
-                "commission, analysis_id) VALUES (?, ?, ?, 'buy', ?, ?, ?, ?, ?)",
-                (uid, ticker, name, quantity, price, amount, commission, analysis_id),
+                "commission, analysis_id, order_intent_key, final_target_hash, "
+                "base_account_snapshot_hash, fill_status, filled_quantity, residual_quantity) "
+                "VALUES (?, ?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?, ?, 'filled', ?, 0)",
+                (
+                    uid,
+                    ticker,
+                    name,
+                    quantity,
+                    price,
+                    amount,
+                    commission,
+                    analysis_id,
+                    order_intent_key,
+                    final_target_hash,
+                    expected_account_snapshot_hash,
+                    quantity,
+                ),
             )
         logger.info(
             "%s bought %d x %s @ %.4f (total: %.2f, commission: %.2f)",
@@ -277,18 +314,56 @@ class PaperTradingEngine:
             "amount": amount,
             "commission": commission,
             "total_cost": total_cost,
+            "order_intent_key": order_intent_key,
+            "final_target_hash": final_target_hash,
+            "base_account_snapshot_hash": expected_account_snapshot_hash,
+            "fill_status": "filled",
+            "filled_quantity": quantity,
+            "residual_quantity": 0,
+            "idempotent_replay": False,
         }
 
-    def sell(self, ticker: str, quantity: int, user_id: str | None = None,
-             analysis_id: str | None = None) -> dict:
+    def sell(
+        self,
+        ticker: str,
+        quantity: int,
+        user_id: str | None = None,
+        analysis_id: str | None = None,
+        order_intent_key: str | None = None,
+        expected_account_snapshot_hash: str | None = None,
+        final_target_hash: str | None = None,
+    ) -> dict:
         uid = self._require_user(user_id)
         validate_quantity(quantity)
-        self._update_day_barrier(uid)
+        replay = self._existing_order_intent(
+            uid,
+            order_intent_key,
+            ticker=ticker,
+            side="sell",
+            final_target_hash=final_target_hash,
+        )
+        if replay is not None:
+            return replay
         price = self._get_current_price(ticker)
         amount = price * quantity
         commission = calc_commission(amount)
 
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing_intent = self._existing_order_intent(
+                uid,
+                order_intent_key,
+                conn=conn,
+                ticker=ticker,
+                side="sell",
+                final_target_hash=final_target_hash,
+            )
+            if existing_intent is not None:
+                return existing_intent
+            self._update_day_barrier(uid, conn=conn)
+            self._assert_account_snapshot(
+                uid, expected_account_snapshot_hash, conn=conn
+            )
             position = conn.execute(
                 "SELECT name, quantity, available_qty, avg_cost "
                 "FROM positions WHERE user_id = ? AND ticker = ?",
@@ -302,7 +377,7 @@ class PaperTradingEngine:
                     f"need {quantity}, have {position['available_qty']} "
                     f"(T+1: {position['quantity'] - position['available_qty']} unavailable)"
                 )
-            name = position["name"] or self._auto_fill_name(ticker)
+            name = position["name"] or ticker
             avg_cost = position["avg_cost"]
             pnl = (price - avg_cost) * quantity - commission
             new_qty = position["quantity"] - quantity
@@ -327,8 +402,24 @@ class PaperTradingEngine:
             )
             conn.execute(
                 "INSERT INTO trades (user_id, ticker, name, side, quantity, price, amount, "
-                "commission, pnl, analysis_id) VALUES (?, ?, ?, 'sell', ?, ?, ?, ?, ?, ?)",
-                (uid, ticker, name, quantity, price, amount, commission, round(pnl, 2), analysis_id),
+                "commission, pnl, analysis_id, order_intent_key, final_target_hash, "
+                "base_account_snapshot_hash, fill_status, filled_quantity, residual_quantity) "
+                "VALUES (?, ?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'filled', ?, 0)",
+                (
+                    uid,
+                    ticker,
+                    name,
+                    quantity,
+                    price,
+                    amount,
+                    commission,
+                    round(pnl, 2),
+                    analysis_id,
+                    order_intent_key,
+                    final_target_hash,
+                    expected_account_snapshot_hash,
+                    quantity,
+                ),
             )
         logger.info(
             "%s sold %d x %s @ %.4f (amount: %.2f, commission: %.2f, PnL: %.2f)",
@@ -342,7 +433,130 @@ class PaperTradingEngine:
             "amount": amount,
             "commission": commission,
             "pnl": round(pnl, 2),
+            "order_intent_key": order_intent_key,
+            "final_target_hash": final_target_hash,
+            "base_account_snapshot_hash": expected_account_snapshot_hash,
+            "fill_status": "filled",
+            "filled_quantity": quantity,
+            "residual_quantity": 0,
+            "idempotent_replay": False,
         }
+
+    def _existing_order_intent(
+        self,
+        user_id: str,
+        order_intent_key: str | None,
+        *,
+        conn: sqlite3.Connection | None = None,
+        ticker: str | None = None,
+        side: str | None = None,
+        final_target_hash: str | None = None,
+    ) -> dict | None:
+        if not order_intent_key:
+            return None
+        if conn is None:
+            with self._connect() as local_conn:
+                return self._existing_order_intent(
+                    user_id,
+                    order_intent_key,
+                    conn=local_conn,
+                    ticker=ticker,
+                    side=side,
+                    final_target_hash=final_target_hash,
+                )
+        row = conn.execute(
+            "SELECT ticker, side, quantity, price, amount, commission, pnl, "
+            "order_intent_key, final_target_hash, base_account_snapshot_hash, "
+            "fill_status, filled_quantity, residual_quantity FROM trades "
+            "WHERE user_id = ? AND order_intent_key = ?",
+            (user_id, order_intent_key),
+        ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        if (
+            (ticker is not None and result["ticker"] != ticker)
+            or (side is not None and result["side"] != side)
+            or result["final_target_hash"] != final_target_hash
+        ):
+            raise ValueError(
+                "IDEMPOTENCY_KEY_CONFLICT: order intent is already bound to a "
+                "different target"
+            )
+        result["idempotent_replay"] = True
+        if result["side"] == "buy":
+            result["total_cost"] = result["amount"] + result["commission"]
+        return result
+
+    def _assert_account_snapshot(
+        self,
+        user_id: str,
+        expected_account_snapshot_hash: str | None,
+        *,
+        conn: sqlite3.Connection,
+    ) -> None:
+        if not expected_account_snapshot_hash:
+            return
+        account_row, position_rows = self._portfolio_state_rows(conn, user_id)
+        actual = self._portfolio_state_hash(user_id, account_row, position_rows)
+        if actual != expected_account_snapshot_hash:
+            raise ValueError(
+                "STALE_FINAL_TARGET: paper account snapshot changed before order submit"
+            )
+
+    @staticmethod
+    def _portfolio_state_rows(
+        conn: sqlite3.Connection, user_id: str
+    ) -> tuple[sqlite3.Row, list[sqlite3.Row]]:
+        account_row = conn.execute(
+            "SELECT cash, realized_pnl, total_commission, updated_at, last_unlock_date "
+            "FROM account WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if account_row is None:
+            raise RuntimeError(
+                f"Account not found for user '{user_id}'. Register first."
+            )
+        position_rows = conn.execute(
+            "SELECT ticker, name, quantity, available_qty, avg_cost, updated_at "
+            "FROM positions WHERE user_id = ? AND quantity > 0 ORDER BY ticker",
+            (user_id,),
+        ).fetchall()
+        return account_row, position_rows
+
+    @staticmethod
+    def _portfolio_state_hash(
+        user_id: str,
+        account_row: sqlite3.Row,
+        position_rows: list[sqlite3.Row],
+    ) -> str:
+        payload = {
+            "schema_version": "paper_portfolio_state_v1",
+            "user_id": user_id,
+            "account": {
+                "cash": account_row["cash"],
+                "realized_pnl": account_row["realized_pnl"],
+                "total_commission": account_row["total_commission"],
+                "last_unlock_date": account_row["last_unlock_date"],
+            },
+            "positions": [
+                {
+                    "ticker": row["ticker"],
+                    "quantity": row["quantity"],
+                    "available_qty": row["available_qty"],
+                    "avg_cost": row["avg_cost"],
+                }
+                for row in position_rows
+            ],
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
     # ---------------------------------------------------------------- queries
 
@@ -355,6 +569,9 @@ class PaperTradingEngine:
                 "FROM positions WHERE user_id = ? AND quantity > 0 ORDER BY ticker",
                 (uid,),
             ).fetchall()
+        return self._render_positions(rows)
+
+    def _render_positions(self, rows: list[sqlite3.Row]) -> list[dict]:
         results: list[dict] = []
         for r in rows:
             try:
@@ -386,7 +603,9 @@ class PaperTradingEngine:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, user_id, ticker, name, side, quantity, price, amount, "
-                "commission, pnl, analysis_id, created_at "
+                "commission, pnl, analysis_id, order_intent_key, final_target_hash, "
+                "base_account_snapshot_hash, fill_status, filled_quantity, "
+                "residual_quantity, created_at "
                 "FROM trades WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
                 (uid, limit),
             ).fetchall()
@@ -491,27 +710,32 @@ class PaperTradingEngine:
             raise RuntimeError(f"Could not parse close price for {ticker}")
         return close
 
-    def _update_day_barrier(self, user_id: str) -> None:
+    def _update_day_barrier(
+        self, user_id: str, *, conn: sqlite3.Connection | None = None
+    ) -> None:
         # Persists the last unlock date in account.last_unlock_date.
         # On a new calendar day, all positions unlock (available_qty = quantity).
         # Same-day process restarts will NOT re-unlock because the DB date
         # matches today — preserving the T+1 guarantee across restarts.
         today = date.today().isoformat()
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT last_unlock_date FROM account WHERE user_id = ?",
-                (user_id,),
-            ).fetchone()
-            if row and row["last_unlock_date"] == today:
-                return
-            conn.execute(
-                "UPDATE positions SET available_qty = quantity WHERE user_id = ?",
-                (user_id,),
-            )
-            conn.execute(
-                "UPDATE account SET last_unlock_date = ? WHERE user_id = ?",
-                (today, user_id),
-            )
+        if conn is None:
+            with self._connect() as local_conn:
+                self._update_day_barrier(user_id, conn=local_conn)
+            return
+        row = conn.execute(
+            "SELECT last_unlock_date FROM account WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row and row["last_unlock_date"] == today:
+            return
+        conn.execute(
+            "UPDATE positions SET available_qty = quantity WHERE user_id = ?",
+            (user_id,),
+        )
+        conn.execute(
+            "UPDATE account SET last_unlock_date = ? WHERE user_id = ?",
+            (today, user_id),
+        )
 
     def _auto_fill_name(self, ticker: str) -> str:
         try:
@@ -582,6 +806,12 @@ class PaperTradingEngine:
                     commission      REAL    NOT NULL DEFAULT 0.0,
                     pnl             REAL    DEFAULT NULL,
                     analysis_id     TEXT    DEFAULT NULL,
+                    order_intent_key TEXT   DEFAULT NULL,
+                    final_target_hash TEXT  DEFAULT NULL,
+                    base_account_snapshot_hash TEXT DEFAULT NULL,
+                    fill_status     TEXT    NOT NULL DEFAULT 'filled',
+                    filled_quantity INTEGER NOT NULL DEFAULT 0,
+                    residual_quantity INTEGER NOT NULL DEFAULT 0,
                     created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
                 );
 
@@ -596,6 +826,23 @@ class PaperTradingEngine:
                 )
             except sqlite3.OperationalError:
                 pass
+            for column, ddl in (
+                ("order_intent_key", "TEXT DEFAULT NULL"),
+                ("final_target_hash", "TEXT DEFAULT NULL"),
+                ("base_account_snapshot_hash", "TEXT DEFAULT NULL"),
+                ("fill_status", "TEXT NOT NULL DEFAULT 'filled'"),
+                ("filled_quantity", "INTEGER NOT NULL DEFAULT 0"),
+                ("residual_quantity", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                try:
+                    conn.execute(f"ALTER TABLE trades ADD COLUMN {column} {ddl}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_order_intent "
+                "ON trades(user_id, order_intent_key) "
+                "WHERE order_intent_key IS NOT NULL"
+            )
             conn.execute(
                 "INSERT OR IGNORE INTO account (user_id) VALUES ('default')"
             )

@@ -185,6 +185,12 @@ export interface PaperTrade {
   commission: number;
   pnl: number | null;
   analysis_id: string | null;
+  order_intent_key: string | null;
+  final_target_hash: string | null;
+  base_account_snapshot_hash: string | null;
+  fill_status: "filled" | "partial" | "rejected";
+  filled_quantity: number;
+  residual_quantity: number;
   created_at: string;
 }
 
@@ -197,6 +203,19 @@ export interface PaperOrderResult {
   commission: number;
   total_cost?: number;
   pnl?: number;
+  order_intent_key?: string | null;
+  final_target_hash?: string | null;
+  base_account_snapshot_hash?: string | null;
+  fill_status?: "filled" | "partial" | "rejected";
+  filled_quantity?: number;
+  residual_quantity?: number;
+  idempotent_replay?: boolean;
+}
+
+export interface PaperPortfolioSnapshot {
+  account: PaperAccount;
+  positions: PaperPosition[];
+  snapshot_hash: string;
 }
 
 export interface PaperSuggestion {
@@ -1561,6 +1580,12 @@ export class BridgeApi {
     return this.client.call<PaperAccount>("paper.get_account", opts);
   }
 
+  paperGetPortfolioSnapshot(
+    opts: { user_id?: string; db_path?: string } = {},
+  ): Promise<PaperPortfolioSnapshot> {
+    return this.client.call<PaperPortfolioSnapshot>("paper.get_portfolio_snapshot", opts);
+  }
+
   paperGetPositions(opts: { user_id?: string; db_path?: string } = {}): Promise<PaperPosition[]> {
     return this.client.call<PaperPosition[]>("paper.get_positions", opts);
   }
@@ -1600,6 +1625,9 @@ export class BridgeApi {
     quantity: number;
     user_id?: string;
     analysis_id?: string;
+    order_intent_key?: string;
+    expected_account_snapshot_hash?: string;
+    final_target_hash?: string;
     db_path?: string;
   }): Promise<PaperOrderResult> {
     return this.client.call<PaperOrderResult>("paper.buy", params);
@@ -1610,6 +1638,9 @@ export class BridgeApi {
     quantity: number;
     user_id?: string;
     analysis_id?: string;
+    order_intent_key?: string;
+    expected_account_snapshot_hash?: string;
+    final_target_hash?: string;
     db_path?: string;
   }): Promise<PaperOrderResult> {
     return this.client.call<PaperOrderResult>("paper.sell", params);

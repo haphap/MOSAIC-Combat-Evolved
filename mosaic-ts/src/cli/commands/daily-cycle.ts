@@ -39,9 +39,7 @@ import type {
 import {
   BridgeApi,
   BridgeClient,
-  type PaperAccount,
   type PaperOrderResult,
-  type PaperPosition,
   type PaperSuggestion,
   RpcError,
 } from "../../bridge/index.js";
@@ -71,9 +69,17 @@ interface DailyCycleOptions {
 
 export interface PaperDeltaExecution {
   ticker: string;
+  current_weight: number;
   target_weight: number;
+  required_delta_weight: number;
+  residual_drift_weight: number;
+  order_intent_key: string | null;
   suggested_order: PaperSuggestion | null;
   submitted_order: PaperOrderResult | null;
+  final_target_hash?: string;
+  final_target_position_snapshot_hash?: string;
+  base_account_snapshot_hash?: string;
+  post_submit_snapshot_hash?: string;
   skipped_reason?: string;
 }
 
@@ -192,22 +198,33 @@ export function registerDailyCycle(program: Command): void {
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
         if (opts.paperExecuteDeltas) {
+          const finalTarget = final.layer4_outputs.runtime?.final_target_state;
+          if (!finalTarget) throw new Error("paper execution requires frozen final_target_state");
           const execution = await submitPaperTargetDeltaOrders(api, final.portfolio_actions, {
             analysisId: final.trace_id,
             tradeDate: final.as_of_date,
+            runId: finalTarget.run_id,
+            finalTargetHash: finalTarget.final_target_hash,
+            expectedAccountSnapshotHash: finalTarget.position_snapshot_hash,
           });
           console.log(pc.cyan("\n=== paper execution deltas ==="));
           for (const row of execution) {
             if (!row.suggested_order) {
               console.log(
-                pc.dim(
-                  `  ${row.ticker} target=${(row.target_weight * 100).toFixed(2)}% ${row.skipped_reason ?? "no delta order"}`,
+                (row.skipped_reason === "STALE_FINAL_TARGET" ? pc.red : pc.dim)(
+                  `  ${row.ticker} current=${(row.current_weight * 100).toFixed(2)}% ` +
+                    `target=${(row.target_weight * 100).toFixed(2)}% ` +
+                    `residual=${(row.residual_drift_weight * 100).toFixed(2)}% ` +
+                    `${row.skipped_reason ?? "no delta order"}`,
                 ),
               );
             } else {
               console.log(
                 `  ${row.suggested_order.side} ${row.suggested_order.quantity} ${row.ticker} ` +
-                  `target=${(row.target_weight * 100).toFixed(2)}%`,
+                  `current=${(row.current_weight * 100).toFixed(2)}% ` +
+                  `target=${(row.target_weight * 100).toFixed(2)}% ` +
+                  `delta=${(row.required_delta_weight * 100).toFixed(2)}% ` +
+                  `residual=${(row.residual_drift_weight * 100).toFixed(2)}%`,
               );
             }
           }
@@ -430,15 +447,16 @@ export function loadCurrentPositionsFixture(
 
 async function loadPaperCurrentPositions(api: BridgeApi): Promise<CurrentPositionsSnapshot> {
   try {
-    const [account, positions] = await Promise.all([
-      api.paperGetAccount(),
-      api.paperGetPositions(),
-    ]);
+    const {
+      account,
+      positions,
+      snapshot_hash: snapshotHash,
+    } = await api.paperGetPortfolioSnapshot();
     if (positions.length === 0) {
       return {
         ...emptyCurrentPositions(),
         position_source: "paper_account",
-        position_snapshot_hash: paperPositionHash(account, positions),
+        position_snapshot_hash: snapshotHash,
       };
     }
     const totalAssets =
@@ -449,7 +467,7 @@ async function loadPaperCurrentPositions(api: BridgeApi): Promise<CurrentPositio
       snapshot_status: "loaded",
       position_source: "paper_account",
       source_error_code: null,
-      position_snapshot_hash: paperPositionHash(account, positions),
+      position_snapshot_hash: snapshotHash,
       positions: positions.map((position) => ({
         ticker: position.ticker,
         current_weight: totalAssets > 0 ? position.market_value / totalAssets : 0,
@@ -472,19 +490,6 @@ async function loadPaperCurrentPositions(api: BridgeApi): Promise<CurrentPositio
       positions: [],
     };
   }
-}
-
-function paperPositionHash(account: PaperAccount, positions: ReadonlyArray<PaperPosition>): string {
-  const payload = JSON.stringify({
-    total_assets: account.total_assets,
-    positions: positions.map((position) => ({
-      ticker: position.ticker,
-      quantity: position.quantity,
-      market_value: position.market_value,
-      updated_at: position.updated_at,
-    })),
-  });
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
 }
 
 function currentPositionFixtureHash(positions: ReadonlyArray<CurrentPosition>): string {
@@ -606,12 +611,79 @@ function positionAuditFromSnapshot(snapshot: CurrentPositionsSnapshot): Position
 }
 
 export async function submitPaperTargetDeltaOrders(
-  api: Pick<BridgeApi, "paperSuggestOrderFromSignal" | "paperBuy" | "paperSell">,
+  api: Pick<BridgeApi, "paperSuggestOrderFromSignal" | "paperBuy" | "paperSell"> &
+    Partial<Pick<BridgeApi, "paperGetPortfolioSnapshot">>,
   actions: ReadonlyArray<PortfolioAction>,
-  opts: { userId?: string; dbPath?: string; analysisId?: string; tradeDate?: string } = {},
+  opts: {
+    userId?: string;
+    dbPath?: string;
+    analysisId?: string;
+    tradeDate?: string;
+    runId?: string;
+    finalTargetHash?: string;
+    expectedAccountSnapshotHash?: string | null;
+  } = {},
 ): Promise<PaperDeltaExecution[]> {
   const results: PaperDeltaExecution[] = [];
-  for (const action of actions) {
+  const skippedRow = (
+    action: PortfolioAction,
+    reason: string,
+    extra: Partial<PaperDeltaExecution> = {},
+  ): PaperDeltaExecution => {
+    const currentWeight =
+      action.current_weight ?? action.target_weight - (action.delta_weight ?? 0);
+    const requiredDelta = action.target_weight - currentWeight;
+    return {
+      ticker: action.ticker,
+      current_weight: currentWeight,
+      target_weight: action.target_weight,
+      required_delta_weight: requiredDelta,
+      residual_drift_weight: requiredDelta,
+      order_intent_key: null,
+      suggested_order: null,
+      submitted_order: null,
+      ...(opts.finalTargetHash ? { final_target_hash: opts.finalTargetHash } : {}),
+      ...(opts.expectedAccountSnapshotHash
+        ? { final_target_position_snapshot_hash: opts.expectedAccountSnapshotHash }
+        : {}),
+      skipped_reason: reason,
+      ...extra,
+    };
+  };
+  let accountSnapshotHash = opts.expectedAccountSnapshotHash ?? null;
+  if (opts.finalTargetHash) {
+    if (
+      !opts.runId ||
+      !accountSnapshotHash ||
+      typeof api.paperGetPortfolioSnapshot !== "function"
+    ) {
+      return actions.map((action) => skippedRow(action, "STALE_FINAL_TARGET"));
+    }
+    const finalTargetPositionSnapshotHash = accountSnapshotHash;
+    let current: Awaited<ReturnType<NonNullable<typeof api.paperGetPortfolioSnapshot>>>;
+    try {
+      current = await api.paperGetPortfolioSnapshot({
+        ...(opts.userId ? { user_id: opts.userId } : {}),
+        ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
+      });
+    } catch {
+      return actions.map((action) => skippedRow(action, "STALE_FINAL_TARGET"));
+    }
+    if (current.snapshot_hash !== finalTargetPositionSnapshotHash) {
+      return actions.map((action) =>
+        skippedRow(action, "STALE_FINAL_TARGET", {
+          base_account_snapshot_hash: finalTargetPositionSnapshotHash,
+          post_submit_snapshot_hash: current.snapshot_hash,
+        }),
+      );
+    }
+  }
+  for (let actionIndex = 0; actionIndex < actions.length; actionIndex += 1) {
+    const action = actions[actionIndex];
+    if (!action) continue;
+    const currentWeight =
+      action.current_weight ?? action.target_weight - (action.delta_weight ?? 0);
+    const requiredDelta = action.target_weight - currentWeight;
     const targetWeightPct = action.target_weight * 100;
     const signalState = {
       backtest_signal: {
@@ -626,39 +698,142 @@ export async function submitPaperTargetDeltaOrders(
         weight_source: "target_portfolio_weight",
       },
     };
-    const suggested = await api.paperSuggestOrderFromSignal({
-      ticker: action.ticker,
-      state: signalState,
-      ...(opts.userId ? { user_id: opts.userId } : {}),
-      ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
-    });
-    if (!suggested) {
-      results.push({
+    let suggested: PaperSuggestion | null;
+    try {
+      suggested = await api.paperSuggestOrderFromSignal({
         ticker: action.ticker,
-        target_weight: action.target_weight,
-        suggested_order: null,
-        submitted_order: null,
-        skipped_reason: "already_at_target_or_below_lot_size",
+        state: signalState,
+        ...(opts.userId ? { user_id: opts.userId } : {}),
+        ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
       });
+    } catch {
+      results.push(skippedRow(action, "ORDER_PLANNING_FAILED"));
       continue;
     }
+    if (!suggested) {
+      results.push(skippedRow(action, "already_at_target_or_below_lot_size"));
+      continue;
+    }
+    const orderIntentKey =
+      opts.runId && opts.finalTargetHash
+        ? sha256Json({
+            run_id: opts.runId,
+            final_target_hash: opts.finalTargetHash,
+            ticker: action.ticker,
+            side: suggested.side,
+          })
+        : null;
+    const orderAccountSnapshotHash = accountSnapshotHash;
     const orderParams = {
       ticker: suggested.ticker,
       quantity: suggested.quantity,
       ...(opts.userId ? { user_id: opts.userId } : {}),
       ...(opts.analysisId ? { analysis_id: opts.analysisId } : {}),
       ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
+      ...(orderIntentKey ? { order_intent_key: orderIntentKey } : {}),
+      ...(accountSnapshotHash ? { expected_account_snapshot_hash: accountSnapshotHash } : {}),
+      ...(opts.finalTargetHash ? { final_target_hash: opts.finalTargetHash } : {}),
     };
-    const submitted =
-      suggested.side === "buy" ? await api.paperBuy(orderParams) : await api.paperSell(orderParams);
+    let submitted: PaperOrderResult;
+    try {
+      submitted =
+        suggested.side === "buy"
+          ? await api.paperBuy(orderParams)
+          : await api.paperSell(orderParams);
+    } catch (error) {
+      const stale = (error as Error).message.includes("STALE_FINAL_TARGET");
+      results.push({
+        ticker: action.ticker,
+        current_weight: currentWeight,
+        target_weight: action.target_weight,
+        required_delta_weight: requiredDelta,
+        residual_drift_weight: requiredDelta,
+        order_intent_key: orderIntentKey,
+        suggested_order: suggested,
+        submitted_order: null,
+        ...(opts.finalTargetHash ? { final_target_hash: opts.finalTargetHash } : {}),
+        ...(opts.expectedAccountSnapshotHash
+          ? { final_target_position_snapshot_hash: opts.expectedAccountSnapshotHash }
+          : {}),
+        ...(orderAccountSnapshotHash
+          ? { base_account_snapshot_hash: orderAccountSnapshotHash }
+          : {}),
+        skipped_reason: stale ? "STALE_FINAL_TARGET" : "ORDER_REJECTED",
+      });
+      if (stale) {
+        results.push(
+          ...actions
+            .slice(actionIndex + 1)
+            .map((remaining) => skippedRow(remaining, "STALE_FINAL_TARGET")),
+        );
+        break;
+      }
+      continue;
+    }
+
+    const filledRatio =
+      submitted.fill_status === "rejected"
+        ? 0
+        : submitted.quantity > 0 && submitted.filled_quantity !== undefined
+          ? Math.min(1, Math.max(0, submitted.filled_quantity / submitted.quantity))
+          : 1;
+    let residualDriftWeight = requiredDelta * (1 - filledRatio);
+    let postSubmitSnapshotHash: string | undefined;
+    if (opts.finalTargetHash && typeof api.paperGetPortfolioSnapshot === "function") {
+      try {
+        const postSubmit = await api.paperGetPortfolioSnapshot({
+          ...(opts.userId ? { user_id: opts.userId } : {}),
+          ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
+        });
+        accountSnapshotHash = postSubmit.snapshot_hash;
+        postSubmitSnapshotHash = postSubmit.snapshot_hash;
+        const position = postSubmit.positions.find((item) => item.ticker === action.ticker);
+        const actualWeight =
+          position && postSubmit.account.total_assets > 0
+            ? position.market_value / postSubmit.account.total_assets
+            : 0;
+        residualDriftWeight = action.target_weight - actualWeight;
+      } catch {
+        results.push({
+          ...skippedRow(action, "POST_SUBMIT_SNAPSHOT_UNAVAILABLE"),
+          order_intent_key: orderIntentKey,
+          suggested_order: suggested,
+          submitted_order: submitted,
+          residual_drift_weight: residualDriftWeight,
+          ...(orderAccountSnapshotHash
+            ? { base_account_snapshot_hash: orderAccountSnapshotHash }
+            : {}),
+        });
+        results.push(
+          ...actions
+            .slice(actionIndex + 1)
+            .map((remaining) => skippedRow(remaining, "POST_SUBMIT_SNAPSHOT_UNAVAILABLE")),
+        );
+        break;
+      }
+    }
     results.push({
       ticker: action.ticker,
+      current_weight: currentWeight,
       target_weight: action.target_weight,
+      required_delta_weight: requiredDelta,
+      residual_drift_weight: residualDriftWeight,
+      order_intent_key: orderIntentKey,
       suggested_order: suggested,
       submitted_order: submitted,
+      ...(opts.finalTargetHash ? { final_target_hash: opts.finalTargetHash } : {}),
+      ...(opts.expectedAccountSnapshotHash
+        ? { final_target_position_snapshot_hash: opts.expectedAccountSnapshotHash }
+        : {}),
+      ...(orderAccountSnapshotHash ? { base_account_snapshot_hash: orderAccountSnapshotHash } : {}),
+      ...(postSubmitSnapshotHash ? { post_submit_snapshot_hash: postSubmitSnapshotHash } : {}),
     });
   }
   return results;
+}
+
+function sha256Json(value: unknown): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 }
 
 // ---------------------------------------------------------------------------

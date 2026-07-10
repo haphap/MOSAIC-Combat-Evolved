@@ -67,6 +67,81 @@ class TestPaperEngine(unittest.TestCase):
         pos = self.e.get_positions("alice")
         self.assertEqual((pos[0]["ticker"], pos[0]["quantity"]), ("510300.SH", 1000))
 
+    def test_order_intent_is_idempotent_and_account_hash_is_compare_and_swap(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        snapshot = self.e.get_portfolio_snapshot("alice")
+        intent = f"sha256:{'1' * 64}"
+        final_target = f"sha256:{'2' * 64}"
+
+        first = self.e.buy(
+            "510300.SH",
+            100,
+            user_id="alice",
+            order_intent_key=intent,
+            expected_account_snapshot_hash=snapshot["snapshot_hash"],
+            final_target_hash=final_target,
+        )
+        repeated = self.e.buy(
+            "510300.SH",
+            100,
+            user_id="alice",
+            order_intent_key=intent,
+            expected_account_snapshot_hash=snapshot["snapshot_hash"],
+            final_target_hash=final_target,
+        )
+
+        self.assertFalse(first["idempotent_replay"])
+        self.assertTrue(repeated["idempotent_replay"])
+        self.assertEqual(self.e.get_positions("alice")[0]["quantity"], 100)
+        self.assertEqual(len(self.e.get_trades("alice")), 1)
+        with patch.object(
+            PaperTradingEngine,
+            "_get_current_price",
+            side_effect=RuntimeError("vendor unavailable after fill"),
+        ):
+            replay_after_partial_response = self.e.buy(
+                "510300.SH",
+                100,
+                user_id="alice",
+                order_intent_key=intent,
+                expected_account_snapshot_hash=snapshot["snapshot_hash"],
+                final_target_hash=final_target,
+            )
+        self.assertTrue(replay_after_partial_response["idempotent_replay"])
+        with self.assertRaisesRegex(ValueError, "IDEMPOTENCY_KEY_CONFLICT"):
+            self.e.buy(
+                "510300.SH",
+                100,
+                user_id="alice",
+                order_intent_key=intent,
+                final_target_hash=f"sha256:{'9' * 64}",
+            )
+        with self.assertRaisesRegex(ValueError, "STALE_FINAL_TARGET"):
+            self.e.buy(
+                "159915.SZ",
+                100,
+                user_id="alice",
+                order_intent_key=f"sha256:{'3' * 64}",
+                expected_account_snapshot_hash=snapshot["snapshot_hash"],
+                final_target_hash=final_target,
+            )
+
+    def test_account_snapshot_hash_tracks_persisted_state_not_market_ticks(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.buy("510300.SH", 100, user_id="alice")
+        before = self.e.get_portfolio_snapshot("alice")
+        with patch.object(PaperTradingEngine, "_get_current_price", return_value=11.0):
+            after = self.e.get_portfolio_snapshot("alice")
+
+        self.assertNotEqual(
+            before["positions"][0]["market_value"],
+            after["positions"][0]["market_value"],
+        )
+        self.assertEqual(before["snapshot_hash"], after["snapshot_hash"])
+
     def test_t1_blocks_same_day_sell_then_unlocks(self):
         self.e.register("alice", "pw")
         self.e.login("alice", "pw")
