@@ -5038,9 +5038,40 @@ def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     )
     report_intelligence = registry / "report_intelligence"
     report_intelligence.mkdir()
-    shutil.copy2(
-        Path("registry/report_intelligence/feature_flags.json"),
-        report_intelligence / "feature_flags.json",
+    (report_intelligence / "feature_flags.json").write_text(
+        json.dumps(
+            {
+                "allowed_rollout_modes": [
+                    "off",
+                    "extraction_only",
+                    "shadow_retrieval",
+                    "shadow_tooling",
+                    "paper_trading",
+                    "limited_production",
+                    "production",
+                ],
+                "flags": {
+                    "analytical_footprint_enabled": True,
+                    "method_pattern_registry_enabled": True,
+                    "production_use_of_weighted_reports": False,
+                    "report_weighting_enabled": True,
+                    "shadow_tool_runtime_enabled": True,
+                    "tool_design_loop_enabled": True,
+                    "weighted_research_retriever_enabled": True,
+                },
+                "rollout_mode": "shadow_tooling",
+                "runtime_behavior": (
+                    "shadow retrieval and shadow tooling only; no agent decision impact; "
+                    "no trade without current data confirmation, validated recipes, "
+                    "paper trading gates, and production promotion approval"
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     return registry
 
