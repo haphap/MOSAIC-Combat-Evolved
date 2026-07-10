@@ -36,6 +36,16 @@ metric-to-calculator registry. The bilingual private prompt
 checker validates 25 agents across 26 runtime stages; it does not activate a
 card or a release pointer.
 
+The decision-layer rollout uses one canonical sequence: alpha discovery, CIO
+proposal, frozen candidate target, CRO review, execution feasibility, CIO
+final, and shared validation. Runtime carries the prior accepted final target
+across backtest/shadow cycles, resolves market and liquidity evidence per
+ticker, freezes prompt/source inputs for CIO final, and replaces outputs that
+declare unsupported knob influence with a deterministic conservative fallback.
+The claim/evidence graph validator exists, but the evidence-runtime gate remains
+open until runtime-owned result fingerprints and evidence ids are passed to the
+structured extractor and every recommendation/action has verified claim refs.
+
 ## PRISM — multi-regime training
 
 `mosaic/prism/` trains prompt evolution across **7 market-regime cohorts**, sequentially per cohort with bounded intra-layer concurrency. Cohorts (`prism/cohorts.py`):

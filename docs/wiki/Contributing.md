@@ -20,8 +20,9 @@ CI runs the same in `.github/workflows/ci.yml` (a Python lane + a TS lane). The 
 
 Notes:
 - `ruff` excludes the vendored collectors (`mosaic/dataflows/collectors`) — they're third-party, kept verbatim.
-- On operator checkouts with ignored private `registry/report_intelligence/` artifacts, local `python -m pytest tests/ -q` can be much slower than CI because some RKE tests copy the full local registry. If it stalls, run with `--durations=80 --durations-min=0.1`, check `du -sh registry`, and prefer the CI-style per-file RKE split or targeted tests with `--basetemp .mosaic/tmp/...`.
+- On operator checkouts with ignored private `registry/report_intelligence/` artifacts, profile a slow local `python -m pytest tests/ -q` with `--durations=80 --durations-min=0.1`, check `du -sh registry`, and compare the CI-style per-file RKE split. RKE fixtures must copy only their public manifest closure, never the full operator registry.
 - A July 2026 local profile showed `tests/test_rke_cli.py` was the main drag: one CLI refresh contract test took 274s and several master-plan/promotion/review-progress CLI cases took 22-89s. Those tests now stub unrelated deep refresh/review-progress builders; the file should finish in about 10s locally. Accepted-import tests also stub unrelated downstream report-bundle rewrites; the remaining known local hotspot is `tests/test_rke_operator_handoff.py`, where deep handoff cases still exercise the real manual review progress builder.
+- `tests/test_rke_tushare_reports.py` previously copied a 166 MB private-augmented registry nine times and depended on ignored review files. It now uses public-only registry fixtures plus synthetic review rows; all 27 tests should finish in about 3s and behave identically on a clean checkout.
 - Some tests are guarded by `_HAS_QLIB` / dep-presence and skip cleanly when an optional extra (e.g. `pyqlib`, `bcrypt`, `numpy`) is absent, so the suite runs hermetically.
 - CI also runs the prompt leak guard. It blocks autoresearch/private prompt artifacts in the project repo, but it is provenance-based and does not classify ordinary prompt content.
 - Domain knob catalog changes must keep `projection_bucket` aligned across
@@ -50,6 +51,9 @@ Notes:
   secondary metrics.
 - CIO pre-decision cards must not consume `candidate_target_state`; only
   CRO/execution or downstream validation can depend on CIO's same-run proposal.
+- Layer 4 must preserve the canonical proposal/freeze/CRO/execution/final
+  sequence, carry the prior final target explicitly, and reuse one frozen
+  prompt/source family through CIO final.
 - `conflicting_evidence` confidence caps are fail-closed in prompt checks until
   a direction-adapter registry exists. Do not add that trigger to production
   knobs as a prose-only conflict rule.
@@ -63,6 +67,9 @@ Notes:
 - Tool outputs that return JSON fallback metadata must populate
   `toolStatuses.fallback` and `toolStatuses.as_of`, including repeated calls
   served from the per-agent cache.
+- Full claim/evidence rollout also requires runtime-owned result fingerprints,
+  evidence ids, an extractor-visible evidence catalog, and claim refs for every
+  recommendation/action. A standalone graph schema or validator is not enough.
 - When a PR changes `prompts/mosaic/**` and you operate a private prompt repo, run `pnpm prompt:drift -- --base-ref origin/main` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set (`MOSAIC_PRIVATE_PROMPT_REPO` remains a compatibility alias). The check is staleness-aware: it only reports overrides not yet reconciled with the changed baseline *content* (tracked per-path in `prompts/mosaic/.baseline-sync.json` inside the private repo). After merging the baseline tool/schema/contract changes into a flagged override, rerun with `-- --mark-synced` to record it reconciled — it then stops alerting until that baseline content changes again.
 - For scheduled operator checks, initialize `data/prompt-drift-state.json` with a known-good `baseline_ref`, then run `pnpm prompt:drift:scheduled` from `mosaic-ts/` with `MOSAIC_PROMPTS_REPO` set. The state advances when the check passes; prefer `-- --mark-synced` to acknowledge specific overrides precisely, or `-- --accept` to blanket-advance the state past all current findings.
 

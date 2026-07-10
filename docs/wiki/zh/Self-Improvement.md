@@ -30,6 +30,8 @@ Domain-knob catalog 是 prompt projection 的 typed source。每张 card 只有�
 
 生成的 catalog 和 evaluation contract 位于 `registry/prompt_checks/`。每条 evaluation binding 包含 activation state、metric、horizon 和 rollback policy;同一 contract 还携带 metric-to-calculator registry。私有双语 prompt checker 覆盖 25 个 agent、26 个 runtime stage;checker 通过不等于 card 或 release pointer 已激活。
 
+Decision layer 固定按 alpha discovery、CIO proposal、冻结 candidate target、CRO review、execution feasibility、CIO final、shared validation 的顺序运行。Runtime 在 backtest/shadow cycle 间传递上一轮已接受 final target,按 ticker 解析 market/liquidity evidence,并冻结 CIO final 使用的 prompt/source 输入。若输出声明了 unsupported knob influence,原输出会被拒绝并替换为 deterministic conservative fallback,不能只记 audit 后继续执行。Claim/evidence graph validator 已存在,但只有 runtime-owned result fingerprint/evidence id 已注入 structured extractor,且每个 recommendation/action 都有 verified claim refs 后,evidence-runtime gate 才算通过。
+
 ## PRISM —— 多周期训练
 
 `mosaic/prism/` 跨 **7 个市场 regime cohort** 训练提示词进化,按 cohort 顺序进行、层内有界并发。Cohort(`prism/cohorts.py`):

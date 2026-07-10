@@ -35,8 +35,9 @@ rtk pnpm --dir mosaic-ts prompt:check
 rtk uv run python scripts/check_prompt_leaks.py
 ```
 
-For full RKE pytest, use `.mosaic/tmp` as `--basetemp`. Several RKE tests copy
-the registry tree and can produce large temporary directories.
+For full RKE pytest, use `.mosaic/tmp` as `--basetemp`. CI isolates non-RKE
+tests and each `test_rke_*.py` file; the monolithic local command is useful for
+integration coverage but is not the shape used to identify one slow RKE file.
 
 If `pytest tests/ -q` looks stuck locally, profile the slow tests before
 changing code:
@@ -71,6 +72,13 @@ review progress builder and remains the main residual local hotspot at about 22s
 per deep handoff case. If a full local run is still slow, prefer the targeted
 commands above or the CI-style per-file RKE split instead of a monolithic
 `pytest tests/ -q`.
+
+`tests/test_rke_tushare_reports.py` was another local-only multiplier: nine
+tests copied a 166 MB operator registry, including ignored private report
+artifacts, and implicitly consumed manual-review files absent from CI. It now
+uses a public-manifest-only registry fixture plus synthetic review rows. The 27
+tests should complete in about 3s (2.7s in the 2026-07-10 profile), and their
+result must not change when private Tushare/report-intelligence files exist.
 
 The 2026-07-10 schema profile found a separate hotspot:
 `test_schema_status_cli_reports_malformed_artifact` took about 120s because a
@@ -164,6 +172,24 @@ Acceptance checks:
 - `toolStatuses` must carry runtime fallback and `as_of` metadata. The tool loop
   derives these fields from JSON tool output and preserves them on cache hits so
   primary-tool fallback caps can fire after the run;
+- Layer 4 runs the fixed sequence `alpha_discovery -> cio_proposal -> candidate
+  freeze -> cro_review -> execution_feasibility -> cio_final -> shared
+  validation`. Market and execution-liquidity statuses come from per-ticker
+  adapters; a successful status for one scope never marks another scope loaded;
+- `previous_target_state` is carried from the prior accepted final target in
+  backtest and shadow replay. A first-cycle absence is explicit and disables
+  drift/rebalance-card influence instead of fabricating an empty historical
+  target;
+- CIO proposal and final use the same cached static prompt pair and frozen
+  source family. Rewriting a prompt file or refreshing account/market state
+  during a run cannot change the final-stage contract;
+- unsupported or disabled declared knob influence rejects the raw structured
+  output and selects the deterministic conservative fallback. Audit-only
+  retention of the original action is not allowed;
+- claim/evidence schema validation is present, but rollout is not complete
+  until tool/source result fingerprints, runtime-owned evidence ids, the
+  structured-extractor evidence catalog, and required action claim references
+  are wired into every enabled stage;
 - private zh/en prompts have exactly one canonical `research-knobs` fence for
   enabled agents;
 - historical runtime-source aliases are rejected in production catalog files.
