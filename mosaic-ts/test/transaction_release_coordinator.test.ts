@@ -2,9 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  ActivePromptReleaseManifest,
-  MutationTransactionManifest,
+import {
+  type ActivePromptReleaseManifest,
+  type MutationTransactionManifest,
+  type ReleasePromptPair,
+  releasePromptPairHash,
+  releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 import {
@@ -220,6 +223,21 @@ function release(
 ): ActivePromptReleaseManifest {
   const canaryStarted = lifecycleState !== "staged";
   const active = lifecycleState === "active" || lifecycleState === "rolled_back";
+  const pair = {
+    agent: "central_bank",
+    layer: "macro" as const,
+    cohort: "cohort_default",
+    stages: ["agent_run" as const],
+    zh: {
+      path: "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
+      sha256: HASH,
+    },
+    en: {
+      path: "prompts/mosaic/cohort_default/macro/central_bank.en.md",
+      sha256: HASH,
+    },
+  };
+  const promptPairs: ReleasePromptPair[] = [{ ...pair, pair_hash: releasePromptPairHash(pair) }];
   return {
     schema_version: "active_prompt_release_manifest_v1",
     release_id: releaseId,
@@ -227,7 +245,8 @@ function release(
     lifecycle_state: lifecycleState,
     prompt_commit: "1234567",
     code_commit: "7654321",
-    prompt_hash: HASH,
+    prompt_hash: releasePromptSetHash(promptPairs),
+    prompt_pairs: promptPairs,
     catalog_hash: HASH,
     schema_hash: HASH,
     evaluation_contract_hash: HASH,

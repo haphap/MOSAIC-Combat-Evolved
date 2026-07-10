@@ -26,6 +26,13 @@ import {
   promptPathCandidates,
   resolvePromptPath,
 } from "./cohorts.js";
+import {
+  clearReleasePromptCache,
+  loadReleasePinnedPromptPair,
+  type PromptReleaseLoadContext,
+  type ReleasePinnedPromptPair,
+  resolveConfiguredPromptReleaseContext,
+} from "./release_prompt_loader.js";
 import type { RuntimeAgentStageId } from "./runtime_agent_spec.js";
 
 export type LoaderLanguage = Language | "Bilingual";
@@ -58,6 +65,8 @@ interface LoadOptions {
   promptsRoot?: string;
   privatePromptsRoot?: string;
   noCache?: boolean;
+  stage?: RuntimeAgentStageId;
+  releaseContext?: PromptReleaseLoadContext | null;
 }
 
 const cache = new Map<string, string>();
@@ -70,6 +79,32 @@ export function clearPromptCache(): void {
   cache.clear();
   knobsCache.clear();
   knobsSourceCache.clear();
+  clearReleasePromptCache();
+}
+
+function inferReleaseStage(agent: string, stage?: RuntimeAgentStageId): RuntimeAgentStageId {
+  if (stage) return stage;
+  if (["alpha_discovery", "cro", "autonomous_execution", "cio"].includes(agent)) {
+    throw new Error(`prompt_release_stage_required:${agent}`);
+  }
+  return "agent_run";
+}
+
+async function releasePinnedPair(
+  opts: Pick<LoadOptions, "agent" | "cohort" | "stage" | "releaseContext" | "noCache">,
+): Promise<ReleasePinnedPromptPair | null> {
+  const context =
+    opts.releaseContext === undefined
+      ? await resolveConfiguredPromptReleaseContext()
+      : opts.releaseContext;
+  if (!context) return null;
+  return loadReleasePinnedPromptPair({
+    context,
+    agent: opts.agent,
+    cohort: opts.cohort,
+    stage: inferReleaseStage(opts.agent, opts.stage),
+    ...(opts.noCache ? { noCache: true } : {}),
+  });
 }
 
 /** Read one prompt file (no fallback merging here — done by ``loadPrompt``
@@ -107,6 +142,7 @@ export async function loadPrompt(opts: LoadOptions): Promise<string> {
   // different prompt commit ⇒ a different root path). If a long-lived process
   // reuses ONE private root and the checked-out branch/commit changes in place,
   // pass `noCache: true` to avoid a stale read.
+  const pinnedPair = await releasePinnedPair(opts);
   const privateRoot =
     opts.privatePromptsRoot ?? (opts.promptsRoot ? "" : (findPrivatePromptsRoot() ?? ""));
   const cacheKey = [
@@ -115,12 +151,24 @@ export async function loadPrompt(opts: LoadOptions): Promise<string> {
     opts.cohort,
     opts.agent,
     opts.language,
+    pinnedPair
+      ? `${pinnedPair.releaseId}:${pinnedPair.source}:${pinnedPair.promptCommit}:${pinnedPair.pairHash}`
+      : "unreleased",
   ].join("|");
   if (!opts.noCache) {
     const cached = cache.get(cacheKey);
     if (cached !== undefined) {
       return cached;
     }
+  }
+
+  if (pinnedPair) {
+    const prompt =
+      opts.language === "Bilingual"
+        ? `${pinnedPair.zh}\n\n---\n\n${pinnedPair.en}`
+        : pinnedPair[opts.language];
+    if (!opts.noCache) cache.set(cacheKey, prompt);
+    return prompt;
   }
 
   if (opts.language === "Bilingual") {
@@ -164,6 +212,12 @@ export interface LoadPromptWithKnobsResult {
     zh: string;
     en: string;
   };
+  release?: {
+    release_id: string;
+    source: "private" | "bundled_fallback";
+    prompt_commit: string;
+    prompt_pair_hash: string;
+  };
 }
 
 interface ParsedPromptPair {
@@ -185,6 +239,7 @@ export async function loadPromptWithKnobs(
     runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
   },
 ): Promise<LoadPromptWithKnobsResult> {
+  const pinnedPair = await releasePinnedPair(opts);
   const privateRoot =
     opts.privatePromptsRoot ?? (opts.promptsRoot ? "" : (findPrivatePromptsRoot() ?? ""));
   const runtimeSourceStatusKey = JSON.stringify(opts.runtimeSourceStatuses ?? []);
@@ -196,13 +251,16 @@ export async function loadPromptWithKnobs(
     opts.stage ?? "legacy_unscoped",
     "ResearchKnobs",
     runtimeSourceStatusKey,
+    pinnedPair
+      ? `${pinnedPair.releaseId}:${pinnedPair.source}:${pinnedPair.promptCommit}:${pinnedPair.pairHash}`
+      : "unreleased",
   ].join("|");
   if (!opts.noCache) {
     const cached = knobsCache.get(cacheKey);
     if (cached !== undefined) return cached;
   }
 
-  const { zhParsed, enParsed, paths } = await loadParsedPromptPair(opts, privateRoot);
+  const { zhParsed, enParsed, paths } = await loadParsedPromptPair(opts, privateRoot, pinnedPair);
   assertResearchKnobsParity(zhParsed.knobs, enParsed.knobs);
   const snapshot = buildResearchKnobsSnapshot({
     agent: opts.agent,
@@ -219,6 +277,16 @@ export async function loadPromptWithKnobs(
     snapshot,
     paths,
     bodies: { zh: zhParsed.body, en: enParsed.body },
+    ...(pinnedPair
+      ? {
+          release: {
+            release_id: pinnedPair.releaseId,
+            source: pinnedPair.source,
+            prompt_commit: pinnedPair.promptCommit,
+            prompt_pair_hash: pinnedPair.pairHash,
+          },
+        }
+      : {}),
   };
   if (!opts.noCache) knobsCache.set(cacheKey, result);
   return result;
@@ -227,6 +295,7 @@ export async function loadPromptWithKnobs(
 async function loadParsedPromptPair(
   opts: Omit<LoadOptions, "language">,
   privateRoot: string,
+  pinnedPair: ReleasePinnedPromptPair | null,
 ): Promise<ParsedPromptPair> {
   const sourceCacheKey = [
     opts.promptsRoot ?? "",
@@ -234,10 +303,22 @@ async function loadParsedPromptPair(
     opts.cohort,
     opts.agent,
     "ResearchKnobsSource",
+    pinnedPair
+      ? `${pinnedPair.releaseId}:${pinnedPair.source}:${pinnedPair.promptCommit}:${pinnedPair.pairHash}`
+      : "unreleased",
   ].join("|");
   if (!opts.noCache) {
     const cached = knobsSourceCache.get(sourceCacheKey);
     if (cached) return cached;
+  }
+  if (pinnedPair) {
+    const result = {
+      zhParsed: parseResearchKnobsPrompt(pinnedPair.zh),
+      enParsed: parseResearchKnobsPrompt(pinnedPair.en),
+      paths: pinnedPair.paths,
+    };
+    if (!opts.noCache) knobsSourceCache.set(sourceCacheKey, result);
+    return result;
   }
   const [zh, en] = await Promise.all([
     readSingle({ ...opts, language: "zh" }),

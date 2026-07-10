@@ -1,7 +1,178 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const CommitRefSchema = z.string().min(7);
+
+export const ReleasePromptStageSchema = z.enum([
+  "agent_run",
+  "alpha_discovery",
+  "cio_proposal",
+  "cro_review",
+  "execution_feasibility",
+  "cio_final",
+]);
+
+const ReleasePromptFileSchema = z
+  .object({
+    path: z.string().min(1),
+    sha256: Sha256Schema,
+  })
+  .strict();
+
+export const ReleasePromptPairSchema = z
+  .object({
+    agent: z.string().min(1),
+    layer: z.enum(["macro", "sector", "superinvestor", "decision"]),
+    cohort: z.string().min(1),
+    stages: z.array(ReleasePromptStageSchema).min(1),
+    zh: ReleasePromptFileSchema,
+    en: ReleasePromptFileSchema,
+    pair_hash: Sha256Schema,
+  })
+  .strict();
+
+export type ReleasePromptPair = z.infer<typeof ReleasePromptPairSchema>;
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)]),
+    );
+  }
+  return value === undefined ? null : value;
+}
+
+function canonicalHash(value: unknown): string {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalize(value)))
+    .digest("hex")}`;
+}
+
+export function releasePromptPairHash(pair: Omit<ReleasePromptPair, "pair_hash">): string {
+  return canonicalHash({
+    schema_version: "release_prompt_pair_v1",
+    agent: pair.agent,
+    layer: pair.layer,
+    cohort: pair.cohort,
+    stages: pair.stages,
+    zh: pair.zh,
+    en: pair.en,
+  });
+}
+
+export function releasePromptSetHash(pairs: ReadonlyArray<ReleasePromptPair>): string {
+  const ordered = [...pairs].sort((left, right) =>
+    `${left.cohort}:${left.agent}`.localeCompare(`${right.cohort}:${right.agent}`),
+  );
+  return canonicalHash({
+    schema_version: "release_prompt_set_v1",
+    prompt_pairs: ordered,
+  });
+}
+
+export interface RequiredReleasePromptStage {
+  agent: string;
+  layer: ReleasePromptPair["layer"];
+  stage: ReleasePromptPair["stages"][number];
+}
+
+function missingStageKeys(
+  pairs: ReadonlyArray<ReleasePromptPair>,
+  cohort: string,
+  required: ReadonlyArray<RequiredReleasePromptStage>,
+): string[] {
+  return required.flatMap((expected) => {
+    const matches = pairs.filter(
+      (pair) =>
+        pair.cohort === cohort &&
+        pair.agent === expected.agent &&
+        pair.layer === expected.layer &&
+        pair.stages.includes(expected.stage),
+    );
+    return matches.length === 1 ? [] : [`${expected.agent}:${expected.stage}:${matches.length}`];
+  });
+}
+
+export function assertReleasePromptStageClosure(
+  manifest: ActivePromptReleaseManifest,
+  required: ReadonlyArray<RequiredReleasePromptStage>,
+): void {
+  ActivePromptReleaseManifestSchema.parse(manifest);
+  const missing = missingStageKeys(
+    manifest.prompt_pairs,
+    manifest.activation_scope.cohort,
+    required,
+  );
+  if (missing.length > 0) {
+    throw new Error(`prompt_release_stage_closure_incomplete:${missing.join(",")}`);
+  }
+  if (manifest.bundled_fallback) {
+    const fallbackMissing = missingStageKeys(
+      manifest.bundled_fallback.prompt_pairs,
+      manifest.activation_scope.cohort,
+      required,
+    );
+    if (fallbackMissing.length > 0) {
+      throw new Error(
+        `prompt_release_fallback_stage_closure_incomplete:${fallbackMissing.join(",")}`,
+      );
+    }
+  }
+}
+
+function validatePromptPairs(
+  pairs: ReadonlyArray<ReleasePromptPair>,
+  expectedCohort: string,
+  ctx: z.RefinementCtx,
+  path: Array<string | number>,
+): void {
+  const seenPairs = new Set<string>();
+  const seenStages = new Set<string>();
+  for (const [index, pair] of pairs.entries()) {
+    const pairKey = `${pair.cohort}:${pair.agent}`;
+    if (seenPairs.has(pairKey)) {
+      ctx.addIssue({ code: "custom", path: [...path, index], message: "duplicate prompt pair" });
+    }
+    seenPairs.add(pairKey);
+    if (pair.cohort !== expectedCohort) {
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, index, "cohort"],
+        message: "prompt pair cohort must match activation scope",
+      });
+    }
+    const expectedBase = `prompts/mosaic/${pair.cohort}/${pair.layer}/${pair.agent}`;
+    if (pair.zh.path !== `${expectedBase}.zh.md` || pair.en.path !== `${expectedBase}.en.md`) {
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, index],
+        message: "prompt pair paths do not match the declared cohort/agent/layer",
+      });
+    }
+    if (pair.pair_hash !== releasePromptPairHash(pair)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, index, "pair_hash"],
+        message: "prompt pair hash mismatch",
+      });
+    }
+    for (const stage of pair.stages) {
+      const stageKey = `${pair.agent}:${stage}`;
+      if (seenStages.has(stageKey)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [...path, index, "stages"],
+          message: "duplicate agent stage binding",
+        });
+      }
+      seenStages.add(stageKey);
+    }
+  }
+}
 
 export const MutationTransactionStateSchema = z.enum([
   "created",
@@ -123,6 +294,7 @@ export const ActivePromptReleaseManifestSchema = z
     prompt_commit: CommitRefSchema,
     code_commit: CommitRefSchema,
     prompt_hash: Sha256Schema,
+    prompt_pairs: z.array(ReleasePromptPairSchema).min(1),
     catalog_hash: Sha256Schema,
     schema_hash: Sha256Schema,
     evaluation_contract_hash: Sha256Schema,
@@ -157,6 +329,7 @@ export const ActivePromptReleaseManifestSchema = z
       .object({
         prompt_commit: CommitRefSchema,
         prompt_hash: Sha256Schema,
+        prompt_pairs: z.array(ReleasePromptPairSchema).min(1),
         schema_hash: Sha256Schema,
         catalog_hash: Sha256Schema,
       })
@@ -168,6 +341,34 @@ export const ActivePromptReleaseManifestSchema = z
   })
   .strict()
   .superRefine((manifest, ctx) => {
+    validatePromptPairs(manifest.prompt_pairs, manifest.activation_scope.cohort, ctx, [
+      "prompt_pairs",
+    ]);
+    if (manifest.prompt_hash !== releasePromptSetHash(manifest.prompt_pairs)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["prompt_hash"],
+        message: "release prompt set hash mismatch",
+      });
+    }
+    if (manifest.bundled_fallback) {
+      validatePromptPairs(
+        manifest.bundled_fallback.prompt_pairs,
+        manifest.activation_scope.cohort,
+        ctx,
+        ["bundled_fallback", "prompt_pairs"],
+      );
+      if (
+        manifest.bundled_fallback.prompt_hash !==
+        releasePromptSetHash(manifest.bundled_fallback.prompt_pairs)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["bundled_fallback", "prompt_hash"],
+          message: "bundled fallback prompt set hash mismatch",
+        });
+      }
+    }
     if (["canary", "active", "rolled_back"].includes(manifest.lifecycle_state)) {
       if (!manifest.approved_by) {
         ctx.addIssue({ code: "custom", path: ["approved_by"], message: "approval required" });

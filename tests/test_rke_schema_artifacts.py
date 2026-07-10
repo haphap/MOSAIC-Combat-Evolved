@@ -7093,6 +7093,23 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
         "prompt_commit": "1234567",
         "code_commit": "7654321",
         "prompt_hash": digest,
+        "prompt_pairs": [
+            {
+                "agent": "central_bank",
+                "layer": "macro",
+                "cohort": "cohort_default",
+                "stages": ["agent_run"],
+                "zh": {
+                    "path": "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
+                    "sha256": digest,
+                },
+                "en": {
+                    "path": "prompts/mosaic/cohort_default/macro/central_bank.en.md",
+                    "sha256": digest,
+                },
+                "pair_hash": digest,
+            }
+        ],
         "catalog_hash": digest,
         "schema_hash": digest,
         "evaluation_contract_hash": digest,

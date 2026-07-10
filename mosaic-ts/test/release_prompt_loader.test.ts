@@ -1,0 +1,342 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { clearPromptCache, loadPromptWithKnobs } from "../src/agents/prompts/loader.js";
+import {
+  type ActivePromptReleaseManifest,
+  type ReleasePromptPair,
+  releasePromptPairHash,
+  releasePromptSetHash,
+} from "../src/agents/prompts/prompt_release_contract.js";
+import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
+
+const HASH = `sha256:${"1".repeat(64)}`;
+const PROMPT_PATHS = {
+  zh: "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
+  en: "prompts/mosaic/cohort_default/macro/central_bank.en.md",
+};
+const roots: string[] = [];
+
+afterEach(() => {
+  clearPromptCache();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+function sha256(text: string): string {
+  return `sha256:${createHash("sha256").update(text).digest("hex")}`;
+}
+
+function prompt(body: string): string {
+  return `\`\`\`research-knobs
+research-knobs:
+  schema_version: research_knobs_v1
+  layer: macro
+  agent: macro.central_bank
+  research_scope:
+    must_cover: [liquidity_regime]
+    must_not_cover: [final_portfolio_sizing]
+  prediction_targets:
+    - id: liquidity_regime_20d
+      target_variable: liquidity_regime
+      horizon: 20d
+      allowed_outputs: [positive, neutral, negative]
+  evidence_registry:
+    pboc_liquidity:
+      tool: get_pboc_ops
+      metric: pboc_net_injection_7d
+      current_data: true
+      primary: true
+  evidence_weights:
+    pboc_liquidity: 1.0
+  lookbacks:
+    net_injection_window_days: 7
+  thresholds: {}
+  confidence_caps:
+    missing_current_data:
+      cap: 0.55
+      trigger: missing_required_evidence
+      enforcement: code
+      required_evidence: [pboc_liquidity]
+  tie_breaks: []
+  mutation_targets:
+    - path: /rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value
+      type: number
+      min: 0
+      max: 1
+\`\`\`
+${body}`;
+}
+
+function gitRepo(contents: { zh: string; en: string }): { root: string; commit: string } {
+  const root = mkdtempSync(join(tmpdir(), "mosaic-release-prompts-"));
+  roots.push(root);
+  execFileSync("git", ["init", "-q", root]);
+  for (const language of ["zh", "en"] as const) {
+    const path = join(root, PROMPT_PATHS[language]);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, contents[language], "utf-8");
+  }
+  execFileSync("git", ["-C", root, "add", "."]);
+  execFileSync("git", [
+    "-C",
+    root,
+    "-c",
+    "user.name=Codex Test",
+    "-c",
+    "user.email=codex@example.invalid",
+    "commit",
+    "-qm",
+    "fixture",
+  ]);
+  return {
+    root,
+    commit: execFileSync("git", ["-C", root, "rev-parse", "HEAD"], {
+      encoding: "utf-8",
+    }).trim(),
+  };
+}
+
+function pair(contents: { zh: string; en: string }): ReleasePromptPair {
+  const value = {
+    agent: "central_bank",
+    layer: "macro" as const,
+    cohort: "cohort_default",
+    stages: ["agent_run" as const],
+    zh: { path: PROMPT_PATHS.zh, sha256: sha256(contents.zh) },
+    en: { path: PROMPT_PATHS.en, sha256: sha256(contents.en) },
+  };
+  return { ...value, pair_hash: releasePromptPairHash(value) };
+}
+
+function release(opts: {
+  promptCommit: string;
+  promptPair: ReleasePromptPair;
+  fallback?: { promptCommit: string; promptPair: ReleasePromptPair };
+  closure?: { catalogHash: string; schemaHash: string; evaluationContractHash: string };
+}): ActivePromptReleaseManifest {
+  const promptPairs = [opts.promptPair];
+  const fallbackPairs = opts.fallback ? [opts.fallback.promptPair] : null;
+  return {
+    schema_version: "active_prompt_release_manifest_v1",
+    release_id: "release-1",
+    base_release_id: null,
+    lifecycle_state: "active",
+    prompt_commit: opts.promptCommit,
+    code_commit: "7654321",
+    prompt_hash: releasePromptSetHash(promptPairs),
+    prompt_pairs: promptPairs,
+    catalog_hash: opts.closure?.catalogHash ?? HASH,
+    schema_hash: opts.closure?.schemaHash ?? HASH,
+    evaluation_contract_hash: opts.closure?.evaluationContractHash ?? HASH,
+    keep_decision_hash: HASH,
+    keep_decision_state: "kept",
+    activation_scope: {
+      cohort: "cohort_default",
+      account_mode: "paper",
+      traffic_percent: 100,
+    },
+    approval_policy_id: "decision_release_manual_v1",
+    approved_by: "operator:test",
+    canary_started_at: "2026-07-10T00:00:00Z",
+    canary_ended_at: "2026-07-10T01:00:00Z",
+    runtime_slo_summary: {
+      passed: true,
+      schema_failure_rate: 0,
+      fallback_rate: 0,
+      source_failure_rate: 0,
+      validator_rejection_rate: 0,
+      duplicate_order_intent_count: 0,
+      exposure_breach_count: 0,
+    },
+    rollback_triggers: ["schema_failure_rate_gt_0"],
+    previous_approved_release_id: null,
+    bundled_fallback:
+      opts.fallback && fallbackPairs
+        ? {
+            prompt_commit: opts.fallback.promptCommit,
+            prompt_hash: releasePromptSetHash(fallbackPairs),
+            prompt_pairs: fallbackPairs,
+            schema_hash: HASH,
+            catalog_hash: HASH,
+          }
+        : null,
+    created_at: "2026-07-10T00:00:00Z",
+    activated_at: "2026-07-10T01:00:00Z",
+    rolled_back_at: null,
+  };
+}
+
+describe("release-pinned prompt loading", () => {
+  it("reads the manifest commit instead of a floating private worktree", async () => {
+    const contents = { zh: prompt("private zh v1"), en: prompt("private en v1") };
+    const repo = gitRepo(contents);
+    writeFileSync(join(repo.root, PROMPT_PATHS.zh), prompt("floating zh v2"), "utf-8");
+
+    const loaded = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      noCache: true,
+      releaseContext: {
+        manifest: release({ promptCommit: repo.commit, promptPair: pair(contents) }),
+        privatePromptRepo: repo.root,
+        accountMode: "paper",
+        expectedCatalogHash: HASH,
+        expectedSchemaHash: HASH,
+        expectedEvaluationContractHash: HASH,
+      },
+    });
+
+    expect(loaded.bodies.zh).toContain("private zh v1");
+    expect(loaded.bodies.zh).not.toContain("floating zh v2");
+    expect(loaded.release).toMatchObject({
+      release_id: "release-1",
+      source: "private",
+      prompt_commit: repo.commit,
+    });
+  });
+
+  it("uses only a manifest-pinned bundled fallback when private source is unavailable", async () => {
+    const privateContents = { zh: prompt("private zh"), en: prompt("private en") };
+    const fallbackContents = { zh: prompt("fallback zh"), en: prompt("fallback en") };
+    const bundled = gitRepo(fallbackContents);
+    const loaded = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      noCache: true,
+      releaseContext: {
+        manifest: release({
+          promptCommit: "deadbee",
+          promptPair: pair(privateContents),
+          fallback: { promptCommit: bundled.commit, promptPair: pair(fallbackContents) },
+        }),
+        bundledRepo: bundled.root,
+        expectedCatalogHash: HASH,
+        expectedSchemaHash: HASH,
+        expectedEvaluationContractHash: HASH,
+      },
+    });
+
+    expect(loaded.bodies.zh).toContain("fallback zh");
+    expect(loaded.release?.source).toBe("bundled_fallback");
+  });
+
+  it("fails closed on hash drift instead of switching to fallback", async () => {
+    const privateContents = { zh: prompt("private zh"), en: prompt("private en") };
+    const fallbackContents = { zh: prompt("fallback zh"), en: prompt("fallback en") };
+    const privateRepo = gitRepo(privateContents);
+    const bundled = gitRepo(fallbackContents);
+    const driftedPair = pair(privateContents);
+    driftedPair.zh.sha256 = HASH;
+    driftedPair.pair_hash = releasePromptPairHash(driftedPair);
+
+    await expect(
+      loadPromptWithKnobs({
+        agent: "central_bank",
+        cohort: "cohort_default",
+        stage: "agent_run",
+        noCache: true,
+        releaseContext: {
+          manifest: release({
+            promptCommit: privateRepo.commit,
+            promptPair: driftedPair,
+            fallback: { promptCommit: bundled.commit, promptPair: pair(fallbackContents) },
+          }),
+          privatePromptRepo: privateRepo.root,
+          bundledRepo: bundled.root,
+        },
+      }),
+    ).rejects.toThrow("prompt_release_file_hash_mismatch:private:zh");
+  });
+
+  it("resolves the aggregate active pointer for configured runtime loads", async () => {
+    const contents = { zh: prompt("active zh"), en: prompt("active en") };
+    const repo = gitRepo(contents);
+    const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-active-release-"));
+    roots.push(registryRoot);
+    const localClosure = JSON.parse(
+      readFileSync(
+        join(
+          process.cwd(),
+          "..",
+          "registry",
+          "prompt_checks",
+          "domain_knob_evaluation_contract_v1.json",
+        ),
+        "utf-8",
+      ),
+    ) as { catalog_hash: string; schema_hash: string; contract_hash: string };
+    const active = release({
+      promptCommit: repo.commit,
+      promptPair: pair(contents),
+      closure: {
+        catalogHash: localClosure.catalog_hash,
+        schemaHash: localClosure.schema_hash,
+        evaluationContractHash: localClosure.contract_hash,
+      },
+    });
+    const staged: ActivePromptReleaseManifest = {
+      ...active,
+      lifecycle_state: "staged",
+      activation_scope: { ...active.activation_scope, traffic_percent: 0 },
+      approved_by: null,
+      canary_started_at: null,
+      canary_ended_at: null,
+      runtime_slo_summary: null,
+      activated_at: null,
+    };
+    const canary: ActivePromptReleaseManifest = {
+      ...active,
+      lifecycle_state: "canary",
+      activation_scope: { ...active.activation_scope, traffic_percent: 10 },
+      canary_ended_at: null,
+      runtime_slo_summary: null,
+      activated_at: null,
+    };
+    const registry = new ActivePromptReleaseRegistry(registryRoot);
+    await registry.stage(staged);
+    await registry.transition(canary);
+    await registry.transition(active, { expectedBaseReleaseId: null });
+
+    const previous = {
+      registry: process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT,
+      repo: process.env.MOSAIC_PROMPTS_REPO,
+      root: process.env.MOSAIC_PROMPTS_ROOT,
+      privateRepo: process.env.MOSAIC_PRIVATE_PROMPT_REPO,
+      mode: process.env.MOSAIC_PROMPT_ACCOUNT_MODE,
+    };
+    try {
+      process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = registryRoot;
+      process.env.MOSAIC_PROMPTS_REPO = repo.root;
+      process.env.MOSAIC_PROMPT_ACCOUNT_MODE = "paper";
+      delete process.env.MOSAIC_PROMPTS_ROOT;
+      delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
+      const loaded = await loadPromptWithKnobs({
+        agent: "central_bank",
+        cohort: "cohort_default",
+        stage: "agent_run",
+        noCache: true,
+      });
+      expect(loaded.release).toMatchObject({
+        release_id: "release-1",
+        source: "private",
+        prompt_commit: repo.commit,
+      });
+    } finally {
+      for (const [key, value] of [
+        ["MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT", previous.registry],
+        ["MOSAIC_PROMPTS_REPO", previous.repo],
+        ["MOSAIC_PROMPTS_ROOT", previous.root],
+        ["MOSAIC_PRIVATE_PROMPT_REPO", previous.privateRepo],
+        ["MOSAIC_PROMPT_ACCOUNT_MODE", previous.mode],
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+});

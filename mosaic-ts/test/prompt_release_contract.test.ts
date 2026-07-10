@@ -4,11 +4,33 @@ import {
   ActivePromptReleaseManifestSchema,
   assertMutationTransactionTransition,
   assertPromptReleaseTransition,
+  assertReleasePromptStageClosure,
   type MutationTransactionManifest,
   MutationTransactionManifestSchema,
+  type ReleasePromptPair,
+  releasePromptPairHash,
+  releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
+
+function promptPairs(): ReleasePromptPair[] {
+  const pair = {
+    agent: "central_bank",
+    layer: "macro" as const,
+    cohort: "cohort_default",
+    stages: ["agent_run" as const],
+    zh: {
+      path: "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
+      sha256: HASH,
+    },
+    en: {
+      path: "prompts/mosaic/cohort_default/macro/central_bank.en.md",
+      sha256: HASH,
+    },
+  };
+  return [{ ...pair, pair_hash: releasePromptPairHash(pair) }];
+}
 
 function transaction(state: MutationTransactionManifest["state"]): MutationTransactionManifest {
   const prepared = ["prepared", "committed_log_pending", "committed"].includes(state);
@@ -60,6 +82,7 @@ function release(
 ): ActivePromptReleaseManifest {
   const canaryStarted = lifecycleState !== "staged";
   const active = lifecycleState === "active";
+  const pairs = promptPairs();
   return {
     schema_version: "active_prompt_release_manifest_v1",
     release_id: "release-1",
@@ -67,7 +90,8 @@ function release(
     lifecycle_state: lifecycleState,
     prompt_commit: "1234567",
     code_commit: "7654321",
-    prompt_hash: HASH,
+    prompt_hash: releasePromptSetHash(pairs),
+    prompt_pairs: pairs,
     catalog_hash: HASH,
     schema_hash: HASH,
     evaluation_contract_hash: HASH,
@@ -152,5 +176,25 @@ describe("aggregate prompt release contract", () => {
     invalid.approved_by = null;
     invalid.runtime_slo_summary = null;
     expect(ActivePromptReleaseManifestSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("binds requested runtime stages to hash-closed prompt pairs", () => {
+    const active = release("active");
+    expect(() =>
+      assertReleasePromptStageClosure(active, [
+        { agent: "central_bank", layer: "macro", stage: "agent_run" },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      assertReleasePromptStageClosure(active, [
+        { agent: "cio", layer: "decision", stage: "cio_final" },
+      ]),
+    ).toThrow("prompt_release_stage_closure_incomplete:cio:cio_final:0");
+
+    const drifted = release("active");
+    const driftedPair = drifted.prompt_pairs[0];
+    if (!driftedPair) throw new Error("test fixture prompt pair missing");
+    driftedPair.zh.sha256 = `sha256:${"2".repeat(64)}`;
+    expect(ActivePromptReleaseManifestSchema.safeParse(drifted).success).toBe(false);
   });
 });
