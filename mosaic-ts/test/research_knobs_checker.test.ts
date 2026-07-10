@@ -600,6 +600,19 @@ describe("checkResearchKnobsPrompts", () => {
       "domain_catalog_metric_exclusion_rule_missing:max_drawdown_after_hold:lookahead_risk",
     );
 
+    const missingExclusionPolicy = structuredClone(artifact);
+    const missingExclusionMetric =
+      missingExclusionPolicy.evaluation_metrics.max_drawdown_after_hold;
+    expect(missingExclusionMetric).toBeDefined();
+    if (!missingExclusionMetric) return;
+    missingExclusionMetric.exclusion_rules = undefined as unknown as string[];
+    expect(validateDomainKnobCatalogArtifact(missingExclusionPolicy)).toEqual(
+      expect.arrayContaining([
+        "domain_catalog_metric_exclusion_rules_missing:max_drawdown_after_hold",
+        "domain_catalog_metric_exclusion_rule_missing:max_drawdown_after_hold:lookahead_risk",
+      ]),
+    );
+
     const missingSecondaryMetric = structuredClone(artifact);
     const secondaryCard = missingSecondaryMetric.agents
       .find((agent) => agent.agent === "semiconductor")

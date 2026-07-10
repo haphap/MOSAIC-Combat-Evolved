@@ -1131,11 +1131,14 @@ function validateEvaluationMetricEntry(
   if (metricEntry.pit_required !== true) {
     reasons.push(`domain_catalog_metric_pit_not_required:${metricId}`);
   }
-  if (!Array.isArray(metricEntry.exclusion_rules) || metricEntry.exclusion_rules.length === 0) {
+  const exclusionRules = Array.isArray(metricEntry.exclusion_rules)
+    ? metricEntry.exclusion_rules
+    : [];
+  if (exclusionRules.length === 0) {
     reasons.push(`domain_catalog_metric_exclusion_rules_missing:${metricId}`);
   }
   for (const exclusionRule of REQUIRED_EVALUATION_METRIC_EXCLUSION_RULES) {
-    if (!metricEntry.exclusion_rules.includes(exclusionRule)) {
+    if (!exclusionRules.includes(exclusionRule)) {
       reasons.push(`domain_catalog_metric_exclusion_rule_missing:${metricId}:${exclusionRule}`);
     }
   }
