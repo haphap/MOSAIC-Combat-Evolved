@@ -39,6 +39,34 @@ export const RUNTIME_AGENT_STAGE_IDS = [
 export type RuntimeAgentStageId = (typeof RUNTIME_AGENT_STAGE_IDS)[number];
 export type RuntimeStageEnablement = "declared" | "legacy" | "enabled";
 
+export const RUNTIME_DAG_STAGE_IDS = [
+  "cycle_input",
+  "pre_stage_source_resolution",
+  "agent_run",
+  "alpha_discovery",
+  "cio_proposal",
+  "cro_review",
+  "execution_feasibility",
+  "cio_final",
+  "shared_validation",
+  "order_adapter",
+] as const;
+
+export type RuntimeDagStageId = (typeof RUNTIME_DAG_STAGE_IDS)[number];
+
+export const RUNTIME_DAG_STAGE_ORDER: Readonly<Record<RuntimeDagStageId, number>> = {
+  cycle_input: 0,
+  pre_stage_source_resolution: 1,
+  agent_run: 2,
+  alpha_discovery: 3,
+  cio_proposal: 4,
+  cro_review: 5,
+  execution_feasibility: 6,
+  cio_final: 7,
+  shared_validation: 8,
+  order_adapter: 9,
+};
+
 export interface RuntimeAgentStageSpec {
   stage: RuntimeAgentStageId;
   enablement: RuntimeStageEnablement;

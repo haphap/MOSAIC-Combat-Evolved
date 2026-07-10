@@ -4,7 +4,10 @@ import type { DomainKnobValueRegistry } from "./domain_knob_registry.js";
 import {
   RUNTIME_AGENT_SPEC_BY_AGENT,
   RUNTIME_AGENT_SPECS,
+  RUNTIME_DAG_STAGE_ORDER,
   type RuntimeAgentSpec,
+  type RuntimeAgentStageId,
+  type RuntimeDagStageId,
 } from "./runtime_agent_spec.js";
 
 export const DOMAIN_KNOB_CATALOG_VERSION = "domain_knob_catalog_v1";
@@ -33,6 +36,14 @@ export interface RuntimeSourceRegistryEntry {
   id: string;
   scope_schema: Record<string, "required" | "optional">;
   schema_ref: string;
+  producer_mode: "eager" | "stage_output" | "on_demand_pre_stage";
+  producer_stage: RuntimeDagStageId;
+  available_from_stage: RuntimeDagStageId;
+  finalized_at_stage: RuntimeDagStageId;
+  refresh_policy: "frozen" | "versioned_per_call" | "carry_forward_if_fresh";
+  provenance_adapter: string;
+  retry_owner: string;
+  cross_cycle_reuse: "forbidden" | "allowed_if_fresh" | "prior_cycle_only";
   max_age: string;
   trading_calendar: "cn_a_share" | "run_clock";
   pit_required: boolean;
@@ -76,6 +87,8 @@ export interface DomainKnobCard {
   id: string;
   owner_agent: string;
   consumer_agents: string[];
+  owner_stage: RuntimeAgentStageId;
+  consumer_stages: RuntimeDagStageId[];
   projection_bucket: ProjectionBucket;
   path: string;
   type: KnobValueType;
@@ -105,6 +118,7 @@ export interface DomainKnobCard {
   category: "domain";
   cross_field_group: string | null;
   weight_group: string | null;
+  atomic_mutation_group: string | null;
   normalization: "none" | "sum_to_one";
 }
 
@@ -197,7 +211,10 @@ const RUNTIME_SOURCE_IDS = [
   "current_market_data",
   "previous_target_state",
   "candidate_target_state",
+  "final_target_state",
   "position_review_state",
+  "cro_review_state",
+  "execution_feasibility_state",
   "position_thesis_state",
   "upstream_agent_outputs",
   "portfolio_exposure_state",
@@ -213,43 +230,172 @@ export const RUNTIME_SOURCE_REGISTRY: Record<
     scope: { account_id: "required", cohort: "required", run_id: "required" },
     schema: "daily_cycle.current_positions.v1",
     empty: true,
+    producerMode: "eager",
+    producerStage: "cycle_input",
+    availableFromStage: "alpha_discovery",
+    finalizedAtStage: "cycle_input",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "portfolio.current_positions_adapter.v1",
+    retryOwner: "cycle_input",
+    crossCycleReuse: "forbidden",
   }),
   current_market_data: runtimeSource("current_market_data", {
     scope: { ticker: "required" },
     schema: "market.snapshot.v1",
+    producerMode: "on_demand_pre_stage",
+    producerStage: "pre_stage_source_resolution",
+    availableFromStage: "agent_run",
+    finalizedAtStage: "order_adapter",
+    refreshPolicy: "versioned_per_call",
+    provenanceAdapter: "market.scoped_snapshot_adapter.v1",
+    retryOwner: "requesting_stage",
+    crossCycleReuse: "forbidden",
   }),
   previous_target_state: runtimeSource("previous_target_state", {
     scope: { account_id: "required", cohort: "required" },
     schema: "portfolio.previous_target_state.v1",
     empty: true,
+    producerMode: "eager",
+    producerStage: "cycle_input",
+    availableFromStage: "cio_proposal",
+    finalizedAtStage: "cycle_input",
+    refreshPolicy: "carry_forward_if_fresh",
+    provenanceAdapter: "portfolio.previous_target_adapter.v1",
+    retryOwner: "cycle_input",
+    crossCycleReuse: "prior_cycle_only",
   }),
   candidate_target_state: runtimeSource("candidate_target_state", {
     scope: { account_id: "required", cohort: "required", run_id: "required" },
     schema: "portfolio.candidate_target_state.v1",
+    producerMode: "stage_output",
+    producerStage: "cio_proposal",
+    availableFromStage: "cro_review",
+    finalizedAtStage: "cio_proposal",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "decision.cio_proposal_adapter.v1",
+    retryOwner: "cio_proposal",
+    crossCycleReuse: "forbidden",
+  }),
+  final_target_state: runtimeSource("final_target_state", {
+    scope: { account_id: "required", cohort: "required", run_id: "required" },
+    schema: "portfolio.final_target_state.v1",
+    empty: true,
+    producerMode: "stage_output",
+    producerStage: "shared_validation",
+    availableFromStage: "order_adapter",
+    finalizedAtStage: "shared_validation",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "portfolio.shared_validation_adapter.v1",
+    retryOwner: "shared_validation",
+    crossCycleReuse: "prior_cycle_only",
   }),
   position_review_state: runtimeSource("position_review_state", {
     scope: { account_id: "required", cohort: "required", run_id: "required" },
     schema: "daily_cycle.position_review_state.v1",
+    producerMode: "stage_output",
+    producerStage: "cio_proposal",
+    availableFromStage: "cro_review",
+    finalizedAtStage: "cio_proposal",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "decision.position_review_adapter.v1",
+    retryOwner: "cio_proposal",
+    crossCycleReuse: "forbidden",
+  }),
+  cro_review_state: runtimeSource("cro_review_state", {
+    scope: {
+      account_id: "required",
+      cohort: "required",
+      run_id: "required",
+      candidate_target_hash: "required",
+    },
+    schema: "decision.cro_review_state.v1",
+    producerMode: "stage_output",
+    producerStage: "cro_review",
+    availableFromStage: "execution_feasibility",
+    finalizedAtStage: "cro_review",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "decision.cro_review_adapter.v1",
+    retryOwner: "cro_review",
+    crossCycleReuse: "forbidden",
+  }),
+  execution_feasibility_state: runtimeSource("execution_feasibility_state", {
+    scope: {
+      account_id: "required",
+      cohort: "required",
+      run_id: "required",
+      candidate_target_hash: "required",
+      market_vintage_hash: "required",
+    },
+    schema: "decision.execution_feasibility_state.v1",
+    empty: true,
+    producerMode: "stage_output",
+    producerStage: "execution_feasibility",
+    availableFromStage: "cio_final",
+    finalizedAtStage: "execution_feasibility",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "decision.execution_feasibility_adapter.v1",
+    retryOwner: "execution_feasibility",
+    crossCycleReuse: "forbidden",
   }),
   position_thesis_state: runtimeSource("position_thesis_state", {
     scope: { ticker: "required" },
     schema: "portfolio.position_thesis_state.v1",
+    producerMode: "eager",
+    producerStage: "cycle_input",
+    availableFromStage: "cio_proposal",
+    finalizedAtStage: "cycle_input",
+    refreshPolicy: "carry_forward_if_fresh",
+    provenanceAdapter: "portfolio.position_thesis_adapter.v1",
+    retryOwner: "cycle_input",
+    crossCycleReuse: "allowed_if_fresh",
   }),
   upstream_agent_outputs: runtimeSource("upstream_agent_outputs", {
     scope: { agent_id: "required", cohort: "required", run_id: "required" },
     schema: "daily_cycle.upstream_agent_outputs.v1",
+    producerMode: "stage_output",
+    producerStage: "agent_run",
+    availableFromStage: "alpha_discovery",
+    finalizedAtStage: "alpha_discovery",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "daily_cycle.agent_output_adapter.v1",
+    retryOwner: "producing_agent_stage",
+    crossCycleReuse: "forbidden",
   }),
   portfolio_exposure_state: runtimeSource("portfolio_exposure_state", {
     scope: { account_id: "required", cohort: "required", run_id: "required" },
     schema: "portfolio.exposure_state.v1",
+    producerMode: "stage_output",
+    producerStage: "cio_proposal",
+    availableFromStage: "cro_review",
+    finalizedAtStage: "cio_proposal",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "portfolio.exposure_adapter.v1",
+    retryOwner: "cio_proposal",
+    crossCycleReuse: "forbidden",
   }),
   execution_liquidity_state: runtimeSource("execution_liquidity_state", {
     scope: { ticker: "required" },
     schema: "execution.liquidity_state.v1",
+    producerMode: "on_demand_pre_stage",
+    producerStage: "pre_stage_source_resolution",
+    availableFromStage: "execution_feasibility",
+    finalizedAtStage: "execution_feasibility",
+    refreshPolicy: "versioned_per_call",
+    provenanceAdapter: "execution.liquidity_adapter.v1",
+    retryOwner: "execution_feasibility",
+    crossCycleReuse: "forbidden",
   }),
   mirofish_context: runtimeSource("mirofish_context", {
     scope: { context_hash: "required" },
     schema: "mirofish.context.v1",
+    producerMode: "eager",
+    producerStage: "cycle_input",
+    availableFromStage: "cro_review",
+    finalizedAtStage: "cycle_input",
+    refreshPolicy: "frozen",
+    provenanceAdapter: "mirofish.context_adapter.v1",
+    retryOwner: "cycle_input",
+    crossCycleReuse: "forbidden",
   }),
 };
 
@@ -813,6 +959,9 @@ export function validateDomainKnobCatalogArtifact(
   if (expectedRuntimeSources.join(",") !== actualRuntimeSources.join(",")) {
     reasons.push("domain_catalog_runtime_source_registry_mismatch");
   }
+  for (const [sourceId, sourceEntry] of Object.entries(artifact.runtime_sources)) {
+    reasons.push(...validateRuntimeSourceRegistryEntry(sourceId, sourceEntry));
+  }
   const expectedMetrics = Object.keys(EVALUATION_METRIC_REGISTRY).sort();
   const actualMetrics = Object.keys(artifact.evaluation_metrics).sort();
   if (expectedMetrics.join(",") !== actualMetrics.join(",")) {
@@ -942,6 +1091,12 @@ function validateCard(
   if (!card.consumer_agents.includes(card.owner_agent)) {
     reasons.push(`domain_card_missing_owner_consumer:${card.id}`);
   }
+  if (!spec.stages.some((stage) => stage.stage === card.owner_stage)) {
+    reasons.push(`domain_card_owner_stage_mismatch:${card.id}:${card.owner_stage}`);
+  }
+  if (!card.consumer_stages.includes(card.owner_stage)) {
+    reasons.push(`domain_card_missing_owner_consumer_stage:${card.id}:${card.owner_stage}`);
+  }
   if (!targetPaths.has(card.path)) {
     reasons.push(`domain_card_missing_mutation_target:${card.id}`);
   }
@@ -1060,9 +1215,53 @@ function validateCardSourceBinding(card: DomainKnobCard): string[] {
   }
   if (
     card.owner_agent === "decision.cio" &&
+    card.owner_stage === "cio_proposal" &&
     card.runtime_input_sources.includes("candidate_target_state")
   ) {
     reasons.push(`domain_card_cio_self_loop_source:${card.id}:candidate_target_state`);
+  }
+  const ownerOrder = RUNTIME_DAG_STAGE_ORDER[card.owner_stage];
+  for (const sourceId of card.runtime_input_sources) {
+    const source = RUNTIME_SOURCE_REGISTRY[sourceId as keyof typeof RUNTIME_SOURCE_REGISTRY];
+    if (!source) continue;
+    if (ownerOrder < RUNTIME_DAG_STAGE_ORDER[source.available_from_stage]) {
+      reasons.push(
+        `domain_card_source_unavailable_at_owner_stage:${card.id}:${sourceId}:${card.owner_stage}`,
+      );
+    }
+  }
+  return reasons;
+}
+
+function validateRuntimeSourceRegistryEntry(
+  sourceId: string,
+  source: RuntimeSourceRegistryEntry,
+): string[] {
+  const reasons: string[] = [];
+  if (source.id !== sourceId) {
+    reasons.push(`runtime_source_id_mismatch:${sourceId}:${source.id}`);
+  }
+  if (!source.provenance_adapter) {
+    reasons.push(`runtime_source_provenance_adapter_missing:${sourceId}`);
+  }
+  if (!source.retry_owner) reasons.push(`runtime_source_retry_owner_missing:${sourceId}`);
+  if (
+    source.producer_mode === "on_demand_pre_stage" &&
+    source.producer_stage !== "pre_stage_source_resolution"
+  ) {
+    reasons.push(`runtime_source_on_demand_producer_stage_invalid:${sourceId}`);
+  }
+  if (
+    RUNTIME_DAG_STAGE_ORDER[source.producer_stage] >
+    RUNTIME_DAG_STAGE_ORDER[source.available_from_stage]
+  ) {
+    reasons.push(`runtime_source_available_before_producer:${sourceId}`);
+  }
+  if (
+    RUNTIME_DAG_STAGE_ORDER[source.finalized_at_stage] <
+    RUNTIME_DAG_STAGE_ORDER[source.producer_stage]
+  ) {
+    reasons.push(`runtime_source_finalized_before_producer:${sourceId}`);
   }
   return reasons;
 }
@@ -1260,10 +1459,14 @@ function buildCard(spec: RuntimeAgentSpec, seed: DomainSeed): DomainKnobCard {
   const runtimeValidator = runtimeValidatorForId(id);
   const auditField = auditFieldForId(id);
   const weightGroup = weightGroupForId(spec.agent, id);
+  const ownerStage = ownerStageForCard(spec, id);
+  const consumerStages = consumerStagesForCard(ownerStage, enforcement);
   return {
     id,
     owner_agent: spec.promptIrAgentId,
     consumer_agents: [spec.promptIrAgentId],
+    owner_stage: ownerStage,
+    consumer_stages: consumerStages,
     projection_bucket: bucket,
     path: `/rule_packs/${spec.layer}.${spec.agent}.runtime.v1/rules/${canonicalRuleId(spec)}/learnable_parameters/${id}/value`,
     type,
@@ -1307,8 +1510,27 @@ function buildCard(spec: RuntimeAgentSpec, seed: DomainSeed): DomainKnobCard {
     category: "domain",
     cross_field_group: crossFieldGroupForId(spec.agent, id),
     weight_group: weightGroup,
+    atomic_mutation_group: weightGroup
+      ? `weight_group:${spec.promptIrAgentId}:${weightGroup}`
+      : null,
     normalization: weightGroup ? "sum_to_one" : "none",
   };
+}
+
+function ownerStageForCard(spec: RuntimeAgentSpec, id: string): RuntimeAgentStageId {
+  if (spec.layer !== "decision") return "agent_run";
+  if (spec.agent === "alpha_discovery") return "alpha_discovery";
+  if (spec.agent === "cro") return "cro_review";
+  if (spec.agent === "autonomous_execution") return "execution_feasibility";
+  if (spec.agent === "cio") return id.startsWith("mirofish_") ? "cio_final" : "cio_proposal";
+  throw new Error(`unsupported decision card owner stage: ${spec.agent}:${id}`);
+}
+
+function consumerStagesForCard(
+  ownerStage: RuntimeAgentStageId,
+  enforcement: DomainKnobCard["enforcement"],
+): RuntimeDagStageId[] {
+  return enforcement === "code" ? [ownerStage, "shared_validation"] : [ownerStage];
 }
 
 function seeds(ids: string[]): DomainSeed[] {
@@ -1321,12 +1543,28 @@ function runtimeSource(
     scope: Record<string, "required" | "optional">;
     schema: string;
     empty?: boolean;
+    producerMode: RuntimeSourceRegistryEntry["producer_mode"];
+    producerStage: RuntimeDagStageId;
+    availableFromStage: RuntimeDagStageId;
+    finalizedAtStage: RuntimeDagStageId;
+    refreshPolicy: RuntimeSourceRegistryEntry["refresh_policy"];
+    provenanceAdapter: string;
+    retryOwner: string;
+    crossCycleReuse: RuntimeSourceRegistryEntry["cross_cycle_reuse"];
   },
 ): RuntimeSourceRegistryEntry {
   return {
     id,
     scope_schema: opts.scope,
     schema_ref: opts.schema,
+    producer_mode: opts.producerMode,
+    producer_stage: opts.producerStage,
+    available_from_stage: opts.availableFromStage,
+    finalized_at_stage: opts.finalizedAtStage,
+    refresh_policy: opts.refreshPolicy,
+    provenance_adapter: opts.provenanceAdapter,
+    retry_owner: opts.retryOwner,
+    cross_cycle_reuse: opts.crossCycleReuse,
     max_age: "same_run_or_current_day",
     trading_calendar: "cn_a_share",
     pit_required: true,
@@ -1522,7 +1760,34 @@ function metricIdsForSeed(id: string, tool: string, evidenceKey: string): string
 
 function runtimeSourcesForCard(agent: string, id: string): string[] {
   if (id.startsWith("mirofish_")) {
-    return ["current_position_snapshot", "current_market_data", "mirofish_context"];
+    if (agent === "cro") {
+      return [
+        "current_position_snapshot",
+        "current_market_data",
+        "candidate_target_state",
+        "mirofish_context",
+      ];
+    }
+    if (agent === "autonomous_execution") {
+      return [
+        "current_position_snapshot",
+        "current_market_data",
+        "candidate_target_state",
+        "cro_review_state",
+        "execution_liquidity_state",
+        "mirofish_context",
+      ];
+    }
+    if (agent === "cio") {
+      return [
+        "current_position_snapshot",
+        "current_market_data",
+        "candidate_target_state",
+        "cro_review_state",
+        "execution_feasibility_state",
+        "mirofish_context",
+      ];
+    }
   }
   if (agent === "cio") {
     if (id === "stale_thesis_days") {
@@ -1535,7 +1800,7 @@ function runtimeSourcesForCard(agent: string, id: string): string[] {
       return ["upstream_agent_outputs", "current_position_snapshot"];
     }
     if (id === "min_confidence_to_hold") {
-      return ["current_position_snapshot", "position_review_state"];
+      return ["current_position_snapshot", "position_thesis_state"];
     }
   }
   if (agent === "cro") {
@@ -1580,7 +1845,7 @@ function runtimeSourcesForCard(agent: string, id: string): string[] {
     return ["current_position_snapshot", "previous_target_state", "upstream_agent_outputs"];
   }
   if (agent === "alpha_discovery") {
-    return ["upstream_agent_outputs", "position_review_state"];
+    return ["upstream_agent_outputs", "current_position_snapshot", "current_market_data"];
   }
   return ["upstream_agent_outputs"];
 }
@@ -1789,6 +2054,10 @@ function canonicalDomainCard(card: DomainKnobCard): DomainKnobCard {
     id: card.id,
     owner_agent: card.owner_agent,
     consumer_agents: [...card.consumer_agents].sort(),
+    owner_stage: card.owner_stage,
+    consumer_stages: [...card.consumer_stages].sort(
+      (left, right) => RUNTIME_DAG_STAGE_ORDER[left] - RUNTIME_DAG_STAGE_ORDER[right],
+    ),
     projection_bucket: card.projection_bucket,
     path: card.path,
     type: card.type,
@@ -1816,6 +2085,7 @@ function canonicalDomainCard(card: DomainKnobCard): DomainKnobCard {
     category: card.category,
     cross_field_group: card.cross_field_group,
     weight_group: card.weight_group,
+    atomic_mutation_group: card.atomic_mutation_group,
     normalization: card.normalization,
   };
 }

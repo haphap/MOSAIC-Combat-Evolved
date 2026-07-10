@@ -312,6 +312,9 @@ research-knobs:
         { source_id: "upstream_agent_outputs", scope: "agent:macro", status: "loaded" },
         { source_id: "position_thesis_state", scope: "ticker:600519.SH", status: "loaded" },
         { source_id: "position_review_state", scope: "account:paper", status: "loaded" },
+        { source_id: "candidate_target_state", scope: "run:test", status: "loaded" },
+        { source_id: "cro_review_state", scope: "run:test", status: "loaded" },
+        { source_id: "execution_feasibility_state", scope: "run:test", status: "loaded" },
         { source_id: "mirofish_context", scope: "context:test", status: "loaded" },
       ],
     });

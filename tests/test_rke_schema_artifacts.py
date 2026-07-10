@@ -6880,6 +6880,8 @@ def _domain_knob_catalog_fixture() -> dict:
                         "id": "inventory_cycle_quarters",
                         "owner_agent": "sector.semiconductor",
                         "consumer_agents": ["sector.semiconductor"],
+                        "owner_stage": "agent_run",
+                        "consumer_stages": ["agent_run"],
                         "projection_bucket": "lookbacks",
                         "path": (
                             "/rule_packs/sector.semiconductor.runtime.v1/rules/"
@@ -6932,6 +6934,7 @@ def _domain_knob_catalog_fixture() -> dict:
                         "category": "domain",
                         "cross_field_group": None,
                         "weight_group": None,
+                        "atomic_mutation_group": None,
                         "normalization": "none",
                     }
                 ],

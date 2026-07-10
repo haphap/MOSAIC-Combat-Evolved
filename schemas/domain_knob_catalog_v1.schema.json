@@ -31,6 +31,14 @@
           "id",
           "scope_schema",
           "schema_ref",
+          "producer_mode",
+          "producer_stage",
+          "available_from_stage",
+          "finalized_at_stage",
+          "refresh_policy",
+          "provenance_adapter",
+          "retry_owner",
+          "cross_cycle_reuse",
           "max_age",
           "trading_calendar",
           "pit_required",
@@ -54,6 +62,32 @@
           "schema_ref": {
             "type": "string",
             "minLength": 1
+          },
+          "producer_mode": {
+            "enum": ["eager", "stage_output", "on_demand_pre_stage"]
+          },
+          "producer_stage": {
+            "$ref": "#/$defs/runtime_dag_stage"
+          },
+          "available_from_stage": {
+            "$ref": "#/$defs/runtime_dag_stage"
+          },
+          "finalized_at_stage": {
+            "$ref": "#/$defs/runtime_dag_stage"
+          },
+          "refresh_policy": {
+            "enum": ["frozen", "versioned_per_call", "carry_forward_if_fresh"]
+          },
+          "provenance_adapter": {
+            "type": "string",
+            "minLength": 1
+          },
+          "retry_owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cross_cycle_reuse": {
+            "enum": ["forbidden", "allowed_if_fresh", "prior_cycle_only"]
           },
           "max_age": {
             "type": "string",
@@ -208,6 +242,8 @@
                 "id",
                 "owner_agent",
                 "consumer_agents",
+                "owner_stage",
+                "consumer_stages",
                 "projection_bucket",
                 "path",
                 "type",
@@ -227,6 +263,7 @@
                 "category",
                 "cross_field_group",
                 "weight_group",
+                "atomic_mutation_group",
                 "normalization"
               ],
               "properties": {
@@ -244,6 +281,23 @@
                   "items": {
                     "type": "string",
                     "minLength": 1
+                  }
+                },
+                "owner_stage": {
+                  "enum": [
+                    "agent_run",
+                    "alpha_discovery",
+                    "cio_proposal",
+                    "cro_review",
+                    "execution_feasibility",
+                    "cio_final"
+                  ]
+                },
+                "consumer_stages": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/runtime_dag_stage"
                   }
                 },
                 "projection_bucket": {
@@ -480,6 +534,9 @@
                 "weight_group": {
                   "type": ["string", "null"]
                 },
+                "atomic_mutation_group": {
+                  "type": ["string", "null"]
+                },
                 "normalization": {
                   "enum": ["none", "sum_to_one"]
                 }
@@ -563,6 +620,22 @@
           }
         }
       }
+    }
+  },
+  "$defs": {
+    "runtime_dag_stage": {
+      "enum": [
+        "cycle_input",
+        "pre_stage_source_resolution",
+        "agent_run",
+        "alpha_discovery",
+        "cio_proposal",
+        "cro_review",
+        "execution_feasibility",
+        "cio_final",
+        "shared_validation",
+        "order_adapter"
+      ]
     }
   }
 }

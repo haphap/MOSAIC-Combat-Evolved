@@ -11,6 +11,40 @@
         "run_id": "required"
       },
       "schema_ref": "portfolio.candidate_target_state.v1",
+      "producer_mode": "stage_output",
+      "producer_stage": "cio_proposal",
+      "available_from_stage": "cro_review",
+      "finalized_at_stage": "cio_proposal",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "decision.cio_proposal_adapter.v1",
+      "retry_owner": "cio_proposal",
+      "cross_cycle_reuse": "forbidden",
+      "max_age": "same_run_or_current_day",
+      "trading_calendar": "cn_a_share",
+      "pit_required": true,
+      "empty_allowed": false,
+      "empty_status": "invalid",
+      "empty_behavior": "invalid",
+      "stale_policy": "disable_card_and_cap_if_required",
+      "source_error_policy": "disable_card_and_cap_if_required"
+    },
+    "cro_review_state": {
+      "id": "cro_review_state",
+      "scope_schema": {
+        "account_id": "required",
+        "cohort": "required",
+        "run_id": "required",
+        "candidate_target_hash": "required"
+      },
+      "schema_ref": "decision.cro_review_state.v1",
+      "producer_mode": "stage_output",
+      "producer_stage": "cro_review",
+      "available_from_stage": "execution_feasibility",
+      "finalized_at_stage": "cro_review",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "decision.cro_review_adapter.v1",
+      "retry_owner": "cro_review",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -26,6 +60,14 @@
         "ticker": "required"
       },
       "schema_ref": "market.snapshot.v1",
+      "producer_mode": "on_demand_pre_stage",
+      "producer_stage": "pre_stage_source_resolution",
+      "available_from_stage": "agent_run",
+      "finalized_at_stage": "order_adapter",
+      "refresh_policy": "versioned_per_call",
+      "provenance_adapter": "market.scoped_snapshot_adapter.v1",
+      "retry_owner": "requesting_stage",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -43,6 +85,41 @@
         "run_id": "required"
       },
       "schema_ref": "daily_cycle.current_positions.v1",
+      "producer_mode": "eager",
+      "producer_stage": "cycle_input",
+      "available_from_stage": "alpha_discovery",
+      "finalized_at_stage": "cycle_input",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "portfolio.current_positions_adapter.v1",
+      "retry_owner": "cycle_input",
+      "cross_cycle_reuse": "forbidden",
+      "max_age": "same_run_or_current_day",
+      "trading_calendar": "cn_a_share",
+      "pit_required": true,
+      "empty_allowed": true,
+      "empty_status": "empty_confirmed",
+      "empty_behavior": "disable_dependent_cards",
+      "stale_policy": "disable_card_and_cap_if_required",
+      "source_error_policy": "disable_card_and_cap_if_required"
+    },
+    "execution_feasibility_state": {
+      "id": "execution_feasibility_state",
+      "scope_schema": {
+        "account_id": "required",
+        "cohort": "required",
+        "run_id": "required",
+        "candidate_target_hash": "required",
+        "market_vintage_hash": "required"
+      },
+      "schema_ref": "decision.execution_feasibility_state.v1",
+      "producer_mode": "stage_output",
+      "producer_stage": "execution_feasibility",
+      "available_from_stage": "cio_final",
+      "finalized_at_stage": "execution_feasibility",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "decision.execution_feasibility_adapter.v1",
+      "retry_owner": "execution_feasibility",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -58,6 +135,14 @@
         "ticker": "required"
       },
       "schema_ref": "execution.liquidity_state.v1",
+      "producer_mode": "on_demand_pre_stage",
+      "producer_stage": "pre_stage_source_resolution",
+      "available_from_stage": "execution_feasibility",
+      "finalized_at_stage": "execution_feasibility",
+      "refresh_policy": "versioned_per_call",
+      "provenance_adapter": "execution.liquidity_adapter.v1",
+      "retry_owner": "execution_feasibility",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -67,12 +152,45 @@
       "stale_policy": "disable_card_and_cap_if_required",
       "source_error_policy": "disable_card_and_cap_if_required"
     },
+    "final_target_state": {
+      "id": "final_target_state",
+      "scope_schema": {
+        "account_id": "required",
+        "cohort": "required",
+        "run_id": "required"
+      },
+      "schema_ref": "portfolio.final_target_state.v1",
+      "producer_mode": "stage_output",
+      "producer_stage": "shared_validation",
+      "available_from_stage": "order_adapter",
+      "finalized_at_stage": "shared_validation",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "portfolio.shared_validation_adapter.v1",
+      "retry_owner": "shared_validation",
+      "cross_cycle_reuse": "prior_cycle_only",
+      "max_age": "same_run_or_current_day",
+      "trading_calendar": "cn_a_share",
+      "pit_required": true,
+      "empty_allowed": true,
+      "empty_status": "empty_confirmed",
+      "empty_behavior": "disable_dependent_cards",
+      "stale_policy": "disable_card_and_cap_if_required",
+      "source_error_policy": "disable_card_and_cap_if_required"
+    },
     "mirofish_context": {
       "id": "mirofish_context",
       "scope_schema": {
         "context_hash": "required"
       },
       "schema_ref": "mirofish.context.v1",
+      "producer_mode": "eager",
+      "producer_stage": "cycle_input",
+      "available_from_stage": "cro_review",
+      "finalized_at_stage": "cycle_input",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "mirofish.context_adapter.v1",
+      "retry_owner": "cycle_input",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -90,6 +208,14 @@
         "run_id": "required"
       },
       "schema_ref": "portfolio.exposure_state.v1",
+      "producer_mode": "stage_output",
+      "producer_stage": "cio_proposal",
+      "available_from_stage": "cro_review",
+      "finalized_at_stage": "cio_proposal",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "portfolio.exposure_adapter.v1",
+      "retry_owner": "cio_proposal",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -107,6 +233,14 @@
         "run_id": "required"
       },
       "schema_ref": "daily_cycle.position_review_state.v1",
+      "producer_mode": "stage_output",
+      "producer_stage": "cio_proposal",
+      "available_from_stage": "cro_review",
+      "finalized_at_stage": "cio_proposal",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "decision.position_review_adapter.v1",
+      "retry_owner": "cio_proposal",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -122,6 +256,14 @@
         "ticker": "required"
       },
       "schema_ref": "portfolio.position_thesis_state.v1",
+      "producer_mode": "eager",
+      "producer_stage": "cycle_input",
+      "available_from_stage": "cio_proposal",
+      "finalized_at_stage": "cycle_input",
+      "refresh_policy": "carry_forward_if_fresh",
+      "provenance_adapter": "portfolio.position_thesis_adapter.v1",
+      "retry_owner": "cycle_input",
+      "cross_cycle_reuse": "allowed_if_fresh",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -138,6 +280,14 @@
         "cohort": "required"
       },
       "schema_ref": "portfolio.previous_target_state.v1",
+      "producer_mode": "eager",
+      "producer_stage": "cycle_input",
+      "available_from_stage": "cio_proposal",
+      "finalized_at_stage": "cycle_input",
+      "refresh_policy": "carry_forward_if_fresh",
+      "provenance_adapter": "portfolio.previous_target_adapter.v1",
+      "retry_owner": "cycle_input",
+      "cross_cycle_reuse": "prior_cycle_only",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -155,6 +305,14 @@
         "run_id": "required"
       },
       "schema_ref": "daily_cycle.upstream_agent_outputs.v1",
+      "producer_mode": "stage_output",
+      "producer_stage": "agent_run",
+      "available_from_stage": "alpha_discovery",
+      "finalized_at_stage": "alpha_discovery",
+      "refresh_policy": "frozen",
+      "provenance_adapter": "daily_cycle.agent_output_adapter.v1",
+      "retry_owner": "producing_agent_stage",
+      "cross_cycle_reuse": "forbidden",
       "max_age": "same_run_or_current_day",
       "trading_calendar": "cn_a_share",
       "pit_required": true,
@@ -781,6 +939,10 @@
           "consumer_agents": [
             "macro.central_bank"
           ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/easing_threshold_bps/value",
           "type": "number",
@@ -836,6 +998,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -843,6 +1006,10 @@
           "owner_agent": "macro.central_bank",
           "consumer_agents": [
             "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/liquidity_net_injection_window_days/value",
@@ -899,6 +1066,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -906,6 +1074,10 @@
           "owner_agent": "macro.central_bank",
           "consumer_agents": [
             "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/omo_mlf_freshness_days/value",
@@ -962,6 +1134,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -969,6 +1142,10 @@
           "owner_agent": "macro.central_bank",
           "consumer_agents": [
             "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_fed_policy_weight/value",
@@ -1025,6 +1202,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1032,6 +1210,10 @@
           "owner_agent": "macro.central_bank",
           "consumer_agents": [
             "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/policy_conflict_cap/value",
@@ -1088,6 +1270,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1095,6 +1278,10 @@
           "owner_agent": "macro.central_bank",
           "consumer_agents": [
             "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/tightening_threshold_bps/value",
@@ -1151,6 +1338,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -1167,6 +1355,10 @@
           "owner_agent": "macro.geopolitical",
           "consumer_agents": [
             "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/conflict_weight/value",
@@ -1223,6 +1415,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1230,6 +1423,10 @@
           "owner_agent": "macro.geopolitical",
           "consumer_agents": [
             "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/event_decay_window_days/value",
@@ -1286,6 +1483,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1293,6 +1491,10 @@
           "owner_agent": "macro.geopolitical",
           "consumer_agents": [
             "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/risk_event_severity_threshold/value",
@@ -1349,6 +1551,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1356,6 +1559,10 @@
           "owner_agent": "macro.geopolitical",
           "consumer_agents": [
             "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/risk_off_override_threshold/value",
@@ -1412,6 +1619,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1419,6 +1627,10 @@
           "owner_agent": "macro.geopolitical",
           "consumer_agents": [
             "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/sanction_weight/value",
@@ -1475,6 +1687,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1482,6 +1695,10 @@
           "owner_agent": "macro.geopolitical",
           "consumer_agents": [
             "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/supply_chain_weight/value",
@@ -1538,6 +1755,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -1554,6 +1772,10 @@
           "owner_agent": "macro.china",
           "consumer_agents": [
             "macro.china"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.china.runtime.v1/rules/macro.china.soft.001/learnable_parameters/a_share_beta_discount/value",
@@ -1610,6 +1832,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1617,6 +1840,10 @@
           "owner_agent": "macro.china",
           "consumer_agents": [
             "macro.china"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.china.runtime.v1/rules/macro.china.soft.001/learnable_parameters/consumption_weight/value",
@@ -1673,6 +1900,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1680,6 +1908,10 @@
           "owner_agent": "macro.china",
           "consumer_agents": [
             "macro.china"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.china.runtime.v1/rules/macro.china.soft.001/learnable_parameters/pmi_weight/value",
@@ -1736,6 +1968,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1743,6 +1976,10 @@
           "owner_agent": "macro.china",
           "consumer_agents": [
             "macro.china"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.china.runtime.v1/rules/macro.china.soft.001/learnable_parameters/policy_confirmation_window_days/value",
@@ -1799,6 +2036,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1806,6 +2044,10 @@
           "owner_agent": "macro.china",
           "consumer_agents": [
             "macro.china"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.china.runtime.v1/rules/macro.china.soft.001/learnable_parameters/property_cycle_weight/value",
@@ -1862,6 +2104,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -1869,6 +2112,10 @@
           "owner_agent": "macro.china",
           "consumer_agents": [
             "macro.china"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.china.runtime.v1/rules/macro.china.soft.001/learnable_parameters/social_financing_weight/value",
@@ -1925,6 +2172,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -1941,6 +2189,10 @@
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/cn_us_spread_weight/value",
@@ -1997,6 +2249,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2004,6 +2257,10 @@
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/dollar_pressure_cap/value",
@@ -2060,6 +2317,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2067,6 +2325,10 @@
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/dxy_trend_window_days/value",
@@ -2123,6 +2385,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2130,6 +2393,10 @@
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/em_flow_pressure_weight/value",
@@ -2186,6 +2453,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2193,6 +2461,10 @@
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fed_pboc_divergence_threshold_bps/value",
@@ -2249,6 +2521,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2256,6 +2529,10 @@
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/real_rate_weight/value",
@@ -2312,6 +2589,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -2328,6 +2606,10 @@
           "owner_agent": "macro.yield_curve",
           "consumer_agents": [
             "macro.yield_curve"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/credit_spread_discount/value",
@@ -2384,6 +2666,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2391,6 +2674,10 @@
           "owner_agent": "macro.yield_curve",
           "consumer_agents": [
             "macro.yield_curve"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/duration_risk_weight/value",
@@ -2447,6 +2734,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2454,6 +2742,10 @@
           "owner_agent": "macro.yield_curve",
           "consumer_agents": [
             "macro.yield_curve"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/flattening_threshold_bps/value",
@@ -2510,6 +2802,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2517,6 +2810,10 @@
           "owner_agent": "macro.yield_curve",
           "consumer_agents": [
             "macro.yield_curve"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/inversion_threshold_bps/value",
@@ -2573,6 +2870,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2580,6 +2878,10 @@
           "owner_agent": "macro.yield_curve",
           "consumer_agents": [
             "macro.yield_curve"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/steepening_threshold_bps/value",
@@ -2636,6 +2938,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2643,6 +2946,10 @@
           "owner_agent": "macro.yield_curve",
           "consumer_agents": [
             "macro.yield_curve"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/term_spread_window_days/value",
@@ -2699,6 +3006,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -2715,6 +3023,10 @@
           "owner_agent": "macro.commodities",
           "consumer_agents": [
             "macro.commodities"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/agriculture_weight/value",
@@ -2771,6 +3083,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2778,6 +3091,10 @@
           "owner_agent": "macro.commodities",
           "consumer_agents": [
             "macro.commodities"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/china_demand_weight/value",
@@ -2834,6 +3151,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2841,6 +3159,10 @@
           "owner_agent": "macro.commodities",
           "consumer_agents": [
             "macro.commodities"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/industrial_metals_weight/value",
@@ -2897,6 +3219,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2904,6 +3227,10 @@
           "owner_agent": "macro.commodities",
           "consumer_agents": [
             "macro.commodities"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/inventory_confirmation_window_days/value",
@@ -2960,6 +3287,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -2967,6 +3295,10 @@
           "owner_agent": "macro.commodities",
           "consumer_agents": [
             "macro.commodities"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/oil_weight/value",
@@ -3023,6 +3355,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3030,6 +3363,10 @@
           "owner_agent": "macro.commodities",
           "consumer_agents": [
             "macro.commodities"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/precious_metals_weight/value",
@@ -3086,6 +3423,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -3102,6 +3440,10 @@
           "owner_agent": "macro.volatility",
           "consumer_agents": [
             "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/ivx_weight/value",
@@ -3158,6 +3500,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3165,6 +3508,10 @@
           "owner_agent": "macro.volatility",
           "consumer_agents": [
             "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/realized_vol_weight/value",
@@ -3221,6 +3568,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3228,6 +3576,10 @@
           "owner_agent": "macro.volatility",
           "consumer_agents": [
             "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/risk_off_threshold/value",
@@ -3284,6 +3636,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3291,6 +3644,10 @@
           "owner_agent": "macro.volatility",
           "consumer_agents": [
             "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/vix_weight/value",
@@ -3347,6 +3704,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3354,6 +3712,10 @@
           "owner_agent": "macro.volatility",
           "consumer_agents": [
             "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/vol_amplification_window_days/value",
@@ -3410,6 +3772,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3417,6 +3780,10 @@
           "owner_agent": "macro.volatility",
           "consumer_agents": [
             "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/volatility_cap/value",
@@ -3473,6 +3840,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -3489,6 +3857,10 @@
           "owner_agent": "macro.emerging_markets",
           "consumer_agents": [
             "macro.emerging_markets"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/dxy_pressure_threshold/value",
@@ -3545,6 +3917,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3552,6 +3925,10 @@
           "owner_agent": "macro.emerging_markets",
           "consumer_agents": [
             "macro.emerging_markets"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/em_drawdown_cap/value",
@@ -3608,6 +3985,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3615,6 +3993,10 @@
           "owner_agent": "macro.emerging_markets",
           "consumer_agents": [
             "macro.emerging_markets"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/em_etf_weight/value",
@@ -3671,6 +4053,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3678,6 +4061,10 @@
           "owner_agent": "macro.emerging_markets",
           "consumer_agents": [
             "macro.emerging_markets"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/foreign_flow_confirmation_days/value",
@@ -3734,6 +4121,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3741,6 +4129,10 @@
           "owner_agent": "macro.emerging_markets",
           "consumer_agents": [
             "macro.emerging_markets"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/hk_a_relative_strength_window_days/value",
@@ -3797,6 +4189,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3804,6 +4197,10 @@
           "owner_agent": "macro.emerging_markets",
           "consumer_agents": [
             "macro.emerging_markets"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/northbound_flow_weight/value",
@@ -3860,6 +4257,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -3876,6 +4274,10 @@
           "owner_agent": "macro.news_sentiment",
           "consumer_agents": [
             "macro.news_sentiment"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/contrarian_threshold/value",
@@ -3932,6 +4334,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -3939,6 +4342,10 @@
           "owner_agent": "macro.news_sentiment",
           "consumer_agents": [
             "macro.news_sentiment"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/event_decay_window_days/value",
@@ -3995,6 +4402,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4002,6 +4410,10 @@
           "owner_agent": "macro.news_sentiment",
           "consumer_agents": [
             "macro.news_sentiment"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/news_sentiment_scale/value",
@@ -4058,6 +4470,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4065,6 +4478,10 @@
           "owner_agent": "macro.news_sentiment",
           "consumer_agents": [
             "macro.news_sentiment"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/policy_semantic_weight/value",
@@ -4121,6 +4538,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4128,6 +4546,10 @@
           "owner_agent": "macro.news_sentiment",
           "consumer_agents": [
             "macro.news_sentiment"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/topic_filter_threshold/value",
@@ -4184,6 +4606,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4191,6 +4614,10 @@
           "owner_agent": "macro.news_sentiment",
           "consumer_agents": [
             "macro.news_sentiment"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/xueqiu_replacement_weight/value",
@@ -4247,6 +4674,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -4263,6 +4691,10 @@
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
             "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/flow_persistence_days/value",
@@ -4319,6 +4751,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4326,6 +4759,10 @@
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
             "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/industry_moneyflow_window_days/value",
@@ -4382,6 +4819,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4389,6 +4827,10 @@
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
             "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/lhb_window_days/value",
@@ -4445,6 +4887,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4452,6 +4895,10 @@
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
             "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/main_net_inflow_threshold/value",
@@ -4508,6 +4955,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4515,6 +4963,10 @@
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
             "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/null_flow_fallback_cap/value",
@@ -4571,6 +5023,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4578,6 +5031,10 @@
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
             "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/top_buyer_weight/value",
@@ -4634,6 +5091,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -4650,6 +5108,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/ai_compute_weight/value",
@@ -4706,6 +5168,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": "subindustry_weights",
+          "atomic_mutation_group": "weight_group:sector.semiconductor:subindustry_weights",
           "normalization": "sum_to_one"
         },
         {
@@ -4713,6 +5176,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/broker_research_days/value",
@@ -4769,6 +5236,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4776,6 +5244,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/capex_cycle_quarters/value",
@@ -4834,6 +5306,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4841,6 +5314,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/capex_to_revenue_min/value",
@@ -4899,6 +5376,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -4906,6 +5384,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/design_weight/value",
@@ -4962,6 +5444,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": "subindustry_weights",
+          "atomic_mutation_group": "weight_group:sector.semiconductor:subindustry_weights",
           "normalization": "sum_to_one"
         },
         {
@@ -4969,6 +5452,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/equipment_weight/value",
@@ -5025,6 +5512,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": "subindustry_weights",
+          "atomic_mutation_group": "weight_group:sector.semiconductor:subindustry_weights",
           "normalization": "sum_to_one"
         },
         {
@@ -5032,6 +5520,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/export_control_discount/value",
@@ -5088,6 +5580,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5095,6 +5588,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/financial_statement_quarters/value",
@@ -5151,6 +5648,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5158,6 +5656,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/foundry_weight/value",
@@ -5214,6 +5716,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": "subindustry_weights",
+          "atomic_mutation_group": "weight_group:sector.semiconductor:subindustry_weights",
           "normalization": "sum_to_one"
         },
         {
@@ -5221,6 +5724,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/gross_margin_change_min/value",
@@ -5277,6 +5784,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5284,6 +5792,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/industry_moneyflow_days/value",
@@ -5340,6 +5852,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5347,6 +5860,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/inventory_cycle_quarters/value",
@@ -5404,6 +5921,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5411,6 +5929,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/inventory_to_revenue_risk/value",
@@ -5468,6 +5990,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5475,6 +5998,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/localization_policy_weight/value",
@@ -5531,6 +6058,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5538,6 +6066,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/materials_weight/value",
@@ -5594,6 +6126,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": "subindustry_weights",
+          "atomic_mutation_group": "weight_group:sector.semiconductor:subindustry_weights",
           "normalization": "sum_to_one"
         },
         {
@@ -5601,6 +6134,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/max_verified_constituents/value",
@@ -5663,6 +6200,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5670,6 +6208,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/min_long_conviction/value",
@@ -5726,6 +6268,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5733,6 +6276,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/min_short_conviction/value",
@@ -5789,6 +6336,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5796,6 +6344,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/packaging_weight/value",
@@ -5852,6 +6404,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": "subindustry_weights",
+          "atomic_mutation_group": "weight_group:sector.semiconductor:subindustry_weights",
           "normalization": "sum_to_one"
         },
         {
@@ -5859,6 +6412,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/policy_digest_days/value",
@@ -5915,6 +6472,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5922,6 +6480,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/price_confirmation_pct/value",
@@ -5978,6 +6540,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -5985,6 +6548,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/price_momentum_days/value",
@@ -6041,6 +6608,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6048,6 +6616,10 @@
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
             "sector.semiconductor"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/valuation_risk_max/value",
@@ -6104,6 +6676,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -6120,6 +6693,10 @@
           "owner_agent": "sector.energy",
           "consumer_agents": [
             "sector.energy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/coal_price_weight/value",
@@ -6176,6 +6753,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6183,6 +6761,10 @@
           "owner_agent": "sector.energy",
           "consumer_agents": [
             "sector.energy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/energy_security_theme_weight/value",
@@ -6239,6 +6821,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6246,6 +6829,10 @@
           "owner_agent": "sector.energy",
           "consumer_agents": [
             "sector.energy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/inventory_window_days/value",
@@ -6302,6 +6889,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6309,6 +6897,10 @@
           "owner_agent": "sector.energy",
           "consumer_agents": [
             "sector.energy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/oil_price_transmission_weight/value",
@@ -6365,6 +6957,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6372,6 +6965,10 @@
           "owner_agent": "sector.energy",
           "consumer_agents": [
             "sector.energy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/power_tariff_policy_weight/value",
@@ -6428,6 +7025,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6435,6 +7033,10 @@
           "owner_agent": "sector.energy",
           "consumer_agents": [
             "sector.energy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/refining_margin_threshold/value",
@@ -6491,6 +7093,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -6507,6 +7110,10 @@
           "owner_agent": "sector.biotech",
           "consumer_agents": [
             "sector.biotech"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/approval_catalyst_window_days/value",
@@ -6563,6 +7170,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6570,6 +7178,10 @@
           "owner_agent": "sector.biotech",
           "consumer_agents": [
             "sector.biotech"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/clinical_failure_risk_cap/value",
@@ -6626,6 +7238,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6633,6 +7246,10 @@
           "owner_agent": "sector.biotech",
           "consumer_agents": [
             "sector.biotech"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/cxo_external_demand_weight/value",
@@ -6689,6 +7306,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6696,6 +7314,10 @@
           "owner_agent": "sector.biotech",
           "consumer_agents": [
             "sector.biotech"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/medical_insurance_discount/value",
@@ -6752,6 +7374,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6759,6 +7382,10 @@
           "owner_agent": "sector.biotech",
           "consumer_agents": [
             "sector.biotech"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/pipeline_stage_weight/value",
@@ -6815,6 +7442,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6822,6 +7450,10 @@
           "owner_agent": "sector.biotech",
           "consumer_agents": [
             "sector.biotech"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/valuation_risk_threshold/value",
@@ -6878,6 +7510,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -6894,6 +7527,10 @@
           "owner_agent": "sector.consumer",
           "consumer_agents": [
             "sector.consumer"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/consumption_policy_weight/value",
@@ -6950,6 +7587,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -6957,6 +7595,10 @@
           "owner_agent": "sector.consumer",
           "consumer_agents": [
             "sector.consumer"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/income_elasticity_weight/value",
@@ -7013,6 +7655,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7020,6 +7663,10 @@
           "owner_agent": "sector.consumer",
           "consumer_agents": [
             "sector.consumer"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/inventory_cycle_window_days/value",
@@ -7076,6 +7723,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7083,6 +7731,10 @@
           "owner_agent": "sector.consumer",
           "consumer_agents": [
             "sector.consumer"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/margin_recovery_threshold/value",
@@ -7139,6 +7791,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7146,6 +7799,10 @@
           "owner_agent": "sector.consumer",
           "consumer_agents": [
             "sector.consumer"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/premium_brand_discount/value",
@@ -7202,6 +7859,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7209,6 +7867,10 @@
           "owner_agent": "sector.consumer",
           "consumer_agents": [
             "sector.consumer"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/property_chain_weight/value",
@@ -7265,6 +7927,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -7281,6 +7944,10 @@
           "owner_agent": "sector.industrials",
           "consumer_agents": [
             "sector.industrials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/capacity_utilization_weight/value",
@@ -7337,6 +8004,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7344,6 +8012,10 @@
           "owner_agent": "sector.industrials",
           "consumer_agents": [
             "sector.industrials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/capex_weight/value",
@@ -7400,6 +8072,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7407,6 +8080,10 @@
           "owner_agent": "sector.industrials",
           "consumer_agents": [
             "sector.industrials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/export_chain_weight/value",
@@ -7463,6 +8140,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7470,6 +8148,10 @@
           "owner_agent": "sector.industrials",
           "consumer_agents": [
             "sector.industrials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/military_order_confirmation_days/value",
@@ -7526,6 +8208,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7533,6 +8216,10 @@
           "owner_agent": "sector.industrials",
           "consumer_agents": [
             "sector.industrials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/order_backlog_threshold/value",
@@ -7589,6 +8276,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7596,6 +8284,10 @@
           "owner_agent": "sector.industrials",
           "consumer_agents": [
             "sector.industrials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/policy_catalyst_window_days/value",
@@ -7652,6 +8344,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -7668,6 +8361,10 @@
           "owner_agent": "sector.financials",
           "consumer_agents": [
             "sector.financials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/brokerage_volume_threshold/value",
@@ -7724,6 +8421,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7731,6 +8429,10 @@
           "owner_agent": "sector.financials",
           "consumer_agents": [
             "sector.financials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/credit_risk_cap/value",
@@ -7787,6 +8489,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7794,6 +8497,10 @@
           "owner_agent": "sector.financials",
           "consumer_agents": [
             "sector.financials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/curve_weight/value",
@@ -7850,6 +8557,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7857,6 +8565,10 @@
           "owner_agent": "sector.financials",
           "consumer_agents": [
             "sector.financials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/insurance_rate_sensitivity/value",
@@ -7913,6 +8625,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7920,6 +8633,10 @@
           "owner_agent": "sector.financials",
           "consumer_agents": [
             "sector.financials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/property_risk_discount/value",
@@ -7976,6 +8693,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -7983,6 +8701,10 @@
           "owner_agent": "sector.financials",
           "consumer_agents": [
             "sector.financials"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/turnover_beta_weight/value",
@@ -8039,6 +8761,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -8055,6 +8778,10 @@
           "owner_agent": "sector.relationship_mapper",
           "consumer_agents": [
             "sector.relationship_mapper"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/cross_sector_spillover_threshold/value",
@@ -8111,6 +8838,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8118,6 +8846,10 @@
           "owner_agent": "sector.relationship_mapper",
           "consumer_agents": [
             "sector.relationship_mapper"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/etf_overlap_threshold/value",
@@ -8174,6 +8906,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8181,6 +8914,10 @@
           "owner_agent": "sector.relationship_mapper",
           "consumer_agents": [
             "sector.relationship_mapper"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/flow_diffusion_window_days/value",
@@ -8237,6 +8974,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8244,6 +8982,10 @@
           "owner_agent": "sector.relationship_mapper",
           "consumer_agents": [
             "sector.relationship_mapper"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/holding_overlap_threshold/value",
@@ -8300,6 +9042,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8307,6 +9050,10 @@
           "owner_agent": "sector.relationship_mapper",
           "consumer_agents": [
             "sector.relationship_mapper"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/policy_resonance_weight/value",
@@ -8363,6 +9110,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8370,6 +9118,10 @@
           "owner_agent": "sector.relationship_mapper",
           "consumer_agents": [
             "sector.relationship_mapper"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/supply_chain_transmission_strength/value",
@@ -8426,6 +9178,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -8442,6 +9195,10 @@
           "owner_agent": "superinvestor.druckenmiller",
           "consumer_agents": [
             "superinvestor.druckenmiller"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/concentration_cap/value",
@@ -8495,6 +9252,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8502,6 +9260,10 @@
           "owner_agent": "superinvestor.druckenmiller",
           "consumer_agents": [
             "superinvestor.druckenmiller"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/error_cut_rule/value",
@@ -8555,6 +9317,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8562,6 +9325,10 @@
           "owner_agent": "superinvestor.druckenmiller",
           "consumer_agents": [
             "superinvestor.druckenmiller"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/macro_weight/value",
@@ -8615,6 +9382,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8622,6 +9390,10 @@
           "owner_agent": "superinvestor.druckenmiller",
           "consumer_agents": [
             "superinvestor.druckenmiller"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/payoff_threshold/value",
@@ -8675,6 +9447,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8682,6 +9455,10 @@
           "owner_agent": "superinvestor.druckenmiller",
           "consumer_agents": [
             "superinvestor.druckenmiller"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/trend_confirmation_window_days/value",
@@ -8735,6 +9512,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -8751,6 +9529,10 @@
           "owner_agent": "superinvestor.munger",
           "consumer_agents": [
             "superinvestor.munger"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/balance_sheet_quality_weight/value",
@@ -8804,6 +9586,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8811,6 +9594,10 @@
           "owner_agent": "superinvestor.munger",
           "consumer_agents": [
             "superinvestor.munger"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/capital_allocation_quality_min/value",
@@ -8864,6 +9651,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8871,6 +9659,10 @@
           "owner_agent": "superinvestor.munger",
           "consumer_agents": [
             "superinvestor.munger"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/compounder_window_days/value",
@@ -8924,6 +9716,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8931,6 +9724,10 @@
           "owner_agent": "superinvestor.munger",
           "consumer_agents": [
             "superinvestor.munger"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/moat_score_min/value",
@@ -8984,6 +9781,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -8991,6 +9789,10 @@
           "owner_agent": "superinvestor.munger",
           "consumer_agents": [
             "superinvestor.munger"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/pricing_power_weight/value",
@@ -9044,6 +9846,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -9060,6 +9863,10 @@
           "owner_agent": "superinvestor.burry",
           "consumer_agents": [
             "superinvestor.burry"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/crowding_penalty/value",
@@ -9113,6 +9920,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9120,6 +9928,10 @@
           "owner_agent": "superinvestor.burry",
           "consumer_agents": [
             "superinvestor.burry"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/distress_catalyst_weight/value",
@@ -9173,6 +9985,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9180,6 +9993,10 @@
           "owner_agent": "superinvestor.burry",
           "consumer_agents": [
             "superinvestor.burry"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/downside_protection_min/value",
@@ -9233,6 +10050,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9240,6 +10058,10 @@
           "owner_agent": "superinvestor.burry",
           "consumer_agents": [
             "superinvestor.burry"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/short_signal_window_days/value",
@@ -9293,6 +10115,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9300,6 +10123,10 @@
           "owner_agent": "superinvestor.burry",
           "consumer_agents": [
             "superinvestor.burry"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/valuation_mispricing_threshold/value",
@@ -9353,6 +10180,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -9369,6 +10197,10 @@
           "owner_agent": "superinvestor.ackman",
           "consumer_agents": [
             "superinvestor.ackman"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/activist_catalyst_window_days/value",
@@ -9422,6 +10254,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9429,6 +10262,10 @@
           "owner_agent": "superinvestor.ackman",
           "consumer_agents": [
             "superinvestor.ackman"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/brand_quality_weight/value",
@@ -9482,6 +10319,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9489,6 +10327,10 @@
           "owner_agent": "superinvestor.ackman",
           "consumer_agents": [
             "superinvestor.ackman"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/free_cashflow_growth_weight/value",
@@ -9542,6 +10384,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9549,6 +10392,10 @@
           "owner_agent": "superinvestor.ackman",
           "consumer_agents": [
             "superinvestor.ackman"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/growth_quality_min/value",
@@ -9602,6 +10449,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9609,6 +10457,10 @@
           "owner_agent": "superinvestor.ackman",
           "consumer_agents": [
             "superinvestor.ackman"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/operating_leverage_threshold/value",
@@ -9662,6 +10514,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -9678,6 +10531,11 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review",
+            "shared_validation"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/max_sector_weight/value",
@@ -9726,6 +10584,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9733,6 +10592,11 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review",
+            "shared_validation"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/max_single_name_weight/value",
@@ -9781,6 +10645,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9788,6 +10653,10 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/mirofish_drawdown_penalty/value",
@@ -9798,11 +10667,18 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
             "current_market_data",
             "current_position_snapshot",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -9840,6 +10716,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9847,6 +10724,10 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/mirofish_max_tail_loss_to_hold/value",
@@ -9857,11 +10738,18 @@
           "step": 0.01,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
             "current_market_data",
             "current_position_snapshot",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -9900,6 +10788,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9907,6 +10796,10 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/mirofish_tail_risk_veto_threshold/value",
@@ -9917,11 +10810,18 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
             "current_market_data",
             "current_position_snapshot",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -9960,6 +10860,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -9967,6 +10868,10 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/mirofish_tail_scenario_weight/value",
@@ -9977,11 +10882,18 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
             "current_market_data",
             "current_position_snapshot",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -10020,6 +10932,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10027,6 +10940,11 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review",
+            "shared_validation"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/stop_loss_pct/value",
@@ -10074,6 +10992,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10081,6 +11000,10 @@
           "owner_agent": "decision.cro",
           "consumer_agents": [
             "decision.cro"
+          ],
+          "owner_stage": "cro_review",
+          "consumer_stages": [
+            "cro_review"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/take_profit_review_pct/value",
@@ -10127,6 +11050,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -10144,6 +11068,10 @@
           "consumer_agents": [
             "decision.alpha_discovery"
           ],
+          "owner_stage": "alpha_discovery",
+          "consumer_stages": [
+            "alpha_discovery"
+          ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/cross_agent_agreement_threshold/value",
           "type": "number",
@@ -10153,15 +11081,22 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
-            "position_review_state",
+            "current_market_data",
+            "current_position_snapshot",
             "upstream_agent_outputs"
           ],
           "runtime_input_source_policies": {
-            "position_review_state": {
+            "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
             },
             "upstream_agent_outputs": {
               "missing": "disable_card_and_cap_if_required",
@@ -10189,6 +11124,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10196,6 +11132,10 @@
           "owner_agent": "decision.alpha_discovery",
           "consumer_agents": [
             "decision.alpha_discovery"
+          ],
+          "owner_stage": "alpha_discovery",
+          "consumer_stages": [
+            "alpha_discovery"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/false_positive_penalty/value",
@@ -10206,15 +11146,22 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
-            "position_review_state",
+            "current_market_data",
+            "current_position_snapshot",
             "upstream_agent_outputs"
           ],
           "runtime_input_source_policies": {
-            "position_review_state": {
+            "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
             },
             "upstream_agent_outputs": {
               "missing": "disable_card_and_cap_if_required",
@@ -10242,6 +11189,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10249,6 +11197,10 @@
           "owner_agent": "decision.alpha_discovery",
           "consumer_agents": [
             "decision.alpha_discovery"
+          ],
+          "owner_stage": "alpha_discovery",
+          "consumer_stages": [
+            "alpha_discovery"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/idea_decay_days/value",
@@ -10259,15 +11211,22 @@
           "step": 1,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
-            "position_review_state",
+            "current_market_data",
+            "current_position_snapshot",
             "upstream_agent_outputs"
           ],
           "runtime_input_source_policies": {
-            "position_review_state": {
+            "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
             },
             "upstream_agent_outputs": {
               "missing": "disable_card_and_cap_if_required",
@@ -10295,6 +11254,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10302,6 +11262,10 @@
           "owner_agent": "decision.alpha_discovery",
           "consumer_agents": [
             "decision.alpha_discovery"
+          ],
+          "owner_stage": "alpha_discovery",
+          "consumer_stages": [
+            "alpha_discovery"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/novelty_floor/value",
@@ -10312,15 +11276,22 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
-            "position_review_state",
+            "current_market_data",
+            "current_position_snapshot",
             "upstream_agent_outputs"
           ],
           "runtime_input_source_policies": {
-            "position_review_state": {
+            "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
             },
             "upstream_agent_outputs": {
               "missing": "disable_card_and_cap_if_required",
@@ -10348,6 +11319,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10355,6 +11327,10 @@
           "owner_agent": "decision.alpha_discovery",
           "consumer_agents": [
             "decision.alpha_discovery"
+          ],
+          "owner_stage": "alpha_discovery",
+          "consumer_stages": [
+            "alpha_discovery"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/theme_persistence_days/value",
@@ -10365,15 +11341,22 @@
           "step": 1,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
-            "position_review_state",
+            "current_market_data",
+            "current_position_snapshot",
             "upstream_agent_outputs"
           ],
           "runtime_input_source_policies": {
-            "position_review_state": {
+            "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
             },
             "upstream_agent_outputs": {
               "missing": "disable_card_and_cap_if_required",
@@ -10401,6 +11384,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10408,6 +11392,10 @@
           "owner_agent": "decision.alpha_discovery",
           "consumer_agents": [
             "decision.alpha_discovery"
+          ],
+          "owner_stage": "alpha_discovery",
+          "consumer_stages": [
+            "alpha_discovery"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/upstream_disagreement_filter/value",
@@ -10418,15 +11406,22 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
-            "position_review_state",
+            "current_market_data",
+            "current_position_snapshot",
             "upstream_agent_outputs"
           ],
           "runtime_input_source_policies": {
-            "position_review_state": {
+            "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "invalid"
+            },
+            "current_position_snapshot": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "disable_card"
             },
             "upstream_agent_outputs": {
               "missing": "disable_card_and_cap_if_required",
@@ -10454,6 +11449,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -10470,6 +11466,11 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility",
+            "shared_validation"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/liquidity_floor/value",
@@ -10518,6 +11519,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10525,6 +11527,10 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/max_order_split_count/value",
@@ -10571,6 +11577,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10578,6 +11585,11 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility",
+            "shared_validation"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/min_delta_trade_weight/value",
@@ -10633,6 +11645,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10640,6 +11653,10 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/mirofish_liquidity_stress_haircut/value",
@@ -10650,11 +11667,26 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_liquidity_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -10666,6 +11698,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_liquidity_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -10693,6 +11731,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10700,6 +11739,10 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/mirofish_max_size_adjustment/value",
@@ -10710,11 +11753,26 @@
           "step": 0.01,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_liquidity_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -10726,6 +11784,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_liquidity_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -10753,6 +11817,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10760,6 +11825,10 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/mirofish_path_sizing_weight/value",
@@ -10770,11 +11839,26 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_liquidity_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -10786,6 +11870,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_liquidity_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -10813,6 +11903,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10820,6 +11911,10 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/mirofish_turnover_penalty/value",
@@ -10830,11 +11925,26 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_liquidity_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -10846,6 +11956,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_liquidity_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -10873,6 +11989,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10880,6 +11997,11 @@
           "owner_agent": "decision.autonomous_execution",
           "consumer_agents": [
             "decision.autonomous_execution"
+          ],
+          "owner_stage": "execution_feasibility",
+          "consumer_stages": [
+            "execution_feasibility",
+            "shared_validation"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/slippage_cap/value",
@@ -10928,6 +12050,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
@@ -10944,6 +12067,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/min_confidence_to_add/value",
@@ -10990,6 +12117,7 @@
           "category": "domain",
           "cross_field_group": "cio_confidence_hurdles",
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -10997,6 +12125,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/min_confidence_to_hold/value",
@@ -11008,7 +12140,7 @@
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
             "current_position_snapshot",
-            "position_review_state"
+            "position_thesis_state"
           ],
           "runtime_input_source_policies": {
             "current_position_snapshot": {
@@ -11017,7 +12149,7 @@
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
             },
-            "position_review_state": {
+            "position_thesis_state": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
@@ -11043,6 +12175,7 @@
           "category": "domain",
           "cross_field_group": "cio_confidence_hurdles",
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -11050,6 +12183,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_final",
+          "consumer_stages": [
+            "cio_final"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/mirofish_exit_regret_penalty/value",
@@ -11060,11 +12197,26 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_feasibility_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -11076,6 +12228,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_feasibility_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -11103,6 +12261,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -11110,6 +12269,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_final",
+          "consumer_stages": [
+            "cio_final"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/mirofish_min_scenario_agreement_to_add/value",
@@ -11120,11 +12283,26 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_feasibility_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -11136,6 +12314,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_feasibility_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -11163,6 +12347,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -11170,6 +12355,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_final",
+          "consumer_stages": [
+            "cio_final"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/mirofish_override_hurdle/value",
@@ -11180,11 +12369,26 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_feasibility_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -11196,6 +12400,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_feasibility_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -11223,6 +12433,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -11230,6 +12441,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_final",
+          "consumer_stages": [
+            "cio_final"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/mirofish_portfolio_stress_weight/value",
@@ -11240,11 +12455,26 @@
           "step": 0.05,
           "coverage_level": "runtime_state",
           "runtime_input_sources": [
+            "candidate_target_state",
+            "cro_review_state",
             "current_market_data",
             "current_position_snapshot",
+            "execution_feasibility_state",
             "mirofish_context"
           ],
           "runtime_input_source_policies": {
+            "candidate_target_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
+            "cro_review_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
+            },
             "current_market_data": {
               "missing": "disable_card_and_cap_if_required",
               "stale": "disable_card_and_cap_if_required",
@@ -11256,6 +12486,12 @@
               "stale": "disable_card_and_cap_if_required",
               "source_error": "disable_card_and_cap_if_required",
               "empty_confirmed": "disable_card"
+            },
+            "execution_feasibility_state": {
+              "missing": "disable_card_and_cap_if_required",
+              "stale": "disable_card_and_cap_if_required",
+              "source_error": "disable_card_and_cap_if_required",
+              "empty_confirmed": "invalid"
             },
             "mirofish_context": {
               "missing": "disable_card_and_cap_if_required",
@@ -11283,6 +12519,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -11290,6 +12527,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
           ],
           "projection_bucket": "thresholds",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/rebalance_drift_pct/value",
@@ -11343,6 +12584,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         },
         {
@@ -11350,6 +12592,10 @@
           "owner_agent": "decision.cio",
           "consumer_agents": [
             "decision.cio"
+          ],
+          "owner_stage": "cio_proposal",
+          "consumer_stages": [
+            "cio_proposal"
           ],
           "projection_bucket": "lookbacks",
           "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/stale_thesis_days/value",
@@ -11396,6 +12642,7 @@
           "category": "domain",
           "cross_field_group": null,
           "weight_group": null,
+          "atomic_mutation_group": null,
           "normalization": "none"
         }
       ]
