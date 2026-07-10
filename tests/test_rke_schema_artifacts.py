@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from hashlib import sha256
 from pathlib import Path
@@ -287,6 +288,11 @@ def _stale_private_generated_report_intelligence_fixtures() -> list[str]:
 def _skip_private_generated_report_intelligence_contracts(request) -> None:
     if request.node.name not in PRIVATE_GENERATED_REPORT_INTELLIGENCE_TEST_NAMES:
         return
+    if os.getenv("MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES") != "1":
+        pytest.skip(
+            "private/generated report-intelligence fixtures are opt-in; set "
+            "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES=1"
+        )
     missing = _missing_private_generated_report_intelligence_fixtures()
     if missing:
         pytest.skip(
@@ -309,6 +315,11 @@ def _expected_schema_failure_count() -> int:
 
 
 def _require_local_report_intelligence_artifacts(*names: str) -> Path:
+    if os.getenv("MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES") != "1":
+        pytest.skip(
+            "local report-intelligence artifacts are opt-in; set "
+            "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES=1"
+        )
     registry = Path("registry/report_intelligence")
     if not registry.exists():
         pytest.skip("local report-intelligence artifacts are absent")
