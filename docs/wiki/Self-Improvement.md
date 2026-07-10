@@ -4,7 +4,11 @@ MOSAIC's self-improvement stack has four parts: **Autoresearch** (prompt evoluti
 
 ## Autoresearch — prompt self-evolution
 
-`mosaic/autoresearch/` currently supports the legacy prompt-rewrite loop: select an agent, commit an isolated mutation, run a two-stage backtest, and make a **Delta Sharpe** keep/revert decision. That global metric remains valid only for the legacy path. Domain-knob promotion is blocked until the Python evaluator consumes the generated card-bound evaluation contract; catalog presence alone is not evidence that a knob improved.
+`mosaic/autoresearch/` retains the legacy prompt-rewrite loop, where Delta
+Sharpe remains valid only for that legacy path. Governed generic confidence and
+evidence-weight targets and domain cards now use the generated metric/calculator
+contract, preregistered paired PIT evaluation, one-use holdout, and explicit
+rollback policy. Catalog presence alone is not evidence that a knob improved.
 
 - **`git_ops.py`** (`GitOps`) — thin, fail-loud wrapper over `git`. Mutations are committed inside a throwaway `git worktree` so the operator's working tree is never touched. Keep = `merge_to_main`, revert = `delete_branch`.
 - **`constraints.py`** — `check_cooldown` (24h per agent), `check_monthly_cap` (≤100/cohort/month), `check_keep_lockout` (3 days after a keep).
@@ -35,6 +39,13 @@ state, metric, horizon, and rollback policy; the same contract carries the
 metric-to-calculator registry. The bilingual private prompt
 checker validates 25 agents across 26 runtime stages; it does not activate a
 card or a release pointer.
+
+Kept mutations still move through staged and canary release states. Runtime
+events are bound to release, stage snapshots, run identity, schema/fallback,
+token, order, and exposure results. `prompt-release summarize-slo` recomputes
+the fixed thresholds; activation rejects handwritten summaries. The operator
+can run `autoresearch recover-transactions` after a crash and
+`prompt-release rollback` to restore the prior aggregate release pointer.
 
 The decision-layer rollout uses one canonical sequence: alpha discovery, CIO
 proposal, frozen candidate target, CRO review, execution feasibility, CIO

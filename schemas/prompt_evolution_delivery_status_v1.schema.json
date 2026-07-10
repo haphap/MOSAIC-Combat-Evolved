@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt Evolution Delivery Status v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generator",
+    "run",
+    "prompt_sources",
+    "upstream_ci",
+    "inputs",
+    "checks",
+    "gates",
+    "conditions",
+    "summary",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "prompt_evolution_delivery_status_v1"},
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "command_contract_version"],
+      "properties": {
+        "id": {"const": "prompt_evolution_delivery"},
+        "version": {"const": "1"},
+        "command_contract_version": {"const": "prompt_evolution_delivery_commands_v1"}
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "generated_at", "code_commit", "git_tree", "clean_start", "clean_end"],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "code_commit": {"$ref": "#/$defs/git_hash"},
+        "git_tree": {"$ref": "#/$defs/git_hash"},
+        "clean_start": {"type": "boolean"},
+        "clean_end": {"type": "boolean"}
+      }
+    },
+    "prompt_sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["private_commit", "bundled_commit", "token_budget_manifest_hash"],
+      "properties": {
+        "private_commit": {"type": "string", "minLength": 7},
+        "bundled_commit": {"type": "string", "minLength": 7},
+        "token_budget_manifest_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "upstream_ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "run_id", "run_url", "head_sha", "python_status", "typescript_status"],
+      "properties": {
+        "provider": {"enum": ["github_actions", "local"]},
+        "run_id": {"type": "string"},
+        "run_url": {"type": "string"},
+        "head_sha": {"type": "string"},
+        "python_status": {"type": "string"},
+        "typescript_status": {"type": "string"}
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "bytes"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"$ref": "#/$defs/sha256"},
+          "bytes": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/gate"}
+    },
+    "conditions": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {"$ref": "#/$defs/condition"}
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed_check_count",
+        "failed_check_count",
+        "blocked_check_count",
+        "passed_gate_count",
+        "passed_condition_count",
+        "overall_status",
+        "ready"
+      ],
+      "properties": {
+        "passed_check_count": {"type": "integer", "minimum": 0},
+        "failed_check_count": {"type": "integer", "minimum": 0},
+        "blocked_check_count": {"type": "integer", "minimum": 0},
+        "passed_gate_count": {"type": "integer", "minimum": 0, "maximum": 8},
+        "passed_condition_count": {"type": "integer", "minimum": 0, "maximum": 12},
+        "overall_status": {"$ref": "#/$defs/status"},
+        "ready": {"type": "boolean"}
+      }
+    },
+    "manifest_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "status": {"enum": ["pass", "fail", "blocked"]},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "git_hash": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+    "string_array": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "executor",
+        "command",
+        "working_directory",
+        "started_at",
+        "completed_at",
+        "duration_ms",
+        "exit_code",
+        "status",
+        "reason_codes",
+        "stdout_sha256",
+        "stderr_sha256",
+        "evidence_refs"
+      ],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "executor": {"enum": ["command", "internal"]},
+        "command": {"type": "array", "items": {"type": "string"}},
+        "working_directory": {"type": "string", "minLength": 1},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "exit_code": {"type": ["integer", "null"]},
+        "status": {"$ref": "#/$defs/status"},
+        "reason_codes": {"$ref": "#/$defs/string_array"},
+        "stdout_sha256": {"$ref": "#/$defs/sha256"},
+        "stderr_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_refs": {"$ref": "#/$defs/string_array"}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "title",
+        "status",
+        "required_check_ids",
+        "required_gate_ids",
+        "blocking_reason_codes",
+        "evidence_refs"
+      ],
+      "properties": {
+        "gate_id": {"pattern": "^G[0-7]$"},
+        "title": {"type": "string", "minLength": 1},
+        "status": {"$ref": "#/$defs/status"},
+        "required_check_ids": {"$ref": "#/$defs/string_array"},
+        "required_gate_ids": {"$ref": "#/$defs/string_array"},
+        "blocking_reason_codes": {"$ref": "#/$defs/string_array"},
+        "evidence_refs": {"$ref": "#/$defs/string_array"}
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition_id",
+        "title",
+        "status",
+        "required_check_ids",
+        "required_gate_ids",
+        "blocking_reason_codes"
+      ],
+      "properties": {
+        "condition_id": {"pattern": "^C(0[1-9]|1[0-2])$"},
+        "title": {"type": "string", "minLength": 1},
+        "status": {"$ref": "#/$defs/status"},
+        "required_check_ids": {"$ref": "#/$defs/string_array"},
+        "required_gate_ids": {"$ref": "#/$defs/string_array"},
+        "blocking_reason_codes": {"$ref": "#/$defs/string_array"}
+      }
+    }
+  }
+}

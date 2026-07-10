@@ -54,6 +54,10 @@ pnpm dev autoresearch log --cohort crisis_2008
 pnpm dev prompts init-private-repo ~/private-mosaic-prompts
 pnpm dev prompts audit-versions --status keep
 pnpm dev prompts verify-release --version-id 123
+pnpm dev prompts prompt-token-budget \
+  --private-prompts-root /path/to/MOSAIC-Prompts/prompts/mosaic \
+  --baseline ../registry/prompt_checks/prompt_token_budget_manifest_v1.json \
+  --out ../.mosaic/prompt-token-budget-candidate.json
 pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 ```
 
@@ -61,9 +65,28 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 - `audit-versions` 只打印 metadata: id、hash、repo id、状态、指标和分支,不展示 prompt 正文。
 - `verify-release` 检查 pinned release tuple(`code_commit_hash`、`prompt_repo_id`、`prompt_commit_hash`、`prompt_sha256`),在 commit 上重算 prompt SHA,并运行工具兼容性 gate。
 - `prompts export-domain-knob-catalog` 会渲染可执行 domain-card catalog,并校验 in-run dependency scope、数值边界/step、code-enforced validator/audit 字段等 schema 条件。
+- `prompt-token-budget` 使用固定 tokenizer 测量 104 条
+  private/bundled stage-language 记录,校验语义 parity、绝对上限及相对已提交
+  baseline 的 1.25x 增长门槛。
 - release 前还要在 private operator 环境运行 `pnpm prompt:drift -- --base-ref origin/main` 或 scheduled drift check。
 - `gc-worktrees` 清理项目 repo / private prompt repo 的 `data/worktrees` 下过期托管 worktree。
 - private prompt repo 必须配置 private remote、最小权限访问,并启用加密备份或静态加密存储。
+
+Release lifecycle 使用独立命令:
+
+```bash
+pnpm dev prompt-release canary --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'bounded canary' --traffic-percent 10
+pnpm dev prompt-release summarize-slo --release-id RELEASE_ID \
+  --events .mosaic/prompt-releases/canary-events.jsonl \
+  --observation-ended-at 2026-07-10T12:00:00Z \
+  --out .mosaic/prompt-releases/RELEASE_ID-slo.json
+pnpm dev prompt-release rollback --release-id RELEASE_ID \
+  --approved-by operator:NAME --reason 'operator rollback'
+```
+
+Canary 流量前必须设置 `MOSAIC_PROMPT_CANARY_EVENT_LOG`;activation 只接受生成的
+SLO artifact,拒绝手写 measurements。
 
 ## PRISM(多周期训练)
 

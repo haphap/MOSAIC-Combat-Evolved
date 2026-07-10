@@ -194,7 +194,7 @@ function knobMutation(overrides: Partial<KnobMutation> = {}): KnobMutation {
     },
     knob_patches: [
       {
-        path: "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/confidence_policy/missing_current_data/cap",
+        path: "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/confidence_policy/missing_current_data/cap",
         old_value: 0.55,
         new_value: 0.45,
         rationale: "Recent missing-data cases were overconfident.",
@@ -366,7 +366,7 @@ describe("knob mutation validation", () => {
         knobMutation({ knob_patches: [{ ...firstKnobPatch(), old_value: 0.5 }] }),
       ).reasons,
     ).toContain(
-      "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/confidence_policy/missing_current_data/cap: old_value does not match current knobs",
+      "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/confidence_policy/missing_current_data/cap: old_value does not match current knobs",
     );
     expect(
       validateKnobMutation(
@@ -382,7 +382,7 @@ describe("knob mutation validation", () => {
         knobMutation({ knob_patches: [{ ...firstKnobPatch(), new_value: 0.55 }] }),
       ).reasons,
     ).toContain(
-      "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/confidence_policy/missing_current_data/cap: no-op patch",
+      "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/confidence_policy/missing_current_data/cap: no-op patch",
     );
   });
 
@@ -554,6 +554,21 @@ describe("knob mutation validation", () => {
     expect(result.registry.last_mutation_id).toBe("KM-generic-1");
     expect(result.registry.values_by_path[mutation.knob_patches[0]?.path ?? ""]).toBe(0.5);
     expect(validatePromptGovernanceValueRegistry(spec, result.registry)).toEqual([]);
+    const metadata = buildKnobMutationMetadata({
+      mutationId: "KM-generic-1",
+      agent: "central_bank",
+      cohort: "cohort_default",
+      baseKnobs,
+      newKnobs,
+      mutation,
+      decision: "applied",
+      createdAt: "2026-07-08T00:00:00.000Z",
+    });
+    expect(metadata.mutation_kind).toBe("generic_knob");
+    expect(metadata.generic_target_paths).toEqual([mutation.knob_patches[0]?.path]);
+    expect(metadata.owner_agent).toBe("macro.central_bank");
+    expect(metadata.evaluation_policy.require_uncertainty_bound).toBe(true);
+    expect(metadata.evaluation_policy.preregistration_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
   it("applies concrete learnable-parameter patches to a governance registry payload", () => {

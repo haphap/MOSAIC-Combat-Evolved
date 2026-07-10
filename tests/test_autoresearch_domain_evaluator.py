@@ -42,10 +42,24 @@ def _binding_and_metric(*, direction: str = "higher_is_better"):
 
 
 def _metadata(contract, binding, metric, calculator):
+    generic = "card_id" not in binding
+    secondary_metrics = binding.get(
+        "secondary_metrics", binding.get("evaluation_metrics", [])
+    )
+    evaluation_metric = binding.get("evaluation_metric", metric["id"])
+    horizon = binding.get("horizon", metric["window"])
+    rollback_condition = binding.get(
+        "rollback_condition",
+        {
+            "metric": metric["id"],
+            "worse_by": 5 if metric["unit"] == "bps" else 0.02,
+            "unit": metric["unit"],
+        },
+    )
     registered_at = "2025-12-01T00:00:00+00:00"
     guardrail_ids = {
-        binding["evaluation_metric"],
-        *binding["secondary_metrics"],
+        evaluation_metric,
+        *secondary_metrics,
         "fallback_rate",
         "missing_rate",
         "confidence_calibration_error",
@@ -90,8 +104,8 @@ def _metadata(contract, binding, metric, calculator):
                 "end": "2026-11-30T00:00:00+00:00",
                 "reuse_budget": 1,
             },
-            "purge_days": int(binding["horizon"].removesuffix("d")),
-            "embargo_days": int(binding["horizon"].removesuffix("d")),
+            "purge_days": int(horizon.removesuffix("d")),
+            "embargo_days": int(horizon.removesuffix("d")),
         },
         "primary_metric": metric["id"],
         "secondary_guardrails": guardrails,
@@ -116,18 +130,30 @@ def _metadata(contract, binding, metric, calculator):
         "mutation_id": "KM-domain-test",
         "transaction_id": "TX-KM-domain-test",
         "experiment_id": "EXP-KM-domain-test",
-        "mutation_kind": "domain_knob",
+        "mutation_kind": "generic_knob" if generic else "domain_knob",
         "created_at": registered_at,
         "agent": binding["owner_agent"].split(".", 1)[1],
         "owner_agent": binding["owner_agent"],
-        "owner_stage": binding["owner_stage"],
+        **(
+            {"owner_stages": binding["owner_stages"]}
+            if generic
+            else {"owner_stage": binding["owner_stage"]}
+        ),
         "changed_paths": [binding["path"]],
-        "domain_card_id": binding["card_id"],
-        "domain_card_ids": [binding["card_id"]],
-        "prediction_target": binding["prediction_target"],
+        **(
+            {"generic_target_paths": [binding["path"]], "domain_card_ids": []}
+            if generic
+            else {
+                "domain_card_id": binding["card_id"],
+                "domain_card_ids": [binding["card_id"]],
+            }
+        ),
+        "prediction_target": binding.get(
+            "prediction_target", f"{binding['owner_agent']}.generic.20d"
+        ),
         "evaluation_metric": metric["id"],
-        "horizon": binding["horizon"],
-        "rollback_condition": binding["rollback_condition"],
+        "horizon": horizon,
+        "rollback_condition": rollback_condition,
         "base_knobs_sha256": f"sha256:{'1' * 64}",
         "catalog_version": contract["catalog_version"],
         "catalog_hash": contract["catalog_hash"],
@@ -163,8 +189,75 @@ def _arm(calculator_id: str, value: float):
     if calculator_id == "pit.calibration_error":
         return {"probability": value, "outcome": 1}
     if calculator_id == "pit.rank_correlation":
-        return {"scores": [1, 2, 3], "outcomes": [1, 2, 3]}
+        scores = [1, 2, 3] if value >= 0 else [3, 2, 1]
+        return {"scores": scores, "outcomes": [1, 2, 3]}
     raise AssertionError(calculator_id)
+
+
+def _comparison_values(metric, calculator):
+    higher_is_better = metric["direction"] == "higher_is_better"
+    if calculator["id"] == "pit.rate":
+        improved = (0, 1) if higher_is_better else (1, 0)
+        degraded = (1, 0) if higher_is_better else (0, 1)
+    elif calculator["id"] == "pit.rank_correlation":
+        improved = (-1, 1) if higher_is_better else (1, -1)
+        degraded = (1, -1) if higher_is_better else (-1, 1)
+    elif higher_is_better:
+        improved = (0.0, 0.05)
+        degraded = (0.0, -0.05)
+    else:
+        improved = (0.1, 0.0)
+        degraded = (0.0, 0.1)
+    return improved, degraded
+
+
+def _assert_paired_evaluation_and_rollback(contract, binding):
+    metric_id = binding.get("evaluation_metric")
+    if metric_id is None:
+        preferred = {
+            "portfolio_risk_quality_20d",
+            "portfolio_construction_quality_20d",
+            "macro_signal_accuracy_5d",
+        }
+        metric_id = next(
+            (
+                candidate
+                for candidate in binding["evaluation_metrics"]
+                if candidate in preferred
+            ),
+            binding["evaluation_metrics"][0],
+        )
+    metric = contract["evaluation_metrics"][metric_id]
+    calculator = contract["evaluation_calculators"][metric["calculator_id"]]
+    metadata = _metadata(contract, binding, metric, calculator)
+    improved, degraded = _comparison_values(metric, calculator)
+
+    eligible = evaluate_domain_mutation(
+        metadata,
+        _manifest(
+            metadata,
+            calculator,
+            improved[0],
+            improved[1],
+            metric["min_sample_size"],
+        ),
+    )
+    reverted = evaluate_domain_mutation(
+        metadata,
+        _manifest(
+            metadata,
+            calculator,
+            degraded[0],
+            degraded[1],
+            metric["min_sample_size"],
+        ),
+    )
+
+    assert eligible["status"] == "eligible_for_promotion"
+    assert eligible["holdout_consumption_required"] is True
+    assert reverted["status"] == "reverted"
+    assert reverted["rollback_triggered"] is True
+    return eligible, reverted
 
 
 def _manifest(metadata, calculator, baseline_value: float, treatment_value: float, count=30):
@@ -312,6 +405,55 @@ def test_lower_is_better_metric_uses_card_rollback_direction():
     assert result["status"] == "reverted"
     assert result["new_value"] > result["baseline_value"]
     assert result["improvement"] < 0
+
+
+def test_generic_confidence_and_weight_targets_use_paired_evaluator():
+    contract = load_evaluation_contract()
+    generic = [
+        binding
+        for binding in contract["generic_bindings"]
+        if binding["owner_agent"] == "decision.cro"
+    ]
+    confidence = next(binding for binding in generic if binding["weight_group"] is None)
+    weight = next(
+        binding for binding in generic if binding["weight_group"] == "evidence_weights"
+    )
+
+    _assert_paired_evaluation_and_rollback(contract, confidence)
+    _assert_paired_evaluation_and_rollback(contract, weight)
+
+
+def test_representative_domain_categories_complete_paired_evaluation_and_rollback():
+    contract = load_evaluation_contract()
+    catalog = json.loads(
+        Path("registry/prompt_checks/domain_knob_catalog_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    cards = [card for agent in catalog["agents"] for card in agent["cards"]]
+    active = [card for card in cards if card["activation_state"] == "active"]
+    representatives = {
+        "tool_dependent": next(
+            card for card in active if card["evidence_dependencies"]
+        ),
+        "runtime_state": next(
+            card
+            for card in active
+            if card["runtime_input_sources"] and not card["evidence_dependencies"]
+        ),
+        "position": next(card for card in active if card["id"] == "stop_loss_pct"),
+        "mirofish": next(
+            card for card in active if card["id"].startswith("mirofish_")
+        ),
+    }
+    bindings = {binding["path"]: binding for binding in contract["card_bindings"]}
+
+    for category, card in representatives.items():
+        eligible, reverted = _assert_paired_evaluation_and_rollback(
+            contract, bindings[card["path"]]
+        )
+        assert eligible["decision_evidence_refs"]
+        assert reverted["decision_reason_codes"], category
 
 
 def test_insufficient_mature_common_support_needs_fill():

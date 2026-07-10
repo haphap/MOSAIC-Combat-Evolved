@@ -246,6 +246,7 @@ export interface KnobMutationMetadata {
   agent: string;
   owner_agent?: string;
   owner_stage?: string;
+  owner_stages?: string[];
   cohort: string;
   prediction_target: string;
   evaluation_metric: string;
@@ -261,6 +262,7 @@ export interface KnobMutationMetadata {
   calculator_registry_hash: string;
   domain_card_id?: string;
   domain_card_ids: string[];
+  generic_target_paths?: string[];
   calculator_id?: string;
   calculator_version?: string;
   evaluation_policy: {
@@ -622,13 +624,15 @@ function guardrailMaxDegradation(metricId: string): number {
   return 0;
 }
 
-function buildDomainEvaluationPreregistration(opts: {
+function buildKnobEvaluationPreregistration(opts: {
   experimentId: string;
   agent: string;
   cohort: string;
   changedPaths: string[];
   metricId: string;
-  card: DomainKnobCard;
+  horizon: string;
+  evaluationMetric: string;
+  secondaryMetrics: string[];
   registeredAt: string;
   attemptIndex: number;
   familySize: number;
@@ -645,7 +649,7 @@ function buildDomainEvaluationPreregistration(opts: {
   ) {
     throw new PromptInvariantError("evaluation attempt index must fit the FDR family size");
   }
-  const purgeDays = horizonDays(opts.card.horizon);
+  const purgeDays = horizonDays(opts.horizon);
   const embargoDays = purgeDays;
   const splitDuration = Math.max(90, purgeDays * 4);
   const trainEnd = addUtcDays(registeredAt, -(purgeDays + 1));
@@ -670,8 +674,8 @@ function buildDomainEvaluationPreregistration(opts: {
   });
   const operationalGuardrails = ["fallback_rate", "missing_rate", "confidence_calibration_error"];
   const secondaryMetricIds = uniqueStrings([
-    opts.card.evaluation_metric,
-    ...opts.card.secondary_metrics,
+    opts.evaluationMetric,
+    ...opts.secondaryMetrics,
     ...operationalGuardrails,
   ]).filter((metricId) => metricId !== opts.metricId);
   const alpha = 0.05;
@@ -749,14 +753,36 @@ export function buildKnobMutationMetadata(opts: {
   }
   const firstDomainCard = domainCards[0];
   const evaluationContract = buildDomainKnobEvaluationContractArtifact();
+  const genericBindings = firstDomainCard
+    ? []
+    : changedPaths.map((path) => {
+        const binding = evaluationContract.generic_bindings.find((item) => item.path === path);
+        if (!binding) {
+          throw new PromptInvariantError(`generic target missing evaluation binding: ${path}`);
+        }
+        return binding;
+      });
+  const firstGenericBinding = genericBindings[0];
+  if (
+    firstGenericBinding &&
+    genericBindings.some(
+      (binding) =>
+        binding.owner_agent !== firstGenericBinding.owner_agent ||
+        JSON.stringify(binding.evaluation_metrics) !==
+          JSON.stringify(firstGenericBinding.evaluation_metrics) ||
+        JSON.stringify(binding.horizons) !== JSON.stringify(firstGenericBinding.horizons),
+    )
+  ) {
+    throw new PromptInvariantError("generic mutation spans incompatible evaluation bindings");
+  }
   const metric = EVALUATION_METRIC_REGISTRY[opts.mutation.evaluation_metric];
-  if (firstDomainCard && !metric) {
+  if (!metric) {
     throw new PromptInvariantError(
       `evaluation metric is not registered: ${opts.mutation.evaluation_metric}`,
     );
   }
-  const calculator = metric ? EVALUATION_CALCULATOR_REGISTRY[metric.calculator_id] : undefined;
-  if (firstDomainCard && !calculator) {
+  const calculator = EVALUATION_CALCULATOR_REGISTRY[metric.calculator_id];
+  if (!calculator) {
     throw new PromptInvariantError(
       `evaluation calculator is not registered: ${metric?.calculator_id ?? "unknown"}`,
     );
@@ -764,15 +790,28 @@ export function buildKnobMutationMetadata(opts: {
   const baseKnobsSha256 = hashKnobs(opts.baseKnobs);
   const createdAt = opts.createdAt ?? new Date().toISOString();
   const experimentId = opts.experimentId ?? `EXP-${opts.mutationId}`;
+  const preregistrationPolicy = firstDomainCard
+    ? {
+        horizon: firstDomainCard.horizon,
+        evaluationMetric: firstDomainCard.evaluation_metric,
+        secondaryMetrics: firstDomainCard.secondary_metrics,
+      }
+    : firstGenericBinding
+      ? {
+          horizon: opts.mutation.horizon,
+          evaluationMetric: opts.mutation.evaluation_metric,
+          secondaryMetrics: firstGenericBinding.evaluation_metrics,
+        }
+      : null;
   const preregistration =
-    firstDomainCard && opts.decision === "applied"
-      ? buildDomainEvaluationPreregistration({
+    preregistrationPolicy && opts.decision === "applied"
+      ? buildKnobEvaluationPreregistration({
           experimentId,
           agent: opts.agent,
           cohort: opts.cohort,
           changedPaths,
           metricId: opts.mutation.evaluation_metric,
-          card: firstDomainCard,
+          ...preregistrationPolicy,
           registeredAt: createdAt,
           attemptIndex: opts.attemptIndex ?? 1,
           familySize: opts.experimentFamilySize ?? 20,
@@ -787,8 +826,13 @@ export function buildKnobMutationMetadata(opts: {
     lifecycle_state: "proposed",
     created_at: createdAt,
     agent: opts.agent,
-    ...(firstDomainCard ? { owner_agent: firstDomainCard.owner_agent } : {}),
+    ...(firstDomainCard
+      ? { owner_agent: firstDomainCard.owner_agent }
+      : firstGenericBinding
+        ? { owner_agent: firstGenericBinding.owner_agent }
+        : {}),
     ...(firstDomainCard ? { owner_stage: firstDomainCard.owner_stage } : {}),
+    ...(firstGenericBinding ? { owner_stages: firstGenericBinding.owner_stages } : {}),
     cohort: opts.cohort,
     prediction_target: opts.mutation.prediction_target,
     evaluation_metric: opts.mutation.evaluation_metric,
@@ -804,6 +848,7 @@ export function buildKnobMutationMetadata(opts: {
     calculator_registry_hash: evaluationContract.calculator_registry_hash,
     ...(firstDomainCard ? { domain_card_id: firstDomainCard.id } : {}),
     domain_card_ids: domainCards.map((card) => card.id).sort(),
+    ...(firstGenericBinding ? { generic_target_paths: [...changedPaths].sort() } : {}),
     ...(calculator ? { calculator_id: calculator.id } : {}),
     ...(calculator ? { calculator_version: calculator.version } : {}),
     evaluation_policy: {
@@ -813,7 +858,7 @@ export function buildKnobMutationMetadata(opts: {
       min_sample_size: metric?.min_sample_size ?? 1,
       uncertainty_method: metric?.uncertainty_method ?? "not_applicable",
       overlapping_sample_policy: metric?.overlapping_sample_policy ?? "not_applicable",
-      require_uncertainty_bound: Boolean(firstDomainCard),
+      require_uncertainty_bound: Boolean(preregistrationPolicy),
       ...(preregistration
         ? {
             preregistration,

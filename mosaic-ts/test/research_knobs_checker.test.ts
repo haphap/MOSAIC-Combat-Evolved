@@ -798,6 +798,20 @@ describe("checkResearchKnobsPrompts", () => {
     expect(contract.card_bindings).toHaveLength(
       catalog.agents.reduce((count, agent) => count + agent.cards.length, 0),
     );
+    expect(contract.generic_bindings.length).toBeGreaterThan(25);
+    expect(
+      contract.generic_bindings.find(
+        (binding) =>
+          binding.owner_agent === "decision.cro" && binding.weight_group === "evidence_weights",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        owner_stages: ["cro_review"],
+        write_back_repo_id: "MOSAIC-Prompts",
+        write_back_path_template: "registry/prompt_governance/{cohort}/cro.json",
+        evaluation_metrics: expect.arrayContaining(["portfolio_risk_quality_20d"]),
+      }),
+    );
     expect(contract.card_bindings.find((binding) => binding.card_id === "stop_loss_pct")).toEqual(
       expect.objectContaining({
         owner_stage: "cro_review",
@@ -818,6 +832,18 @@ describe("checkResearchKnobsPrompts", () => {
       expect.arrayContaining([
         "evaluation_contract_hash_mismatch:contract_hash",
         `evaluation_contract_card_binding_mismatch:${tampered.card_bindings[0]?.path}`,
+      ]),
+    );
+
+    const genericDrift = structuredClone(contract);
+    genericDrift.generic_bindings[0] = {
+      ...(genericDrift.generic_bindings[0] as (typeof genericDrift.generic_bindings)[number]),
+      write_back_path_template: "registry/prompt_governance/{cohort}/wrong.json",
+    };
+    expect(validateDomainKnobEvaluationContractArtifact(genericDrift, catalog)).toEqual(
+      expect.arrayContaining([
+        "evaluation_contract_hash_mismatch:contract_hash",
+        `evaluation_contract_generic_binding_mismatch:${genericDrift.generic_bindings[0]?.path}`,
       ]),
     );
 

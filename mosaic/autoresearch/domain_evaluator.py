@@ -173,6 +173,22 @@ def _binding_by_path(contract: Mapping[str, Any]) -> dict[str, Mapping[str, Any]
     return result
 
 
+def _generic_binding_by_path(contract: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    result: dict[str, Mapping[str, Any]] = {}
+    raw_bindings = contract.get("generic_bindings")
+    if not isinstance(raw_bindings, list):
+        raise DomainEvaluationError("evaluation contract generic_bindings must be an array")
+    for raw in raw_bindings:
+        binding = _mapping(raw, "generic_binding")
+        path = binding.get("path")
+        if not isinstance(path, str) or not path:
+            raise DomainEvaluationError("generic binding path must be a non-empty string")
+        if path in result:
+            raise DomainEvaluationError(f"duplicate generic binding path: {path}")
+        result[path] = binding
+    return result
+
+
 def _validate_mutation_binding(
     metadata: Mapping[str, Any], contract: Mapping[str, Any]
 ) -> tuple[
@@ -197,56 +213,146 @@ def _validate_mutation_binding(
     changed_paths = _strings(metadata.get("changed_paths"), "changed_paths")
     if len(changed_paths) != len(set(changed_paths)):
         raise DomainEvaluationError("changed_paths must not contain duplicates")
-    bindings = _binding_by_path(contract)
-    selected: list[Mapping[str, Any]] = []
-    for path in changed_paths:
-        binding = bindings.get(path)
-        if binding is None:
-            raise DomainEvaluationError(f"mutation path has no card binding: {path}")
-        if binding.get("activation_state") != "active":
-            raise DomainEvaluationError(f"mutation path is not active: {path}")
-        selected.append(binding)
-
-    first = selected[0]
-    policy_fields = (
-        "owner_agent",
-        "owner_stage",
-        "prediction_target",
-        "horizon",
-        "rollback_condition",
-    )
-    for binding in selected[1:]:
-        for field in policy_fields:
-            if binding.get(field) != first.get(field):
-                raise DomainEvaluationError(
-                    f"mutation spans incompatible card policies: {field}"
-                )
-
-    owner_agent = first.get("owner_agent")
-    metadata_agent = metadata.get("owner_agent", metadata.get("agent"))
-    if metadata_agent not in (owner_agent, str(owner_agent).split(".", 1)[-1]):
-        raise DomainEvaluationError("mutation agent does not match card owner")
-    if metadata.get("prediction_target") != first.get("prediction_target"):
-        raise DomainEvaluationError("mutation prediction_target does not match card")
-    if metadata.get("horizon") != first.get("horizon"):
-        raise DomainEvaluationError("mutation horizon does not match card")
-    if metadata.get("rollback_condition") != first.get("rollback_condition"):
-        raise DomainEvaluationError("mutation rollback_condition does not match card")
-    expected_card_ids = sorted(str(binding.get("card_id")) for binding in selected)
-    if sorted(_strings(metadata.get("domain_card_ids"), "domain_card_ids")) != expected_card_ids:
-        raise DomainEvaluationError("mutation domain_card_ids do not match changed paths")
-    if metadata.get("domain_card_id") != first.get("card_id"):
-        raise DomainEvaluationError("mutation domain_card_id does not match primary card")
-
     metric_id = metadata.get("evaluation_metric")
-    allowed_metrics = {
-        first.get("evaluation_metric"),
-        *first.get("secondary_metrics", []),
-    }
-    if metric_id not in allowed_metrics:
-        raise DomainEvaluationError("mutation evaluation_metric is not bound to card")
+    mutation_kind = metadata.get("mutation_kind")
+    if mutation_kind == "domain_knob":
+        bindings = _binding_by_path(contract)
+        selected: list[Mapping[str, Any]] = []
+        for path in changed_paths:
+            binding = bindings.get(path)
+            if binding is None:
+                raise DomainEvaluationError(f"mutation path has no card binding: {path}")
+            if binding.get("activation_state") != "active":
+                raise DomainEvaluationError(f"mutation path is not active: {path}")
+            selected.append(binding)
+        first = selected[0]
+        policy_fields = (
+            "owner_agent",
+            "owner_stage",
+            "prediction_target",
+            "horizon",
+            "rollback_condition",
+        )
+        for binding in selected[1:]:
+            for field in policy_fields:
+                if binding.get(field) != first.get(field):
+                    raise DomainEvaluationError(
+                        f"mutation spans incompatible card policies: {field}"
+                    )
+        owner_agent = first.get("owner_agent")
+        metadata_agent = metadata.get("owner_agent", metadata.get("agent"))
+        if metadata_agent not in (owner_agent, str(owner_agent).split(".", 1)[-1]):
+            raise DomainEvaluationError("mutation agent does not match card owner")
+        if metadata.get("prediction_target") != first.get("prediction_target"):
+            raise DomainEvaluationError("mutation prediction_target does not match card")
+        if metadata.get("horizon") != first.get("horizon"):
+            raise DomainEvaluationError("mutation horizon does not match card")
+        if metadata.get("rollback_condition") != first.get("rollback_condition"):
+            raise DomainEvaluationError("mutation rollback_condition does not match card")
+        expected_card_ids = sorted(str(binding.get("card_id")) for binding in selected)
+        if sorted(_strings(metadata.get("domain_card_ids"), "domain_card_ids")) != expected_card_ids:
+            raise DomainEvaluationError("mutation domain_card_ids do not match changed paths")
+        if metadata.get("domain_card_id") != first.get("card_id"):
+            raise DomainEvaluationError("mutation domain_card_id does not match primary card")
+        allowed_metrics = {
+            first.get("evaluation_metric"),
+            *first.get("secondary_metrics", []),
+        }
+        if metric_id not in allowed_metrics:
+            raise DomainEvaluationError("mutation evaluation_metric is not bound to card")
+    elif mutation_kind == "generic_knob":
+        bindings = _generic_binding_by_path(contract)
+        selected = []
+        for path in changed_paths:
+            binding = bindings.get(path)
+            if binding is None:
+                raise DomainEvaluationError(
+                    f"mutation path has no generic evaluation binding: {path}"
+                )
+            selected.append(binding)
+        first_generic = selected[0]
+        for binding in selected[1:]:
+            for field in (
+                "owner_agent",
+                "owner_stages",
+                "evaluation_metrics",
+                "horizons",
+                "rollback_metrics",
+                "write_back_path_template",
+            ):
+                if binding.get(field) != first_generic.get(field):
+                    raise DomainEvaluationError(
+                        f"mutation spans incompatible generic policies: {field}"
+                    )
+        owner_agent = first_generic.get("owner_agent")
+        metadata_agent = metadata.get("owner_agent", metadata.get("agent"))
+        if metadata_agent not in (owner_agent, str(owner_agent).split(".", 1)[-1]):
+            raise DomainEvaluationError("mutation agent does not match generic target owner")
+        if sorted(
+            _strings(
+                metadata.get("generic_target_paths"),
+                "generic_target_paths",
+            )
+        ) != sorted(changed_paths):
+            raise DomainEvaluationError("mutation generic_target_paths do not match changed paths")
+        if _strings(
+            metadata.get("domain_card_ids", []),
+            "domain_card_ids",
+            allow_empty=True,
+        ):
+            raise DomainEvaluationError("generic mutation must not declare domain cards")
+        if metadata.get("domain_card_id") is not None:
+            raise DomainEvaluationError("generic mutation must not declare a primary domain card")
+        if not isinstance(metadata.get("prediction_target"), str) or not metadata.get(
+            "prediction_target"
+        ):
+            raise DomainEvaluationError("generic mutation prediction_target is required")
+        allowed_metrics = set(
+            _strings(first_generic.get("evaluation_metrics"), "evaluation_metrics")
+        )
+        if metric_id not in allowed_metrics:
+            raise DomainEvaluationError("mutation evaluation_metric is not bound to generic target")
+        if metadata.get("horizon") not in _strings(
+            first_generic.get("horizons"), "horizons"
+        ):
+            raise DomainEvaluationError("mutation horizon is not bound to generic target")
+        rollback = _mapping(metadata.get("rollback_condition"), "rollback_condition")
+        rollback_metric_id = rollback.get("metric")
+        if rollback_metric_id not in _strings(
+            first_generic.get("rollback_metrics"), "rollback_metrics"
+        ):
+            raise DomainEvaluationError("mutation rollback metric is not bound to generic target")
+        if first_generic.get("write_back_repo_id") != "MOSAIC-Prompts" or not str(
+            first_generic.get("write_back_path_template") or ""
+        ).startswith("registry/prompt_governance/{cohort}/"):
+            raise DomainEvaluationError("generic target has no authoritative write-back binding")
+        if not str(first_generic.get("write_back_json_pointer") or "").startswith(
+            "/values_by_path/"
+        ):
+            raise DomainEvaluationError("generic target write-back pointer is invalid")
+        first = {
+            **dict(first_generic),
+            "evaluation_metric": metric_id,
+            "secondary_metrics": sorted(allowed_metrics - {metric_id}),
+            "horizon": metadata.get("horizon"),
+            "rollback_condition": dict(rollback),
+        }
+    else:
+        raise DomainEvaluationError("mutation_kind must be domain_knob or generic_knob")
+
     metrics = _mapping(contract.get("evaluation_metrics"), "evaluation_metrics")
     metric = _mapping(metrics.get(metric_id), f"evaluation_metrics.{metric_id}")
+    if metadata.get("horizon") != metric.get("window"):
+        raise DomainEvaluationError("mutation horizon does not match metric window")
+    rollback = _mapping(metadata.get("rollback_condition"), "rollback_condition")
+    rollback_metric = _mapping(
+        metrics.get(rollback.get("metric")),
+        f"evaluation_metrics.{rollback.get('metric')}",
+    )
+    if rollback.get("unit") != rollback_metric.get("unit"):
+        raise DomainEvaluationError("mutation rollback unit does not match metric")
+    if _finite_number(rollback.get("worse_by"), "rollback_condition.worse_by") < 0:
+        raise DomainEvaluationError("mutation rollback threshold must be nonnegative")
     calculators = _mapping(
         contract.get("evaluation_calculators"), "evaluation_calculators"
     )

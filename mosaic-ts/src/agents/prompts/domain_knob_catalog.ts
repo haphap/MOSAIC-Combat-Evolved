@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import type { ResearchKnobs } from "../helpers/research_knobs.js";
 import type { Layer } from "./cohorts.js";
 import type { DomainKnobValueRegistry } from "./domain_knob_registry.js";
+import { genericGovernanceTargetDefinitions } from "./generic_governance_targets.js";
 import {
   RUNTIME_AGENT_SPEC_BY_AGENT,
   RUNTIME_AGENT_SPECS,
@@ -197,6 +198,22 @@ export interface DomainKnobEvaluationContractArtifact {
   contract_hash: string;
   evaluation_metrics: Record<string, EvaluationMetricRegistryEntry>;
   evaluation_calculators: Record<string, EvaluationCalculatorRegistryEntry>;
+  generic_bindings: Array<{
+    path: string;
+    owner_agent: string;
+    owner_stages: RuntimeAgentStageId[];
+    target_type: "number";
+    minimum: number;
+    maximum: number;
+    step: number;
+    weight_group: "evidence_weights" | null;
+    write_back_repo_id: "MOSAIC-Prompts";
+    write_back_path_template: string;
+    write_back_json_pointer: string;
+    evaluation_metrics: string[];
+    horizons: string[];
+    rollback_metrics: string[];
+  }>;
   card_bindings: Array<{
     path: string;
     card_id: string;
@@ -1029,6 +1046,32 @@ export function buildDomainKnobEvaluationContractArtifact(
   const canonicalCatalog = canonicalDomainKnobCatalogArtifact(catalog);
   const evaluationMetrics = sortObjectRecord(canonicalCatalog.evaluation_metrics);
   const evaluationCalculators = sortObjectRecord(canonicalCatalog.evaluation_calculators);
+  const genericBindings = RUNTIME_AGENT_SPECS.flatMap((spec) => {
+    const metricIds = genericEvaluationMetricIds(spec);
+    const horizons = [
+      ...new Set(
+        metricIds
+          .map((metricId) => evaluationMetrics[metricId]?.window)
+          .filter((window): window is string => Boolean(window)),
+      ),
+    ].sort();
+    return genericGovernanceTargetDefinitions(spec).map((definition) => ({
+      path: definition.path,
+      owner_agent: spec.promptIrAgentId,
+      owner_stages: spec.stages.map((stage) => stage.stage),
+      target_type: definition.target.type,
+      minimum: definition.target.min,
+      maximum: definition.target.max,
+      step: definition.target.step,
+      weight_group: definition.weightGroup ?? null,
+      write_back_repo_id: "MOSAIC-Prompts" as const,
+      write_back_path_template: `registry/prompt_governance/{cohort}/${spec.agent}.json`,
+      write_back_json_pointer: `/values_by_path/${escapeJsonPointer(definition.path)}`,
+      evaluation_metrics: metricIds,
+      horizons,
+      rollback_metrics: metricIds,
+    }));
+  }).sort((left, right) => left.path.localeCompare(right.path));
   const cardBindings = canonicalCatalog.agents
     .flatMap((agent) =>
       agent.cards.map((card) => ({
@@ -1055,6 +1098,7 @@ export function buildDomainKnobEvaluationContractArtifact(
     calculator_registry_hash: sha256Json(evaluationCalculators),
     evaluation_metrics: evaluationMetrics,
     evaluation_calculators: evaluationCalculators,
+    generic_bindings: genericBindings,
     card_bindings: cardBindings,
   };
   return {
@@ -1129,7 +1173,61 @@ export function validateDomainKnobEvaluationContractArtifact(
       `evaluation_contract_card_count_mismatch:${seenPaths.size}:expected:${expectedBindings.size}`,
     );
   }
+  const expectedGenericBindings = new Map(
+    expected.generic_bindings.map((binding) => [binding.path, binding]),
+  );
+  const seenGenericPaths = new Set<string>();
+  for (const binding of artifact.generic_bindings) {
+    if (seenGenericPaths.has(binding.path)) {
+      reasons.push(`evaluation_contract_duplicate_generic_path:${binding.path}`);
+    }
+    seenGenericPaths.add(binding.path);
+    const expectedBinding = expectedGenericBindings.get(binding.path);
+    if (!expectedBinding || JSON.stringify(binding) !== JSON.stringify(expectedBinding)) {
+      reasons.push(`evaluation_contract_generic_binding_mismatch:${binding.path}`);
+    }
+    for (const metricId of binding.evaluation_metrics) {
+      const metric = artifact.evaluation_metrics[metricId];
+      if (!metric || !binding.horizons.includes(metric.window)) {
+        reasons.push(`evaluation_contract_generic_metric_mismatch:${binding.path}:${metricId}`);
+      }
+    }
+  }
+  if (seenGenericPaths.size !== expectedGenericBindings.size) {
+    reasons.push(
+      `evaluation_contract_generic_count_mismatch:${seenGenericPaths.size}:expected:${expectedGenericBindings.size}`,
+    );
+  }
   return reasons;
+}
+
+function genericEvaluationMetricIds(spec: RuntimeAgentSpec): string[] {
+  const metrics = new Set([
+    "confidence_calibration_error",
+    "fallback_rate",
+    "missing_rate",
+    "hit_rate_5d",
+  ]);
+  const layerMetric =
+    spec.layer === "macro"
+      ? "macro_signal_accuracy_5d"
+      : spec.layer === "sector"
+        ? "sector_rank_correlation_20d"
+        : spec.layer === "superinvestor"
+          ? "style_pick_alpha_60d"
+          : spec.agent === "cro"
+            ? "portfolio_risk_quality_20d"
+            : spec.agent === "autonomous_execution"
+              ? "execution_quality_5d"
+              : spec.agent === "alpha_discovery"
+                ? "alpha_discovery_quality_20d"
+                : "portfolio_construction_quality_20d";
+  metrics.add(layerMetric);
+  return [...metrics].sort();
+}
+
+function escapeJsonPointer(value: string): string {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
 export function validateDomainKnobCatalogArtifact(

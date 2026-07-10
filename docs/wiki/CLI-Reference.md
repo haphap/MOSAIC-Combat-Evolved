@@ -55,6 +55,10 @@ Subcommands: `trigger`, `evaluate`, `log`, `branches`, `revert`.
 pnpm dev prompts init-private-repo ~/private-mosaic-prompts
 pnpm dev prompts audit-versions --status keep
 pnpm dev prompts verify-release --version-id 123
+pnpm dev prompts prompt-token-budget \
+  --private-prompts-root /path/to/MOSAIC-Prompts/prompts/mosaic \
+  --baseline ../registry/prompt_checks/prompt_token_budget_manifest_v1.json \
+  --out ../.mosaic/prompt-token-budget-candidate.json
 pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 ```
 
@@ -62,9 +66,28 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 - `audit-versions` prints metadata only: ids, hashes, repo id, status, metrics, and branches. It does not show prompt content.
 - `verify-release` checks the pinned release tuple (`code_commit_hash`, `prompt_repo_id`, `prompt_commit_hash`, `prompt_sha256`), recomputes the prompt SHA at the commit, and runs the tool compatibility gate.
 - `prompts export-domain-knob-catalog` renders the executable domain-card catalog and validates schema conditions for in-run dependency scopes, numeric bounds, and code-enforced validator/audit fields.
+- `prompt-token-budget` measures all 104 private/bundled stage-language rows
+  with the pinned tokenizer, validates semantic parity and absolute caps, and
+  applies the 1.25x committed-baseline growth gate.
 - Before release, also run `pnpm prompt:drift -- --base-ref origin/main` or the scheduled drift check in the private operator environment.
 - `gc-worktrees` removes stale managed worktrees under `data/worktrees` for the project and/or private prompt repo.
 - Private prompt repos must use a private remote with least-privilege access and encrypted backup or encrypted-at-rest storage.
+
+Release lifecycle commands are separate from prompt asset commands:
+
+```bash
+pnpm dev prompt-release canary --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'bounded canary' --traffic-percent 10
+pnpm dev prompt-release summarize-slo --release-id RELEASE_ID \
+  --events .mosaic/prompt-releases/canary-events.jsonl \
+  --observation-ended-at 2026-07-10T12:00:00Z \
+  --out .mosaic/prompt-releases/RELEASE_ID-slo.json
+pnpm dev prompt-release rollback --release-id RELEASE_ID \
+  --approved-by operator:NAME --reason 'operator rollback'
+```
+
+Set `MOSAIC_PROMPT_CANARY_EVENT_LOG` before canary traffic. Activation consumes
+the generated SLO artifact; handwritten measurements are rejected.
 
 ## PRISM (multi-regime training)
 

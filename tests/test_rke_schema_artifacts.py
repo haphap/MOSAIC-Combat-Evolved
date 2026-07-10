@@ -60,6 +60,7 @@ REQUIRED_SCHEMA_FILES = {
     "prompt_governance_values_v1.schema.json",
     "prompt_release_canary_event_v1.schema.json",
     "prompt_release_canary_slo_v1.schema.json",
+    "prompt_evolution_delivery_status_v1.schema.json",
     "prompt_token_budget_manifest_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
@@ -7640,6 +7641,22 @@ def test_domain_knob_evaluation_contract_schema_requires_binding_activation_stat
 
     assert not record.accepted
     assert any(".activation_state: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_evaluation_contract_schema_requires_generic_write_back(
+    tmp_path: Path,
+):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    del contract["generic_bindings"][0]["write_back_json_pointer"]
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".write_back_json_pointer: required" in failure for failure in record.failures)
 
 
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):

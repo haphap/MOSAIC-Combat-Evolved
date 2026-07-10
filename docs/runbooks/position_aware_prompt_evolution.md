@@ -25,10 +25,10 @@ rtk pnpm --dir mosaic-ts test \
   research_knobs_checker.test.ts mutator.test.ts \
   dashboard.test.tsx decision_layer4_agents.test.ts daily_cycle.test.ts
 rtk uvx ruff@0.15.15 check mosaic tests
-rtk env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+rtk proxy env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
   uv run python -m pytest tests/test_scorecard_store.py tests/test_bridge_scorecard_handlers.py -q \
   --basetemp .mosaic/tmp/pytest-position-aware-scorecard
-rtk env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+rtk proxy env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
   uv run python -m pytest tests/test_bridge_mirofish.py tests/test_mirofish.py -q \
   --basetemp .mosaic/tmp/pytest-position-aware-mirofish
 rtk pnpm --dir mosaic-ts prompt:check
@@ -43,8 +43,8 @@ If `pytest tests/ -q` looks stuck locally, profile the slow tests before
 changing code:
 
 ```bash
-rtk env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
-  uv run python -m pytest tests/ -q --durations=80 --durations-min=0.1 \
+rtk proxy env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m pytest tests/ -q --durations=20 --durations-min=0.1 \
   --basetemp .mosaic/tmp/pytest-rke-full-profile
 ```
 
@@ -55,41 +55,31 @@ rtk du -sh registry
 rtk du -ah registry/report_intelligence
 ```
 
-On a checkout with ignored private `registry/report_intelligence/` artifacts,
-RKE CLI tests can become the slow section when they copy the full registry or
-call deep refresh/review-progress builders. The July 2026 local profile found
-`tests/test_rke_cli.py` taking 11m22s, led by
-`test_rke_cli_refresh_preserves_reviews` at 274s and several
-master-plan/promotion/review-progress cases at 22-89s. Those CLI contract tests
-now stub the deep builders they are not asserting; `tests/test_rke_cli.py` should
-complete in about 10s locally, with no single test above 1s. The same pass found
-slow accepted-import downstream rewrites in
-`tests/test_rke_lockbox_review_import.py` and
-`tests/test_rke_manual_review_import.py`; those tests now stub the downstream
-report bundle they are not asserting and should complete in single-digit
-seconds. `tests/test_rke_operator_handoff.py` still exercises the real manual
-review progress builder and remains the main residual local hotspot at about 22s
-per deep handoff case. If a full local run is still slow, prefer the targeted
-commands above or the CI-style per-file RKE split instead of a monolithic
-`pytest tests/ -q`.
+The root cause of the local slowdown was environmental, not pytest collection:
+test helpers repeatedly copied the developer's ignored 151 MB
+`registry/report_intelligence/` tree. Operator readiness repeated that copy 25
+times, and two direct-root handoff tests scanned it again. Pytest registry copies
+now exclude every path classified by `PRIVATE_LOCAL_REGISTRY_FILES` or
+`PRIVATE_LOCAL_REGISTRY_PREFIXES`, then rebuild only the small synthetic private
+fixture required by a test. Direct-root handoff/readiness cases use the same
+isolated registry.
 
-`tests/test_rke_tushare_reports.py` was another local-only multiplier: nine
-tests copied a 166 MB operator registry, including ignored private report
-artifacts, and implicitly consumed manual-review files absent from CI. It now
-uses a public-manifest-only registry fixture plus synthetic review rows. The 27
-tests should complete in about 3s (2.7s in the 2026-07-10 profile), and their
-result must not change when private Tushare/report-intelligence files exist.
+On the 2026-07-10 verification run, the monolithic suite fell from more than 78
+minutes to about 3 minutes. `tests/test_rke_schema_artifacts.py` fell to about
+1.9 seconds, and the former 22.75-second handoff scan fell to about 0.06 seconds.
+Results and duration must not depend on ignored PDFs, report rows, review files,
+or `.mosaic` caches.
 
-The 2026-07-10 schema profile found a separate hotspot:
-`test_schema_status_cli_reports_malformed_artifact` took about 120s because a
-single malformed-input assertion copied the full local registry and ran the
-full schema pipeline three times. Replacing that redundant integration setup
-with a minimal mocked report, copying only the report-intelligence fixtures a
-test actually validates, and excluding private report artifacts from manual
-review fixtures reduced `tests/test_rke_schema_artifacts.py` from about 292s to
-about 128s. Its slowest test is now under 5s, and the file is below the 180s
-budget in the evolution plan. A regression toward full-tree copies in a focused
-malformed-artifact or CLI-format test should fail review.
+Private/local schema fixtures are explicit diagnostics:
+
+```bash
+rtk proxy env MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES=1 \
+  MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m pytest tests/test_rke_schema_artifacts.py -q --durations=20 \
+  --basetemp .mosaic/tmp/pytest-private-schema-fixtures
+```
+
+This opt-in run never substitutes for the clean public fixture suite.
 
 ## Prompt IR And Domain Knob Catalog
 
@@ -105,7 +95,7 @@ rtk pnpm --dir mosaic-ts dev prompts export-domain-knob-evaluation-contract \
 rtk pnpm --dir mosaic-ts dev prompts check-research-knobs \
   --cohort cohort_default \
   --enabled-agents '*'
-rtk env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+rtk proxy env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
   uv run python -m pytest tests/test_rke_schema_artifacts.py -q \
   --basetemp .mosaic/tmp/pytest-position-aware-schema
 ```
@@ -204,6 +194,10 @@ rtk pnpm dev prompts sync-research-knobs \
 rtk pnpm dev prompts check-research-knobs \
   --private-prompts-root /home/hap/Project/MOSAIC-Prompts \
   --cohort cohort_default --enabled-stages '*'
+rtk pnpm dev prompts prompt-token-budget \
+  --private-prompts-root /home/hap/Project/MOSAIC-Prompts/prompts/mosaic \
+  --baseline ../registry/prompt_checks/prompt_token_budget_manifest_v1.json \
+  --out ../.mosaic/prompt_evolution_delivery/prompt-token-budget-candidate.json
 ```
 
 The sync is idempotent. A second run must report zero updated files, and the
@@ -457,6 +451,69 @@ Required warning labels must remain literal:
    `dissent_notes`.
 6. Run the TUI and inspect the latest CIO plan before releasing a prompt
    mutation that touches position or MiroFish cards.
+
+## Canary, Recovery, And Rollback
+
+Canary assignment is deterministic for the run key. Every eligible invocation
+writes one idempotent, fsynced runtime event to the operator-owned JSONL path:
+
+```bash
+export MOSAIC_PROMPT_CANARY_EVENT_LOG=.mosaic/prompt-releases/canary-events.jsonl
+rtk pnpm --dir mosaic-ts dev prompt-release canary \
+  --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'approved bounded canary' --traffic-percent 10
+rtk pnpm --dir mosaic-ts dev daily-cycle --cohort cohort_default --fake-llm
+rtk pnpm --dir mosaic-ts dev prompt-release summarize-slo \
+  --release-id RELEASE_ID \
+  --events .mosaic/prompt-releases/canary-events.jsonl \
+  --observation-ended-at 2026-07-10T12:00:00Z \
+  --out .mosaic/prompt-releases/RELEASE_ID-slo.json
+```
+
+`summarize-slo` recomputes fixed thresholds from event hashes. Fewer than 20
+eligible samples, any schema/token/order/exposure breach, mixed release
+identity, duplicate conflict, or stage-snapshot drift blocks activation.
+
+After an interrupted cross-repository mutation, start a fresh process and use
+only the durable descriptor:
+
+```bash
+rtk pnpm --dir mosaic-ts dev autoresearch recover-transactions \
+  --transaction-dir .mosaic/prompt-mutations/transactions
+```
+
+Rollback drill:
+
+```bash
+rtk pnpm --dir mosaic-ts dev prompt-release rollback \
+  --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'operator rollback rehearsal'
+rtk pnpm --dir mosaic-ts dev prompt-release status --release-id RELEASE_ID
+```
+
+The rolled-back release must no longer receive traffic, the aggregate active
+pointer must resolve to its previous release, and the rollback audit event must
+bind the same release and component hashes.
+
+## Delivery Status
+
+The CI delivery job consumes the upstream Python and TypeScript job results and
+runs the fixed G0-G7 command contract. It writes a privacy-safe artifact with
+hashes, exit codes, reason codes, commits, and evidence refs; it never embeds
+prompt bodies or command output.
+
+```bash
+rtk uv run python scripts/run_prompt_evolution_delivery.py \
+  --allow-blocked \
+  --output .mosaic/prompt_evolution_delivery/status.json
+rtk uv run python scripts/run_prompt_evolution_delivery.py \
+  --verify .mosaic/prompt_evolution_delivery/status.json --allow-blocked
+```
+
+A local run remains `blocked` at G7 because it has no GitHub upstream job
+receipt. In GitHub Actions, `python_ci` and `typescript_ci` must both bind the
+same head SHA and report success. Any input hash or code commit drift invalidates
+the artifact.
 
 ## Release Boundary
 

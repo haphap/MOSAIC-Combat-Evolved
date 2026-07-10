@@ -549,15 +549,16 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             continue
 
         mutation_metadata = store.get_version_mutation_metadata(version_id)
-        is_domain_mutation = bool(
+        is_contract_evaluated_mutation = bool(
             mutation_metadata
             and (
-                mutation_metadata.get("mutation_kind") == "domain_knob"
+                mutation_metadata.get("mutation_kind")
+                in ("domain_knob", "generic_knob")
                 or mutation_metadata.get("domain_card_id")
                 or mutation_metadata.get("domain_card_ids")
             )
         )
-        if is_domain_mutation:
+        if is_contract_evaluated_mutation:
             lifecycle = store.get_prompt_version(version_id).get("mutation_lifecycle")
             if lifecycle in ("eligible_for_promotion", "reverted", "invalid", "kept"):
                 results.append(
@@ -581,6 +582,7 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                         "version_id": version_id,
                         "status": "needs_fill",
                         "missing_domain_samples": True,
+                        "missing_paired_samples": True,
                     }
                 )
                 continue
@@ -774,8 +776,11 @@ def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, An
         raise RpcError(AUTORESEARCH_ERROR, "domain mutation is not eligible for promotion")
     metadata = store.get_version_mutation_metadata(version_id)
     evaluation = store.get_domain_evaluation_result(version_id)
-    if not metadata or metadata.get("mutation_kind") != "domain_knob":
-        raise RpcError(AUTORESEARCH_ERROR, "prompt version is not a domain mutation")
+    if not metadata or metadata.get("mutation_kind") not in (
+        "domain_knob",
+        "generic_knob",
+    ):
+        raise RpcError(AUTORESEARCH_ERROR, "prompt version is not a governed knob mutation")
     if not evaluation or evaluation.get("status") != "eligible_for_promotion":
         raise RpcError(AUTORESEARCH_ERROR, "eligible domain evaluation result is missing")
     if evaluation.get("holdout_consumption_required") is not True:

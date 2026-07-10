@@ -110,3 +110,48 @@ jobs:
       - name: Test (vitest)
         working-directory: mosaic-ts
         run: pnpm test
+
+  prompt-evolution-delivery:
+    name: Prompt evolution delivery (G0-G7)
+    needs: [python, typescript]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      PROMPT_EVOLUTION_PYTHON_CI_STATUS: ${{ needs.python.result }}
+      PROMPT_EVOLUTION_TYPESCRIPT_CI_STATUS: ${{ needs.typescript.result }}
+      PROMPT_EVOLUTION_CI_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python dependencies
+        run: |
+          uv venv
+          uv pip install -e '.[data,trading,test]'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install TypeScript dependencies
+        working-directory: mosaic-ts
+        run: pnpm install --frozen-lockfile
+      - name: Generate and verify delivery status
+        run: |
+          uv run python scripts/run_prompt_evolution_delivery.py \
+            --ci-provider github_actions \
+            --output .mosaic/prompt_evolution_delivery/status.json
+          uv run python scripts/run_prompt_evolution_delivery.py \
+            --verify .mosaic/prompt_evolution_delivery/status.json
+      - name: Upload delivery status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-evolution-delivery-status
+          path: .mosaic/prompt_evolution_delivery/status.json
+          if-no-files-found: warn

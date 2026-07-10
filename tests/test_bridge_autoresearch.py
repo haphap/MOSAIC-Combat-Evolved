@@ -316,6 +316,32 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.store.set_version_mutation_lifecycle(vid, "validated")
         return vid
 
+    def _generic_mutated_version(self, branch: str) -> int:
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name=branch,
+            base_commit_hash="a" * 40,
+        )
+        self.store.set_version_mutation(
+            vid,
+            "b" * 40,
+            "generic mutation",
+            mutation_metadata={
+                "mutation_id": "KM-generic-1",
+                "transaction_id": "TX-KM-generic-1",
+                "experiment_id": "EXP-KM-generic-1",
+                "mutation_kind": "generic_knob",
+                "generic_target_paths": [
+                    "/rule_packs/macro.volatility.runtime.v1/rules/"
+                    "macro.volatility.soft.001/confidence_policy/"
+                    "missing_current_data/cap"
+                ],
+            },
+        )
+        self.store.set_version_mutation_lifecycle(vid, "validated")
+        return vid
+
     def test_version_id_scopes_to_one_version(self):
         # Two mutated pending versions; ask for just the second.
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
@@ -339,6 +365,20 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
 
         self.assertEqual(result["results"][0]["status"], "needs_fill")
         self.assertTrue(result["results"][0]["missing_domain_samples"])
+        self.assertEqual(
+            self.store.get_prompt_version(vid)["mutation_lifecycle"], "needs_fill"
+        )
+        compute_delta.assert_not_called()
+
+    def test_generic_mutation_never_falls_back_to_sharpe_only(self):
+        vid = self._generic_mutated_version(
+            "cohort/euphoria_2021/auto/volatility/2021-01-07"
+        )
+        with patch("mosaic.autoresearch.evaluator.compute_delta") as compute_delta:
+            result = autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertEqual(result["results"][0]["status"], "needs_fill")
+        self.assertTrue(result["results"][0]["missing_paired_samples"])
         self.assertEqual(
             self.store.get_prompt_version(vid)["mutation_lifecycle"], "needs_fill"
         )
