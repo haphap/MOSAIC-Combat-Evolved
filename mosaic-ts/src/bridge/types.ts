@@ -1872,8 +1872,10 @@ export class BridgeApi {
     cohort: string;
     contents: Partial<Record<PromptLang, string>>;
     extra_files?: Record<string, string>;
+    expected_base_hashes?: Record<string, string>;
     target?: "private_git" | "project_git" | "working_tree";
     branch?: string;
+    base_ref?: string;
     message?: string;
     allow_public_prompt_write?: boolean;
   }): Promise<PromptWriteResult> {
@@ -1882,12 +1884,16 @@ export class BridgeApi {
 
   promptsCandidateState(params: {
     branch: string;
+    target?: "private_git" | "project_git";
     expected_hashes: Record<string, string>;
   }): Promise<{ candidate_visible: boolean; new_commit: string | null; hashes_match: boolean }> {
     return this.client.call("prompts.candidate_state", params);
   }
 
-  promptsAbortCandidate(params: { branch: string }): Promise<{ ok: boolean }> {
+  promptsAbortCandidate(params: {
+    branch: string;
+    target?: "private_git" | "project_git";
+  }): Promise<{ ok: boolean }> {
     return this.client.call("prompts.abort_candidate", params);
   }
 

@@ -322,6 +322,45 @@ class TestWrite:
         persisted = json.loads(_git(private_repo, "show", f"{BRANCH}:{registry_path}"))
         assert persisted["last_mutation_id"] == "KM-test-1"
 
+    def test_private_git_commits_governance_registry_with_prompt_pair(
+        self, repo: Path, tmp_path: Path, monkeypatch
+    ):
+        private_repo = tmp_path / "private-prompts"
+        init_private_prompt_repo(private_repo, project_root=repo)
+        monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
+        registry_path = "registry/prompt_governance/cohort_default/volatility.json"
+        registry = {
+            "schema_version": "prompt_governance_values_v1",
+            "agent": "macro.volatility",
+            "cohort": "cohort_default",
+            "prompt_ir_scope": "*",
+            "prompt_ir_hash": f"sha256:{'1' * 64}",
+            "generator_version": "prompt_governance_projection_v1",
+            "values_by_path": {
+                "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.confidence.001/confidence_policy/missing_current_data/cap": 0.5
+            },
+            "weight_groups": {},
+            "last_mutation_id": "KM-test-2",
+        }
+
+        result = dispatch(
+            "prompts.write",
+            {
+                "agent": "volatility",
+                "cohort": "cohort_default",
+                "contents": {"zh": "new zh\n", "en": "new en\n"},
+                "extra_files": {
+                    registry_path: json.dumps(registry, ensure_ascii=False) + "\n"
+                },
+                "target": "private_git",
+                "branch": BRANCH,
+            },
+        )
+
+        assert len(result["paths"]) == 3
+        persisted = json.loads(_git(private_repo, "show", f"{BRANCH}:{registry_path}"))
+        assert persisted["last_mutation_id"] == "KM-test-2"
+
     def test_domain_registry_write_rejects_non_private_target_and_unsafe_cohort(
         self, repo: Path
     ):
@@ -405,18 +444,24 @@ class TestWrite:
         assert len(r["prompt_commit_hash"]) == 40
 
     def test_to_project_git_branch_commits(self, repo: Path):
+        base_ref = _git(repo, "rev-list", "--max-parents=0", "HEAD").strip()
+        zh_content = "new zh\n## 输出 schema\n"
+        en_content = "new en\n## Output schema\n"
         r = dispatch("prompts.write", {
             "agent": "volatility", "cohort": "crisis_2008",
-            "contents": {"zh": "new zh\n## 输出 schema\n", "en": "new en\n## Output schema\n"},
+            "contents": {"zh": zh_content, "en": en_content},
             "target": "project_git",
             "branch": BRANCH,
+            "base_ref": base_ref,
         })
         assert r["target"] == "project_git"
         assert r["prompt_repo_id"] == "project"
         assert len(r["commit_hash"]) == 40
         assert len(r["prompt_sha256"]) == 64
         assert r["branch"] == BRANCH
+        assert r["prompt_base_commit_hash"] == base_ref
         assert len(r["paths"]) == 2
+        assert _git(repo, "rev-parse", f"{BRANCH}^").strip() == base_ref
         # primary tree untouched (commit built in a worktree)
         assert not (repo / "prompts/mosaic/crisis_2008").exists()
         # readable back at the branch ref
@@ -424,6 +469,45 @@ class TestWrite:
             "agent": "volatility", "cohort": "crisis_2008", "lang": "zh", "ref": BRANCH,
         })
         assert back["content"].startswith("new zh")
+        expected_hashes = {
+            "prompts/mosaic/crisis_2008/macro/volatility.zh.md": (
+                f"sha256:{hashlib.sha256(zh_content.encode('utf-8')).hexdigest()}"
+            ),
+            "prompts/mosaic/crisis_2008/macro/volatility.en.md": (
+                f"sha256:{hashlib.sha256(en_content.encode('utf-8')).hexdigest()}"
+            ),
+        }
+        state = dispatch(
+            "prompts.candidate_state",
+            {
+                "branch": BRANCH,
+                "target": "project_git",
+                "expected_hashes": expected_hashes,
+            },
+        )
+        assert state["candidate_visible"] is True
+        dispatch(
+            "prompts.abort_candidate",
+            {"branch": BRANCH, "target": "project_git"},
+        )
+        assert _git(repo, "branch", "--list", BRANCH).strip() == ""
+
+    def test_project_git_rejects_stale_candidate_base(self, repo: Path):
+        path = "prompts/mosaic/cohort_default/macro/volatility.zh.md"
+        with pytest.raises(RpcError, match="base files do not match expected hashes"):
+            dispatch(
+                "prompts.write",
+                {
+                    "agent": "volatility",
+                    "cohort": "cohort_default",
+                    "contents": {"zh": "candidate zh\n"},
+                    "target": "project_git",
+                    "branch": BRANCH,
+                    "base_ref": "main",
+                    "expected_base_hashes": {path: f"sha256:{'0' * 64}"},
+                },
+            )
+        assert _git(repo, "branch", "--list", BRANCH).strip() == ""
 
     def test_to_working_tree(self, repo: Path):
         r = dispatch("prompts.write", {

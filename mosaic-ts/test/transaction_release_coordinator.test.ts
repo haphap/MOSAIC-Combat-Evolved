@@ -267,6 +267,7 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
   it("reconstructs adapters and metadata logging from a durable startup descriptor", async () => {
     const root = tempRoot("transaction-startup-recovery");
     const metadataLogPath = join(root, "knob-mutations.jsonl");
+    const branch = "cohort/cohort_default/auto/central_bank/2026-07-10";
     const descriptorHash = await new PromptMutationRecoveryDescriptorStore(root).writeOnce({
       schema_version: "prompt_mutation_recovery_v1",
       transaction_id: "transaction-1",
@@ -274,7 +275,10 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
       version_id: 42,
       agent: "central_bank",
       cohort: "cohort_default",
-      branch: "cohort/cohort_default/auto/central_bank/2026-07-10",
+      components: [
+        { repo_id: "MOSAIC-Prompts", target: "private_git", branch },
+        { repo_id: "MOSAIC-RKE", target: "project_git", branch },
+      ],
       summary: "test mutation",
       prompt_sha256: "1".repeat(64),
       code_commit_hash: "c".repeat(40),
@@ -283,19 +287,13 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
     });
     const journal = new MutationTransactionJournal(root);
     const base = transaction();
-    const promptComponent = base.components.find(
-      (component) => component.repo_id === "MOSAIC-Prompts",
-    );
-    if (!promptComponent) throw new Error("test prompt component missing");
     const created: MutationTransactionManifest = {
       ...base,
       recovery_descriptor_hash: descriptorHash,
-      components: [
-        {
-          ...promptComponent,
-          candidate_ref: "refs/heads/cohort/cohort_default/auto/central_bank/2026-07-10",
-        },
-      ],
+      components: base.components.map((component) => ({
+        ...component,
+        candidate_ref: `refs/heads/${branch}`,
+      })),
     };
     await journal.create(created);
     const prepared: MutationTransactionManifest = {
@@ -305,7 +303,7 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
       components: created.components.map((component) => ({
         ...component,
         prepare_status: "prepared",
-        new_commit: "b".repeat(40),
+        new_commit: component.repo_id === "MOSAIC-Prompts" ? "b".repeat(40) : "a".repeat(40),
       })),
     };
     await journal.transition(created, prepared);
@@ -328,8 +326,38 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
     expect(recovered[0]).toMatchObject({ state: "committed", recovery_state: "reconciled" });
     expect(repeated).toEqual([]);
     expect(api.autoresearchRecordMutation).toHaveBeenCalledTimes(1);
+    expect(api.autoresearchRecordMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commit_hash: "b".repeat(40),
+        code_commit_hash: "a".repeat(40),
+      }),
+    );
     const row = JSON.parse(readFileSync(metadataLogPath, "utf-8")) as KnobMutationMetadata;
     expect(row.transaction_manifest_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("retains branch-only recovery descriptors for existing transactions", async () => {
+    const root = tempRoot("transaction-legacy-recovery-descriptor");
+    const descriptor = {
+      schema_version: "prompt_mutation_recovery_v1" as const,
+      transaction_id: "transaction-1",
+      mutation_id: "mutation-1",
+      version_id: 42,
+      agent: "central_bank",
+      cohort: "cohort_default",
+      branch: "cohort/cohort_default/auto/central_bank/2026-07-10",
+      summary: "legacy mutation",
+      prompt_sha256: "1".repeat(64),
+      code_commit_hash: "c".repeat(40),
+      metadata_log_path: join(root, "knob-mutations.jsonl"),
+      mutation_metadata: recoveryMetadata(),
+    };
+
+    await new PromptMutationRecoveryDescriptorStore(root).writeOnce(descriptor);
+
+    await expect(
+      new PromptMutationRecoveryDescriptorStore(root).load("transaction-1"),
+    ).resolves.toEqual(descriptor);
   });
 
   it("fails closed when a recoverable transaction has no bound descriptor", async () => {

@@ -33,7 +33,7 @@ import {
 } from "../agents/helpers/research_knobs.js";
 import { bindStructured } from "../agents/helpers/structured_output.js";
 import { ALL_MACRO_AGENTS } from "../agents/macro/_aggregator.js";
-import { findPrivatePromptsRoot } from "../agents/prompts/cohorts.js";
+import { findBundledPromptsRoot, findPrivatePromptsRoot } from "../agents/prompts/cohorts.js";
 import {
   buildDomainKnobEvaluationContractArtifact,
   type DomainKnobCard,
@@ -1536,6 +1536,14 @@ export interface ResearchKnobPromptMutation extends Mutation {
     old_sha256: string;
     new_sha256: string;
   };
+  bundled_prompt_update: {
+    zh_prompt: string;
+    en_prompt: string;
+    prompt_file_hashes: {
+      zh: { old_sha256: string; new_sha256: string };
+      en: { old_sha256: string; new_sha256: string };
+    };
+  };
 }
 
 /** Deterministic rewrite for ``--fake-llm`` mode (Plan §11.5 4F decision). */
@@ -1675,16 +1683,32 @@ export async function mutateResearchKnobs(
 ): Promise<ResearchKnobPromptMutation> {
   const { cohort, agent, deps, since, promptsRoot, fakeLlm, mutationId } = opts;
   const rootOpt = promptsRoot !== undefined ? { promptsRoot } : {};
-  let [zhPrompt, enPrompt] = await Promise.all([
+  const [loadedZhPrompt, loadedEnPrompt] = await Promise.all([
     loadPrompt({ agent, cohort, language: "zh", noCache: true, ...rootOpt }),
     loadPrompt({ agent, cohort, language: "en", noCache: true, ...rootOpt }),
   ]);
+  let zhPrompt = loadedZhPrompt;
+  let enPrompt = loadedEnPrompt;
   const prompts = bootstrapResearchKnobsPrompts(agent, zhPrompt, enPrompt);
   zhPrompt = prompts.zhPrompt;
   enPrompt = prompts.enPrompt;
   const zh = parseResearchKnobsPrompt(zhPrompt);
   const en = parseResearchKnobsPrompt(enPrompt);
   assertResearchKnobsParity(zh.knobs, en.knobs);
+  const bundledRoot = findBundledPromptsRoot();
+  const [bundledZhPrompt, bundledEnPrompt] = await Promise.all([
+    loadPrompt({ agent, cohort, language: "zh", promptsRoot: bundledRoot, noCache: true }),
+    loadPrompt({ agent, cohort, language: "en", promptsRoot: bundledRoot, noCache: true }),
+  ]);
+  const bundledZh = parseResearchKnobsPrompt(bundledZhPrompt);
+  const bundledEn = parseResearchKnobsPrompt(bundledEnPrompt);
+  assertResearchKnobsParity(bundledZh.knobs, bundledEn.knobs);
+  if (
+    JSON.stringify(canonicalResearchKnobs(zh.knobs)) !==
+    JSON.stringify(canonicalResearchKnobs(bundledZh.knobs))
+  ) {
+    throw new PromptInvariantError("private and bundled base prompt projections do not match");
+  }
 
   let knobMutation: KnobMutation;
   if (fakeLlm) {
@@ -1723,6 +1747,17 @@ export async function mutateResearchKnobs(
     throw new PromptInvariantError("domain and generic knob paths cannot share one mutation");
   }
   const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, knobMutation);
+  const bundledAssembled = applyKnobPatchesToPromptPair(
+    bundledZhPrompt,
+    bundledEnPrompt,
+    knobMutation,
+  );
+  if (
+    JSON.stringify(canonicalResearchKnobs(assembled.knobs)) !==
+    JSON.stringify(canonicalResearchKnobs(bundledAssembled.knobs))
+  ) {
+    throw new PromptInvariantError("private and bundled candidate projections do not match");
+  }
   let domainRegistryUpdate: ResearchKnobPromptMutation["domain_registry_update"];
   let governanceRegistryUpdate: ResearchKnobPromptMutation["governance_registry_update"];
   if (domainPaths.length > 0) {
@@ -1805,11 +1840,25 @@ export async function mutateResearchKnobs(
     base_knobs: zh.knobs,
     new_knobs: assembled.knobs,
     prompt_file_hashes: {
-      zh: { old_sha256: hashText(zhPrompt), new_sha256: hashText(assembled.zh_prompt) },
-      en: { old_sha256: hashText(enPrompt), new_sha256: hashText(assembled.en_prompt) },
+      zh: { old_sha256: hashText(loadedZhPrompt), new_sha256: hashText(assembled.zh_prompt) },
+      en: { old_sha256: hashText(loadedEnPrompt), new_sha256: hashText(assembled.en_prompt) },
     },
     ...(domainRegistryUpdate ? { domain_registry_update: domainRegistryUpdate } : {}),
     ...(governanceRegistryUpdate ? { governance_registry_update: governanceRegistryUpdate } : {}),
+    bundled_prompt_update: {
+      zh_prompt: bundledAssembled.zh_prompt,
+      en_prompt: bundledAssembled.en_prompt,
+      prompt_file_hashes: {
+        zh: {
+          old_sha256: hashText(bundledZhPrompt),
+          new_sha256: hashText(bundledAssembled.zh_prompt),
+        },
+        en: {
+          old_sha256: hashText(bundledEnPrompt),
+          new_sha256: hashText(bundledAssembled.en_prompt),
+        },
+      },
+    },
   };
 }
 

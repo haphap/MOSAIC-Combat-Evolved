@@ -10,7 +10,6 @@
     "version_id",
     "agent",
     "cohort",
-    "branch",
     "summary",
     "prompt_sha256",
     "code_commit_hash",
@@ -44,6 +43,69 @@
     "branch": {
       "type": "string",
       "minLength": 1
+    },
+    "components": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repo_id", "target", "branch"],
+        "properties": {
+          "repo_id": {
+            "enum": ["MOSAIC-Prompts", "MOSAIC-RKE"]
+          },
+          "target": {
+            "enum": ["private_git", "project_git"]
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "repo_id": { "const": "MOSAIC-Prompts" } },
+              "required": ["repo_id"]
+            },
+            "then": {
+              "properties": { "target": { "const": "private_git" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "repo_id": { "const": "MOSAIC-RKE" } },
+              "required": ["repo_id"]
+            },
+            "then": {
+              "properties": { "target": { "const": "project_git" } }
+            }
+          }
+        ]
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": { "repo_id": { "const": "MOSAIC-Prompts" } },
+            "required": ["repo_id"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": { "repo_id": { "const": "MOSAIC-RKE" } },
+            "required": ["repo_id"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
     },
     "summary": {
       "type": "string"
@@ -81,5 +143,15 @@
         }
       }
     }
-  }
+  },
+  "oneOf": [
+    {
+      "required": ["branch"],
+      "not": { "required": ["components"] }
+    },
+    {
+      "required": ["components"],
+      "not": { "required": ["branch"] }
+    }
+  ]
 }

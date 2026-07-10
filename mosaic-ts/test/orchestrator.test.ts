@@ -70,7 +70,7 @@ function fakeBridgeApi(overrides: Partial<Record<string, unknown>> = {}): Bridge
       version_id: 1,
       agent: "volatility",
       branch_name: "autoresearch/volatility/20260101",
-      base_commit: "abc123",
+      base_commit: "abc1234",
     }),
     promptsWrite: vi.fn().mockResolvedValue({
       target: "private_git",
@@ -149,6 +149,20 @@ describe("runAutoresearchCycle", () => {
         content: '{"schema_version":"prompt_governance_values_v1"}\n',
         old_sha256: `sha256:${"8".repeat(64)}`,
         new_sha256: `sha256:${"9".repeat(64)}`,
+      },
+      bundled_prompt_update: {
+        zh_prompt: "bundled knob zh",
+        en_prompt: "bundled knob en",
+        prompt_file_hashes: {
+          zh: {
+            old_sha256: `sha256:${"a".repeat(64)}`,
+            new_sha256: `sha256:${"b".repeat(64)}`,
+          },
+          en: {
+            old_sha256: `sha256:${"c".repeat(64)}`,
+            new_sha256: `sha256:${"d".repeat(64)}`,
+          },
+        },
       },
     });
   });
@@ -240,20 +254,36 @@ describe("runAutoresearchCycle", () => {
     process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR = join(root, "transactions");
     process.env.MOSAIC_KNOB_MUTATION_LOG = join(root, "knob_mutations.jsonl");
     const api = fakeBridgeApi({
-      promptsWrite: vi.fn().mockResolvedValue({
-        target: "private_git",
-        prompt_repo_id: "private",
-        prompt_base_commit_hash: "baseprompt123",
-        prompt_commit_hash: "def4567",
-        commit_hash: "def4567",
-        branch: "autoresearch/volatility/20260101",
-        paths: [
-          "prompts/mosaic/cohort_default/macro/volatility.zh.md",
-          "prompts/mosaic/cohort_default/macro/volatility.en.md",
-        ],
-      }),
+      promptsWrite: vi.fn(async (params: { target?: string }) =>
+        params.target === "project_git"
+          ? {
+              target: "project_git",
+              prompt_repo_id: "project",
+              prompt_base_commit_hash: "abc1234",
+              prompt_commit_hash: "code4567",
+              commit_hash: "code4567",
+              branch: "autoresearch/volatility/20260101",
+              paths: [
+                "prompts/mosaic/cohort_default/macro/volatility.zh.md",
+                "prompts/mosaic/cohort_default/macro/volatility.en.md",
+              ],
+            }
+          : {
+              target: "private_git",
+              prompt_repo_id: "private",
+              prompt_base_commit_hash: "baseprompt123",
+              prompt_commit_hash: "def4567",
+              commit_hash: "def4567",
+              branch: "autoresearch/volatility/20260101",
+              paths: [
+                "prompts/mosaic/cohort_default/macro/volatility.zh.md",
+                "prompts/mosaic/cohort_default/macro/volatility.en.md",
+              ],
+            },
+      ),
       promptsPreflight: vi.fn().mockResolvedValue({
-        source_status: { prompt_repo_revision: "baseprompt123" },
+        ready: true,
+        source_status: { ready: true, prompt_repo_revision: "baseprompt123" },
       }),
     });
     try {
@@ -265,10 +295,11 @@ describe("runAutoresearchCycle", () => {
       });
 
       expect(result.mutations[0]?.status).toBe("needs_fill");
-      expect(api.promptsWrite).toHaveBeenCalledTimes(1);
+      expect(api.promptsWrite).toHaveBeenCalledTimes(2);
       expect(api.autoresearchRecordMutation).toHaveBeenCalledWith(
         expect.objectContaining({
           commit_hash: "def4567",
+          code_commit_hash: "code4567",
           mutation_metadata: expect.objectContaining({
             mutation_id: expect.stringMatching(/^KM-1-/),
             transaction_manifest_hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
@@ -280,8 +311,19 @@ describe("runAutoresearchCycle", () => {
       expect(manifestFiles).toHaveLength(1);
       const manifest = JSON.parse(
         readFileSync(join(manifestDir, manifestFiles[0] ?? "missing"), "utf-8"),
-      ) as { state: string; metadata_log: { appended: boolean } };
-      expect(manifest).toMatchObject({ state: "committed", metadata_log: { appended: true } });
+      ) as {
+        state: string;
+        components: Array<{ repo_id: string; new_commit: string }>;
+        metadata_log: { appended: boolean };
+      };
+      expect(manifest).toMatchObject({
+        state: "committed",
+        components: [
+          { repo_id: "MOSAIC-Prompts", new_commit: "def4567" },
+          { repo_id: "MOSAIC-RKE", new_commit: "code4567" },
+        ],
+        metadata_log: { appended: true },
+      });
     } finally {
       if (oldEnabled === undefined) delete process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
       else process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = oldEnabled;
@@ -331,7 +373,7 @@ describe("runAutoresearchCycle", () => {
       prompt_repo_id: "private",
       prompt_base_commit_hash: "baseprompt123",
       prompt_sha256: "f".repeat(64),
-      code_commit_hash: "abc123",
+      code_commit_hash: "abc1234",
     });
     expect(api.autoresearchPrepareWorktree).not.toHaveBeenCalled();
     expect(api.autoresearchCleanupWorktree).not.toHaveBeenCalled();

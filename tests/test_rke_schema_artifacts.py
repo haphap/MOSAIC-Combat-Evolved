@@ -7158,7 +7158,18 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
         "version_id": 1,
         "agent": "central_bank",
         "cohort": "cohort_default",
-        "branch": "cohort/cohort_default/auto/central_bank/2026-07-10",
+        "components": [
+            {
+                "repo_id": "MOSAIC-Prompts",
+                "target": "private_git",
+                "branch": "cohort/cohort_default/auto/central_bank/2026-07-10",
+            },
+            {
+                "repo_id": "MOSAIC-RKE",
+                "target": "project_git",
+                "branch": "cohort/cohort_default/auto/central_bank/2026-07-10",
+            },
+        ],
         "summary": "test mutation",
         "prompt_sha256": "1" * 64,
         "code_commit_hash": "c" * 40,

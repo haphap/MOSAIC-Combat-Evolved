@@ -141,7 +141,8 @@ function isResearchKnobPromptMutation(value: unknown): value is ResearchKnobProm
     typeof value === "object" &&
     "knob_mutation" in value &&
     "base_knobs" in value &&
-    "new_knobs" in value
+    "new_knobs" in value &&
+    "bundled_prompt_update" in value
   );
 }
 
@@ -149,16 +150,19 @@ async function privatePromptBaseCommit(
   api: BridgeApi,
   cohort: string,
   agent: string,
-  fallback: string,
 ): Promise<string> {
-  if (typeof api.promptsPreflight !== "function") return fallback;
-  try {
-    const preflight = await api.promptsPreflight({ cohort, agents: [agent], langs: ["zh", "en"] });
-    const revision = preflight.source_status.prompt_repo_revision;
-    return revision.length >= 7 ? revision : fallback;
-  } catch {
-    return fallback;
+  if (typeof api.promptsPreflight !== "function") {
+    throw new Error("private prompt preflight is required for transactional knob mutations");
   }
+  const preflight = await api.promptsPreflight({ cohort, agents: [agent], langs: ["zh", "en"] });
+  if (!preflight.ready || !preflight.source_status.ready) {
+    throw new Error(
+      `private prompt preflight blocked: ${preflight.source_status.blocked_reason || "unknown"}`,
+    );
+  }
+  const revision = preflight.source_status.prompt_repo_revision;
+  if (revision.length < 7) throw new Error("private prompt preflight returned no base commit");
+  return revision;
 }
 
 async function executeKnobMutationTransaction(opts: {
@@ -182,24 +186,27 @@ async function executeKnobMutationTransaction(opts: {
   if (opts.metadata.mutation_kind === "domain_knob" && !opts.mutation.domain_registry_update) {
     throw new Error("domain knob mutation requires authoritative domain write-back");
   }
+  if (
+    Number(Boolean(opts.mutation.domain_registry_update)) +
+      Number(Boolean(opts.mutation.governance_registry_update)) !==
+    1
+  ) {
+    throw new Error("knob mutation requires exactly one authoritative registry write-back");
+  }
   const layer = LAYER_BY_AGENT[opts.agent];
   if (!layer) throw new Error(`unknown prompt agent: ${opts.agent}`);
-  const promptBaseCommit = await privatePromptBaseCommit(
-    opts.api,
-    opts.cohort,
-    opts.agent,
-    opts.codeCommit,
-  );
+  const promptBaseCommit = await privatePromptBaseCommit(opts.api, opts.cohort, opts.agent);
   const promptPaths = {
     zh: `prompts/mosaic/${opts.cohort}/${layer}/${opts.agent}.zh.md`,
     en: `prompts/mosaic/${opts.cohort}/${layer}/${opts.agent}.en.md`,
   };
-  const files: MutationTransactionManifest["components"][number]["files"] = [
+  const privateFiles: MutationTransactionManifest["components"][number]["files"] = [
     {
       path: promptPaths.zh,
       old_hash: opts.mutation.prompt_file_hashes.zh.old_sha256,
       new_hash: opts.mutation.prompt_file_hashes.zh.new_sha256,
       staging_path_hash: stableJsonHash({
+        repo_id: "MOSAIC-Prompts",
         mutation_id: opts.metadata.mutation_id,
         path: promptPaths.zh,
         new_hash: opts.mutation.prompt_file_hashes.zh.new_sha256,
@@ -210,6 +217,7 @@ async function executeKnobMutationTransaction(opts: {
       old_hash: opts.mutation.prompt_file_hashes.en.old_sha256,
       new_hash: opts.mutation.prompt_file_hashes.en.new_sha256,
       staging_path_hash: stableJsonHash({
+        repo_id: "MOSAIC-Prompts",
         mutation_id: opts.metadata.mutation_id,
         path: promptPaths.en,
         new_hash: opts.mutation.prompt_file_hashes.en.new_sha256,
@@ -217,11 +225,12 @@ async function executeKnobMutationTransaction(opts: {
     },
   ];
   if (opts.mutation.domain_registry_update) {
-    files.push({
+    privateFiles.push({
       path: opts.mutation.domain_registry_update.relative_path,
       old_hash: opts.mutation.domain_registry_update.old_sha256,
       new_hash: opts.mutation.domain_registry_update.new_sha256,
       staging_path_hash: stableJsonHash({
+        repo_id: "MOSAIC-Prompts",
         mutation_id: opts.metadata.mutation_id,
         path: opts.mutation.domain_registry_update.relative_path,
         new_hash: opts.mutation.domain_registry_update.new_sha256,
@@ -229,23 +238,52 @@ async function executeKnobMutationTransaction(opts: {
     });
   }
   if (opts.mutation.governance_registry_update) {
-    files.push({
+    privateFiles.push({
       path: opts.mutation.governance_registry_update.relative_path,
       old_hash: opts.mutation.governance_registry_update.old_sha256,
       new_hash: opts.mutation.governance_registry_update.new_sha256,
       staging_path_hash: stableJsonHash({
+        repo_id: "MOSAIC-Prompts",
         mutation_id: opts.metadata.mutation_id,
         path: opts.mutation.governance_registry_update.relative_path,
         new_hash: opts.mutation.governance_registry_update.new_sha256,
       }),
     });
   }
+  const codeFiles: MutationTransactionManifest["components"][number]["files"] = [
+    {
+      path: promptPaths.zh,
+      old_hash: opts.mutation.bundled_prompt_update.prompt_file_hashes.zh.old_sha256,
+      new_hash: opts.mutation.bundled_prompt_update.prompt_file_hashes.zh.new_sha256,
+      staging_path_hash: stableJsonHash({
+        repo_id: "MOSAIC-RKE",
+        mutation_id: opts.metadata.mutation_id,
+        path: promptPaths.zh,
+        new_hash: opts.mutation.bundled_prompt_update.prompt_file_hashes.zh.new_sha256,
+      }),
+    },
+    {
+      path: promptPaths.en,
+      old_hash: opts.mutation.bundled_prompt_update.prompt_file_hashes.en.old_sha256,
+      new_hash: opts.mutation.bundled_prompt_update.prompt_file_hashes.en.new_sha256,
+      staging_path_hash: stableJsonHash({
+        repo_id: "MOSAIC-RKE",
+        mutation_id: opts.metadata.mutation_id,
+        path: promptPaths.en,
+        new_hash: opts.mutation.bundled_prompt_update.prompt_file_hashes.en.new_sha256,
+      }),
+    },
+  ];
   const root = transactionRoot();
   const logPath = knobMutationLogPath();
   if (!logPath) throw new Error("private knob mutation metadata log is not configured");
   const promptSha = promptPairSha256(opts.agent, opts.cohort, {
     zh: opts.mutation.zh_prompt,
     en: opts.mutation.en_prompt,
+  });
+  const bundledPromptSha = promptPairSha256(opts.agent, opts.cohort, {
+    zh: opts.mutation.bundled_prompt_update.zh_prompt,
+    en: opts.mutation.bundled_prompt_update.en_prompt,
   });
   const recoveryDescriptorHash = await new PromptMutationRecoveryDescriptorStore(root).writeOnce({
     schema_version: "prompt_mutation_recovery_v1",
@@ -254,7 +292,10 @@ async function executeKnobMutationTransaction(opts: {
     version_id: opts.versionId,
     agent: opts.agent,
     cohort: opts.cohort,
-    branch: opts.branch,
+    components: [
+      { repo_id: "MOSAIC-Prompts", target: "private_git", branch: opts.branch },
+      { repo_id: "MOSAIC-RKE", target: "project_git", branch: opts.branch },
+    ],
     summary: opts.summary,
     prompt_sha256: promptSha,
     code_commit_hash: opts.codeCommit,
@@ -281,7 +322,15 @@ async function executeKnobMutationTransaction(opts: {
         new_commit: null,
         candidate_ref: `refs/heads/${opts.branch}`,
         prepare_status: "pending",
-        files,
+        files: privateFiles,
+      },
+      {
+        repo_id: "MOSAIC-RKE",
+        base_commit: opts.codeCommit,
+        new_commit: null,
+        candidate_ref: `refs/heads/${opts.branch}`,
+        prepare_status: "pending",
+        files: codeFiles,
       },
     ],
     metadata_log: {
@@ -300,8 +349,14 @@ async function executeKnobMutationTransaction(opts: {
     new MutationPathLeaseRegistry(root),
   );
   let writeResult: PromptWriteResult | null = null;
-  const expectedHashes = Object.fromEntries(files.map((file) => [file.path, file.new_hash]));
-  const adapter: MutationRepositoryAdapter = {
+  let codeWriteResult: PromptWriteResult | null = null;
+  const privateExpectedHashes = Object.fromEntries(
+    privateFiles.map((file) => [file.path, file.new_hash]),
+  );
+  const codeExpectedHashes = Object.fromEntries(
+    codeFiles.map((file) => [file.path, file.new_hash]),
+  );
+  const privateAdapter: MutationRepositoryAdapter = {
     repoId: "MOSAIC-Prompts",
     prepare: async () => undefined,
     commit: async () => {
@@ -329,6 +384,10 @@ async function executeKnobMutationTransaction(opts: {
           : {}),
         target: "private_git",
         branch: opts.branch,
+        base_ref: promptBaseCommit,
+        expected_base_hashes: Object.fromEntries(
+          privateFiles.map((file) => [file.path, file.old_hash]),
+        ),
         message: `autoresearch: ${opts.summary}`,
       });
       const commit = writeResult.prompt_commit_hash ?? writeResult.commit_hash;
@@ -339,7 +398,8 @@ async function executeKnobMutationTransaction(opts: {
       if (typeof opts.api.promptsCandidateState === "function") {
         const state = await opts.api.promptsCandidateState({
           branch: opts.branch,
-          expected_hashes: expectedHashes,
+          target: "private_git",
+          expected_hashes: privateExpectedHashes,
         });
         return {
           candidate_visible: state.candidate_visible && state.hashes_match,
@@ -351,27 +411,81 @@ async function executeKnobMutationTransaction(opts: {
     },
     abort: async () => {
       if (typeof opts.api.promptsAbortCandidate === "function") {
-        await opts.api.promptsAbortCandidate({ branch: opts.branch });
+        await opts.api.promptsAbortCandidate({ branch: opts.branch, target: "private_git" });
+      }
+    },
+  };
+  const codeAdapter: MutationRepositoryAdapter = {
+    repoId: "MOSAIC-RKE",
+    prepare: async () => undefined,
+    commit: async () => {
+      codeWriteResult = await opts.api.promptsWrite({
+        agent: opts.agent,
+        cohort: opts.cohort,
+        contents: {
+          zh: opts.mutation.bundled_prompt_update.zh_prompt,
+          en: opts.mutation.bundled_prompt_update.en_prompt,
+        },
+        target: "project_git",
+        branch: opts.branch,
+        base_ref: opts.codeCommit,
+        expected_base_hashes: Object.fromEntries(
+          codeFiles.map((file) => [file.path, file.old_hash]),
+        ),
+        message: `autoresearch: ${opts.summary}`,
+      });
+      const commit = codeWriteResult.prompt_commit_hash ?? codeWriteResult.commit_hash;
+      if (!commit) throw new Error("bundled prompt mutation returned no code commit hash");
+      return commit;
+    },
+    inspect: async () => {
+      if (typeof opts.api.promptsCandidateState === "function") {
+        const state = await opts.api.promptsCandidateState({
+          branch: opts.branch,
+          target: "project_git",
+          expected_hashes: codeExpectedHashes,
+        });
+        return {
+          candidate_visible: state.candidate_visible && state.hashes_match,
+          new_commit: state.new_commit,
+        };
+      }
+      const commit = codeWriteResult?.prompt_commit_hash ?? codeWriteResult?.commit_hash ?? null;
+      return { candidate_visible: commit !== null, new_commit: commit };
+    },
+    abort: async () => {
+      if (typeof opts.api.promptsAbortCandidate === "function") {
+        await opts.api.promptsAbortCandidate({ branch: opts.branch, target: "project_git" });
       }
     },
   };
   let durableMetadata = opts.metadata;
-  await coordinator.execute(created, [adapter], {
+  await coordinator.execute(created, [privateAdapter, codeAdapter], {
     appendOnce: async (manifest, manifestHash) => {
-      const commit = manifest.components[0]?.new_commit;
-      if (!commit) throw new Error("committed prompt transaction lacks candidate commit");
+      const promptComponent = manifest.components.find(
+        (component) => component.repo_id === "MOSAIC-Prompts",
+      );
+      const codeComponent = manifest.components.find(
+        (component) => component.repo_id === "MOSAIC-RKE",
+      );
+      if (!promptComponent?.new_commit || !codeComponent?.new_commit) {
+        throw new Error("committed prompt transaction lacks candidate commits");
+      }
       if (writeResult?.prompt_sha256 && writeResult.prompt_sha256 !== promptSha) {
         throw new Error("private prompt mutation returned a mismatched prompt digest");
+      }
+      if (codeWriteResult?.prompt_sha256 && codeWriteResult.prompt_sha256 !== bundledPromptSha) {
+        throw new Error("bundled prompt mutation returned a mismatched prompt digest");
       }
       durableMetadata = { ...opts.metadata, transaction_manifest_hash: manifestHash };
       await opts.api.autoresearchRecordMutation({
         version_id: opts.versionId,
-        commit_hash: commit,
+        commit_hash: promptComponent.new_commit,
         summary: opts.summary,
         prompt_repo_id: writeResult?.prompt_repo_id ?? "private",
         prompt_base_commit_hash: writeResult?.prompt_base_commit_hash ?? promptBaseCommit,
         prompt_sha256: promptSha,
-        code_commit_hash: opts.codeCommit,
+        code_commit_hash: codeComponent.new_commit,
         mutation_metadata: durableMetadata,
       });
       await appendKnobMutationMetadataLog({ logPath, metadata: durableMetadata });
@@ -381,8 +495,15 @@ async function executeKnobMutationTransaction(opts: {
     const committed = await new MutationTransactionJournal(root).findByMutationId(
       opts.metadata.mutation_id,
     );
-    const commit = committed?.components[0]?.new_commit;
-    if (!commit) throw new Error("prompt transaction committed without a candidate commit");
+    const commit = committed?.components.find(
+      (component) => component.repo_id === "MOSAIC-Prompts",
+    )?.new_commit;
+    const codeCommit = committed?.components.find(
+      (component) => component.repo_id === "MOSAIC-RKE",
+    )?.new_commit;
+    if (!commit || !codeCommit) {
+      throw new Error("prompt transaction committed without both candidate commits");
+    }
     writeResult = {
       target: "private_git",
       prompt_repo_id: "private",
@@ -394,7 +515,7 @@ async function executeKnobMutationTransaction(opts: {
         en: opts.mutation.en_prompt,
       }),
       branch: opts.branch,
-      paths: files.map((file) => file.path),
+      paths: privateFiles.map((file) => file.path),
     };
   }
   return { writeResult, metadata: durableMetadata, coordinator };

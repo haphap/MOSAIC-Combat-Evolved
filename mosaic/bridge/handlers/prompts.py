@@ -68,7 +68,8 @@ _SAFE_CANDIDATE_BRANCH_RE = re.compile(r"^(?:cohort|autoresearch)/[A-Za-z0-9_./-
 _SAFE_CANDIDATE_FILE_RE = re.compile(
     r"^(?:prompts/mosaic/[A-Za-z0-9_-]+/(?:macro|sector|superinvestor|decision)/"
     r"[A-Za-z0-9_-]+\.(?:zh|en)\.md|"
-    r"registry/domain_knobs/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.json)$"
+    r"registry/(?:domain_knobs|prompt_governance)/[A-Za-z0-9_-]+/"
+    r"[A-Za-z0-9_-]+\.json)$"
 )
 _PROMPT_CONTRACT_CATEGORIES = {
     "role_boundary": ("role boundary", "角色边界"),
@@ -293,7 +294,7 @@ def _prompt_sha256(files: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
-def _domain_registry_extra_files(
+def _mutation_registry_extra_files(
     value: Any,
     *,
     agent: str,
@@ -302,20 +303,55 @@ def _domain_registry_extra_files(
     if value is None:
         return {}
     if not isinstance(value, dict) or len(value) != 1:
-        raise RpcError(INVALID_PARAMS, "'extra_files' must contain exactly one domain registry")
-    expected_path = f"registry/domain_knobs/{cohort}/{agent}.json"
+        raise RpcError(INVALID_PARAMS, "'extra_files' must contain exactly one mutation registry")
+    domain_path = f"registry/domain_knobs/{cohort}/{agent}.json"
+    governance_path = f"registry/prompt_governance/{cohort}/{agent}.json"
+    expected_path = next(iter(value))
+    if expected_path not in {domain_path, governance_path}:
+        raise RpcError(INVALID_PARAMS, "'extra_files' contains an unsupported registry path")
     content = value.get(expected_path)
     if not isinstance(content, str) or not content:
         raise RpcError(
             INVALID_PARAMS,
-            f"'extra_files' may only contain {expected_path!r}",
+            f"'extra_files' must contain text for {expected_path!r}",
         )
     try:
         registry = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise RpcError(INVALID_PARAMS, "domain knob registry must be valid JSON") from exc
+        raise RpcError(INVALID_PARAMS, "mutation registry must be valid JSON") from exc
     if not isinstance(registry, dict):
-        raise RpcError(INVALID_PARAMS, "domain knob registry must be an object")
+        raise RpcError(INVALID_PARAMS, "mutation registry must be an object")
+    if expected_path == governance_path:
+        expected_keys = {
+            "schema_version",
+            "agent",
+            "cohort",
+            "prompt_ir_scope",
+            "prompt_ir_hash",
+            "generator_version",
+            "values_by_path",
+            "weight_groups",
+            "last_mutation_id",
+        }
+        owner = registry.get("agent")
+        if (
+            set(registry) != expected_keys
+            or registry.get("schema_version") != "prompt_governance_values_v1"
+            or registry.get("generator_version") != "prompt_governance_projection_v1"
+            or registry.get("prompt_ir_scope") != "*"
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", registry.get("prompt_ir_hash", ""))
+            or registry.get("cohort") != cohort
+            or not isinstance(owner, str)
+            or owner.split(".")[-1] != agent
+            or not isinstance(registry.get("values_by_path"), dict)
+            or not all(
+                isinstance(path, str) and path.startswith("/rule_packs/")
+                for path in registry["values_by_path"]
+            )
+            or not isinstance(registry.get("last_mutation_id"), str)
+        ):
+            raise RpcError(INVALID_PARAMS, "prompt governance registry identity or values are invalid")
+        return {expected_path: content}
     expected_keys = {
         "schema_version",
         "agent",
@@ -344,6 +380,46 @@ def _domain_registry_extra_files(
     ):
         raise RpcError(INVALID_PARAMS, "domain knob registry identity or values are invalid")
     return {expected_path: content}
+
+
+def _expected_base_hashes(value: Any, files: dict[str, str]) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or set(value) != set(files):
+        raise RpcError(
+            INVALID_PARAMS,
+            "'expected_base_hashes' must cover exactly the candidate files",
+        )
+    if not all(
+        isinstance(path, str)
+        and isinstance(expected_hash, str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", expected_hash)
+        for path, expected_hash in value.items()
+    ):
+        raise RpcError(INVALID_PARAMS, "'expected_base_hashes' contains an invalid hash")
+    return value
+
+
+def _assert_expected_base_hashes(
+    git: Any,
+    base_commit: str,
+    expected_hashes: dict[str, str],
+) -> None:
+    mismatched: list[str] = []
+    for path, expected_hash in expected_hashes.items():
+        try:
+            content = git.show_file(base_commit, path)
+        except Exception:
+            mismatched.append(path)
+            continue
+        actual_hash = f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+        if actual_hash != expected_hash:
+            mismatched.append(path)
+    if mismatched:
+        raise RpcError(
+            INVALID_PARAMS,
+            f"candidate base files do not match expected hashes: {', '.join(sorted(mismatched))}",
+        )
 
 
 def _require_candidate_branch(params: dict[str, Any]) -> str:
@@ -610,17 +686,21 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     if target not in _WRITE_TARGETS:
         raise RpcError(INVALID_PARAMS, f"'target' must be one of {_WRITE_TARGETS}, got {target!r}")
     if params.get("extra_files") is not None and target != "private_git":
-        raise RpcError(INVALID_PARAMS, "domain registry write-back requires target=private_git")
+        raise RpcError(INVALID_PARAMS, "mutation registry write-back requires target=private_git")
+    base_ref = _optional_str(params, "base_ref") or "main"
 
     # Always write to the cohort-specific path (no fallback — a mutation
     # creates/overwrites the cohort's own file).
     prompt_files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
-    extra_files = _domain_registry_extra_files(
+    extra_files = _mutation_registry_extra_files(
         params.get("extra_files"),
         agent=agent,
         cohort=cohort,
     )
     files = {**prompt_files, **extra_files}
+    expected_base_hashes = _expected_base_hashes(params.get("expected_base_hashes"), files)
+    if expected_base_hashes and target == "working_tree":
+        raise RpcError(INVALID_PARAMS, "'expected_base_hashes' requires a git target")
     prompt_sha256 = _prompt_sha256(prompt_files)
     extra_files_sha256 = _prompt_sha256(extra_files) if extra_files else None
     # Default keeps the existing autoresearch mutation path (a project-repo
@@ -636,8 +716,11 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
         message = params.get("message") or f"autoresearch: mutate {agent} prompt ({cohort})"
         try:
             git = _private_git()
-            base_commit = git.rev_parse("main")
-            commit = git.write_and_commit(files, message=message, branch=branch)
+            base_commit = git.rev_parse(base_ref)
+            _assert_expected_base_hashes(git, base_commit, expected_base_hashes)
+            commit = git.write_and_commit(
+                files, message=message, branch=branch, base_ref=base_commit
+            )
         except Exception as exc:
             if isinstance(exc, RpcError):
                 raise
@@ -664,9 +747,14 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
         message = params.get("message") or f"autoresearch: mutate {agent} prompt ({cohort})"
         try:
             git = _git()
-            base_commit = git.rev_parse("main")
-            commit = git.write_and_commit(files, message=message, branch=branch)
+            base_commit = git.rev_parse(base_ref)
+            _assert_expected_base_hashes(git, base_commit, expected_base_hashes)
+            commit = git.write_and_commit(
+                files, message=message, branch=branch, base_ref=base_commit
+            )
         except Exception as exc:
+            if isinstance(exc, RpcError):
+                raise
             raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
         return {
             "target": target,
@@ -701,8 +789,11 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("prompts.candidate_state")
 def prompts_candidate_state(params: dict[str, Any]) -> dict[str, Any]:
-    """Inspect a private candidate ref without returning prompt/registry content."""
+    """Inspect a candidate ref without returning prompt/registry content."""
     branch = _require_candidate_branch(params)
+    target = params.get("target") or "private_git"
+    if target not in {"private_git", "project_git"}:
+        raise RpcError(INVALID_PARAMS, "candidate target must be private_git or project_git")
     expected_hashes = params.get("expected_hashes")
     if not isinstance(expected_hashes, dict) or not expected_hashes:
         raise RpcError(INVALID_PARAMS, "'expected_hashes' must be a non-empty object")
@@ -714,7 +805,7 @@ def prompts_candidate_state(params: dict[str, Any]) -> dict[str, Any]:
             or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_hash)
         ):
             raise RpcError(INVALID_PARAMS, "candidate file path or hash is invalid")
-    git = _private_git()
+    git = _private_git() if target == "private_git" else _git()
     if not git.branch_exists(branch):
         return {"candidate_visible": False, "new_commit": None, "hashes_match": False}
     commit = git.rev_parse(branch)
@@ -738,9 +829,12 @@ def prompts_candidate_state(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("prompts.abort_candidate")
 def prompts_abort_candidate(params: dict[str, Any]) -> dict[str, Any]:
-    """Delete an isolated private candidate ref during transaction recovery."""
+    """Delete an isolated candidate ref during transaction recovery."""
     branch = _require_candidate_branch(params)
-    git = _private_git()
+    target = params.get("target") or "private_git"
+    if target not in {"private_git", "project_git"}:
+        raise RpcError(INVALID_PARAMS, "candidate target must be private_git or project_git")
+    git = _private_git() if target == "private_git" else _git()
     if git.branch_exists(branch):
         git.delete_branch(branch, force=True)
     return {"ok": True}

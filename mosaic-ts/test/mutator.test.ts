@@ -1618,6 +1618,11 @@ describe("mutate", () => {
     expect(m.governance_registry_update?.content).toContain(
       '"last_mutation_id": "KM-generic-test"',
     );
+    expect(m.bundled_prompt_update.zh_prompt).toContain("cap: 0.5");
+    expect(m.bundled_prompt_update.en_prompt).toContain("cap: 0.5");
+    expect(parseResearchKnobsPrompt(m.bundled_prompt_update.zh_prompt).knobs).toEqual(
+      parseResearchKnobsPrompt(m.zh_prompt).knobs,
+    );
   });
 
   it("bootstraps legacy prompts before a fake-llm domain knob patch", async () => {
@@ -1645,5 +1650,8 @@ describe("mutate", () => {
       relative_path: "registry/domain_knobs/cohort_default/cio.json",
     });
     expect(m.domain_registry_update?.content).toContain('"last_mutation_id": "KM-domain-test"');
+    expect(parseResearchKnobsPrompt(m.bundled_prompt_update.zh_prompt).knobs).toEqual(
+      parseResearchKnobsPrompt(m.zh_prompt).knobs,
+    );
   });
 });

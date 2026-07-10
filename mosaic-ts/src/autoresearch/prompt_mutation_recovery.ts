@@ -21,7 +21,12 @@ export interface PromptMutationRecoveryDescriptor {
   version_id: number;
   agent: string;
   cohort: string;
-  branch: string;
+  branch?: string;
+  components?: Array<{
+    repo_id: "MOSAIC-Prompts" | "MOSAIC-RKE";
+    target: "private_git" | "project_git";
+    branch: string;
+  }>;
   summary: string;
   prompt_sha256: string;
   code_commit_hash: string;
@@ -107,7 +112,20 @@ function parseDescriptor(value: unknown): PromptMutationRecoveryDescriptor {
     (descriptor.version_id ?? 0) < 1 ||
     !descriptor.agent ||
     !descriptor.cohort ||
-    !descriptor.branch ||
+    (!descriptor.branch && !descriptor.components) ||
+    (descriptor.branch !== undefined && descriptor.components !== undefined) ||
+    (descriptor.components !== undefined &&
+      (descriptor.components.length !== 2 ||
+        new Set(descriptor.components.map((component) => component.repo_id)).size !==
+          descriptor.components.length ||
+        descriptor.components.some(
+          (component) =>
+            !component.branch ||
+            (component.repo_id === "MOSAIC-Prompts" && component.target !== "private_git") ||
+            (component.repo_id === "MOSAIC-RKE" && component.target !== "project_git") ||
+            !["MOSAIC-Prompts", "MOSAIC-RKE"].includes(component.repo_id) ||
+            !["private_git", "project_git"].includes(component.target),
+        ))) ||
     typeof descriptor.summary !== "string" ||
     !/^[0-9a-f]{64}$/.test(descriptor.prompt_sha256 ?? "") ||
     !descriptor.code_commit_hash ||
@@ -166,6 +184,20 @@ function promptComponent(manifest: MutationTransactionManifest) {
   return matches[0] as MutationTransactionManifest["components"][number];
 }
 
+function descriptorComponents(
+  descriptor: PromptMutationRecoveryDescriptor,
+): NonNullable<PromptMutationRecoveryDescriptor["components"]> {
+  return (
+    descriptor.components ?? [
+      {
+        repo_id: "MOSAIC-Prompts",
+        target: "private_git",
+        branch: descriptor.branch as string,
+      },
+    ]
+  );
+}
+
 function assertDescriptorClosure(
   manifest: MutationTransactionManifest,
   descriptor: PromptMutationRecoveryDescriptor,
@@ -186,18 +218,29 @@ function assertDescriptorClosure(
   ) {
     throw new Error("prompt_mutation_recovery_descriptor_hash_or_identity_mismatch");
   }
-  const component = promptComponent(manifest);
-  if (component.candidate_ref !== `refs/heads/${descriptor.branch}`) {
-    throw new Error("prompt_mutation_recovery_candidate_ref_mismatch");
+  const components = descriptorComponents(descriptor);
+  if (components.length !== manifest.components.length) {
+    throw new Error("prompt_mutation_recovery_component_count_mismatch");
+  }
+  for (const descriptorComponent of components) {
+    const matches = manifest.components.filter(
+      (component) => component.repo_id === descriptorComponent.repo_id,
+    );
+    if (
+      matches.length !== 1 ||
+      matches[0]?.candidate_ref !== `refs/heads/${descriptorComponent.branch}`
+    ) {
+      throw new Error("prompt_mutation_recovery_candidate_ref_mismatch");
+    }
   }
 }
 
 function recoveryAdapter(
   api: BridgeApi,
-  descriptor: PromptMutationRecoveryDescriptor,
+  descriptor: NonNullable<PromptMutationRecoveryDescriptor["components"]>[number],
 ): MutationRepositoryAdapter {
   return {
-    repoId: "MOSAIC-Prompts",
+    repoId: descriptor.repo_id,
     prepare: async () => {
       throw new Error("prompt_mutation_recovery_cannot_prepare");
     },
@@ -210,6 +253,7 @@ function recoveryAdapter(
       );
       const state = await api.promptsCandidateState({
         branch: descriptor.branch,
+        target: descriptor.target,
         expected_hashes: expectedHashes,
       });
       return {
@@ -218,7 +262,7 @@ function recoveryAdapter(
       };
     },
     abort: async () => {
-      await api.promptsAbortCandidate({ branch: descriptor.branch });
+      await api.promptsAbortCandidate({ branch: descriptor.branch, target: descriptor.target });
     },
   };
 }
@@ -230,6 +274,9 @@ function recoveryMetadataLog(
   return {
     appendOnce: async (manifest, manifestHash) => {
       const component = promptComponent(manifest);
+      const codeComponent = manifest.components.find(
+        (candidate) => candidate.repo_id === "MOSAIC-RKE",
+      );
       if (!component.new_commit) {
         throw new Error("prompt_mutation_recovery_candidate_commit_missing");
       }
@@ -244,7 +291,7 @@ function recoveryMetadataLog(
         prompt_repo_id: "private",
         prompt_base_commit_hash: component.base_commit,
         prompt_sha256: descriptor.prompt_sha256,
-        code_commit_hash: descriptor.code_commit_hash,
+        code_commit_hash: codeComponent?.new_commit ?? descriptor.code_commit_hash,
         mutation_metadata: metadata,
       });
       await appendKnobMutationMetadataLog({
@@ -275,7 +322,7 @@ export async function reconcilePendingPromptMutationTransactions(opts: {
     reconciled.push(
       await coordinator.reconcile(
         manifest.transaction_id,
-        [recoveryAdapter(opts.api, descriptor)],
+        descriptorComponents(descriptor).map((component) => recoveryAdapter(opts.api, component)),
         recoveryMetadataLog(opts.api, descriptor),
         opts.now,
       ),
