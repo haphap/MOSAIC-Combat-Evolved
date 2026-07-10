@@ -320,6 +320,8 @@ export interface PortfolioAction {
   override_reason?: string | undefined;
   thesis_status?: "intact" | "weakened" | "broken" | "expired" | undefined;
   risk_flags?: string[] | undefined;
+  /** Runtime-owned provenance for position-review coverage accounting. */
+  review_source?: "llm" | "runtime_safety_fallback" | undefined;
   /** CIO note explaining dissent against another agent's call, if any. */
   dissent_notes: string;
 }
@@ -379,6 +381,104 @@ export interface PositionReview {
   thesis_status: "intact" | "weakened" | "broken" | "expired";
   risk_flags: string[];
   confidence: number;
+  review_source?: "llm" | "runtime_safety_fallback" | undefined;
+}
+
+export interface CandidateTargetState {
+  schema_version: "portfolio.candidate_target_state.v1";
+  run_id: string;
+  cohort: string;
+  as_of_date: string;
+  proposal_hash: string;
+  candidate_target_hash: string;
+  position_snapshot_hash: string | null;
+  portfolio_actions: PortfolioAction[];
+  confidence: number;
+  frozen: true;
+}
+
+export interface PositionReviewState {
+  schema_version: "portfolio.position_review_state.v1";
+  run_id: string;
+  candidate_target_hash: string;
+  position_review_hash: string;
+  reviews: PositionReview[];
+  llm_reviewed_tickers: string[];
+  fallback_tickers: string[];
+  frozen: true;
+}
+
+export interface PortfolioExposureState {
+  schema_version: "portfolio.exposure_state.v1";
+  candidate_target_hash: string;
+  exposure_hash: string;
+  gross_exposure: number;
+  net_exposure: number;
+  cash_weight: number;
+  ticker_weights: Record<string, number>;
+  sector_weights: Record<string, number>;
+  frozen: true;
+}
+
+export interface CroReviewState {
+  schema_version: "decision.cro_review_state.v1";
+  run_id: string;
+  candidate_target_hash: string;
+  review_hash: string;
+  output: CroOutput;
+  frozen: true;
+}
+
+export interface ExecutionFeasibilityState {
+  schema_version: "decision.execution_feasibility_state.v1";
+  run_id: string;
+  candidate_target_hash: string;
+  cro_review_hash: string;
+  feasibility_hash: string;
+  output: AutoExecOutput;
+  frozen: true;
+}
+
+export interface FinalTargetState {
+  schema_version: "portfolio.final_target_state.v1";
+  run_id: string;
+  cohort: string;
+  as_of_date: string;
+  candidate_target_hash: string;
+  cro_review_hash: string;
+  execution_feasibility_hash: string;
+  final_target_hash: string;
+  position_snapshot_hash: string | null;
+  portfolio_actions: PortfolioAction[];
+  confidence: number;
+  validator_hashes: string[];
+  frozen: true;
+}
+
+export interface Layer4RuntimeTraceEntry {
+  sequence: number;
+  stage:
+    | "alpha_discovery"
+    | "cio_proposal"
+    | "cro_review"
+    | "execution_feasibility"
+    | "cio_final"
+    | "shared_validation";
+  operation: "agent_run" | "source_freeze" | "validation";
+  status: "completed" | "fallback" | "rejected";
+  input_hashes: Record<string, string>;
+  output_hashes: Record<string, string>;
+}
+
+export interface Layer4RuntimeState {
+  cio_proposal: CioOutput | null;
+  candidate_target_state: CandidateTargetState | null;
+  position_review_state: PositionReviewState | null;
+  portfolio_exposure_state: PortfolioExposureState | null;
+  cro_review_state: CroReviewState | null;
+  execution_feasibility_state: ExecutionFeasibilityState | null;
+  final_target_state: FinalTargetState | null;
+  stage_trace: Layer4RuntimeTraceEntry[];
 }
 
 export interface PositionAudit {
@@ -404,7 +504,11 @@ export interface Layer4Outputs {
   alpha_discovery: AlphaDiscoveryOutput | null;
   autonomous_execution: AutoExecOutput | null;
   cio: CioOutput | null;
+  /** Runtime-owned cross-stage envelopes; LLMs never author these hashes. */
+  runtime?: Layer4RuntimeState | undefined;
 }
+
+export type Layer4AgentOutputKey = "cro" | "alpha_discovery" | "autonomous_execution" | "cio";
 
 // ============================================================ Observability
 

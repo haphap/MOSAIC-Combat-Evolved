@@ -5,6 +5,7 @@ import type {
 } from "../bridge/types.js";
 import type { DailyCycleStateType } from "./state.js";
 import type {
+  Layer4AgentOutputKey,
   Layer4Outputs,
   MacroAgentOutput,
   SectorAgentOutput,
@@ -79,9 +80,13 @@ export async function buildDailyCycleRkeFootprintRows(
       ),
     );
   }
-  for (const [agent, output] of Object.entries(state.layer4_outputs ?? {}) as Array<
-    [keyof Layer4Outputs, Layer4Outputs[keyof Layer4Outputs]]
-  >) {
+  for (const agent of [
+    "cro",
+    "alpha_discovery",
+    "autonomous_execution",
+    "cio",
+  ] as const satisfies ReadonlyArray<Layer4AgentOutputKey>) {
+    const output = state.layer4_outputs?.[agent];
     if (!output) continue;
     rows.push(
       await rowForAgent(
@@ -108,7 +113,7 @@ async function rowForAgent(
     | MacroAgentOutput
     | SectorAgentOutput
     | SuperinvestorOutput
-    | NonNullable<Layer4Outputs[keyof Layer4Outputs]>,
+    | NonNullable<Layer4Outputs[Layer4AgentOutputKey]>,
   claimType: ClaimType,
   options: RkeFootprintBuildOptions,
 ): Promise<RkeAgentClaimFootprintInput> {

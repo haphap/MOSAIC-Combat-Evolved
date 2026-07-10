@@ -66,6 +66,7 @@ import type {
   CroOutput,
   CurrentPosition,
   CurrentPositionsSnapshot,
+  Layer4AgentOutputKey,
   Layer4Outputs,
   LlmCallRecord,
   PortfolioAction,
@@ -81,7 +82,7 @@ export interface LayerFourAgentSpec<TOutput extends Layer4AgentOutput> {
   schema: z.ZodType<TOutput>;
   fieldNames: ReadonlyArray<string>;
   /** The Layer4Outputs slot this agent populates. */
-  stateUpdateField: keyof Layer4Outputs;
+  stateUpdateField: Layer4AgentOutputKey;
   /** Build the user-context prose; each L4 agent reads different upstream layers.
    *  May be async — autonomous_execution fetches Darwinian weights from the
    *  bridge (Plan §11.3 sub-step 3F). */

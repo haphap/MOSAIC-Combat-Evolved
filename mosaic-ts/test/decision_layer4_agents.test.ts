@@ -34,6 +34,15 @@ import {
   validateAutonomousExecutionActions,
 } from "../src/agents/decision/execution_validator.js";
 import {
+  emptyLayer4RuntimeState,
+  freezeCioProposal,
+  freezeCroReview,
+  freezeExecutionFeasibility,
+  freezeFinalTarget,
+  Layer4RuntimeContractError,
+  updateLayer4Runtime,
+} from "../src/agents/decision/layer4_runtime.js";
+import {
   PositionActionValidationError,
   validateCioPositionActions,
 } from "../src/agents/decision/position_validator.js";
@@ -505,6 +514,120 @@ const heldPosition = {
   entry_thesis_id: "thesis-600519",
   last_review_date: "2024-06-20",
 };
+
+describe("Layer-4 runtime source envelopes", () => {
+  it("freezes a deterministic candidate and marks runtime HOLDs as unreviewed", () => {
+    const state = baseState();
+    state.current_positions = loadedPositions([
+      heldPosition,
+      { ...heldPosition, ticker: "688981.SH", entry_thesis_id: "thesis-688981" },
+    ]);
+    const proposal = cioOutput([
+      {
+        ticker: "600519.SH",
+        action: "HOLD",
+        position_decision: "HOLD",
+        current_weight: 0.2,
+        target_weight: 0.2,
+        delta_weight: 0,
+        holding_period: "3M",
+        position_decision_reason: "thesis remains intact",
+        thesis_status: "intact",
+        risk_flags: [],
+        dissent_notes: "",
+      },
+    ]);
+
+    const first = freezeCioProposal(state, proposal);
+    const second = freezeCioProposal(state, proposal);
+
+    expect(first.candidate.candidate_target_hash).toBe(second.candidate.candidate_target_hash);
+    expect(first.candidate.frozen).toBe(true);
+    expect(first.candidate.portfolio_actions).toHaveLength(2);
+    expect(first.reviews.llm_reviewed_tickers).toEqual(["600519.SH"]);
+    expect(first.reviews.fallback_tickers).toEqual(["688981.SH"]);
+    expect(
+      first.candidate.portfolio_actions.find((action) => action.ticker === "688981.SH"),
+    ).toMatchObject({
+      action: "HOLD",
+      review_source: "runtime_safety_fallback",
+      risk_flags: ["position_review_missing"],
+    });
+  });
+
+  it("binds CRO, execution, and final target envelopes to the same candidate hash", () => {
+    const state = baseState();
+    const frozen = freezeCioProposal(
+      state,
+      cioOutput([
+        {
+          ticker: "600519.SH",
+          action: "BUY",
+          target_weight: 0.2,
+          holding_period: "3M",
+          dissent_notes: "",
+        },
+      ]),
+    );
+    const cro = freezeCroReview("t", frozen.candidate, fallbackCro(""));
+    const execution = freezeExecutionFeasibility(
+      "t",
+      frozen.candidate,
+      cro,
+      fallbackAutonomousExecution(""),
+    );
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+
+    const final = freezeFinalTarget(state, frozen.proposal, ["validator:portfolio.v1"]);
+
+    expect(final.candidate_target_hash).toBe(frozen.candidate.candidate_target_hash);
+    expect(final.cro_review_hash).toBe(cro.review_hash);
+    expect(final.execution_feasibility_hash).toBe(execution.feasibility_hash);
+    expect(final.validator_hashes).toEqual(["validator:portfolio.v1"]);
+  });
+
+  it("fails closed when a stage reads before its required source is frozen", () => {
+    expect(() => freezeCroReview("t", null, fallbackCro(""))).toThrow(Layer4RuntimeContractError);
+    expect(() =>
+      freezeExecutionFeasibility("t", null, null, fallbackAutonomousExecution("")),
+    ).toThrow(Layer4RuntimeContractError);
+  });
+
+  it("records an ordered runtime-owned stage trace", () => {
+    const first = updateLayer4Runtime(
+      emptyLayer4RuntimeState(),
+      {},
+      {
+        stage: "alpha_discovery",
+        operation: "agent_run",
+        status: "completed",
+        input_hashes: {},
+        output_hashes: { alpha: "sha256:alpha" },
+      },
+    );
+    const second = updateLayer4Runtime(
+      first,
+      {},
+      {
+        stage: "cio_proposal",
+        operation: "source_freeze",
+        status: "completed",
+        input_hashes: { alpha: "sha256:alpha" },
+        output_hashes: { candidate_target_state: "sha256:candidate" },
+      },
+    );
+
+    expect(second.stage_trace.map((entry) => [entry.sequence, entry.stage])).toEqual([
+      [1, "alpha_discovery"],
+      [2, "cio_proposal"],
+    ]);
+  });
+});
 
 describe("CIO position validator", () => {
   it("rejects a loaded current position missing from CIO actions", () => {
