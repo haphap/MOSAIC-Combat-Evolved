@@ -11,7 +11,11 @@
 
 import type { Command } from "commander";
 import pc from "picocolors";
-import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
+import {
+  completePromptMutationExperiment,
+  recoverPromptMutationTransactions,
+  runAutoresearchCycle,
+} from "../../autoresearch/orchestrator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
@@ -162,6 +166,15 @@ export function registerAutoresearch(program: Command): void {
 
         const { results } = await api.autoresearchEvaluatePending({ cohort });
 
+        for (const result of results) {
+          if (
+            result.mutation_id &&
+            ["kept", "reverted", "invalid", "incompatible"].includes(result.status)
+          ) {
+            await completePromptMutationExperiment(result.mutation_id);
+          }
+        }
+
         if (results.length === 0) {
           console.log(pc.dim("  no pending mutations to evaluate"));
         } else {
@@ -221,6 +234,38 @@ export function registerAutoresearch(program: Command): void {
         console.log(
           `${result.status} version=${result.version_id} decision=${result.decision_hash}`,
         );
+        const mutationId = result.decision.mutation_id;
+        if (typeof mutationId === "string" && mutationId) {
+          await completePromptMutationExperiment(mutationId);
+        }
+      } catch (err) {
+        handleError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
+
+  cmd
+    .command("recover-transactions")
+    .description("Reconcile durable prompt-mutation transactions after a process restart.")
+    .option("--transaction-dir <path>", "Mutation transaction journal root")
+    .action(async (opts: { transactionDir?: string }) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        const reconciled = await recoverPromptMutationTransactions(
+          api,
+          opts.transactionDir ??
+            process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR?.trim() ??
+            undefined,
+        );
+        console.log(`reconciled transactions=${reconciled.length}`);
+        for (const manifest of reconciled) {
+          console.log(
+            `  ${manifest.transaction_id} ${manifest.state} ${manifest.recovery_decision ?? ""}`,
+          );
+        }
       } catch (err) {
         handleError(err, client);
       } finally {

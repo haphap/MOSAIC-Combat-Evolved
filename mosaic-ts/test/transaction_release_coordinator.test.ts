@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,12 @@ import {
   releasePromptPairHash,
   releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
+import type { KnobMutationMetadata } from "../src/autoresearch/mutator.js";
+import {
+  PromptMutationRecoveryDescriptorStore,
+  reconcilePendingPromptMutationTransactions,
+  reconcileTerminalPromptMutationLeases,
+} from "../src/autoresearch/prompt_mutation_recovery.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 import {
   type MutationMetadataLogWriter,
@@ -19,6 +25,7 @@ import {
   MutationTransactionPendingRecoveryError,
   PromptMutationTransactionCoordinator,
 } from "../src/autoresearch/transaction_coordinator.js";
+import type { BridgeApi } from "../src/bridge/types.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const roots: string[] = [];
@@ -49,6 +56,7 @@ function transaction(
     catalog_hash: HASH,
     schema_hash: HASH,
     evaluation_contract_hash: HASH,
+    recovery_descriptor_hash: HASH,
     target_paths: [path],
     components: ["MOSAIC-RKE", "MOSAIC-Prompts"].map((repoId) => ({
       repo_id: repoId,
@@ -128,6 +136,60 @@ function coordinator(root: string) {
   );
 }
 
+function recoveryMetadata(): KnobMutationMetadata {
+  return {
+    schema_version: "knob_mutation_metadata_v1",
+    mutation_id: "mutation-1",
+    transaction_id: "transaction-1",
+    experiment_id: "experiment-mutation-1",
+    mutation_kind: "generic_knob",
+    lifecycle_state: "proposed",
+    created_at: "2026-07-10T00:00:00Z",
+    agent: "central_bank",
+    cohort: "cohort_default",
+    prediction_target: "liquidity_regime_20d",
+    evaluation_metric: "confidence_calibration_error",
+    horizon: "20d",
+    rollback_condition: {
+      metric: "confidence_calibration_error",
+      worse_by: 0.03,
+      unit: "ratio",
+    },
+    base_knobs_sha256: HASH,
+    new_knobs_sha256: HASH,
+    catalog_version: "domain_knob_catalog_v1",
+    catalog_hash: HASH,
+    schema_hash: HASH,
+    evaluation_contract_hash: HASH,
+    metric_registry_hash: HASH,
+    calculator_registry_hash: HASH,
+    domain_card_ids: [],
+    evaluation_policy: {
+      baseline_id: "base_release",
+      baseline: "active_release",
+      min_effect_size: 0.01,
+      min_sample_size: 20,
+      uncertainty_method: "bootstrap",
+      overlapping_sample_policy: "purged",
+      require_uncertainty_bound: true,
+    },
+    changed_paths: ["/rule_packs/test/value"],
+    patches: [
+      {
+        path: "/rule_packs/test/value",
+        old_value: 0.5,
+        new_value: 0.55,
+        rationale: "test",
+        expected_effect: "test",
+      },
+    ],
+    renormalization: [],
+    decision: "applied",
+    expected_effect: "test",
+    risk: "test",
+  };
+}
+
 describe("cross-repo prompt mutation transaction coordinator", () => {
   it("prepares both repos, commits candidate refs, and appends metadata idempotently", async () => {
     const root = tempRoot("transaction-success");
@@ -202,6 +264,84 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
     expect(log.entries).toEqual(new Set(["mutation-1"]));
   });
 
+  it("reconstructs adapters and metadata logging from a durable startup descriptor", async () => {
+    const root = tempRoot("transaction-startup-recovery");
+    const metadataLogPath = join(root, "knob-mutations.jsonl");
+    const descriptorHash = await new PromptMutationRecoveryDescriptorStore(root).writeOnce({
+      schema_version: "prompt_mutation_recovery_v1",
+      transaction_id: "transaction-1",
+      mutation_id: "mutation-1",
+      version_id: 42,
+      agent: "central_bank",
+      cohort: "cohort_default",
+      branch: "cohort/cohort_default/auto/central_bank/2026-07-10",
+      summary: "test mutation",
+      prompt_sha256: "1".repeat(64),
+      code_commit_hash: "c".repeat(40),
+      metadata_log_path: metadataLogPath,
+      mutation_metadata: recoveryMetadata(),
+    });
+    const journal = new MutationTransactionJournal(root);
+    const base = transaction();
+    const promptComponent = base.components.find(
+      (component) => component.repo_id === "MOSAIC-Prompts",
+    );
+    if (!promptComponent) throw new Error("test prompt component missing");
+    const created: MutationTransactionManifest = {
+      ...base,
+      recovery_descriptor_hash: descriptorHash,
+      components: [
+        {
+          ...promptComponent,
+          candidate_ref: "refs/heads/cohort/cohort_default/auto/central_bank/2026-07-10",
+        },
+      ],
+    };
+    await journal.create(created);
+    const prepared: MutationTransactionManifest = {
+      ...created,
+      state: "prepared",
+      prepared_at: "2026-07-10T00:01:00Z",
+      components: created.components.map((component) => ({
+        ...component,
+        prepare_status: "prepared",
+        new_commit: "b".repeat(40),
+      })),
+    };
+    await journal.transition(created, prepared);
+    const logPending: MutationTransactionManifest = {
+      ...prepared,
+      state: "committed_log_pending",
+      recovery_state: "pending",
+    };
+    await journal.transition(prepared, logPending);
+    const api = {
+      autoresearchRecordMutation: vi.fn(async () => ({ ok: true })),
+      promptsCandidateState: vi.fn(),
+      promptsAbortCandidate: vi.fn(),
+    } as unknown as BridgeApi;
+
+    const recovered = await reconcilePendingPromptMutationTransactions({ root, api });
+    const repeated = await reconcilePendingPromptMutationTransactions({ root, api });
+
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]).toMatchObject({ state: "committed", recovery_state: "reconciled" });
+    expect(repeated).toEqual([]);
+    expect(api.autoresearchRecordMutation).toHaveBeenCalledTimes(1);
+    const row = JSON.parse(readFileSync(metadataLogPath, "utf-8")) as KnobMutationMetadata;
+    expect(row.transaction_manifest_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("fails closed when a recoverable transaction has no bound descriptor", async () => {
+    const root = tempRoot("transaction-missing-recovery-descriptor");
+    await new MutationTransactionJournal(root).create(transaction());
+    const api = {} as BridgeApi;
+
+    await expect(reconcilePendingPromptMutationTransactions({ root, api })).rejects.toThrow(
+      "prompt_mutation_recovery_descriptor_missing",
+    );
+  });
+
   it("holds a path lease through evaluation and rejects a concurrent experiment", async () => {
     const root = tempRoot("transaction-lease");
     const tx = coordinator(root);
@@ -213,6 +353,33 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
     await tx.completeExperiment("mutation-1");
     await expect(
       tx.execute(transaction("mutation-3", "transaction-3"), adapters(), new FakeMetadataLog()),
+    ).resolves.toMatchObject({ state: "committed" });
+  });
+
+  it("releases persisted leases when startup audit shows a terminal experiment", async () => {
+    const root = tempRoot("transaction-terminal-lease");
+    const tx = coordinator(root);
+    await tx.execute(transaction(), adapters(), new FakeMetadataLog());
+    const api = {
+      promptsAuditVersions: vi.fn(async () => ({
+        versions: [
+          {
+            id: 1,
+            cohort: "cohort_default",
+            agent: "central_bank",
+            status: "keep",
+            branch_name: "branch",
+            base_commit_hash: "a".repeat(40),
+            mutation_id: "mutation-1",
+            mutation_lifecycle: "kept",
+          },
+        ],
+      })),
+    } as unknown as BridgeApi;
+
+    expect(await reconcileTerminalPromptMutationLeases({ root, api })).toBe(1);
+    await expect(
+      tx.execute(transaction("mutation-2", "transaction-2"), adapters(), new FakeMetadataLog()),
     ).resolves.toMatchObject({ state: "committed" });
   });
 });

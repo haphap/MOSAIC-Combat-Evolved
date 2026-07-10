@@ -720,6 +720,11 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                 "detail": f"{type(exc).__name__}: {exc}",
             })
 
+    mutation_ids = {row["id"]: row.get("mutation_id") for row in versions}
+    for result in results:
+        mutation_id = mutation_ids.get(result["version_id"])
+        if mutation_id:
+            result["mutation_id"] = mutation_id
     return {"results": results}
 
 

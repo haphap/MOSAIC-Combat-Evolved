@@ -14,6 +14,7 @@
     "catalog_hash",
     "schema_hash",
     "evaluation_contract_hash",
+    "recovery_descriptor_hash",
     "target_paths",
     "components",
     "metadata_log",
@@ -56,6 +57,9 @@
       "$ref": "#/$defs/sha256"
     },
     "evaluation_contract_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "recovery_descriptor_hash": {
       "$ref": "#/$defs/sha256"
     },
     "target_paths": {

@@ -467,6 +467,8 @@ export interface PromptVersionAuditRow {
   prompt_base_commit_hash?: string | null;
   prompt_sha256?: string | null;
   code_commit_hash?: string | null;
+  mutation_id?: string | null;
+  mutation_lifecycle?: string | null;
   delta_sharpe?: number | null;
   created_at?: string | null;
   decided_at?: string | null;
@@ -1267,6 +1269,7 @@ export interface AutoresearchMissingRun {
 
 export interface AutoresearchEvalResult {
   version_id: number;
+  mutation_id?: string;
   status: string;
   delta_sharpe?: number;
   detail?: string;

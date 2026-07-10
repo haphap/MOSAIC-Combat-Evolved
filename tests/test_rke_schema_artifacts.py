@@ -48,6 +48,7 @@ REQUIRED_SCHEMA_FILES = {
     "domain_knob_evaluation_contract_v1.schema.json",
     "evidence_claim_graph_v1.schema.json",
     "prompt_mutation_transaction_v1.schema.json",
+    "prompt_mutation_recovery_v1.schema.json",
     "active_prompt_release_manifest_v1.schema.json",
     "domain_evaluation_preregistration_v1.schema.json",
     "domain_evaluation_sample_manifest_v1.schema.json",
@@ -7045,6 +7046,7 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
     artifact_dir.mkdir(parents=True)
     for schema_name in (
         "prompt_mutation_transaction_v1.schema.json",
+        "prompt_mutation_recovery_v1.schema.json",
         "active_prompt_release_manifest_v1.schema.json",
     ):
         shutil.copyfile(f"schemas/{schema_name}", schema_dir / schema_name)
@@ -7060,6 +7062,7 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
         "catalog_hash": digest,
         "schema_hash": digest,
         "evaluation_contract_hash": digest,
+        "recovery_descriptor_hash": digest,
         "target_paths": ["/rule_packs/test/value"],
         "components": [
             {
@@ -7088,6 +7091,25 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
         "committed_at": None,
         "aborted_at": None,
         "recovery_decision": None,
+    }
+    recovery = {
+        "schema_version": "prompt_mutation_recovery_v1",
+        "transaction_id": "transaction-1",
+        "mutation_id": "mutation-1",
+        "version_id": 1,
+        "agent": "central_bank",
+        "cohort": "cohort_default",
+        "branch": "cohort/cohort_default/auto/central_bank/2026-07-10",
+        "summary": "test mutation",
+        "prompt_sha256": "1" * 64,
+        "code_commit_hash": "c" * 40,
+        "metadata_log_path": "mutation_patches/knob_mutations.jsonl",
+        "mutation_metadata": {
+            "schema_version": "knob_mutation_metadata_v1",
+            "mutation_id": "mutation-1",
+            "transaction_id": "transaction-1",
+            "experiment_id": "experiment-1",
+        },
     }
     release = {
         "schema_version": "active_prompt_release_manifest_v1",
@@ -7159,6 +7181,7 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
     }
     artifacts = {
         "prompt_mutation_transaction_v1.json": transaction,
+        "prompt_mutation_recovery_v1.json": recovery,
         "active_prompt_release_manifest_v1.json": release,
     }
     for filename, payload in artifacts.items():
@@ -7172,6 +7195,12 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
         artifact_path="registry/prompt_checks/prompt_mutation_transaction_v1.json",
         artifact_kind="json",
     )
+    recovery_record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_mutation_recovery_v1.schema.json",
+        artifact_path="registry/prompt_checks/prompt_mutation_recovery_v1.json",
+        artifact_kind="json",
+    )
     release_record = validate_json_schema_artifact(
         root=tmp_path,
         schema_path="schemas/active_prompt_release_manifest_v1.schema.json",
@@ -7180,6 +7209,7 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
     )
 
     assert transaction_record.accepted
+    assert recovery_record.accepted
     assert release_record.accepted
 
 

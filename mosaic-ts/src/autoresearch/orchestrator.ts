@@ -34,6 +34,11 @@ import {
   type ResearchKnobPromptMutation,
 } from "./mutator.js";
 import {
+  PromptMutationRecoveryDescriptorStore,
+  reconcilePendingPromptMutationTransactions,
+  reconcileTerminalPromptMutationLeases,
+} from "./prompt_mutation_recovery.js";
+import {
   MutationPathLeaseRegistry,
   type MutationRepositoryAdapter,
   MutationTransactionJournal,
@@ -217,6 +222,27 @@ async function executeKnobMutationTransaction(opts: {
       }),
     });
   }
+  const root = transactionRoot();
+  const logPath = knobMutationLogPath();
+  if (!logPath) throw new Error("private knob mutation metadata log is not configured");
+  const promptSha = promptPairSha256(opts.agent, opts.cohort, {
+    zh: opts.mutation.zh_prompt,
+    en: opts.mutation.en_prompt,
+  });
+  const recoveryDescriptorHash = await new PromptMutationRecoveryDescriptorStore(root).writeOnce({
+    schema_version: "prompt_mutation_recovery_v1",
+    transaction_id: opts.metadata.transaction_id,
+    mutation_id: opts.metadata.mutation_id,
+    version_id: opts.versionId,
+    agent: opts.agent,
+    cohort: opts.cohort,
+    branch: opts.branch,
+    summary: opts.summary,
+    prompt_sha256: promptSha,
+    code_commit_hash: opts.codeCommit,
+    metadata_log_path: logPath,
+    mutation_metadata: opts.metadata,
+  });
   const created: MutationTransactionManifest = {
     schema_version: "prompt_mutation_transaction_v1",
     mutation_id: opts.metadata.mutation_id,
@@ -228,6 +254,7 @@ async function executeKnobMutationTransaction(opts: {
     catalog_hash: opts.metadata.catalog_hash,
     schema_hash: opts.metadata.schema_hash,
     evaluation_contract_hash: opts.metadata.evaluation_contract_hash,
+    recovery_descriptor_hash: recoveryDescriptorHash,
     target_paths: [...opts.metadata.changed_paths],
     components: [
       {
@@ -250,7 +277,6 @@ async function executeKnobMutationTransaction(opts: {
     aborted_at: null,
     recovery_decision: null,
   };
-  const root = transactionRoot();
   const coordinator = new PromptMutationTransactionCoordinator(
     new MutationTransactionJournal(root),
     new MutationPathLeaseRegistry(root),
@@ -306,13 +332,10 @@ async function executeKnobMutationTransaction(opts: {
     appendOnce: async (manifest, manifestHash) => {
       const commit = manifest.components[0]?.new_commit;
       if (!commit) throw new Error("committed prompt transaction lacks candidate commit");
+      if (writeResult?.prompt_sha256 && writeResult.prompt_sha256 !== promptSha) {
+        throw new Error("private prompt mutation returned a mismatched prompt digest");
+      }
       durableMetadata = { ...opts.metadata, transaction_manifest_hash: manifestHash };
-      const promptSha =
-        writeResult?.prompt_sha256 ??
-        promptPairSha256(opts.agent, opts.cohort, {
-          zh: opts.mutation.zh_prompt,
-          en: opts.mutation.en_prompt,
-        });
       await opts.api.autoresearchRecordMutation({
         version_id: opts.versionId,
         commit_hash: commit,
@@ -323,8 +346,6 @@ async function executeKnobMutationTransaction(opts: {
         code_commit_hash: opts.codeCommit,
         mutation_metadata: durableMetadata,
       });
-      const logPath = knobMutationLogPath();
-      if (!logPath) throw new Error("private knob mutation metadata log is not configured");
       await appendKnobMutationMetadataLog({ logPath, metadata: durableMetadata });
     },
   });
@@ -380,6 +401,22 @@ export function backtestFillCommand(run: AutoresearchMissingRun): string {
   return args.map(shellQuote).join(" ");
 }
 
+export async function recoverPromptMutationTransactions(
+  api: BridgeApi,
+  root = transactionRoot(),
+): Promise<MutationTransactionManifest[]> {
+  const reconciled = await reconcilePendingPromptMutationTransactions({ root, api });
+  await reconcileTerminalPromptMutationLeases({ api, root });
+  return reconciled;
+}
+
+export async function completePromptMutationExperiment(
+  mutationId: string,
+  root = transactionRoot(),
+): Promise<void> {
+  await new MutationPathLeaseRegistry(root).release(mutationId);
+}
+
 export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Promise<CycleResult> {
   const {
     cohort,
@@ -397,6 +434,11 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
   const log = onLog ?? (() => {});
   const safeLog = (msg: string) => log(redactSensitiveText(msg));
   const results: MutationResult[] = [];
+
+  const recovered = await recoverPromptMutationTransactions(deps.api);
+  if (recovered.length > 0) {
+    safeLog(`reconciled ${recovered.length} pending prompt mutation transaction(s)`);
+  }
 
   for (let n = 0; n < maxMutations; n++) {
     // 1. Trigger: select agent + create pending version

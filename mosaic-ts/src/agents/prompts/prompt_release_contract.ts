@@ -194,6 +194,7 @@ export const MutationTransactionManifestSchema = z
     catalog_hash: Sha256Schema,
     schema_hash: Sha256Schema,
     evaluation_contract_hash: Sha256Schema,
+    recovery_descriptor_hash: Sha256Schema,
     target_paths: z.array(z.string().startsWith("/")).min(1),
     components: z
       .array(

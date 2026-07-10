@@ -793,6 +793,8 @@ def prompts_audit_versions(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_base_commit_hash": row.get("prompt_base_commit_hash"),
             "prompt_sha256": row.get("prompt_sha256"),
             "code_commit_hash": row.get("code_commit_hash"),
+            "mutation_id": row.get("mutation_id"),
+            "mutation_lifecycle": row.get("mutation_lifecycle"),
             "delta_sharpe": row.get("delta_sharpe"),
             "created_at": row.get("created_at"),
             "decided_at": row.get("decided_at"),

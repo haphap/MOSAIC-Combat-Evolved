@@ -182,7 +182,12 @@ export class MutationTransactionJournal {
     return manifests
       .filter((value): value is unknown => value !== null)
       .map((value) => MutationTransactionManifestSchema.parse(value))
-      .filter((manifest) => !["committed", "aborted"].includes(manifest.state));
+      .filter((manifest) => !["committed", "aborted"].includes(manifest.state))
+      .sort((left, right) =>
+        `${left.created_at}:${left.transaction_id}`.localeCompare(
+          `${right.created_at}:${right.transaction_id}`,
+        ),
+      );
   }
 }
 
@@ -203,6 +208,11 @@ export class MutationPathLeaseRegistry {
 
   private lockPath(): string {
     return join(this.root, ".leases.lock");
+  }
+
+  async activeMutationIds(): Promise<Set<string>> {
+    const state = await readJson<PathLeaseState>(this.path());
+    return new Set(Object.values(state?.leases ?? {}).map((lease) => lease.mutation_id));
   }
 
   async acquire(manifest: MutationTransactionManifest): Promise<void> {

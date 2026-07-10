@@ -46,6 +46,7 @@ function transaction(state: MutationTransactionManifest["state"]): MutationTrans
     catalog_hash: HASH,
     schema_hash: HASH,
     evaluation_contract_hash: HASH,
+    recovery_descriptor_hash: HASH,
     target_paths: ["/rule_packs/test/value"],
     components: [
       {

@@ -235,7 +235,6 @@ describe("runAutoresearchCycle", () => {
         prompt_repo_id: "private",
         prompt_base_commit_hash: "baseprompt123",
         prompt_commit_hash: "def4567",
-        prompt_sha256: "f".repeat(64),
         commit_hash: "def4567",
         branch: "autoresearch/volatility/20260101",
         paths: [

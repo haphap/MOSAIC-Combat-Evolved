@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt Mutation Recovery Descriptor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "transaction_id",
+    "mutation_id",
+    "version_id",
+    "agent",
+    "cohort",
+    "branch",
+    "summary",
+    "prompt_sha256",
+    "code_commit_hash",
+    "metadata_log_path",
+    "mutation_metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "prompt_mutation_recovery_v1"
+    },
+    "transaction_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mutation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "agent": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cohort": {
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string"
+    },
+    "prompt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "code_commit_hash": {
+      "type": "string",
+      "minLength": 7
+    },
+    "metadata_log_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mutation_metadata": {
+      "type": "object",
+      "required": ["schema_version", "mutation_id", "transaction_id", "experiment_id"],
+      "properties": {
+        "schema_version": {
+          "const": "knob_mutation_metadata_v1"
+        },
+        "mutation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transaction_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "experiment_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
