@@ -7,6 +7,7 @@ and the cohort_default fallback.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -280,6 +281,73 @@ class TestWrite:
             f"{BRANCH}:prompts/mosaic/crisis_2008/macro/volatility.zh.md",
         )
         assert prompt_at_branch.startswith("new zh")
+
+    def test_private_git_commits_domain_registry_with_prompt_pair(
+        self, repo: Path, tmp_path: Path, monkeypatch
+    ):
+        private_repo = tmp_path / "private-prompts"
+        init_private_prompt_repo(private_repo, project_root=repo)
+        monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
+        registry_path = "registry/domain_knobs/cohort_default/cio.json"
+        registry = {
+            "schema_version": "domain_knob_values_v1",
+            "agent": "decision.cio",
+            "cohort": "cohort_default",
+            "catalog_version": "domain_knob_catalog_v1",
+            "values_by_path": {
+                "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/hold_hurdle/value": 0.5
+            },
+            "weight_groups": {},
+            "cross_field_groups": {},
+            "last_mutation_id": "KM-test-1",
+        }
+
+        result = dispatch(
+            "prompts.write",
+            {
+                "agent": "cio",
+                "cohort": "cohort_default",
+                "contents": {"zh": "new zh\n", "en": "new en\n"},
+                "extra_files": {
+                    registry_path: json.dumps(registry, ensure_ascii=False) + "\n"
+                },
+                "target": "private_git",
+                "branch": BRANCH,
+            },
+        )
+
+        assert len(result["paths"]) == 3
+        assert len(result["extra_files_sha256"]) == 64
+        persisted = json.loads(_git(private_repo, "show", f"{BRANCH}:{registry_path}"))
+        assert persisted["last_mutation_id"] == "KM-test-1"
+
+    def test_domain_registry_write_rejects_non_private_target_and_unsafe_cohort(
+        self, repo: Path
+    ):
+        registry_path = "registry/domain_knobs/cohort_default/cio.json"
+        with pytest.raises(RpcError, match="target=private_git"):
+            dispatch(
+                "prompts.write",
+                {
+                    "agent": "cio",
+                    "cohort": "cohort_default",
+                    "contents": {"zh": "new zh\n"},
+                    "extra_files": {registry_path: "{}"},
+                    "target": "project_git",
+                    "branch": BRANCH,
+                },
+            )
+        with pytest.raises(RpcError, match="safe path segment"):
+            dispatch(
+                "prompts.write",
+                {
+                    "agent": "cio",
+                    "cohort": "../escape",
+                    "contents": {"zh": "new zh\n"},
+                    "target": "working_tree",
+                    "allow_public_prompt_write": True,
+                },
+            )
 
     def test_to_private_git_accepts_mosaic_prompts_repo(self, repo: Path, tmp_path: Path, monkeypatch):
         private_repo = tmp_path / "MOSAIC-Prompts"

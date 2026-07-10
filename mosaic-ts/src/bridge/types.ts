@@ -423,6 +423,7 @@ export interface PromptWriteResult {
   prompt_base_commit_hash?: string;
   prompt_commit_hash?: string;
   prompt_sha256?: string;
+  extra_files_sha256?: string | null;
   commit_hash?: string;
   branch?: string;
   paths: string[];
@@ -1824,6 +1825,7 @@ export class BridgeApi {
     agent: string;
     cohort: string;
     contents: Partial<Record<PromptLang, string>>;
+    extra_files?: Record<string, string>;
     target?: "private_git" | "project_git" | "working_tree";
     branch?: string;
     message?: string;

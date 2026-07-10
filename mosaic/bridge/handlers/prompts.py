@@ -29,6 +29,7 @@ Agent→layer resolution mirrors ``mosaic-ts/src/agents/prompts/cohorts.ts``
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -62,6 +63,7 @@ _WRITE_TARGETS = ("private_git", "project_git", "working_tree")
 _CANONICAL_PROMPT_REPO_ID = "https://github.com/haphap/MOSAIC-Prompts"
 _PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
 _RESEARCH_KNOBS_FENCE_RE = re.compile(r"```research-knobs\s*\n([\s\S]*?)```")
+_SAFE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _PROMPT_CONTRACT_CATEGORIES = {
     "role_boundary": ("role boundary", "角色边界"),
     "required_inputs_tools": ("required inputs", "required tools", "必需输入", "必需工具"),
@@ -283,6 +285,59 @@ def _prompt_sha256(files: dict[str, str]) -> str:
         digest.update(files[rel].encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _domain_registry_extra_files(
+    value: Any,
+    *,
+    agent: str,
+    cohort: str,
+) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or len(value) != 1:
+        raise RpcError(INVALID_PARAMS, "'extra_files' must contain exactly one domain registry")
+    expected_path = f"registry/domain_knobs/{cohort}/{agent}.json"
+    content = value.get(expected_path)
+    if not isinstance(content, str) or not content:
+        raise RpcError(
+            INVALID_PARAMS,
+            f"'extra_files' may only contain {expected_path!r}",
+        )
+    try:
+        registry = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise RpcError(INVALID_PARAMS, "domain knob registry must be valid JSON") from exc
+    if not isinstance(registry, dict):
+        raise RpcError(INVALID_PARAMS, "domain knob registry must be an object")
+    expected_keys = {
+        "schema_version",
+        "agent",
+        "cohort",
+        "catalog_version",
+        "values_by_path",
+        "weight_groups",
+        "cross_field_groups",
+        "last_mutation_id",
+    }
+    if set(registry) != expected_keys:
+        raise RpcError(INVALID_PARAMS, "domain knob registry fields do not match v1 schema")
+    owner = registry.get("agent")
+    if (
+        registry.get("schema_version") != "domain_knob_values_v1"
+        or registry.get("catalog_version") != "domain_knob_catalog_v1"
+        or registry.get("cohort") != cohort
+        or not isinstance(owner, str)
+        or owner.split(".")[-1] != agent
+        or not isinstance(registry.get("values_by_path"), dict)
+        or not all(
+            isinstance(path, str) and path.startswith("/rule_packs/")
+            for path in registry["values_by_path"]
+        )
+        or not isinstance(registry.get("last_mutation_id"), str)
+    ):
+        raise RpcError(INVALID_PARAMS, "domain knob registry identity or values are invalid")
+    return {expected_path: content}
 
 
 def _prompt_contract_check_ref(prompt_sha256: str) -> str:
@@ -513,6 +568,8 @@ def prompts_read(params: dict[str, Any]) -> dict[str, Any]:
 def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     agent = _require_str(params, "agent")
     cohort = _require_str(params, "cohort")
+    if not _SAFE_PATH_SEGMENT_RE.fullmatch(cohort):
+        raise RpcError(INVALID_PARAMS, "'cohort' must be a safe path segment")
     contents = params.get("contents")
     if not isinstance(contents, dict) or not contents:
         raise RpcError(INVALID_PARAMS, "'contents' must be a non-empty {lang: text} object")
@@ -520,11 +577,24 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
         if lang not in _LANGS or not isinstance(text, str):
             raise RpcError(INVALID_PARAMS, f"invalid contents entry {lang!r}")
 
+    branch: Optional[str] = params.get("branch") or None
+    target = params.get("target") or ("project_git" if branch else "working_tree")
+    if target not in _WRITE_TARGETS:
+        raise RpcError(INVALID_PARAMS, f"'target' must be one of {_WRITE_TARGETS}, got {target!r}")
+    if params.get("extra_files") is not None and target != "private_git":
+        raise RpcError(INVALID_PARAMS, "domain registry write-back requires target=private_git")
+
     # Always write to the cohort-specific path (no fallback — a mutation
     # creates/overwrites the cohort's own file).
-    files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
-    prompt_sha256 = _prompt_sha256(files)
-    branch: Optional[str] = params.get("branch") or None
+    prompt_files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
+    extra_files = _domain_registry_extra_files(
+        params.get("extra_files"),
+        agent=agent,
+        cohort=cohort,
+    )
+    files = {**prompt_files, **extra_files}
+    prompt_sha256 = _prompt_sha256(prompt_files)
+    extra_files_sha256 = _prompt_sha256(extra_files) if extra_files else None
     # Default keeps the existing autoresearch mutation path (a project-repo
     # feature branch); ``private_git`` is opt-in via an explicit ``target`` until
     # Phase 5 moves the evaluation worktree + read-at-ref to the private repo too.
@@ -532,10 +602,6 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     # ``autoresearch.prepare_worktree`` / ``prompts.read(ref)`` still use the
     # project repo. Phase 6's CI provenance guard is what blocks optimized
     # prompts from reaching project PRs in the interim.)
-    target = params.get("target") or ("project_git" if branch else "working_tree")
-    if target not in _WRITE_TARGETS:
-        raise RpcError(INVALID_PARAMS, f"'target' must be one of {_WRITE_TARGETS}, got {target!r}")
-
     if target == "private_git":
         if not branch:
             raise RpcError(INVALID_PARAMS, "prompts.write(target=private_git) requires 'branch'")
@@ -553,6 +619,7 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_repo_id": _prompt_repo_id(),
             "prompt_base_commit_hash": base_commit,
             "prompt_sha256": prompt_sha256,
+            "extra_files_sha256": extra_files_sha256,
             "commit_hash": commit,
             "prompt_commit_hash": commit,
             "branch": branch,

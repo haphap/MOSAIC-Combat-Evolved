@@ -145,6 +145,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     safeLog(
       `triggered: agent=${triggerResult.agent} version_id=${triggerResult.version_id} branch=${triggerResult.branch_name}`,
     );
+    const cycleMutationId = `KM-${triggerResult.version_id ?? "dry"}-${Date.now()}-${n}`;
 
     // 2. Mutate: parameter-level research-knobs patch when enabled, otherwise legacy rewrite.
     let mutation: Awaited<ReturnType<typeof mutate>>;
@@ -157,6 +158,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
             cohort,
             agent: triggerResult.agent,
             deps: { llm: deps.llm, api: deps.api },
+            mutationId: cycleMutationId,
             ...(fakeLlm ? { fakeLlm: true } : {}),
           })
         : await mutate({
@@ -186,7 +188,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
           await appendKnobMutationMetadataLog({
             logPath,
             metadata: buildKnobMutationMetadata({
-              mutationId: `KM-${Date.now()}`,
+              mutationId: cycleMutationId,
               agent: triggerResult.agent,
               cohort,
               baseKnobs: knobPromptMutation.base_knobs,
@@ -225,6 +227,14 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         agent: triggerResult.agent,
         cohort,
         contents: { zh: mutation.zh_prompt, en: mutation.en_prompt },
+        ...(knobPromptMutation?.domain_registry_update
+          ? {
+              extra_files: {
+                [knobPromptMutation.domain_registry_update.relative_path]:
+                  knobPromptMutation.domain_registry_update.content,
+              },
+            }
+          : {}),
         target: "private_git",
         branch: triggerResult.branch_name,
         message: `autoresearch: ${mutation.modification_summary}`,
@@ -239,7 +249,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       continue;
     }
 
-    const mutationId = knobPromptMutation ? `KM-${versionId}-${Date.now()}` : null;
+    const mutationId = knobPromptMutation ? cycleMutationId : null;
     const knobMutationMetadata =
       knobPromptMutation && mutationId
         ? buildKnobMutationMetadata({

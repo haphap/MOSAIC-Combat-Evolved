@@ -33,6 +33,7 @@ import {
 } from "../agents/helpers/research_knobs.js";
 import { bindStructured } from "../agents/helpers/structured_output.js";
 import { ALL_MACRO_AGENTS } from "../agents/macro/_aggregator.js";
+import { findPrivatePromptsRoot } from "../agents/prompts/cohorts.js";
 import {
   buildDomainKnobEvaluationContractArtifact,
   type DomainKnobCard,
@@ -49,8 +50,10 @@ import {
   applyDomainKnobValueToProjection,
   type DomainKnobRegistryPatchResult,
   type DomainKnobValueRegistry,
+  domainKnobValueRegistryPath,
   projectionValueForDomainCard,
   readDomainKnobValueRegistryFile,
+  renderDomainKnobValueRegistry,
   replaceDomainKnobValueInProjection,
   writeDomainKnobValueRegistryFile,
 } from "../agents/prompts/domain_knob_registry.js";
@@ -1119,6 +1122,8 @@ export interface MutateOptions {
   since?: string;
   /** Override the prompts root (tests; defaults to the repo's prompts/mosaic). */
   promptsRoot?: string;
+  /** Stable id shared by registry write-back, transaction, metadata, and evaluation. */
+  mutationId?: string;
   /**
    * Deterministic canned mutation instead of an LLM call (Plan §11.5 4F):
    * appends a marker line to zh+en so ``--fake-llm`` smoke runs are
@@ -1132,6 +1137,12 @@ export interface ResearchKnobPromptMutation extends Mutation {
   knob_mutation: KnobMutation;
   base_knobs: ResearchKnobs;
   new_knobs: ResearchKnobs;
+  domain_registry_update?: {
+    relative_path: string;
+    content: string;
+    old_sha256: string;
+    new_sha256: string;
+  };
 }
 
 /** Deterministic rewrite for ``--fake-llm`` mode (Plan §11.5 4F decision). */
@@ -1269,7 +1280,7 @@ function bootstrapResearchKnobsPrompts(
 export async function mutateResearchKnobs(
   opts: MutateOptions,
 ): Promise<ResearchKnobPromptMutation> {
-  const { cohort, agent, deps, since, promptsRoot, fakeLlm } = opts;
+  const { cohort, agent, deps, since, promptsRoot, fakeLlm, mutationId } = opts;
   const rootOpt = promptsRoot !== undefined ? { promptsRoot } : {};
   let [zhPrompt, enPrompt] = await Promise.all([
     loadPrompt({ agent, cohort, language: "zh", noCache: true, ...rootOpt }),
@@ -1312,6 +1323,45 @@ export async function mutateResearchKnobs(
     knobMutation = KnobMutationSchema.parse(raw);
   }
 
+  const domainPaths = knobMutation.knob_patches.filter((patch) =>
+    domainKnobCardFromPath(patch.path),
+  );
+  if (domainPaths.length > 0 && domainPaths.length !== knobMutation.knob_patches.length) {
+    throw new PromptInvariantError("domain and generic knob paths cannot share one mutation");
+  }
+  let domainRegistryUpdate: ResearchKnobPromptMutation["domain_registry_update"];
+  if (domainPaths.length > 0) {
+    if (!mutationId) {
+      throw new PromptInvariantError("domain knob mutation requires a stable mutation_id");
+    }
+    const privatePromptsRoot = promptsRoot ?? findPrivatePromptsRoot();
+    if (!privatePromptsRoot) {
+      throw new PromptInvariantError(
+        "domain knob mutation requires a configured private prompt repo",
+      );
+    }
+    const registryPath = domainKnobValueRegistryPath({
+      privatePromptsRoot,
+      cohort,
+      agent,
+    });
+    const registry = await readDomainKnobValueRegistryFile(registryPath);
+    if (!registry) {
+      throw new PromptInvariantError(`domain knob registry is missing for ${cohort}/${agent}`);
+    }
+    const applied = applyKnobPatchesToDomainKnobRegistry(registry, zh.knobs, knobMutation, {
+      mutationId,
+    });
+    const oldContent = renderDomainKnobValueRegistry(registry);
+    const newContent = renderDomainKnobValueRegistry(applied.registry);
+    domainRegistryUpdate = {
+      relative_path: `registry/domain_knobs/${cohort}/${agent}.json`,
+      content: newContent,
+      old_sha256: hashText(oldContent),
+      new_sha256: hashText(newContent),
+    };
+  }
+
   const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, knobMutation);
   return {
     zh_prompt: assembled.zh_prompt,
@@ -1321,7 +1371,12 @@ export async function mutateResearchKnobs(
     knob_mutation: knobMutation,
     base_knobs: zh.knobs,
     new_knobs: assembled.knobs,
+    ...(domainRegistryUpdate ? { domain_registry_update: domainRegistryUpdate } : {}),
   };
+}
+
+function hashText(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 /**

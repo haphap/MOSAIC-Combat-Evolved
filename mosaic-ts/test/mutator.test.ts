@@ -10,6 +10,7 @@ import {
   applyDomainKnobValueToProjection,
   buildDomainKnobValueRegistry,
   projectionValueForDomainCard,
+  renderDomainKnobValueRegistry,
   replaceDomainKnobValueInProjection,
 } from "../src/agents/prompts/domain_knob_registry.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
@@ -1279,12 +1280,22 @@ function makeKnobsRoot(): FakeRoot {
 }
 
 function makeLegacyDecisionRoot(): FakeRoot {
-  const root = mkdtempSync(join(tmpdir(), "mosaic-legacy-knob-mutator-test-"));
+  const repoRoot = mkdtempSync(join(tmpdir(), "mosaic-legacy-knob-mutator-test-"));
+  const root = join(repoRoot, "prompts", "mosaic");
   const dir = join(root, "cohort_default", "decision");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "cio.zh.md"), "# zh legacy cio body\n", "utf-8");
   writeFileSync(join(dir, "cio.en.md"), "# en legacy cio body\n", "utf-8");
-  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
+  if (!spec) throw new Error("cio runtime spec missing");
+  const registryPath = join(repoRoot, "registry", "domain_knobs", "cohort_default", "cio.json");
+  mkdirSync(join(repoRoot, "registry", "domain_knobs", "cohort_default"), { recursive: true });
+  writeFileSync(
+    registryPath,
+    renderDomainKnobValueRegistry(buildDomainKnobValueRegistry(spec, "cohort_default")),
+    "utf-8",
+  );
+  return { root, cleanup: () => rmSync(repoRoot, { recursive: true, force: true }) };
 }
 
 class ScriptedLlm {
@@ -1409,6 +1420,7 @@ describe("mutate", () => {
       cohort: "cohort_default",
       agent: "cio",
       promptsRoot: fake.root,
+      mutationId: "KM-domain-test",
       fakeLlm: true,
       deps: { llm: llmReturning({}) as never, api: fakeApi() },
     });
@@ -1421,5 +1433,9 @@ describe("mutate", () => {
     expect(m.zh_prompt).toContain("mirofish_override_hurdle");
     expect(m.en_prompt).toContain("mirofish_override_hurdle");
     expect(parseResearchKnobsPrompt(m.zh_prompt).knobs.agent).toBe("decision.cio");
+    expect(m.domain_registry_update).toMatchObject({
+      relative_path: "registry/domain_knobs/cohort_default/cio.json",
+    });
+    expect(m.domain_registry_update?.content).toContain('"last_mutation_id": "KM-domain-test"');
   });
 });

@@ -179,6 +179,7 @@ describe("runAutoresearchCycle", () => {
         agent: "volatility",
         deps: { llm: llm as never, api },
         fakeLlm: true,
+        mutationId: expect.stringMatching(/^KM-1-/),
       });
       expect(mockedMutate).not.toHaveBeenCalled();
       expect(api.promptsWrite).not.toHaveBeenCalled();
