@@ -1239,6 +1239,7 @@ describe("knob mutation validation", () => {
 
       const logPath = join(dir, "mutation_patches", "knob_mutations.jsonl");
       await appendKnobMutationMetadataLog({ logPath, metadata });
+      await appendKnobMutationMetadataLog({ logPath, metadata });
       const rows = readFileSync(logPath, "utf-8")
         .trim()
         .split("\n")
@@ -1248,6 +1249,12 @@ describe("knob mutation validation", () => {
       expect(row).toBeDefined();
       expect(row?.mutation_id).toBe("KM-1");
       expect(row?.decision).toBe("dry_run");
+      await expect(
+        appendKnobMutationMetadataLog({
+          logPath,
+          metadata: { ...metadata, risk: "conflicting retry" },
+        }),
+      ).rejects.toThrow(/metadata conflict/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

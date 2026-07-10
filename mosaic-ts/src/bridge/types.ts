@@ -1834,6 +1834,17 @@ export class BridgeApi {
     return this.client.call<PromptWriteResult>("prompts.write", params);
   }
 
+  promptsCandidateState(params: {
+    branch: string;
+    expected_hashes: Record<string, string>;
+  }): Promise<{ candidate_visible: boolean; new_commit: string | null; hashes_match: boolean }> {
+    return this.client.call("prompts.candidate_state", params);
+  }
+
+  promptsAbortCandidate(params: { branch: string }): Promise<{ ok: boolean }> {
+    return this.client.call("prompts.abort_candidate", params);
+  }
+
   promptsInitPrivateRepo(params: {
     path: string;
     seed_baseline?: boolean;

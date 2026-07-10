@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -596,7 +596,44 @@ export async function appendKnobMutationMetadataLog(opts: {
   metadata: KnobMutationMetadata;
 }): Promise<void> {
   await mkdir(dirname(opts.logPath), { recursive: true });
-  await appendFile(opts.logPath, `${JSON.stringify(opts.metadata)}\n`, { encoding: "utf-8" });
+  const lockPath = `${opts.logPath}.lock`;
+  let lock: Awaited<ReturnType<typeof open>> | null = null;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      lock = await open(lockPath, "wx", 0o600);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  if (!lock) throw new Error("knob mutation metadata log lock timeout");
+  try {
+    let existing = "";
+    try {
+      existing = await readFile(opts.logPath, "utf-8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    for (const line of existing.split("\n").filter(Boolean)) {
+      const row = JSON.parse(line) as { mutation_id?: unknown };
+      if (row.mutation_id !== opts.metadata.mutation_id) continue;
+      if (line !== JSON.stringify(opts.metadata)) {
+        throw new Error(`mutation metadata conflict: ${opts.metadata.mutation_id}`);
+      }
+      return;
+    }
+    const file = await open(opts.logPath, "a", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(opts.metadata)}\n`, "utf-8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+  } finally {
+    await lock.close();
+    await unlink(lockPath).catch(() => undefined);
+  }
 }
 
 function hashKnobs(knobs: ResearchKnobs): string {

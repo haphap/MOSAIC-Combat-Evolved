@@ -404,6 +404,21 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INVALID_PARAMS, "'mutation_metadata' must be an object")
 
     store = _store()
+    existing_version = store.get_prompt_version(version_id)
+    if existing_version is None:
+        raise RpcError(INVALID_PARAMS, f"prompt_version {version_id} not found")
+    if mutation_metadata is not None:
+        existing_metadata = store.get_version_mutation_metadata(version_id)
+        if existing_metadata is not None:
+            if (
+                existing_metadata == mutation_metadata
+                and existing_version.get("modification_commit_hash") == commit_hash
+            ):
+                return {"ok": True, "idempotent": True}
+            raise RpcError(
+                AUTORESEARCH_ERROR,
+                f"prompt_version {version_id} already has different mutation metadata",
+            )
     store.set_version_mutation(
         version_id,
         commit_hash,

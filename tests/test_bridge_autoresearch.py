@@ -229,18 +229,19 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
             "mutation_kind": "domain_knob",
             "domain_card_id": "macro.volatility.test",
         }
-        autoresearch_record_mutation(
-            {
-                "version_id": vid,
-                "commit_hash": "b" * 40,
-                "mutation_metadata": metadata,
-            }
-        )
+        params = {
+            "version_id": vid,
+            "commit_hash": "b" * 40,
+            "mutation_metadata": metadata,
+        }
+        autoresearch_record_mutation(params)
+        repeated = autoresearch_record_mutation(params)
         version = self.store.get_prompt_version(vid)
         self.assertEqual(version["mutation_lifecycle"], "validated")
         self.assertEqual(self.store.get_version_mutation_metadata(vid), metadata)
         events = [entry["event"] for entry in self.store.get_log()]
         self.assertEqual(events, ["validated", "proposed"])
+        self.assertTrue(repeated["idempotent"])
 
 
 class TestAutoresearchEvaluatePending(unittest.TestCase):

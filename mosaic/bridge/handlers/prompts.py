@@ -64,6 +64,12 @@ _CANONICAL_PROMPT_REPO_ID = "https://github.com/haphap/MOSAIC-Prompts"
 _PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
 _RESEARCH_KNOBS_FENCE_RE = re.compile(r"```research-knobs\s*\n([\s\S]*?)```")
 _SAFE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SAFE_CANDIDATE_BRANCH_RE = re.compile(r"^(?:cohort|autoresearch)/[A-Za-z0-9_./-]+$")
+_SAFE_CANDIDATE_FILE_RE = re.compile(
+    r"^(?:prompts/mosaic/[A-Za-z0-9_-]+/(?:macro|sector|superinvestor|decision)/"
+    r"[A-Za-z0-9_-]+\.(?:zh|en)\.md|"
+    r"registry/domain_knobs/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.json)$"
+)
 _PROMPT_CONTRACT_CATEGORIES = {
     "role_boundary": ("role boundary", "角色边界"),
     "required_inputs_tools": ("required inputs", "required tools", "必需输入", "必需工具"),
@@ -338,6 +344,17 @@ def _domain_registry_extra_files(
     ):
         raise RpcError(INVALID_PARAMS, "domain knob registry identity or values are invalid")
     return {expected_path: content}
+
+
+def _require_candidate_branch(params: dict[str, Any]) -> str:
+    branch = _require_str(params, "branch")
+    if (
+        not _SAFE_CANDIDATE_BRANCH_RE.fullmatch(branch)
+        or ".." in branch
+        or branch.endswith("/")
+    ):
+        raise RpcError(INVALID_PARAMS, "candidate branch is outside the autoresearch namespace")
+    return branch
 
 
 def _prompt_contract_check_ref(prompt_sha256: str) -> str:
@@ -669,6 +686,53 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
         "prompt_sha256": prompt_sha256,
         "paths": sorted(files),
     }
+
+
+@method("prompts.candidate_state")
+def prompts_candidate_state(params: dict[str, Any]) -> dict[str, Any]:
+    """Inspect a private candidate ref without returning prompt/registry content."""
+    branch = _require_candidate_branch(params)
+    expected_hashes = params.get("expected_hashes")
+    if not isinstance(expected_hashes, dict) or not expected_hashes:
+        raise RpcError(INVALID_PARAMS, "'expected_hashes' must be a non-empty object")
+    for path, expected_hash in expected_hashes.items():
+        if (
+            not isinstance(path, str)
+            or not _SAFE_CANDIDATE_FILE_RE.fullmatch(path)
+            or not isinstance(expected_hash, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_hash)
+        ):
+            raise RpcError(INVALID_PARAMS, "candidate file path or hash is invalid")
+    git = _private_git()
+    if not git.branch_exists(branch):
+        return {"candidate_visible": False, "new_commit": None, "hashes_match": False}
+    commit = git.rev_parse(branch)
+    hashes_match = True
+    for path, expected_hash in expected_hashes.items():
+        try:
+            content = git.show_file(commit, path)
+        except Exception:
+            hashes_match = False
+            break
+        actual_hash = f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+        if actual_hash != expected_hash:
+            hashes_match = False
+            break
+    return {
+        "candidate_visible": hashes_match,
+        "new_commit": commit if hashes_match else None,
+        "hashes_match": hashes_match,
+    }
+
+
+@method("prompts.abort_candidate")
+def prompts_abort_candidate(params: dict[str, Any]) -> dict[str, Any]:
+    """Delete an isolated private candidate ref during transaction recovery."""
+    branch = _require_candidate_branch(params)
+    git = _private_git()
+    if git.branch_exists(branch):
+        git.delete_branch(branch, force=True)
+    return {"ok": True}
 
 
 @method("prompts.init_private_repo")

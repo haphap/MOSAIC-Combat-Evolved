@@ -8,6 +8,7 @@ and the cohort_default fallback.
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -349,6 +350,43 @@ class TestWrite:
                 },
             )
 
+    def test_candidate_state_and_abort_are_hash_bound(
+        self, repo: Path, tmp_path: Path, monkeypatch
+    ):
+        private_repo = tmp_path / "private-prompts"
+        init_private_prompt_repo(private_repo, project_root=repo)
+        monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
+        content = "candidate prompt\n"
+        path = "prompts/mosaic/crisis_2008/macro/volatility.zh.md"
+        dispatch(
+            "prompts.write",
+            {
+                "agent": "volatility",
+                "cohort": "crisis_2008",
+                "contents": {"zh": content},
+                "target": "private_git",
+                "branch": BRANCH,
+            },
+        )
+        expected = f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+
+        state = dispatch(
+            "prompts.candidate_state",
+            {"branch": BRANCH, "expected_hashes": {path: expected}},
+        )
+        assert state["candidate_visible"] is True
+        assert len(state["new_commit"]) == 40
+
+        dispatch("prompts.abort_candidate", {"branch": BRANCH})
+        missing = dispatch(
+            "prompts.candidate_state",
+            {"branch": BRANCH, "expected_hashes": {path: expected}},
+        )
+        assert missing == {
+            "candidate_visible": False,
+            "new_commit": None,
+            "hashes_match": False,
+        }
     def test_to_private_git_accepts_mosaic_prompts_repo(self, repo: Path, tmp_path: Path, monkeypatch):
         private_repo = tmp_path / "MOSAIC-Prompts"
         init_private_prompt_repo(private_repo, project_root=repo)
