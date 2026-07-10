@@ -42,6 +42,9 @@ Notes:
   must all be registered, horizon-compatible, and rollback-unit compatible.
   Registry entries also need rollback-usable direction, value convention,
   baseline, PIT, and exclusion policy fields.
+- Domain knob mutations may choose only metrics in the owning card's metric
+  closure: its primary evaluation metric, rollback metric, or registered
+  secondary metrics.
 - CIO pre-decision cards must not consume `candidate_target_state`; only
   CRO/execution or downstream validation can depend on CIO's same-run proposal.
 - `conflicting_evidence` confidence caps are fail-closed in prompt checks until

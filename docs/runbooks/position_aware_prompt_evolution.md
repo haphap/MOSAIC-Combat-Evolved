@@ -114,6 +114,9 @@ Acceptance checks:
   registry and use the card horizon, and rollback units must match the metric
   unit; metric registry entries must carry rollback-usable
   `value_convention`, `direction`, `baseline`, PIT, and exclusion policy fields;
+- domain knob mutations may use the card's primary evaluation metric or a
+  registered `secondary_metrics` entry, but unrelated metrics and rollback
+  metrics outside the card's metric closure must be rejected;
 - CIO pre-decision cards must not declare `candidate_target_state`; that source
   is only available after the CIO proposal and is reserved for CRO/execution
   validation and downstream cards;

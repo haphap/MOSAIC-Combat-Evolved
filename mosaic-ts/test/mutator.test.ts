@@ -476,7 +476,10 @@ describe("knob mutation validation", () => {
         category: "domain",
         write_back_source: "domain_knob_value_registry",
         domain_card_id: "pboc_fed_policy_weight",
-        evaluation_metrics: ["macro_signal_accuracy_5d"],
+        evaluation_metrics: expect.arrayContaining([
+          "macro_signal_accuracy_5d",
+          "confidence_calibration_error",
+        ]),
       }),
     );
     for (const target of knobs.mutation_targets) {
@@ -878,7 +881,12 @@ describe("knob mutation validation", () => {
         knobs,
         knobMutation({
           prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
-          evaluation_metric: "confidence_calibration_error",
+          evaluation_metric: "portfolio_construction_quality_20d",
+          rollback_condition: {
+            metric: "portfolio_construction_quality_20d",
+            worse_by: 0.02,
+            unit: "ratio",
+          },
           knob_patches: [
             {
               path: target.path,
@@ -890,7 +898,46 @@ describe("knob mutation validation", () => {
           ],
         }),
       ).reasons.join("\n"),
-    ).toContain("does not match domain card macro_signal_accuracy_5d");
+    ).toContain(
+      "evaluation_metric portfolio_construction_quality_20d is not allowed for domain card",
+    );
+  });
+
+  it("allows domain knob mutations to choose registered secondary metrics", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const knobs = buildRuntimeResearchKnobs(spec);
+    const target = knobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    expect(
+      validateKnobMutation(
+        knobs,
+        knobMutation({
+          prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+          evaluation_metric: "confidence_calibration_error",
+          horizon: "5d",
+          rollback_condition: {
+            metric: "confidence_calibration_error",
+            worse_by: 0.03,
+            unit: "ratio",
+          },
+          knob_patches: [
+            {
+              path: target.path,
+              old_value: 0.2,
+              new_value: 0.35,
+              rationale: "Use the card's registered calibration side metric.",
+              expected_effect: "Improve confidence calibration for this domain parameter.",
+            },
+          ],
+        }),
+      ).accepted,
+    ).toBe(true);
   });
 
   it("accepts position-aware and MiroFish domain knob metrics", () => {

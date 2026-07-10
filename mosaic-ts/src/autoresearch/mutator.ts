@@ -232,6 +232,14 @@ export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistr
   return knobs.mutation_targets.map((target) => {
     const domainCard = domainKnobCardFromPath(target.path);
     if (domainCard) {
+      const evaluationMetrics = uniqueStrings([
+        domainCard.evaluation_metric,
+        ...domainCard.secondary_metrics,
+      ]);
+      const rollbackMetrics = uniqueStrings([
+        domainCard.rollback_condition.metric,
+        ...domainCard.secondary_metrics,
+      ]);
       return {
         path: target.path,
         category: "domain",
@@ -241,9 +249,9 @@ export function buildKnobTargetRegistry(knobs: ResearchKnobs): KnobTargetRegistr
         ...(target.step !== undefined ? { step: target.step } : {}),
         ...(target.allowed_values !== undefined ? { allowed_values: target.allowed_values } : {}),
         write_back_source: "domain_knob_value_registry",
-        evaluation_metrics: [domainCard.evaluation_metric],
+        evaluation_metrics: evaluationMetrics,
         horizons: [domainCard.horizon],
-        rollback_metrics: [domainCard.rollback_condition.metric],
+        rollback_metrics: rollbackMetrics,
         domain_card_id: domainCard.id,
         domain_card_path: domainCard.path,
       };
@@ -282,30 +290,13 @@ export function validateKnobMutation(
     if (!targetEntry) continue;
     reasons.push(...validateKnobPatch(knobs, patch, targetEntry.target));
     const domainCard = targetEntry.domainCard;
-    if (domainCard && mutation.evaluation_metric !== domainCard.evaluation_metric) {
-      reasons.push(
-        `${patch.path}: evaluation_metric ${mutation.evaluation_metric} does not match domain card ${domainCard.evaluation_metric}`,
-      );
-    }
     if (domainCard && mutation.prediction_target !== domainCard.prediction_target) {
       reasons.push(
         `${patch.path}: prediction_target ${mutation.prediction_target} does not match domain card ${domainCard.prediction_target}`,
       );
     }
-    if (domainCard && mutation.horizon !== domainCard.horizon) {
-      reasons.push(
-        `${patch.path}: horizon ${mutation.horizon} does not match domain card ${domainCard.horizon}`,
-      );
-    }
-    if (domainCard && mutation.rollback_condition.metric !== domainCard.rollback_condition.metric) {
-      reasons.push(
-        `${patch.path}: rollback_condition.metric ${mutation.rollback_condition.metric} does not match domain card ${domainCard.rollback_condition.metric}`,
-      );
-    }
-    if (domainCard && mutation.rollback_condition.unit !== domainCard.rollback_condition.unit) {
-      reasons.push(
-        `${patch.path}: rollback_condition.unit ${mutation.rollback_condition.unit} does not match domain card ${domainCard.rollback_condition.unit}`,
-      );
+    if (domainCard) {
+      reasons.push(...validateDomainEvaluationPolicy(targetEntry, mutation, patch.path));
     }
     if (!domainCard) {
       reasons.push(...validateGenericEvaluationPolicy(targetEntry, mutation, patch.path));
@@ -543,6 +534,10 @@ function hashKnobs(knobs: ResearchKnobs): string {
     .digest("hex")}`;
 }
 
+function uniqueStrings(values: ReadonlyArray<string>): string[] {
+  return [...new Set(values)];
+}
+
 export class PromptInvariantError extends Error {
   override readonly name = "PromptInvariantError";
 }
@@ -587,9 +582,9 @@ function lookupKnobTargetRegistryEntry(
       target,
       category: "domain",
       domainCard,
-      allowedEvaluationMetrics: new Set([domainCard.evaluation_metric]),
-      allowedHorizons: new Set([domainCard.horizon]),
-      allowedRollbackMetrics: new Set([domainCard.rollback_condition.metric]),
+      allowedEvaluationMetrics: new Set(entry.evaluation_metrics),
+      allowedHorizons: new Set(entry.horizons),
+      allowedRollbackMetrics: new Set(entry.rollback_metrics),
     };
   }
   return {
@@ -650,20 +645,55 @@ function validateGenericEvaluationPolicy(
     if (mutation.horizon !== metric.window) {
       reasons.push(`${path}: horizon ${mutation.horizon} is not allowed for generic target`);
     }
-    if (mutation.rollback_condition.unit !== metric.unit) {
-      reasons.push(
-        `${path}: rollback_condition.unit ${mutation.rollback_condition.unit} does not match metric ${metric.unit}`,
-      );
-    }
   }
   if (!target.allowedRollbackMetrics.has(mutation.rollback_condition.metric)) {
     reasons.push(
       `${path}: rollback_condition.metric ${mutation.rollback_condition.metric} is not allowed for generic target`,
     );
   }
-  if (!(mutation.rollback_condition.metric in EVALUATION_METRIC_REGISTRY)) {
+  const rollbackMetric = EVALUATION_METRIC_REGISTRY[mutation.rollback_condition.metric];
+  if (!rollbackMetric) {
     reasons.push(
       `rollback_condition.metric ${mutation.rollback_condition.metric} is not registered`,
+    );
+  } else if (mutation.rollback_condition.unit !== rollbackMetric.unit) {
+    reasons.push(
+      `${path}: rollback_condition.unit ${mutation.rollback_condition.unit} does not match rollback metric ${rollbackMetric.unit}`,
+    );
+  }
+  return reasons;
+}
+
+function validateDomainEvaluationPolicy(
+  target: ResolvedKnobTargetRegistryEntry,
+  mutation: KnobMutation,
+  path: string,
+): string[] {
+  const reasons: string[] = [];
+  if (!target.allowedEvaluationMetrics.has(mutation.evaluation_metric)) {
+    reasons.push(
+      `${path}: evaluation_metric ${mutation.evaluation_metric} is not allowed for domain card`,
+    );
+  }
+  const metric = EVALUATION_METRIC_REGISTRY[mutation.evaluation_metric];
+  if (!metric) {
+    reasons.push(`evaluation_metric ${mutation.evaluation_metric} is not registered`);
+  } else if (mutation.horizon !== metric.window || !target.allowedHorizons.has(mutation.horizon)) {
+    reasons.push(`${path}: horizon ${mutation.horizon} is not allowed for domain card`);
+  }
+  if (!target.allowedRollbackMetrics.has(mutation.rollback_condition.metric)) {
+    reasons.push(
+      `${path}: rollback_condition.metric ${mutation.rollback_condition.metric} is not allowed for domain card`,
+    );
+  }
+  const rollbackMetric = EVALUATION_METRIC_REGISTRY[mutation.rollback_condition.metric];
+  if (!rollbackMetric) {
+    reasons.push(
+      `rollback_condition.metric ${mutation.rollback_condition.metric} is not registered`,
+    );
+  } else if (mutation.rollback_condition.unit !== rollbackMetric.unit) {
+    reasons.push(
+      `${path}: rollback_condition.unit ${mutation.rollback_condition.unit} does not match rollback metric ${rollbackMetric.unit}`,
     );
   }
   return reasons;
