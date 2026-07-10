@@ -123,6 +123,11 @@ JSON_SCHEMA_TARGETS = (
         "registry/prompt_checks/runtime_agent_manifest_v1.json",
         "json",
     ),
+    (
+        "schemas/domain_knob_evaluation_contract_v1.schema.json",
+        "registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+        "json",
+    ),
 )
 
 

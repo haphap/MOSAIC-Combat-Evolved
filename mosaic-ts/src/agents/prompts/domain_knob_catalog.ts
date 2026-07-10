@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ResearchKnobs } from "../helpers/research_knobs.js";
 import type { Layer } from "./cohorts.js";
 import type { DomainKnobValueRegistry } from "./domain_knob_registry.js";
@@ -11,6 +12,7 @@ import {
 } from "./runtime_agent_spec.js";
 
 export const DOMAIN_KNOB_CATALOG_VERSION = "domain_knob_catalog_v1";
+export const DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION = "domain_knob_evaluation_contract_v1";
 
 export type CoverageLevel = "direct_tool" | "derived_proxy" | "runtime_state" | "gap_pending_tool";
 export const PROJECTION_BUCKETS = [
@@ -78,9 +80,32 @@ export interface EvaluationMetricRegistryEntry {
     | "rank_correlation";
   window: string;
   baseline: "previous_knob_snapshot" | "cohort_control" | "shadow_ab" | "rolling_window";
+  calculator_id: string;
+  calculator_version: string;
+  valid_range: {
+    minimum: number | null;
+    maximum: number | null;
+  };
+  null_policy: "exclude_sample" | "reject_evaluation";
+  non_finite_policy: "reject_evaluation";
+  normalization_version: string;
+  uncertainty_method: "paired_block_bootstrap" | "block_bootstrap" | "wilson_interval" | "fisher_z";
+  overlapping_sample_policy: "inverse_overlap_weight" | "purged_nonoverlap" | "not_applicable";
   min_sample_size: number;
   pit_required: boolean;
   exclusion_rules: string[];
+}
+
+export interface EvaluationCalculatorRegistryEntry {
+  id: string;
+  version: string;
+  implementation_language: "python";
+  implementation_ref: string;
+  input_schema_ref: string;
+  output_schema_ref: string;
+  deterministic: true;
+  pit_enforced: true;
+  supported_value_conventions: EvaluationMetricRegistryEntry["value_convention"][];
 }
 
 export interface DomainKnobCard {
@@ -155,7 +180,31 @@ export interface DomainKnobCatalogArtifact {
   runtime_agent_count: number;
   runtime_sources: Record<string, RuntimeSourceRegistryEntry>;
   evaluation_metrics: Record<string, EvaluationMetricRegistryEntry>;
+  evaluation_calculators: Record<string, EvaluationCalculatorRegistryEntry>;
   agents: DomainKnobCatalogAgent[];
+}
+
+export interface DomainKnobEvaluationContractArtifact {
+  schema_version: typeof DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION;
+  contract_version: typeof DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION;
+  catalog_version: typeof DOMAIN_KNOB_CATALOG_VERSION;
+  catalog_hash: string;
+  metric_registry_hash: string;
+  calculator_registry_hash: string;
+  contract_hash: string;
+  evaluation_metrics: Record<string, EvaluationMetricRegistryEntry>;
+  evaluation_calculators: Record<string, EvaluationCalculatorRegistryEntry>;
+  card_bindings: Array<{
+    path: string;
+    card_id: string;
+    owner_agent: string;
+    owner_stage: RuntimeAgentStageId;
+    prediction_target: string;
+    evaluation_metric: string;
+    secondary_metrics: string[];
+    horizon: string;
+    rollback_condition: DomainKnobCard["rollback_condition"];
+  }>;
 }
 
 interface DomainSeed {
@@ -407,77 +456,67 @@ const REQUIRED_EVALUATION_METRIC_EXCLUSION_RULES = [
   "incomplete_fill",
 ] as const;
 
+export const EVALUATION_CALCULATOR_REGISTRY: Record<string, EvaluationCalculatorRegistryEntry> = {
+  "pit.signed_return": calculator("pit.signed_return", "calculate_signed_return", [
+    "signed_return",
+  ]),
+  "pit.nonnegative_loss": calculator("pit.nonnegative_loss", "calculate_nonnegative_loss", [
+    "nonnegative_loss_magnitude",
+  ]),
+  "pit.rate": calculator("pit.rate", "calculate_rate", ["rate_0_1"]),
+  "pit.bps_cost": calculator("pit.bps_cost", "calculate_bps_cost", ["bps_cost"]),
+  "pit.rank_correlation": calculator("pit.rank_correlation", "calculate_rank_correlation", [
+    "score",
+  ]),
+  "pit.calibration_error": calculator("pit.calibration_error", "calculate_calibration_error", [
+    "rate_0_1",
+  ]),
+};
+
 export const EVALUATION_METRIC_REGISTRY: Record<string, EvaluationMetricRegistryEntry> = {
-  macro_signal_accuracy_5d: metric("macro_signal_accuracy_5d", "ratio", "maximize", "5d"),
-  sector_rank_correlation_20d: metric("sector_rank_correlation_20d", "ratio", "maximize", "20d"),
-  style_pick_alpha_60d: metric("style_pick_alpha_60d", "ratio", "maximize", "60d"),
-  portfolio_construction_quality_20d: metric(
+  macro_signal_accuracy_5d: rateMetric("macro_signal_accuracy_5d", "higher_is_better", "5d"),
+  sector_rank_correlation_20d: rankCorrelationMetric("sector_rank_correlation_20d", "20d"),
+  style_pick_alpha_60d: signedReturnMetric("style_pick_alpha_60d", "60d"),
+  portfolio_construction_quality_20d: signedReturnMetric(
     "portfolio_construction_quality_20d",
-    "ratio",
-    "maximize",
     "20d",
   ),
-  portfolio_risk_quality_20d: metric("portfolio_risk_quality_20d", "ratio", "maximize", "20d"),
-  alpha_discovery_quality_20d: metric("alpha_discovery_quality_20d", "ratio", "maximize", "20d"),
-  execution_quality_5d: metric("execution_quality_5d", "bps", "minimize", "5d"),
-  stale_thesis_review_alpha_20d: metric(
-    "stale_thesis_review_alpha_20d",
-    "ratio",
-    "maximize",
-    "20d",
-  ),
-  turnover_adjusted_alpha_20d: metric("turnover_adjusted_alpha_20d", "ratio", "maximize", "20d"),
-  incremental_alpha_after_add_20d: metric(
-    "incremental_alpha_after_add_20d",
-    "ratio",
-    "maximize",
-    "20d",
-  ),
-  max_drawdown_after_hold: metric("max_drawdown_after_hold", "ratio", "minimize", "20d"),
-  opportunity_cost_after_reduce: metric(
-    "opportunity_cost_after_reduce",
-    "ratio",
-    "minimize",
-    "20d",
-  ),
-  concentration_breach_rate: metric("concentration_breach_rate", "ratio", "minimize", "20d"),
-  sector_concentration_breach_rate: metric(
+  portfolio_risk_quality_20d: signedReturnMetric("portfolio_risk_quality_20d", "20d"),
+  alpha_discovery_quality_20d: signedReturnMetric("alpha_discovery_quality_20d", "20d"),
+  execution_quality_5d: bpsCostMetric("execution_quality_5d", "5d"),
+  stale_thesis_review_alpha_20d: signedReturnMetric("stale_thesis_review_alpha_20d", "20d"),
+  turnover_adjusted_alpha_20d: signedReturnMetric("turnover_adjusted_alpha_20d", "20d"),
+  incremental_alpha_after_add_20d: signedReturnMetric("incremental_alpha_after_add_20d", "20d"),
+  max_drawdown_after_hold: lossMetric("max_drawdown_after_hold", "20d", "max"),
+  opportunity_cost_after_reduce: lossMetric("opportunity_cost_after_reduce", "20d", "mean"),
+  concentration_breach_rate: rateMetric("concentration_breach_rate", "lower_is_better", "20d"),
+  sector_concentration_breach_rate: rateMetric(
     "sector_concentration_breach_rate",
-    "ratio",
-    "minimize",
+    "lower_is_better",
     "20d",
   ),
-  churn_adjusted_slippage: metric("churn_adjusted_slippage", "ratio", "minimize", "5d"),
-  realized_slippage_bps: metric("realized_slippage_bps", "bps", "minimize", "5d"),
-  failed_or_partial_fill_rate: metric("failed_or_partial_fill_rate", "ratio", "minimize", "5d"),
-  turnover_adjusted_slippage: metric("turnover_adjusted_slippage", "ratio", "minimize", "5d"),
-  drawdown_avoidance_after_tail_veto: metric(
+  churn_adjusted_slippage: lossMetric("churn_adjusted_slippage", "5d", "mean"),
+  realized_slippage_bps: bpsCostMetric("realized_slippage_bps", "5d"),
+  failed_or_partial_fill_rate: rateMetric("failed_or_partial_fill_rate", "lower_is_better", "5d"),
+  turnover_adjusted_slippage: lossMetric("turnover_adjusted_slippage", "5d", "mean"),
+  drawdown_avoidance_after_tail_veto: signedReturnMetric(
     "drawdown_avoidance_after_tail_veto",
-    "ratio",
-    "maximize",
     "20d",
   ),
-  tail_loss_after_hold: metric("tail_loss_after_hold", "ratio", "minimize", "20d"),
-  false_veto_adjusted_drawdown_avoidance: metric(
+  tail_loss_after_hold: lossMetric("tail_loss_after_hold", "20d", "max"),
+  false_veto_adjusted_drawdown_avoidance: signedReturnMetric(
     "false_veto_adjusted_drawdown_avoidance",
-    "ratio",
-    "maximize",
     "20d",
   ),
-  scenario_adjusted_slippage: metric("scenario_adjusted_slippage", "ratio", "minimize", "5d"),
-  tail_stress_drawdown_after_sizing: metric(
-    "tail_stress_drawdown_after_sizing",
-    "ratio",
-    "minimize",
-    "5d",
-  ),
-  stress_adjusted_alpha_20d: metric("stress_adjusted_alpha_20d", "ratio", "maximize", "20d"),
-  regret_after_exit: metric("regret_after_exit", "ratio", "minimize", "20d"),
-  override_realized_risk: metric("override_realized_risk", "ratio", "minimize", "20d"),
-  confidence_calibration_error: metric("confidence_calibration_error", "ratio", "minimize", "5d"),
-  fallback_rate: metric("fallback_rate", "ratio", "minimize", "5d"),
-  missing_rate: metric("missing_rate", "ratio", "minimize", "5d"),
-  hit_rate_5d: metric("hit_rate_5d", "ratio", "maximize", "5d"),
+  scenario_adjusted_slippage: lossMetric("scenario_adjusted_slippage", "5d", "mean"),
+  tail_stress_drawdown_after_sizing: lossMetric("tail_stress_drawdown_after_sizing", "5d", "max"),
+  stress_adjusted_alpha_20d: signedReturnMetric("stress_adjusted_alpha_20d", "20d"),
+  regret_after_exit: lossMetric("regret_after_exit", "20d", "mean"),
+  override_realized_risk: lossMetric("override_realized_risk", "20d", "max"),
+  confidence_calibration_error: calibrationErrorMetric("confidence_calibration_error", "5d"),
+  fallback_rate: rateMetric("fallback_rate", "lower_is_better", "5d"),
+  missing_rate: rateMetric("missing_rate", "lower_is_better", "5d"),
+  hit_rate_5d: rateMetric("hit_rate_5d", "higher_is_better", "5d"),
 };
 
 const TOOL_METRIC_OVERRIDES: Record<string, string[]> = {
@@ -928,6 +967,7 @@ export function buildDomainKnobCatalogArtifact(
     runtime_agent_count: specs.length,
     runtime_sources: sortObjectRecord(RUNTIME_SOURCE_REGISTRY),
     evaluation_metrics: sortObjectRecord(EVALUATION_METRIC_REGISTRY),
+    evaluation_calculators: sortObjectRecord(EVALUATION_CALCULATOR_REGISTRY),
     agents,
   };
 }
@@ -936,6 +976,112 @@ export function renderDomainKnobCatalogArtifact(
   artifact: DomainKnobCatalogArtifact = buildDomainKnobCatalogArtifact(),
 ): string {
   return `${JSON.stringify(canonicalDomainKnobCatalogArtifact(artifact), null, 2)}\n`;
+}
+
+export function buildDomainKnobEvaluationContractArtifact(
+  catalog: DomainKnobCatalogArtifact = buildDomainKnobCatalogArtifact(),
+): DomainKnobEvaluationContractArtifact {
+  const canonicalCatalog = canonicalDomainKnobCatalogArtifact(catalog);
+  const evaluationMetrics = sortObjectRecord(canonicalCatalog.evaluation_metrics);
+  const evaluationCalculators = sortObjectRecord(canonicalCatalog.evaluation_calculators);
+  const cardBindings = canonicalCatalog.agents
+    .flatMap((agent) =>
+      agent.cards.map((card) => ({
+        path: card.path,
+        card_id: card.id,
+        owner_agent: card.owner_agent,
+        owner_stage: card.owner_stage,
+        prediction_target: card.prediction_target,
+        evaluation_metric: card.evaluation_metric,
+        secondary_metrics: [...card.secondary_metrics].sort(),
+        horizon: card.horizon,
+        rollback_condition: card.rollback_condition,
+      })),
+    )
+    .sort((left, right) => left.path.localeCompare(right.path));
+  const contractWithoutHash: Omit<DomainKnobEvaluationContractArtifact, "contract_hash"> = {
+    schema_version: DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION,
+    contract_version: DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION,
+    catalog_version: DOMAIN_KNOB_CATALOG_VERSION,
+    catalog_hash: sha256Json(canonicalCatalog),
+    metric_registry_hash: sha256Json(evaluationMetrics),
+    calculator_registry_hash: sha256Json(evaluationCalculators),
+    evaluation_metrics: evaluationMetrics,
+    evaluation_calculators: evaluationCalculators,
+    card_bindings: cardBindings,
+  };
+  return {
+    ...contractWithoutHash,
+    contract_hash: sha256Json(contractWithoutHash),
+  };
+}
+
+export function renderDomainKnobEvaluationContractArtifact(
+  artifact: DomainKnobEvaluationContractArtifact = buildDomainKnobEvaluationContractArtifact(),
+): string {
+  return `${JSON.stringify(artifact, null, 2)}\n`;
+}
+
+export function validateDomainKnobEvaluationContractArtifact(
+  artifact: DomainKnobEvaluationContractArtifact,
+  catalog: DomainKnobCatalogArtifact = buildDomainKnobCatalogArtifact(),
+): string[] {
+  const reasons: string[] = [];
+  if (artifact.schema_version !== DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION) {
+    reasons.push(`evaluation_contract_schema_version_mismatch:${artifact.schema_version}`);
+  }
+  if (artifact.contract_version !== DOMAIN_KNOB_EVALUATION_CONTRACT_VERSION) {
+    reasons.push(`evaluation_contract_version_mismatch:${artifact.contract_version}`);
+  }
+  const { contract_hash: contractHash, ...contractPayload } = artifact;
+  if (contractHash !== sha256Json(contractPayload)) {
+    reasons.push("evaluation_contract_hash_mismatch:contract_hash");
+  }
+  const expected = buildDomainKnobEvaluationContractArtifact(catalog);
+  for (const field of [
+    "catalog_hash",
+    "metric_registry_hash",
+    "calculator_registry_hash",
+    "contract_hash",
+  ] as const) {
+    if (field !== "contract_hash" && artifact[field] !== expected[field]) {
+      reasons.push(`evaluation_contract_hash_mismatch:${field}`);
+    }
+  }
+  const expectedBindings = new Map(
+    expected.card_bindings.map((binding) => [binding.path, binding]),
+  );
+  const seenPaths = new Set<string>();
+  for (const binding of artifact.card_bindings) {
+    if (seenPaths.has(binding.path)) {
+      reasons.push(`evaluation_contract_duplicate_card_path:${binding.path}`);
+    }
+    seenPaths.add(binding.path);
+    const expectedBinding = expectedBindings.get(binding.path);
+    if (!expectedBinding || JSON.stringify(binding) !== JSON.stringify(expectedBinding)) {
+      reasons.push(`evaluation_contract_card_binding_mismatch:${binding.path}`);
+    }
+    const metric = artifact.evaluation_metrics[binding.evaluation_metric];
+    if (!metric) {
+      reasons.push(
+        `evaluation_contract_metric_missing:${binding.path}:${binding.evaluation_metric}`,
+      );
+      continue;
+    }
+    if (metric.window !== binding.horizon) {
+      reasons.push(`evaluation_contract_metric_window_mismatch:${binding.path}`);
+    }
+    const calculator = artifact.evaluation_calculators[metric.calculator_id];
+    if (!calculator || calculator.version !== metric.calculator_version) {
+      reasons.push(`evaluation_contract_calculator_binding_missing:${binding.path}`);
+    }
+  }
+  if (seenPaths.size !== expectedBindings.size) {
+    reasons.push(
+      `evaluation_contract_card_count_mismatch:${seenPaths.size}:expected:${expectedBindings.size}`,
+    );
+  }
+  return reasons;
 }
 
 export function validateDomainKnobCatalogArtifact(
@@ -969,6 +1115,14 @@ export function validateDomainKnobCatalogArtifact(
   }
   for (const [metricId, metricEntry] of Object.entries(artifact.evaluation_metrics)) {
     reasons.push(...validateEvaluationMetricEntry(metricId, metricEntry));
+  }
+  const expectedCalculators = Object.keys(EVALUATION_CALCULATOR_REGISTRY).sort();
+  const actualCalculators = Object.keys(artifact.evaluation_calculators).sort();
+  if (expectedCalculators.join(",") !== actualCalculators.join(",")) {
+    reasons.push("domain_catalog_evaluation_calculator_registry_mismatch");
+  }
+  for (const [calculatorId, calculatorEntry] of Object.entries(artifact.evaluation_calculators)) {
+    reasons.push(...validateEvaluationCalculatorEntry(calculatorId, calculatorEntry));
   }
   const agentsById = new Map(artifact.agents.map((agent) => [agent.agent, agent]));
   const seenPaths = new Set<string>();
@@ -1324,6 +1478,44 @@ function validateEvaluationMetricEntry(
   if (!metricEntry.window) {
     reasons.push(`domain_catalog_metric_window_missing:${metricId}`);
   }
+  const calculator = EVALUATION_CALCULATOR_REGISTRY[metricEntry.calculator_id];
+  if (!calculator) {
+    reasons.push(`domain_catalog_metric_calculator_unregistered:${metricId}`);
+  } else {
+    if (metricEntry.calculator_version !== calculator.version) {
+      reasons.push(`domain_catalog_metric_calculator_version_mismatch:${metricId}`);
+    }
+    if (!calculator.supported_value_conventions.includes(metricEntry.value_convention)) {
+      reasons.push(`domain_catalog_metric_calculator_convention_mismatch:${metricId}`);
+    }
+  }
+  const validRange = metricEntry.valid_range;
+  if (!validRange || typeof validRange !== "object") {
+    reasons.push(`domain_catalog_metric_valid_range_missing:${metricId}`);
+  } else {
+    const { minimum, maximum } = validRange;
+    if (minimum !== null && maximum !== null && minimum > maximum) {
+      reasons.push(`domain_catalog_metric_valid_range_invalid:${metricId}`);
+    }
+    if (metricEntry.value_convention === "rate_0_1" && (minimum !== 0 || maximum !== 1)) {
+      reasons.push(`domain_catalog_metric_rate_range_invalid:${metricId}`);
+    }
+  }
+  if (metricEntry.null_policy !== "exclude_sample") {
+    reasons.push(`domain_catalog_metric_null_policy_invalid:${metricId}`);
+  }
+  if (metricEntry.non_finite_policy !== "reject_evaluation") {
+    reasons.push(`domain_catalog_metric_non_finite_policy_invalid:${metricId}`);
+  }
+  if (!metricEntry.normalization_version) {
+    reasons.push(`domain_catalog_metric_normalization_version_missing:${metricId}`);
+  }
+  if (!metricEntry.uncertainty_method) {
+    reasons.push(`domain_catalog_metric_uncertainty_method_missing:${metricId}`);
+  }
+  if (!metricEntry.overlapping_sample_policy) {
+    reasons.push(`domain_catalog_metric_overlap_policy_missing:${metricId}`);
+  }
   if (!Number.isInteger(metricEntry.min_sample_size) || metricEntry.min_sample_size < 1) {
     reasons.push(`domain_catalog_metric_min_sample_size_invalid:${metricId}`);
   }
@@ -1349,6 +1541,31 @@ function validateEvaluationMetricEntry(
         metricEntry.value_convention === "bps_cost"));
   if (directionConventionMismatch) {
     reasons.push(`domain_catalog_metric_value_convention_incompatible:${metricId}`);
+  }
+  return reasons;
+}
+
+function validateEvaluationCalculatorEntry(
+  calculatorId: string,
+  calculator: EvaluationCalculatorRegistryEntry,
+): string[] {
+  const reasons: string[] = [];
+  if (calculator.id !== calculatorId) {
+    reasons.push(`domain_catalog_calculator_id_mismatch:${calculatorId}:${calculator.id}`);
+  }
+  if (!calculator.version)
+    reasons.push(`domain_catalog_calculator_version_missing:${calculatorId}`);
+  if (!calculator.implementation_ref.startsWith("mosaic.autoresearch.domain_metrics:")) {
+    reasons.push(`domain_catalog_calculator_implementation_invalid:${calculatorId}`);
+  }
+  if (calculator.deterministic !== true) {
+    reasons.push(`domain_catalog_calculator_not_deterministic:${calculatorId}`);
+  }
+  if (calculator.pit_enforced !== true) {
+    reasons.push(`domain_catalog_calculator_pit_not_enforced:${calculatorId}`);
+  }
+  if (calculator.supported_value_conventions.length === 0) {
+    reasons.push(`domain_catalog_calculator_conventions_missing:${calculatorId}`);
   }
   return reasons;
 }
@@ -1576,39 +1793,52 @@ function runtimeSource(
   };
 }
 
-function metric(
+function calculator(
   id: string,
-  unit: EvaluationMetricRegistryEntry["unit"],
-  direction: "maximize" | "minimize",
-  window: string,
-): EvaluationMetricRegistryEntry {
-  const higher = direction === "maximize";
+  implementation: string,
+  supportedValueConventions: EvaluationMetricRegistryEntry["value_convention"][],
+): EvaluationCalculatorRegistryEntry {
   return {
     id,
-    unit,
-    value_convention:
-      unit === "bps"
-        ? "bps_cost"
-        : id.includes("rate") || id.includes("calibration") || id.includes("accuracy")
-          ? "rate_0_1"
-          : higher
-            ? "signed_return"
-            : "nonnegative_loss_magnitude",
-    direction: higher ? "higher_is_better" : "lower_is_better",
-    aggregation: id.includes("calibration")
-      ? "calibration_error"
-      : id.includes("rank_correlation")
-        ? "rank_correlation"
-        : id.includes("rate") || id.includes("accuracy")
-          ? "hit_rate"
-          : id.includes("max_drawdown") ||
-              id.includes("tail_loss") ||
-              id.includes("tail_stress_drawdown") ||
-              id.includes("realized_risk")
-            ? "max"
-            : "mean",
-    window,
+    version: "1",
+    implementation_language: "python",
+    implementation_ref: `mosaic.autoresearch.domain_metrics:${implementation}`,
+    input_schema_ref: "autoresearch.domain_metric_sample.v1",
+    output_schema_ref: "autoresearch.domain_metric_result.v1",
+    deterministic: true,
+    pit_enforced: true,
+    supported_value_conventions: supportedValueConventions,
+  };
+}
+
+function metricEntry(opts: {
+  id: string;
+  unit: EvaluationMetricRegistryEntry["unit"];
+  valueConvention: EvaluationMetricRegistryEntry["value_convention"];
+  direction: EvaluationMetricRegistryEntry["direction"];
+  aggregation: EvaluationMetricRegistryEntry["aggregation"];
+  window: string;
+  calculatorId: string;
+  validRange: EvaluationMetricRegistryEntry["valid_range"];
+  uncertaintyMethod: EvaluationMetricRegistryEntry["uncertainty_method"];
+  overlappingSamplePolicy: EvaluationMetricRegistryEntry["overlapping_sample_policy"];
+}): EvaluationMetricRegistryEntry {
+  return {
+    id: opts.id,
+    unit: opts.unit,
+    value_convention: opts.valueConvention,
+    direction: opts.direction,
+    aggregation: opts.aggregation,
+    window: opts.window,
     baseline: "previous_knob_snapshot",
+    calculator_id: opts.calculatorId,
+    calculator_version: EVALUATION_CALCULATOR_REGISTRY[opts.calculatorId]?.version ?? "missing",
+    valid_range: opts.validRange,
+    null_policy: "exclude_sample",
+    non_finite_policy: "reject_evaluation",
+    normalization_version: "1",
+    uncertainty_method: opts.uncertaintyMethod,
+    overlapping_sample_policy: opts.overlappingSamplePolicy,
     min_sample_size: 30,
     pit_required: true,
     exclusion_rules: [
@@ -1617,6 +1847,104 @@ function metric(
       "fallback_dependency_without_policy_allowance",
     ],
   };
+}
+
+function signedReturnMetric(id: string, window: string): EvaluationMetricRegistryEntry {
+  return metricEntry({
+    id,
+    unit: "ratio",
+    valueConvention: "signed_return",
+    direction: "higher_is_better",
+    aggregation: "mean",
+    window,
+    calculatorId: "pit.signed_return",
+    validRange: { minimum: -1, maximum: null },
+    uncertaintyMethod: "paired_block_bootstrap",
+    overlappingSamplePolicy: "inverse_overlap_weight",
+  });
+}
+
+function lossMetric(
+  id: string,
+  window: string,
+  aggregation: "mean" | "max",
+): EvaluationMetricRegistryEntry {
+  return metricEntry({
+    id,
+    unit: "ratio",
+    valueConvention: "nonnegative_loss_magnitude",
+    direction: "lower_is_better",
+    aggregation,
+    window,
+    calculatorId: "pit.nonnegative_loss",
+    validRange: { minimum: 0, maximum: null },
+    uncertaintyMethod: "paired_block_bootstrap",
+    overlappingSamplePolicy: "inverse_overlap_weight",
+  });
+}
+
+function bpsCostMetric(id: string, window: string): EvaluationMetricRegistryEntry {
+  return metricEntry({
+    id,
+    unit: "bps",
+    valueConvention: "bps_cost",
+    direction: "lower_is_better",
+    aggregation: "mean",
+    window,
+    calculatorId: "pit.bps_cost",
+    validRange: { minimum: 0, maximum: null },
+    uncertaintyMethod: "paired_block_bootstrap",
+    overlappingSamplePolicy: "inverse_overlap_weight",
+  });
+}
+
+function rateMetric(
+  id: string,
+  direction: EvaluationMetricRegistryEntry["direction"],
+  window: string,
+): EvaluationMetricRegistryEntry {
+  return metricEntry({
+    id,
+    unit: "ratio",
+    valueConvention: "rate_0_1",
+    direction,
+    aggregation: "hit_rate",
+    window,
+    calculatorId: "pit.rate",
+    validRange: { minimum: 0, maximum: 1 },
+    uncertaintyMethod: "wilson_interval",
+    overlappingSamplePolicy: "inverse_overlap_weight",
+  });
+}
+
+function rankCorrelationMetric(id: string, window: string): EvaluationMetricRegistryEntry {
+  return metricEntry({
+    id,
+    unit: "ratio",
+    valueConvention: "score",
+    direction: "higher_is_better",
+    aggregation: "rank_correlation",
+    window,
+    calculatorId: "pit.rank_correlation",
+    validRange: { minimum: -1, maximum: 1 },
+    uncertaintyMethod: "fisher_z",
+    overlappingSamplePolicy: "inverse_overlap_weight",
+  });
+}
+
+function calibrationErrorMetric(id: string, window: string): EvaluationMetricRegistryEntry {
+  return metricEntry({
+    id,
+    unit: "ratio",
+    valueConvention: "rate_0_1",
+    direction: "lower_is_better",
+    aggregation: "calibration_error",
+    window,
+    calculatorId: "pit.calibration_error",
+    validRange: { minimum: 0, maximum: 1 },
+    uncertaintyMethod: "block_bootstrap",
+    overlappingSamplePolicy: "inverse_overlap_weight",
+  });
 }
 
 function bucketForId(id: string): ProjectionBucket {
@@ -2038,6 +2366,7 @@ function canonicalDomainKnobCatalogArtifact(
     runtime_agent_count: artifact.runtime_agent_count,
     runtime_sources: sortObjectRecord(artifact.runtime_sources),
     evaluation_metrics: sortObjectRecord(artifact.evaluation_metrics),
+    evaluation_calculators: sortObjectRecord(artifact.evaluation_calculators),
     agents: artifact.agents.map((agent) => ({
       layer: agent.layer,
       agent: agent.agent,
@@ -2100,4 +2429,8 @@ function sortObjectRecord<T>(record: Record<string, T>): Record<string, T> {
   return Object.fromEntries(
     Object.entries(record).sort(([left], [right]) => left.localeCompare(right)),
   );
+}
+
+function sha256Json(value: unknown): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 }

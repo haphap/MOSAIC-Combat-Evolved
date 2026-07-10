@@ -332,6 +332,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -352,6 +363,17 @@
       "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -372,6 +394,17 @@
       "aggregation": "hit_rate",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rate",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "wilson_interval",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -392,6 +425,17 @@
       "aggregation": "calibration_error",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.calibration_error",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -412,6 +456,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -432,6 +487,17 @@
       "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.bps_cost",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -452,6 +518,17 @@
       "aggregation": "hit_rate",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rate",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "wilson_interval",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -472,6 +549,17 @@
       "aggregation": "hit_rate",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rate",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "wilson_interval",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -492,6 +580,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -512,6 +611,17 @@
       "aggregation": "hit_rate",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rate",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "wilson_interval",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -532,6 +642,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -552,6 +673,17 @@
       "aggregation": "hit_rate",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rate",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "wilson_interval",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -572,6 +704,17 @@
       "aggregation": "max",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -592,6 +735,17 @@
       "aggregation": "hit_rate",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rate",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "wilson_interval",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -612,6 +766,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -632,6 +797,17 @@
       "aggregation": "max",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -652,6 +828,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -672,6 +859,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -692,6 +890,17 @@
       "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.bps_cost",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -712,6 +921,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -732,6 +952,17 @@
       "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -752,6 +983,17 @@
       "aggregation": "hit_rate",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rate",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "wilson_interval",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -767,11 +1009,22 @@
     "sector_rank_correlation_20d": {
       "id": "sector_rank_correlation_20d",
       "unit": "ratio",
-      "value_convention": "signed_return",
+      "value_convention": "score",
       "direction": "higher_is_better",
       "aggregation": "rank_correlation",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.rank_correlation",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": 1
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "fisher_z",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -792,6 +1045,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -812,6 +1076,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -832,6 +1107,17 @@
       "aggregation": "mean",
       "window": "60d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -852,6 +1138,17 @@
       "aggregation": "max",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -872,6 +1169,17 @@
       "aggregation": "max",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -892,6 +1200,17 @@
       "aggregation": "mean",
       "window": "20d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.signed_return",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": -1,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -912,6 +1231,17 @@
       "aggregation": "mean",
       "window": "5d",
       "baseline": "previous_knob_snapshot",
+      "calculator_id": "pit.nonnegative_loss",
+      "calculator_version": "1",
+      "valid_range": {
+        "minimum": 0,
+        "maximum": null
+      },
+      "null_policy": "exclude_sample",
+      "non_finite_policy": "reject_evaluation",
+      "normalization_version": "1",
+      "uncertainty_method": "paired_block_bootstrap",
+      "overlapping_sample_policy": "inverse_overlap_weight",
       "min_sample_size": 30,
       "pit_required": true,
       "exclusion_rules": [
@@ -922,6 +1252,86 @@
         "incomplete_fill",
         "missing_required_evidence_dependency",
         "fallback_dependency_without_policy_allowance"
+      ]
+    }
+  },
+  "evaluation_calculators": {
+    "pit.bps_cost": {
+      "id": "pit.bps_cost",
+      "version": "1",
+      "implementation_language": "python",
+      "implementation_ref": "mosaic.autoresearch.domain_metrics:calculate_bps_cost",
+      "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+      "output_schema_ref": "autoresearch.domain_metric_result.v1",
+      "deterministic": true,
+      "pit_enforced": true,
+      "supported_value_conventions": [
+        "bps_cost"
+      ]
+    },
+    "pit.calibration_error": {
+      "id": "pit.calibration_error",
+      "version": "1",
+      "implementation_language": "python",
+      "implementation_ref": "mosaic.autoresearch.domain_metrics:calculate_calibration_error",
+      "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+      "output_schema_ref": "autoresearch.domain_metric_result.v1",
+      "deterministic": true,
+      "pit_enforced": true,
+      "supported_value_conventions": [
+        "rate_0_1"
+      ]
+    },
+    "pit.nonnegative_loss": {
+      "id": "pit.nonnegative_loss",
+      "version": "1",
+      "implementation_language": "python",
+      "implementation_ref": "mosaic.autoresearch.domain_metrics:calculate_nonnegative_loss",
+      "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+      "output_schema_ref": "autoresearch.domain_metric_result.v1",
+      "deterministic": true,
+      "pit_enforced": true,
+      "supported_value_conventions": [
+        "nonnegative_loss_magnitude"
+      ]
+    },
+    "pit.rank_correlation": {
+      "id": "pit.rank_correlation",
+      "version": "1",
+      "implementation_language": "python",
+      "implementation_ref": "mosaic.autoresearch.domain_metrics:calculate_rank_correlation",
+      "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+      "output_schema_ref": "autoresearch.domain_metric_result.v1",
+      "deterministic": true,
+      "pit_enforced": true,
+      "supported_value_conventions": [
+        "score"
+      ]
+    },
+    "pit.rate": {
+      "id": "pit.rate",
+      "version": "1",
+      "implementation_language": "python",
+      "implementation_ref": "mosaic.autoresearch.domain_metrics:calculate_rate",
+      "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+      "output_schema_ref": "autoresearch.domain_metric_result.v1",
+      "deterministic": true,
+      "pit_enforced": true,
+      "supported_value_conventions": [
+        "rate_0_1"
+      ]
+    },
+    "pit.signed_return": {
+      "id": "pit.signed_return",
+      "version": "1",
+      "implementation_language": "python",
+      "implementation_ref": "mosaic.autoresearch.domain_metrics:calculate_signed_return",
+      "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+      "output_schema_ref": "autoresearch.domain_metric_result.v1",
+      "deterministic": true,
+      "pit_enforced": true,
+      "supported_value_conventions": [
+        "signed_return"
       ]
     }
   },

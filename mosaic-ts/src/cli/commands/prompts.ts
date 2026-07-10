@@ -14,8 +14,11 @@ import { parseResearchKnobsPrompt } from "../../agents/helpers/research_knobs.js
 import { promptPath } from "../../agents/prompts/cohorts.js";
 import {
   buildDomainKnobCatalogArtifact,
+  buildDomainKnobEvaluationContractArtifact,
   renderDomainKnobCatalogArtifact,
+  renderDomainKnobEvaluationContractArtifact,
   validateDomainKnobCatalogArtifact,
+  validateDomainKnobEvaluationContractArtifact,
 } from "../../agents/prompts/domain_knob_catalog.js";
 import {
   buildDomainKnobValueRegistry,
@@ -268,6 +271,32 @@ export function registerPrompts(program: Command): void {
         console.log(rendered.trimEnd());
       } else {
         console.log(`runtime_agent_manifest: ${redactSensitiveText(opts.out).slice(0, 220)}`);
+      }
+    });
+
+  prompts
+    .command("export-domain-knob-evaluation-contract")
+    .description("Render the language-neutral domain knob evaluation contract.")
+    .option("--out <path>", "Write evaluation contract JSON to a file")
+    .option("--json", "Print evaluation contract JSON to stdout")
+    .action(async (opts: ExportDomainKnobCatalogOpts) => {
+      const catalog = buildDomainKnobCatalogArtifact();
+      const artifact = buildDomainKnobEvaluationContractArtifact(catalog);
+      const reasons = validateDomainKnobEvaluationContractArtifact(artifact, catalog);
+      if (reasons.length > 0) {
+        throw new Error(`domain knob evaluation contract failed self-check: ${reasons.join("; ")}`);
+      }
+      const rendered = renderDomainKnobEvaluationContractArtifact(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        console.log(
+          `domain_knob_evaluation_contract: ${redactSensitiveText(opts.out).slice(0, 220)}`,
+        );
       }
     });
 

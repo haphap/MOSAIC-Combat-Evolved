@@ -6,14 +6,17 @@ import type { ResearchKnobs } from "../src/agents/helpers/research_knobs.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import {
   buildDomainKnobCatalogArtifact,
+  buildDomainKnobEvaluationContractArtifact,
   DOMAIN_KNOB_CATALOG_VERSION,
   type DomainKnobCard,
   domainKnobCardsForSpec,
+  EVALUATION_CALCULATOR_REGISTRY,
   EVALUATION_METRIC_REGISTRY,
   minDomainTargetCount,
   PROJECTION_BUCKETS,
   RUNTIME_SOURCE_REGISTRY,
   validateDomainKnobCatalogArtifact,
+  validateDomainKnobEvaluationContractArtifact,
 } from "../src/agents/prompts/domain_knob_catalog.js";
 import {
   buildDomainKnobValueRegistry,
@@ -430,7 +433,15 @@ describe("checkResearchKnobsPrompts", () => {
     expect(Object.keys(artifact.evaluation_metrics)).toEqual(
       Object.keys(EVALUATION_METRIC_REGISTRY).sort(),
     );
+    expect(Object.keys(artifact.evaluation_calculators)).toEqual(
+      Object.keys(EVALUATION_CALCULATOR_REGISTRY).sort(),
+    );
     for (const metric of Object.values(artifact.evaluation_metrics)) {
+      expect(artifact.evaluation_calculators[metric.calculator_id]?.version).toBe(
+        metric.calculator_version,
+      );
+      expect(metric.valid_range).toBeDefined();
+      expect(metric.non_finite_policy).toBe("reject_evaluation");
       if (metric.direction === "lower_is_better") {
         expect(metric.value_convention).not.toBe("signed_return");
       }
@@ -633,6 +644,36 @@ describe("checkResearchKnobsPrompts", () => {
     windowCard.secondary_metrics = ["hit_rate_5d"];
     expect(validateDomainKnobCatalogArtifact(wrongWindowMetric)).toContain(
       "domain_card_secondary_metric_window_mismatch:inventory_cycle_quarters:hit_rate_5d:5d:expected:20d",
+    );
+  });
+
+  it("generates a hash-closed language-neutral evaluation contract", () => {
+    const catalog = buildDomainKnobCatalogArtifact();
+    const contract = buildDomainKnobEvaluationContractArtifact(catalog);
+
+    expect(validateDomainKnobEvaluationContractArtifact(contract, catalog)).toEqual([]);
+    expect(contract.contract_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(contract.catalog_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(contract.card_bindings).toHaveLength(
+      catalog.agents.reduce((count, agent) => count + agent.cards.length, 0),
+    );
+    expect(contract.card_bindings.find((binding) => binding.card_id === "stop_loss_pct")).toEqual(
+      expect.objectContaining({
+        owner_stage: "cro_review",
+        evaluation_metric: "max_drawdown_after_hold",
+      }),
+    );
+
+    const tampered = structuredClone(contract);
+    tampered.card_bindings[0] = {
+      ...(tampered.card_bindings[0] as (typeof tampered.card_bindings)[number]),
+      evaluation_metric: "missing_metric",
+    };
+    expect(validateDomainKnobEvaluationContractArtifact(tampered, catalog)).toEqual(
+      expect.arrayContaining([
+        "evaluation_contract_hash_mismatch:contract_hash",
+        `evaluation_contract_card_binding_mismatch:${tampered.card_bindings[0]?.path}`,
+      ]),
     );
   });
 

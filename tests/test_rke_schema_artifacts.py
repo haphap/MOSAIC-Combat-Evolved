@@ -44,6 +44,7 @@ REQUIRED_SCHEMA_FILES = {
     "prompt_ir_runtime_contract_v1.schema.json",
     "domain_knob_catalog_v1.schema.json",
     "runtime_agent_manifest_v1.schema.json",
+    "domain_knob_evaluation_contract_v1.schema.json",
     "domain_knob_values_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
@@ -6863,9 +6864,32 @@ def _domain_knob_catalog_fixture() -> dict:
                 "aggregation": "mean",
                 "window": "20d",
                 "baseline": "previous_knob_snapshot",
+                "calculator_id": "pit.rank_correlation",
+                "calculator_version": "1",
+                "valid_range": {"minimum": -1, "maximum": 1},
+                "null_policy": "exclude_sample",
+                "non_finite_policy": "reject_evaluation",
+                "normalization_version": "1",
+                "uncertainty_method": "fisher_z",
+                "overlapping_sample_policy": "inverse_overlap_weight",
                 "min_sample_size": 30,
                 "pit_required": True,
                 "exclusion_rules": ["missing_required_evidence_dependency"],
+            }
+        },
+        "evaluation_calculators": {
+            "pit.rank_correlation": {
+                "id": "pit.rank_correlation",
+                "version": "1",
+                "implementation_language": "python",
+                "implementation_ref": (
+                    "mosaic.autoresearch.domain_metrics:calculate_rank_correlation"
+                ),
+                "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+                "output_schema_ref": "autoresearch.domain_metric_result.v1",
+                "deterministic": True,
+                "pit_enforced": True,
+                "supported_value_conventions": ["score"],
             }
         },
         "agents": [
@@ -7013,6 +7037,56 @@ def test_domain_knob_catalog_schema_requires_secondary_metrics(tmp_path: Path):
 
     assert not record.accepted
     assert any(".secondary_metrics: required" in failure for failure in record.failures)
+
+
+def _write_domain_knob_evaluation_contract_fixture(
+    tmp_path: Path, contract: dict
+) -> SchemaValidationRecord:
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/domain_knob_evaluation_contract_v1.schema.json",
+        schema_dir / "domain_knob_evaluation_contract_v1.schema.json",
+    )
+    (artifact_dir / "domain_knob_evaluation_contract_v1.json").write_text(
+        json.dumps(contract, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/domain_knob_evaluation_contract_v1.schema.json",
+        artifact_path="registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+        artifact_kind="json",
+    )
+
+
+def test_domain_knob_evaluation_contract_schema_accepts_generated_contract(tmp_path: Path):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_domain_knob_evaluation_contract_schema_requires_contract_hash(tmp_path: Path):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    del contract["contract_hash"]
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".contract_hash: required" in failure for failure in record.failures)
 
 
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):
