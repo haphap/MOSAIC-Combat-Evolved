@@ -42,7 +42,7 @@ function buildProposalUserContext(state: DailyCycleStateType): string {
     `${renderJanusRegimeStub()}\n\n` +
     `Build the candidate target portfolio before CRO and execution review. Include every current ` +
     `position with a HOLD, ADD, REDUCE, or EXIT decision and consider alpha_discovery's novel picks. ` +
-    `target_weight should sum to 1.0 ± 0.05 unless intentionally holding cash ` +
+    `target_weight must not exceed 1.0; a lower sum is intentional cash ` +
     `(BEARISH regime + low confidence is the legitimate cash-holding case).`
   );
 }

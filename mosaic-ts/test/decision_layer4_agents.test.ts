@@ -289,7 +289,7 @@ describe("schemas reject malformations", () => {
     ).toThrow(/structured execution check/);
   });
 
-  it("cio rejects target_weight sum > 1.05", () => {
+  it("cio rejects target_weight sum above 1.0 plus epsilon", () => {
     expect(() =>
       cioSpec.schema.parse({
         agent: "cio",
@@ -817,6 +817,30 @@ describe("Layer-4 runtime source envelopes", () => {
 });
 
 describe("CIO position validator", () => {
+  it("rejects duplicate tickers before portfolio arithmetic", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "HOLD",
+            target_weight: 0.1,
+            holding_period: "1M",
+            dissent_notes: "",
+          },
+          {
+            ticker: "600519.SH",
+            action: "HOLD",
+            target_weight: 0.1,
+            holding_period: "1M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([heldPosition]),
+      }),
+    ).toThrow(/duplicate portfolio action ticker/);
+  });
+
   it("does not count runtime fallback HOLDs as model-reviewed positions", () => {
     const result = validateCioPositionActions({
       output: cioOutput([
@@ -1242,7 +1266,9 @@ describe("CIO position validator", () => {
         {
           ticker: "600519.SH",
           action: "BUY",
+          current_weight: 0.9,
           target_weight: 0.27,
+          delta_weight: -0.63,
           holding_period: "6M",
           position_decision_reason: "increase high-conviction intact thesis",
           dissent_notes: "",
@@ -1263,6 +1289,12 @@ describe("CIO position validator", () => {
     });
     expect(result.position_audit.add_count).toBe(1);
     expect(result.position_audit.target_current_drift_count).toBe(1);
+    expect(result.position_audit).toMatchObject({
+      runtime_safety_hold_count: 0,
+      cash_weight: 0.73,
+      gross_exposure: 0.27,
+      net_exposure: 0.27,
+    });
   });
 
   it("marks stale thesis holdings with an explicit review flag and reason", () => {

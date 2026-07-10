@@ -325,16 +325,16 @@ function validateCioWeights(
   ctx: z.RefinementCtx,
 ): void {
   const total = val.portfolio_actions.reduce((sum, action) => sum + action.target_weight, 0);
-  if (total > 1.05) {
+  if (total > 1 + 1e-6) {
     ctx.addIssue({
       code: "custom",
-      message: `portfolio_actions target_weight sum ${total.toFixed(3)} exceeds 1.05; reduce allocations.`,
+      message: `portfolio_actions target_weight sum ${total.toFixed(6)} exceeds 1.0 + epsilon; reduce allocations.`,
     });
   }
 }
 
 export const CioSchema = CIO_BASE_SCHEMA.superRefine(validateCioWeights).describe(
-  "Layer-4 CIO final decision. portfolio_actions weights should sum to 1.0 ± 0.05 unless " +
+  "Layer-4 CIO final decision. portfolio_actions weights must not exceed 1.0 + 1e-6; " +
     "the CIO is intentionally holding cash (acceptable when regime BEARISH + low confidence).",
 );
 

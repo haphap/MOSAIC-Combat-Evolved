@@ -40,6 +40,7 @@ export function validateCioPositionActions(opts: {
       "RKE/MiroFish prior-only influence cannot emit portfolio_actions without current data support",
     );
   }
+  assertUniqueActionTickers(output.portfolio_actions);
   const stopLossPct = thresholdNumber(knobSnapshot, sharedPolicyValues, "stop_loss_pct", -0.08);
   const maxSingleNameWeight = thresholdNumber(
     knobSnapshot,
@@ -112,9 +113,9 @@ export function validateCioPositionActions(opts: {
     }
   }
   const totalWeight = actions.reduce((sum, action) => sum + action.target_weight, 0);
-  if (totalWeight > 1.05) {
+  if (totalWeight > 1 + 1e-6) {
     throw new PositionActionValidationError(
-      `portfolio_actions target_weight sum ${totalWeight.toFixed(3)} exceeds 1.05`,
+      `portfolio_actions target_weight sum ${totalWeight.toFixed(6)} exceeds 1.0 + epsilon`,
     );
   }
   return {
@@ -195,10 +196,9 @@ function normalizeAction(
 ): PortfolioAction {
   const position = currentPositions.positions.find((item) => item.ticker === action.ticker);
   const sector = nonEmptyText(action.sector) ?? nonEmptyText(position?.sector);
-  const currentWeight = action.current_weight ?? position?.current_weight;
+  const currentWeight = position?.current_weight ?? action.current_weight;
   const deltaWeight =
-    action.delta_weight ??
-    (currentWeight === undefined ? undefined : action.target_weight - currentWeight);
+    currentWeight === undefined ? action.delta_weight : action.target_weight - currentWeight;
   const positionDecision = action.position_decision ?? inferPositionDecision(action, currentWeight);
   const staleThesis = position ? position.holding_days > staleThesisDays : false;
   const stopLossBreached = position
@@ -226,6 +226,18 @@ function normalizeAction(
     risk_flags: riskFlags,
     position_decision_reason: positionDecisionReason,
   };
+}
+
+function assertUniqueActionTickers(actions: ReadonlyArray<PortfolioAction>): void {
+  const seen = new Set<string>();
+  for (const action of actions) {
+    if (seen.has(action.ticker)) {
+      throw new PositionActionValidationError(
+        `duplicate portfolio action ticker: ${action.ticker}`,
+      );
+    }
+    seen.add(action.ticker);
+  }
 }
 
 function assertSectorConcentration(
@@ -448,6 +460,7 @@ function buildPositionAudit(opts: {
       Boolean(action.override_reason)
     );
   }).length;
+  const grossExposure = opts.actions.reduce((sum, action) => sum + action.target_weight, 0);
   return {
     position_snapshot_hash: opts.currentPositions.position_snapshot_hash ?? null,
     snapshot_status: opts.currentPositions.snapshot_status,
@@ -459,6 +472,12 @@ function buildPositionAudit(opts: {
     positions_unreviewed: opts.currentPositions.positions.filter(
       (position) => !reviewed.has(position.ticker),
     ).length,
+    runtime_safety_hold_count: opts.actions.filter(
+      (action) => action.review_source === "runtime_safety_fallback",
+    ).length,
+    cash_weight: Math.max(0, 1 - grossExposure),
+    gross_exposure: grossExposure,
+    net_exposure: grossExposure,
     hold_count: modelReviews.filter((review) => review.decision === "HOLD").length,
     add_count: modelReviews.filter((review) => review.decision === "ADD").length,
     reduce_count: modelReviews.filter((review) => review.decision === "REDUCE").length,

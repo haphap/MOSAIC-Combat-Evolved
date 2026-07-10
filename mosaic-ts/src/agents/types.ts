@@ -573,6 +573,10 @@ export interface PositionAudit {
   positions_loaded: number;
   positions_reviewed: number;
   positions_unreviewed: number;
+  runtime_safety_hold_count?: number | undefined;
+  cash_weight?: number | undefined;
+  gross_exposure?: number | undefined;
+  net_exposure?: number | undefined;
   hold_count: number;
   add_count: number;
   reduce_count: number;
