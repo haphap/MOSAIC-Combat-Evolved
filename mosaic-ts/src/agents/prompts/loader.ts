@@ -62,12 +62,14 @@ interface LoadOptions {
 
 const cache = new Map<string, string>();
 const knobsCache = new Map<string, LoadPromptWithKnobsResult>();
+const knobsSourceCache = new Map<string, ParsedPromptPair>();
 
 /** Drop the in-memory prompt cache. Used by tests and after autoresearch
  *  mutation rewrites prompt files on disk. */
 export function clearPromptCache(): void {
   cache.clear();
   knobsCache.clear();
+  knobsSourceCache.clear();
 }
 
 /** Read one prompt file (no fallback merging here — done by ``loadPrompt``
@@ -164,6 +166,12 @@ export interface LoadPromptWithKnobsResult {
   };
 }
 
+interface ParsedPromptPair {
+  zhParsed: ReturnType<typeof parseResearchKnobsPrompt>;
+  enParsed: ReturnType<typeof parseResearchKnobsPrompt>;
+  paths: { zh: string; en: string };
+}
+
 /**
  * Load zh/en prompt pair with a required research-knobs projection.
  *
@@ -194,19 +202,7 @@ export async function loadPromptWithKnobs(
     if (cached !== undefined) return cached;
   }
 
-  const [zh, en] = await Promise.all([
-    readSingle({ ...opts, language: "zh" }),
-    readSingle({ ...opts, language: "en" }),
-  ]);
-  if (zh.text === null || en.text === null) {
-    throw new PromptNotFoundError(opts.agent, opts.cohort, "Bilingual", [
-      ...(zh.text === null ? zh.triedPaths : []),
-      ...(en.text === null ? en.triedPaths : []),
-    ]);
-  }
-
-  const zhParsed = parseResearchKnobsPrompt(zh.text);
-  const enParsed = parseResearchKnobsPrompt(en.text);
+  const { zhParsed, enParsed, paths } = await loadParsedPromptPair(opts, privateRoot);
   assertResearchKnobsParity(zhParsed.knobs, enParsed.knobs);
   const snapshot = buildResearchKnobsSnapshot({
     agent: opts.agent,
@@ -221,9 +217,43 @@ export async function loadPromptWithKnobs(
   const result = {
     prompt,
     snapshot,
-    paths: { zh: zh.path, en: en.path },
+    paths,
     bodies: { zh: zhParsed.body, en: enParsed.body },
   };
   if (!opts.noCache) knobsCache.set(cacheKey, result);
+  return result;
+}
+
+async function loadParsedPromptPair(
+  opts: Omit<LoadOptions, "language">,
+  privateRoot: string,
+): Promise<ParsedPromptPair> {
+  const sourceCacheKey = [
+    opts.promptsRoot ?? "",
+    privateRoot,
+    opts.cohort,
+    opts.agent,
+    "ResearchKnobsSource",
+  ].join("|");
+  if (!opts.noCache) {
+    const cached = knobsSourceCache.get(sourceCacheKey);
+    if (cached) return cached;
+  }
+  const [zh, en] = await Promise.all([
+    readSingle({ ...opts, language: "zh" }),
+    readSingle({ ...opts, language: "en" }),
+  ]);
+  if (zh.text === null || en.text === null) {
+    throw new PromptNotFoundError(opts.agent, opts.cohort, "Bilingual", [
+      ...(zh.text === null ? zh.triedPaths : []),
+      ...(en.text === null ? en.triedPaths : []),
+    ]);
+  }
+  const result = {
+    zhParsed: parseResearchKnobsPrompt(zh.text),
+    enParsed: parseResearchKnobsPrompt(en.text),
+    paths: { zh: zh.path, en: en.path },
+  };
+  if (!opts.noCache) knobsSourceCache.set(sourceCacheKey, result);
   return result;
 }

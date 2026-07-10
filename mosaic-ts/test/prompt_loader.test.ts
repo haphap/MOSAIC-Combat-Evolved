@@ -580,6 +580,56 @@ describe("loadPrompt", () => {
     expect(out.snapshot.hash).toMatch(/^sha256:/);
   });
 
+  it("freezes the parsed prompt pair across stage-specific snapshot builds", async () => {
+    for (const language of ["zh", "en"] as const) {
+      fake.putPrompt({
+        cohort: "cohort_default",
+        layer: "macro",
+        agent: "central_bank",
+        language,
+        body: `${researchKnobsFence()}\n\n${language.toUpperCase()} source-v1`,
+      });
+    }
+    const first = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      promptsRoot: fake.root,
+    });
+
+    for (const language of ["zh", "en"] as const) {
+      fake.putPrompt({
+        cohort: "cohort_default",
+        layer: "macro",
+        agent: "central_bank",
+        language,
+        body: `${researchKnobsFence()}\n\n${language.toUpperCase()} source-v2`,
+      });
+    }
+    const sameRun = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      promptsRoot: fake.root,
+      runtimeSourceStatuses: [
+        { source_id: "current_market_data", scope: "ticker:test", status: "missing" },
+      ],
+    });
+
+    expect(first.prompt).toContain("source-v1");
+    expect(sameRun.prompt).toContain("source-v1");
+    expect(sameRun.prompt).not.toContain("source-v2");
+
+    clearPromptCache();
+    const nextRun = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      promptsRoot: fake.root,
+    });
+    expect(nextRun.prompt).toContain("source-v2");
+  });
+
   it("loadPromptWithKnobs fails closed when one language is missing", async () => {
     fake.putPrompt({
       cohort: "cohort_default",
