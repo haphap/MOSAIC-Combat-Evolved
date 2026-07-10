@@ -59,6 +59,7 @@ REQUIRED_SCHEMA_FILES = {
     "prompt_governance_values_v1.schema.json",
     "prompt_release_canary_event_v1.schema.json",
     "prompt_release_canary_slo_v1.schema.json",
+    "prompt_token_budget_manifest_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
     "report_intelligence_feature_flags.schema.json",
@@ -7271,6 +7272,83 @@ def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path
     assert transaction_record.accepted
     assert recovery_record.accepted
     assert release_record.accepted
+
+
+def test_prompt_token_budget_manifest_schema_accepts_machine_budget(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_token_budget_manifest_v1.schema.json",
+        schema_dir / "prompt_token_budget_manifest_v1.schema.json",
+    )
+    digest = f"sha256:{'1' * 64}"
+    artifact = {
+        "schema_version": "prompt_token_budget_manifest_v1",
+        "generator_id": "prompt_token_budget",
+        "generator_version": "1",
+        "generated_at": "2026-07-10T00:00:00Z",
+        "cohort": "cohort_default",
+        "tokenizer": {
+            "id": "cl100k_base",
+            "package": "js-tiktoken",
+            "version": "1.0.21",
+        },
+        "context_window_tokens": 131072,
+        "visible_contract_cap_tokens": 8192,
+        "system_prompt_cap_tokens": 32768,
+        "min_reserved_context_ratio": 0.5,
+        "max_baseline_growth_ratio": 1.25,
+        "runtime_manifest_hash": digest,
+        "source_commits": {"private": "a" * 40, "bundled": "b" * 40},
+        "baseline_manifest_hash": None,
+        "rows": [
+            {
+                "source": "private",
+                "agent": "central_bank",
+                "stage": "agent_run",
+                "language": "zh",
+                "source_path": "cohort_default/macro/central_bank.zh.md",
+                "source_sha256": digest,
+                "source_bytes": 1000,
+                "parsed_projection_bytes": 500,
+                "visible_contract_tokens": 100,
+                "final_system_prompt_tokens": 200,
+                "reserved_context_tokens": 130872,
+                "baseline_final_system_prompt_tokens": None,
+                "baseline_growth_ratio": None,
+                "checks": {
+                    "visible_contract_within_cap": True,
+                    "system_prompt_within_cap": True,
+                    "reserved_context_within_floor": True,
+                    "baseline_growth_within_limit": True,
+                },
+                "passed": True,
+            }
+        ],
+        "summary": {
+            "expected_row_count": 104,
+            "row_count": 1,
+            "passed_row_count": 1,
+            "failed_row_count": 0,
+            "semantic_parity_passed": True,
+            "ready": False,
+        },
+        "manifest_hash": digest,
+    }
+    (artifact_dir / "prompt_token_budget_manifest_v1.json").write_text(
+        json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_token_budget_manifest_v1.schema.json",
+        artifact_path="registry/prompt_checks/prompt_token_budget_manifest_v1.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
 
 
 def _domain_knob_catalog_fixture() -> dict:

@@ -6,12 +6,17 @@
  * them under the project `prompts/mosaic/**` tree.
  */
 
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
 import { parseResearchKnobsPrompt } from "../../agents/helpers/research_knobs.js";
-import { promptPath } from "../../agents/prompts/cohorts.js";
+import {
+  findBundledPromptsRoot,
+  findPrivatePromptsRoot,
+  promptPath,
+} from "../../agents/prompts/cohorts.js";
 import {
   buildDomainKnobCatalogArtifact,
   buildDomainKnobEvaluationContractArtifact,
@@ -47,6 +52,11 @@ import {
   validatePromptIrContractForSpec,
   writePromptIrContractFile,
 } from "../../agents/prompts/prompt_ir_registry.js";
+import {
+  buildPromptTokenBudgetManifest,
+  PromptTokenBudgetManifestSchema,
+  renderPromptTokenBudgetManifest,
+} from "../../agents/prompts/prompt_token_budget.js";
 import { checkResearchKnobsPrompts } from "../../agents/prompts/research_knobs_checker.js";
 import {
   buildRuntimeResearchKnobs,
@@ -122,6 +132,18 @@ interface DryRunKnobPatchOpts {
 }
 
 interface ExportDomainKnobCatalogOpts {
+  out?: string;
+  json?: boolean;
+}
+
+interface PromptTokenBudgetOpts {
+  cohort?: string;
+  privatePromptsRoot?: string;
+  privateCommit?: string;
+  bundledCommit?: string;
+  contextWindow?: string;
+  baseline?: string;
+  generatedAt?: string;
   out?: string;
   json?: boolean;
 }
@@ -312,6 +334,63 @@ export function registerPrompts(program: Command): void {
           `domain_knob_evaluation_contract: ${redactSensitiveText(opts.out).slice(0, 220)}`,
         );
       }
+    });
+
+  prompts
+    .command("prompt-token-budget")
+    .description("Measure private and bundled runtime prompts against the token budget.")
+    .option("--cohort <name>", "Cohort to measure (default cohort_default)")
+    .option("--private-prompts-root <path>", "Private prompts/mosaic root")
+    .option("--private-commit <ref>", "Exact private prompt commit (default private HEAD)")
+    .option("--bundled-commit <ref>", "Exact project code commit (default project HEAD)")
+    .option("--context-window <tokens>", "Configured model context window (default 131072)")
+    .option("--baseline <path>", "Committed budget manifest used for the 1.25x growth gate")
+    .option("--generated-at <iso>", "Deterministic generation timestamp")
+    .option("--out <path>", "Write the measured manifest")
+    .option("--json", "Print the full manifest")
+    .action(async (opts: PromptTokenBudgetOpts) => {
+      const privatePromptsRoot = opts.privatePromptsRoot ?? findPrivatePromptsRoot();
+      if (!privatePromptsRoot) {
+        throw new Error(
+          "prompt-token-budget requires --private-prompts-root or MOSAIC_PROMPTS_REPO",
+        );
+      }
+      const bundledPromptsRoot = findBundledPromptsRoot();
+      const baseline = opts.baseline
+        ? PromptTokenBudgetManifestSchema.parse(JSON.parse(await readFile(opts.baseline, "utf-8")))
+        : null;
+      const artifact = await buildPromptTokenBudgetManifest({
+        cohort: opts.cohort ?? "cohort_default",
+        privatePromptsRoot,
+        bundledPromptsRoot,
+        privateCommit: opts.privateCommit ?? gitHead(privatePromptsRoot),
+        bundledCommit: opts.bundledCommit ?? gitHead(bundledPromptsRoot),
+        generatedAt: opts.generatedAt ?? new Date().toISOString(),
+        ...(opts.contextWindow
+          ? { contextWindowTokens: Number.parseInt(opts.contextWindow, 10) }
+          : {}),
+        baseline,
+      });
+      const rendered = renderPromptTokenBudgetManifest(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        const summary = artifact.summary;
+        const color = summary.ready ? pc.green : pc.red;
+        console.log(
+          color(
+            `prompt token budget ${summary.ready ? "ready" : "blocked"} ` +
+              `rows=${summary.passed_row_count}/${summary.expected_row_count} ` +
+              `parity=${summary.semantic_parity_passed ? "ok" : "failed"}`,
+          ),
+        );
+        console.log(`manifest: ${redactSensitiveText(opts.out).slice(0, 220)}`);
+      }
+      if (!artifact.summary.ready) process.exitCode = 1;
     });
 
   prompts
@@ -692,4 +771,10 @@ function reportError(err: unknown, client: BridgeClient): void {
   const tail = client.stderrTail?.trim();
   if (tail) console.error(pc.dim(redactSensitiveText(tail).slice(-1500)));
   process.exitCode = 1;
+}
+
+function gitHead(path: string): string {
+  return execFileSync("git", ["-C", path, "rev-parse", "HEAD"], {
+    encoding: "utf-8",
+  }).trim();
 }

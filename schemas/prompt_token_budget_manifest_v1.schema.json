@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt Token Budget Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generator_id",
+    "generator_version",
+    "generated_at",
+    "cohort",
+    "tokenizer",
+    "context_window_tokens",
+    "visible_contract_cap_tokens",
+    "system_prompt_cap_tokens",
+    "min_reserved_context_ratio",
+    "max_baseline_growth_ratio",
+    "runtime_manifest_hash",
+    "source_commits",
+    "baseline_manifest_hash",
+    "rows",
+    "summary",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "prompt_token_budget_manifest_v1" },
+    "generator_id": { "const": "prompt_token_budget" },
+    "generator_version": { "const": "1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "cohort": { "type": "string", "minLength": 1 },
+    "tokenizer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "package", "version"],
+      "properties": {
+        "id": { "const": "cl100k_base" },
+        "package": { "const": "js-tiktoken" },
+        "version": { "const": "1.0.21" }
+      }
+    },
+    "context_window_tokens": { "type": "integer", "minimum": 1 },
+    "visible_contract_cap_tokens": { "const": 8192 },
+    "system_prompt_cap_tokens": { "type": "integer", "minimum": 1 },
+    "min_reserved_context_ratio": { "const": 0.5 },
+    "max_baseline_growth_ratio": { "const": 1.25 },
+    "runtime_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_commits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["private", "bundled"],
+      "properties": {
+        "private": { "type": "string", "minLength": 7 },
+        "bundled": { "type": "string", "minLength": 7 }
+      }
+    },
+    "baseline_manifest_hash": {
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "agent",
+          "stage",
+          "language",
+          "source_path",
+          "source_sha256",
+          "source_bytes",
+          "parsed_projection_bytes",
+          "visible_contract_tokens",
+          "final_system_prompt_tokens",
+          "reserved_context_tokens",
+          "baseline_final_system_prompt_tokens",
+          "baseline_growth_ratio",
+          "checks",
+          "passed"
+        ],
+        "properties": {
+          "source": { "enum": ["private", "bundled"] },
+          "agent": { "type": "string", "minLength": 1 },
+          "stage": { "type": "string", "minLength": 1 },
+          "language": { "enum": ["zh", "en"] },
+          "source_path": { "type": "string", "minLength": 1 },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "source_bytes": { "type": "integer", "minimum": 1 },
+          "parsed_projection_bytes": { "type": "integer", "minimum": 1 },
+          "visible_contract_tokens": { "type": "integer", "minimum": 1 },
+          "final_system_prompt_tokens": { "type": "integer", "minimum": 1 },
+          "reserved_context_tokens": { "type": "integer", "minimum": 0 },
+          "baseline_final_system_prompt_tokens": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "baseline_growth_ratio": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "visible_contract_within_cap",
+              "system_prompt_within_cap",
+              "reserved_context_within_floor",
+              "baseline_growth_within_limit"
+            ],
+            "properties": {
+              "visible_contract_within_cap": { "type": "boolean" },
+              "system_prompt_within_cap": { "type": "boolean" },
+              "reserved_context_within_floor": { "type": "boolean" },
+              "baseline_growth_within_limit": { "type": "boolean" }
+            }
+          },
+          "passed": { "type": "boolean" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_row_count",
+        "row_count",
+        "passed_row_count",
+        "failed_row_count",
+        "semantic_parity_passed",
+        "ready"
+      ],
+      "properties": {
+        "expected_row_count": { "type": "integer", "minimum": 1 },
+        "row_count": { "type": "integer", "minimum": 1 },
+        "passed_row_count": { "type": "integer", "minimum": 0 },
+        "failed_row_count": { "type": "integer", "minimum": 0 },
+        "semantic_parity_passed": { "type": "boolean" },
+        "ready": { "type": "boolean" }
+      }
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
