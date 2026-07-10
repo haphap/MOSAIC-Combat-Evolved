@@ -18,6 +18,11 @@ import type { RuntimeAgentSpec } from "../agents/prompts/runtime_agent_spec.js";
 import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import { findRepoRoot } from "../bridge/python.js";
 import type { PromptReleaseCheckResult } from "../bridge/types.js";
+import {
+  type PromptReleaseCanarySloArtifact,
+  PromptReleaseCanarySloArtifactSchema,
+  stageSnapshotHashesHash,
+} from "./prompt_release_canary_slo.js";
 import { ActivePromptReleaseRegistry } from "./release_registry.js";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
@@ -35,7 +40,6 @@ export const DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS = [
 ] as const;
 
 type RuntimeSloSummary = NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>;
-export type RuntimeSloMeasurements = Omit<RuntimeSloSummary, "passed">;
 
 interface CandidateCheckOptions {
   repo: string;
@@ -264,6 +268,7 @@ export async function stagePromptRelease(
       code_commit: codeCommit,
       prompt_hash: releasePromptSetHash(promptPairs),
       prompt_pairs: promptPairs,
+      stage_snapshot_hashes: privateCheck.snapshotHashes,
       catalog_hash: `sha256:${"0".repeat(64)}`,
       schema_hash: `sha256:${"0".repeat(64)}`,
       evaluation_contract_hash: `sha256:${"0".repeat(64)}`,
@@ -284,6 +289,7 @@ export async function stagePromptRelease(
       canary_started_at: null,
       canary_ended_at: null,
       runtime_slo_summary: null,
+      runtime_slo_evidence: null,
       rollback_triggers: ["pending"],
       previous_approved_release_id: null,
       bundled_fallback: null,
@@ -345,6 +351,7 @@ export async function stagePromptRelease(
     code_commit: codeCommit,
     prompt_hash: releasePromptSetHash(promptPairs),
     prompt_pairs: promptPairs,
+    stage_snapshot_hashes: privateCheck.snapshotHashes,
     catalog_hash: closure.catalog_hash,
     schema_hash: closure.schema_hash,
     evaluation_contract_hash: closure.contract_hash,
@@ -369,6 +376,7 @@ export async function stagePromptRelease(
     canary_started_at: null,
     canary_ended_at: null,
     runtime_slo_summary: null,
+    runtime_slo_evidence: null,
     rollback_triggers: [...DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS],
     previous_approved_release_id: pointer.current_release_id,
     bundled_fallback: bundledFallback,
@@ -429,7 +437,7 @@ export async function activatePromptRelease(opts: {
   releaseId: string;
   approvedBy: string;
   reason: string;
-  measurements: RuntimeSloMeasurements;
+  sloArtifact: PromptReleaseCanarySloArtifact;
   codeRepo?: string;
   deps?: PromptReleaseManagerDependencies;
 }): Promise<ActivePromptReleaseManifest> {
@@ -453,13 +461,47 @@ export async function activatePromptRelease(opts: {
   ) {
     throw new Error("prompt_release_local_contract_closure_drift");
   }
+  const sloArtifact = PromptReleaseCanarySloArtifactSchema.parse(opts.sloArtifact);
+  const expectedCanaryTraffic =
+    previous.lifecycle_state === "active"
+      ? previous.runtime_slo_evidence?.traffic_percent
+      : previous.activation_scope.traffic_percent;
+  if (
+    sloArtifact.release_id !== previous.release_id ||
+    sloArtifact.account_mode !== previous.activation_scope.account_mode ||
+    sloArtifact.traffic_percent !== expectedCanaryTraffic ||
+    sloArtifact.canary_started_at !== previous.canary_started_at ||
+    sloArtifact.stage_snapshot_hashes_hash !==
+      stageSnapshotHashesHash(previous.stage_snapshot_hashes)
+  ) {
+    throw new Error("prompt_release_canary_slo_evidence_mismatch");
+  }
   const runtimeSloSummary: RuntimeSloSummary = {
-    ...opts.measurements,
-    passed: promptReleaseRuntimeSloPasses({ ...opts.measurements, passed: false }),
+    ...sloArtifact.measurements,
+    passed: promptReleaseRuntimeSloPasses({ ...sloArtifact.measurements, passed: false }),
   };
   if (!runtimeSloSummary.passed) throw new Error("prompt_release_runtime_slo_failed");
+  const runtimeSloEvidence: NonNullable<ActivePromptReleaseManifest["runtime_slo_evidence"]> = {
+    schema_version: "prompt_release_canary_slo_evidence_v1",
+    release_id: sloArtifact.release_id,
+    account_mode: sloArtifact.account_mode,
+    traffic_percent: sloArtifact.traffic_percent,
+    canary_started_at: sloArtifact.canary_started_at,
+    observation_ended_at: sloArtifact.observation_ended_at,
+    eligible_event_count: sloArtifact.eligible_event_count,
+    excluded_event_count: sloArtifact.excluded_event_count,
+    excluded_count_by_reason: sloArtifact.excluded_count_by_reason,
+    event_set_hash: sloArtifact.event_set_hash,
+    stage_snapshot_hashes_hash: sloArtifact.stage_snapshot_hashes_hash,
+    aggregator_id: sloArtifact.aggregator_id,
+    aggregator_version: sloArtifact.aggregator_version,
+    artifact_hash: sloArtifact.artifact_hash,
+  };
   if (previous.lifecycle_state === "active") {
-    if (sortedObjectJson(previous.runtime_slo_summary) !== sortedObjectJson(runtimeSloSummary)) {
+    if (
+      sortedObjectJson(previous.runtime_slo_summary) !== sortedObjectJson(runtimeSloSummary) ||
+      sortedObjectJson(previous.runtime_slo_evidence) !== sortedObjectJson(runtimeSloEvidence)
+    ) {
       throw new Error("prompt_release_activation_retry_conflict");
     }
     await registry.transition(previous, {
@@ -481,6 +523,7 @@ export async function activatePromptRelease(opts: {
     activation_scope: { ...previous.activation_scope, traffic_percent: 100 },
     canary_ended_at: activatedAt,
     runtime_slo_summary: runtimeSloSummary,
+    runtime_slo_evidence: runtimeSloEvidence,
     activated_at: activatedAt,
   };
   await registry.transition(next, {

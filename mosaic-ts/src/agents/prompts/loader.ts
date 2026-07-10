@@ -228,6 +228,10 @@ export interface LoadPromptWithKnobsResult {
     source: "private" | "bundled_fallback";
     prompt_commit: string;
     prompt_pair_hash: string;
+    stage_snapshot_hash: string;
+    account_mode: "paper" | "backtest" | "live";
+    traffic_percent: number;
+    lifecycle_state: "staged" | "canary" | "active" | "rolled_back";
   };
 }
 
@@ -295,6 +299,10 @@ export async function loadPromptWithKnobs(
             source: pinnedPair.source,
             prompt_commit: pinnedPair.promptCommit,
             prompt_pair_hash: pinnedPair.pairHash,
+            stage_snapshot_hash: pinnedPair.stageSnapshotHash,
+            account_mode: pinnedPair.accountMode,
+            traffic_percent: pinnedPair.trafficPercent,
+            lifecycle_state: pinnedPair.lifecycleState,
           },
         }
       : {}),

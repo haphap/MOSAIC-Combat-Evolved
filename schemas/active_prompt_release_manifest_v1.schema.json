@@ -12,6 +12,7 @@
     "code_commit",
     "prompt_hash",
     "prompt_pairs",
+    "stage_snapshot_hashes",
     "catalog_hash",
     "schema_hash",
     "evaluation_contract_hash",
@@ -24,6 +25,7 @@
     "canary_started_at",
     "canary_ended_at",
     "runtime_slo_summary",
+    "runtime_slo_evidence",
     "rollback_triggers",
     "previous_approved_release_id",
     "bundled_fallback",
@@ -62,6 +64,16 @@
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/prompt_pair"
+      }
+    },
+    "stage_snapshot_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*:(agent_run|alpha_discovery|cio_proposal|cro_review|execution_feasibility|cio_final)$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
       }
     },
     "catalog_hash": {
@@ -222,6 +234,90 @@
             "exposure_breach_count": {
               "type": "integer",
               "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "runtime_slo_evidence": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "release_id",
+            "account_mode",
+            "traffic_percent",
+            "canary_started_at",
+            "observation_ended_at",
+            "eligible_event_count",
+            "excluded_event_count",
+            "excluded_count_by_reason",
+            "event_set_hash",
+            "stage_snapshot_hashes_hash",
+            "aggregator_id",
+            "aggregator_version",
+            "artifact_hash"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": "prompt_release_canary_slo_evidence_v1"
+            },
+            "release_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "account_mode": {
+              "enum": ["paper", "backtest", "live"]
+            },
+            "traffic_percent": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 100
+            },
+            "canary_started_at": {
+              "type": "string",
+              "minLength": 1
+            },
+            "observation_ended_at": {
+              "type": "string",
+              "minLength": 1
+            },
+            "eligible_event_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "excluded_event_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "excluded_count_by_reason": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "event_set_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "stage_snapshot_hashes_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "aggregator_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "aggregator_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "artifact_hash": {
+              "$ref": "#/$defs/sha256"
             }
           }
         }

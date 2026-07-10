@@ -34,6 +34,10 @@ export interface ReleasePinnedPromptPair {
   source: "private" | "bundled_fallback";
   promptCommit: string;
   pairHash: string;
+  stageSnapshotHash: string;
+  accountMode: ActivePromptReleaseManifest["activation_scope"]["account_mode"];
+  trafficPercent: number;
+  lifecycleState: ActivePromptReleaseManifest["lifecycle_state"];
 }
 
 const pairCache = new Map<string, ReleasePinnedPromptPair>();
@@ -174,6 +178,10 @@ async function readPairAtCommit(opts: {
   pair: ReleasePromptPair;
   source: "private" | "bundled_fallback";
   releaseId: string;
+  stageSnapshotHash: string;
+  accountMode: ActivePromptReleaseManifest["activation_scope"]["account_mode"];
+  trafficPercent: number;
+  lifecycleState: ActivePromptReleaseManifest["lifecycle_state"];
 }): Promise<ReleasePinnedPromptPair> {
   const [zhBuffer, enBuffer] = await Promise.all([
     gitShow(opts.repo, opts.commit, opts.pair.zh.path),
@@ -190,6 +198,10 @@ async function readPairAtCommit(opts: {
     source: opts.source,
     promptCommit: opts.commit,
     pairHash: opts.pair.pair_hash,
+    stageSnapshotHash: opts.stageSnapshotHash,
+    accountMode: opts.accountMode,
+    trafficPercent: opts.trafficPercent,
+    lifecycleState: opts.lifecycleState,
   };
 }
 
@@ -203,9 +215,16 @@ export async function loadReleasePinnedPromptPair(opts: {
   assertClosure(opts.context, opts.cohort);
   const manifest = opts.context.manifest;
   const pair = findPair(manifest.prompt_pairs, opts.agent, opts.cohort, opts.stage);
-  const privateKey = [manifest.release_id, "private", manifest.prompt_commit, pair.pair_hash].join(
-    ":",
-  );
+  const stageKey = `${opts.agent}:${opts.stage}`;
+  const stageSnapshotHash = manifest.stage_snapshot_hashes[stageKey];
+  if (!stageSnapshotHash) throw new Error(`prompt_release_stage_snapshot_missing:${stageKey}`);
+  const privateKey = [
+    manifest.release_id,
+    "private",
+    manifest.prompt_commit,
+    pair.pair_hash,
+    stageKey,
+  ].join(":");
   if (!opts.noCache) {
     const cached = pairCache.get(privateKey);
     if (cached) return cached;
@@ -219,6 +238,10 @@ export async function loadReleasePinnedPromptPair(opts: {
         pair,
         source: "private",
         releaseId: manifest.release_id,
+        stageSnapshotHash,
+        accountMode: manifest.activation_scope.account_mode,
+        trafficPercent: manifest.activation_scope.traffic_percent,
+        lifecycleState: manifest.lifecycle_state,
       });
       if (!opts.noCache) pairCache.set(privateKey, loaded);
       return loaded;
@@ -242,6 +265,7 @@ export async function loadReleasePinnedPromptPair(opts: {
     "bundled_fallback",
     fallback.prompt_commit,
     fallbackPair.pair_hash,
+    stageKey,
   ].join(":");
   if (!opts.noCache) {
     const cached = pairCache.get(fallbackKey);
@@ -254,6 +278,10 @@ export async function loadReleasePinnedPromptPair(opts: {
       pair: fallbackPair,
       source: "bundled_fallback",
       releaseId: manifest.release_id,
+      stageSnapshotHash,
+      accountMode: manifest.activation_scope.account_mode,
+      trafficPercent: manifest.activation_scope.traffic_percent,
+      lifecycleState: manifest.lifecycle_state,
     });
     if (!opts.noCache) pairCache.set(fallbackKey, loaded);
     return loaded;

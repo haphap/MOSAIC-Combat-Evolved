@@ -296,6 +296,7 @@ export const ActivePromptReleaseManifestSchema = z
     code_commit: CommitRefSchema,
     prompt_hash: Sha256Schema,
     prompt_pairs: z.array(ReleasePromptPairSchema).min(1),
+    stage_snapshot_hashes: z.record(z.string().min(1), Sha256Schema),
     catalog_hash: Sha256Schema,
     schema_hash: Sha256Schema,
     evaluation_contract_hash: Sha256Schema,
@@ -339,6 +340,25 @@ export const ActivePromptReleaseManifestSchema = z
       })
       .strict()
       .nullable(),
+    runtime_slo_evidence: z
+      .object({
+        schema_version: z.literal("prompt_release_canary_slo_evidence_v1"),
+        release_id: z.string().min(1),
+        account_mode: z.enum(["paper", "backtest", "live"]),
+        traffic_percent: z.number().gt(0).lt(100),
+        canary_started_at: z.string().min(1),
+        observation_ended_at: z.string().min(1),
+        eligible_event_count: z.number().int().min(1),
+        excluded_event_count: z.number().int().min(0),
+        excluded_count_by_reason: z.record(z.string(), z.number().int().min(0)),
+        event_set_hash: Sha256Schema,
+        stage_snapshot_hashes_hash: Sha256Schema,
+        aggregator_id: z.string().min(1),
+        aggregator_version: z.string().min(1),
+        artifact_hash: Sha256Schema,
+      })
+      .strict()
+      .nullable(),
     rollback_triggers: z.array(z.string().min(1)).min(1),
     previous_approved_release_id: z.string().min(1).nullable(),
     bundled_fallback: z
@@ -365,6 +385,20 @@ export const ActivePromptReleaseManifestSchema = z
         code: "custom",
         path: ["prompt_hash"],
         message: "release prompt set hash mismatch",
+      });
+    }
+    const expectedStageKeys = new Set(
+      manifest.prompt_pairs.flatMap((pair) => pair.stages.map((stage) => `${pair.agent}:${stage}`)),
+    );
+    const actualStageKeys = new Set(Object.keys(manifest.stage_snapshot_hashes));
+    if (
+      expectedStageKeys.size !== actualStageKeys.size ||
+      [...expectedStageKeys].some((key) => !actualStageKeys.has(key))
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["stage_snapshot_hashes"],
+        message: "stage snapshot hashes must exactly cover every release stage",
       });
     }
     if (
@@ -425,6 +459,21 @@ export const ActivePromptReleaseManifestSchema = z
           message: "active release requires passing runtime SLOs",
         });
       }
+      const evidence = manifest.runtime_slo_evidence;
+      if (
+        !evidence ||
+        evidence.release_id !== manifest.release_id ||
+        evidence.account_mode !== manifest.activation_scope.account_mode ||
+        evidence.traffic_percent >= 100 ||
+        evidence.canary_started_at !== manifest.canary_started_at ||
+        evidence.eligible_event_count !== manifest.runtime_slo_summary?.sample_count
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["runtime_slo_evidence"],
+          message: "active release requires closed canary SLO evidence",
+        });
+      }
       if (manifest.activation_scope.traffic_percent !== 100) {
         ctx.addIssue({
           code: "custom",
@@ -449,6 +498,13 @@ export const ActivePromptReleaseManifestSchema = z
         code: "custom",
         path: ["rolled_back_at"],
         message: "rolled-back release requires timestamp",
+      });
+    }
+    if (!manifest.activated_at && manifest.runtime_slo_evidence !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["runtime_slo_evidence"],
+        message: "pre-activation release cannot contain SLO evidence",
       });
     }
   });

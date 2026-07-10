@@ -1,8 +1,13 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Command } from "commander";
 import {
+  buildPromptReleaseCanarySloArtifact,
+  type PromptReleaseCanarySloArtifact,
+  PromptReleaseCanarySloArtifactSchema,
+} from "../../autoresearch/prompt_release_canary_slo.js";
+import {
   activatePromptRelease,
-  type RuntimeSloMeasurements,
   rollbackPromptRelease,
   stagePromptRelease,
   startPromptReleaseCanary,
@@ -41,10 +46,16 @@ function parsePolicy(value: string): "domain_release_manual_v1" | "decision_rele
   throw new Error("--approval-policy is unsupported");
 }
 
-async function parseSloMeasurements(path: string): Promise<RuntimeSloMeasurements> {
-  const value = JSON.parse(await readFile(path, "utf-8")) as Record<string, unknown>;
-  const { passed: _ignored, ...measurements } = value;
-  return measurements as unknown as RuntimeSloMeasurements;
+async function parseSloArtifact(path: string): Promise<PromptReleaseCanarySloArtifact> {
+  return PromptReleaseCanarySloArtifactSchema.parse(JSON.parse(await readFile(path, "utf-8")));
+}
+
+async function parseCanaryEvents(path: string): Promise<unknown[]> {
+  return (await readFile(path, "utf-8"))
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as unknown);
 }
 
 function reportError(error: unknown): void {
@@ -149,18 +160,60 @@ export function registerPromptRelease(program: Command): void {
     );
 
   command
+    .command("summarize-slo")
+    .requiredOption("--release-id <id>", "Canary release id")
+    .requiredOption("--events <path>", "Canary runtime event JSONL")
+    .requiredOption("--observation-ended-at <timestamp>", "Closed observation end timestamp")
+    .requiredOption("--out <path>", "Output SLO artifact JSON")
+    .option("--registry-root <path>", "Release registry root")
+    .action(
+      async (opts: {
+        releaseId: string;
+        events: string;
+        observationEndedAt: string;
+        out: string;
+        registryRoot?: string;
+      }) => {
+        try {
+          const registry = new ActivePromptReleaseRegistry(registryRoot(opts));
+          const manifest = await registry.load(opts.releaseId);
+          if (!manifest) throw new Error("prompt_release_not_found");
+          if (manifest.lifecycle_state !== "canary" || !manifest.canary_started_at) {
+            throw new Error("prompt_release_slo_summary_requires_canary");
+          }
+          const artifact = buildPromptReleaseCanarySloArtifact({
+            releaseId: manifest.release_id,
+            accountMode: manifest.activation_scope.account_mode,
+            trafficPercent: manifest.activation_scope.traffic_percent,
+            canaryStartedAt: manifest.canary_started_at,
+            observationEndedAt: opts.observationEndedAt,
+            stageSnapshotHashes: manifest.stage_snapshot_hashes,
+            events: await parseCanaryEvents(opts.events),
+          });
+          await mkdir(dirname(opts.out), { recursive: true });
+          await writeFile(opts.out, `${JSON.stringify(artifact, null, 2)}\n`, "utf-8");
+          console.log(
+            `slo artifact=${artifact.artifact_hash} samples=${artifact.eligible_event_count}`,
+          );
+        } catch (error) {
+          reportError(error);
+        }
+      },
+    );
+
+  command
     .command("activate")
     .requiredOption("--release-id <id>", "Release id")
     .requiredOption("--approved-by <operator>", "Authorized operator id")
     .requiredOption("--reason <text>", "Activation reason")
-    .requiredOption("--slo-summary <path>", "Measured runtime SLO summary JSON")
+    .requiredOption("--slo-artifact <path>", "Aggregated canary SLO artifact JSON")
     .option("--registry-root <path>", "Release registry root")
     .action(
       async (opts: {
         releaseId: string;
         approvedBy: string;
         reason: string;
-        sloSummary: string;
+        sloArtifact: string;
         registryRoot?: string;
       }) => {
         try {
@@ -169,7 +222,7 @@ export function registerPromptRelease(program: Command): void {
             releaseId: opts.releaseId,
             approvedBy: opts.approvedBy,
             reason: opts.reason,
-            measurements: await parseSloMeasurements(opts.sloSummary),
+            sloArtifact: await parseSloArtifact(opts.sloArtifact),
           });
           console.log(`active release=${manifest.release_id} at=${manifest.activated_at}`);
         } catch (error) {

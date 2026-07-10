@@ -93,6 +93,7 @@ function release(
     code_commit: "7654321",
     prompt_hash: releasePromptSetHash(pairs),
     prompt_pairs: pairs,
+    stage_snapshot_hashes: { "central_bank:agent_run": HASH },
     catalog_hash: HASH,
     schema_hash: HASH,
     evaluation_contract_hash: HASH,
@@ -129,6 +130,24 @@ function release(
           token_budget_breach_count: 0,
           duplicate_order_intent_count: 0,
           exposure_breach_count: 0,
+        }
+      : null,
+    runtime_slo_evidence: active
+      ? {
+          schema_version: "prompt_release_canary_slo_evidence_v1",
+          release_id: "release-1",
+          account_mode: "paper",
+          traffic_percent: 10,
+          canary_started_at: "2026-07-10T01:00:00Z",
+          observation_ended_at: "2026-07-10T02:00:00Z",
+          eligible_event_count: 20,
+          excluded_event_count: 0,
+          excluded_count_by_reason: {},
+          event_set_hash: HASH,
+          stage_snapshot_hashes_hash: HASH,
+          aggregator_id: "prompt_release_canary_slo",
+          aggregator_version: "1",
+          artifact_hash: HASH,
         }
       : null,
     rollback_triggers: ["schema_failure_rate_gt_0"],

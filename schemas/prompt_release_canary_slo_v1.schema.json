@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt Release Canary SLO v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "account_mode",
+    "traffic_percent",
+    "canary_started_at",
+    "observation_ended_at",
+    "eligible_event_count",
+    "excluded_event_count",
+    "excluded_count_by_reason",
+    "event_set_hash",
+    "stage_snapshot_hashes_hash",
+    "aggregator_id",
+    "aggregator_version",
+    "numerators",
+    "denominators",
+    "measurements",
+    "artifact_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "prompt_release_canary_slo_v1" },
+    "release_id": { "type": "string", "minLength": 1 },
+    "account_mode": { "enum": ["paper", "backtest", "live"] },
+    "traffic_percent": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 100 },
+    "canary_started_at": { "type": "string", "format": "date-time" },
+    "observation_ended_at": { "type": "string", "format": "date-time" },
+    "eligible_event_count": { "type": "integer", "minimum": 1 },
+    "excluded_event_count": { "const": 0 },
+    "excluded_count_by_reason": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "event_set_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "stage_snapshot_hashes_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "aggregator_id": { "const": "prompt_release_canary_slo" },
+    "aggregator_version": { "const": "1" },
+    "numerators": { "$ref": "#/$defs/rateCounts" },
+    "denominators": { "$ref": "#/$defs/rateCounts" },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_count",
+        "schema_failure_rate",
+        "fallback_rate",
+        "source_failure_rate",
+        "unsupported_influence_rejection_rate",
+        "validator_rejection_rate",
+        "latency_p95_ms",
+        "token_budget_breach_count",
+        "duplicate_order_intent_count",
+        "exposure_breach_count"
+      ],
+      "properties": {
+        "sample_count": { "type": "integer", "minimum": 1 },
+        "schema_failure_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fallback_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "source_failure_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "unsupported_influence_rejection_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "validator_rejection_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "latency_p95_ms": { "type": "number", "minimum": 0 },
+        "token_budget_breach_count": { "type": "integer", "minimum": 0 },
+        "duplicate_order_intent_count": { "type": "integer", "minimum": 0 },
+        "exposure_breach_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "rateCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_failure",
+        "fallback",
+        "source_failure",
+        "unsupported_influence_rejection",
+        "validator_rejection"
+      ],
+      "properties": {
+        "schema_failure": { "type": "integer", "minimum": 0 },
+        "fallback": { "type": "integer", "minimum": 0 },
+        "source_failure": { "type": "integer", "minimum": 0 },
+        "unsupported_influence_rejection": { "type": "integer", "minimum": 0 },
+        "validator_rejection": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -80,6 +80,7 @@ function immutableReleaseClosure(manifest: ActivePromptReleaseManifest): unknown
     code_commit: manifest.code_commit,
     prompt_hash: manifest.prompt_hash,
     prompt_pairs: manifest.prompt_pairs,
+    stage_snapshot_hashes: manifest.stage_snapshot_hashes,
     catalog_hash: manifest.catalog_hash,
     schema_hash: manifest.schema_hash,
     evaluation_contract_hash: manifest.evaluation_contract_hash,

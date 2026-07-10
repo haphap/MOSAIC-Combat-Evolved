@@ -6,8 +6,11 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
 import {
+  buildPromptReleaseCanarySloArtifact,
+  type PromptReleaseCanaryEvent,
+} from "../src/autoresearch/prompt_release_canary_slo.js";
+import {
   activatePromptRelease,
-  type RuntimeSloMeasurements,
   rollbackPromptRelease,
   stagePromptRelease,
   startPromptReleaseCanary,
@@ -111,19 +114,42 @@ function verification(opts: {
   };
 }
 
-function measurements(): RuntimeSloMeasurements {
-  return {
-    sample_count: 20,
-    schema_failure_rate: 0,
-    fallback_rate: 0,
-    source_failure_rate: 0,
-    unsupported_influence_rejection_rate: 0,
-    validator_rejection_rate: 0,
-    latency_p95_ms: 100,
-    token_budget_breach_count: 0,
+function canaryEvents(
+  overrides: Partial<PromptReleaseCanaryEvent> = {},
+): PromptReleaseCanaryEvent[] {
+  return Array.from({ length: 20 }, (_, index) => ({
+    schema_version: "prompt_release_canary_event_v1",
+    event_id: `event-${index}`,
+    release_id: "release-1",
+    account_mode: "paper",
+    traffic_percent: 10,
+    agent: "central_bank",
+    stage: "agent_run",
+    stage_snapshot_hash: HASH,
+    observed_at: "2026-07-10T01:30:00.000Z",
+    schema_failed: false,
+    fallback: false,
+    source_failed: false,
+    unsupported_influence_rejected: false,
+    validator_rejected: false,
+    latency_ms: 100,
+    token_budget_breached: false,
     duplicate_order_intent_count: 0,
     exposure_breach_count: 0,
-  };
+    ...overrides,
+  }));
+}
+
+function sloArtifact(overrides: Partial<PromptReleaseCanaryEvent> = {}) {
+  return buildPromptReleaseCanarySloArtifact({
+    releaseId: "release-1",
+    accountMode: "paper",
+    trafficPercent: 10,
+    canaryStartedAt: "2026-07-10T01:00:00.000Z",
+    observationEndedAt: "2026-07-10T02:00:00.000Z",
+    stageSnapshotHashes: { "central_bank:agent_run": HASH },
+    events: canaryEvents(overrides),
+  });
 }
 
 describe("prompt release manager", () => {
@@ -189,7 +215,7 @@ describe("prompt release manager", () => {
         releaseId: "release-1",
         approvedBy: "operator:test",
         reason: "asserted pass with excessive latency",
-        measurements: { ...measurements(), latency_p95_ms: 120_001 },
+        sloArtifact: sloArtifact({ latency_ms: 120_001 }),
         codeRepo: codeRepo.root,
         deps: { now: () => "2026-07-10T02:00:00.000Z" },
       }),
@@ -199,7 +225,7 @@ describe("prompt release manager", () => {
       releaseId: "release-1",
       approvedBy: "operator:test",
       reason: "canary SLOs passed",
-      measurements: measurements(),
+      sloArtifact: sloArtifact(),
       codeRepo: codeRepo.root,
       deps: { now: () => "2026-07-10T02:00:00.000Z" },
     };
@@ -238,5 +264,24 @@ describe("prompt release manager", () => {
         trafficPercent: 10,
       }),
     ).rejects.toThrow("prompt_release_operator_not_authorized");
+  });
+
+  it("rejects duplicate and mixed-release canary event sets", () => {
+    const duplicate = canaryEvents();
+    duplicate[1] = { ...(duplicate[1] as PromptReleaseCanaryEvent), event_id: "event-0" };
+    expect(() =>
+      buildPromptReleaseCanarySloArtifact({
+        releaseId: "release-1",
+        accountMode: "paper",
+        trafficPercent: 10,
+        canaryStartedAt: "2026-07-10T01:00:00.000Z",
+        observationEndedAt: "2026-07-10T02:00:00.000Z",
+        stageSnapshotHashes: { "central_bank:agent_run": HASH },
+        events: duplicate,
+      }),
+    ).toThrow("prompt_release_canary_slo_duplicate_event");
+    expect(() => sloArtifact({ release_id: "release-other" })).toThrow(
+      "prompt_release_canary_slo_release_mismatch",
+    );
   });
 });

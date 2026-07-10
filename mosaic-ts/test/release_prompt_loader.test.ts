@@ -129,6 +129,7 @@ function release(opts: {
     code_commit: "7654321",
     prompt_hash: releasePromptSetHash(promptPairs),
     prompt_pairs: promptPairs,
+    stage_snapshot_hashes: { "central_bank:agent_run": HASH },
     catalog_hash: opts.closure?.catalogHash ?? HASH,
     schema_hash: opts.closure?.schemaHash ?? HASH,
     evaluation_contract_hash: opts.closure?.evaluationContractHash ?? HASH,
@@ -164,6 +165,22 @@ function release(opts: {
       token_budget_breach_count: 0,
       duplicate_order_intent_count: 0,
       exposure_breach_count: 0,
+    },
+    runtime_slo_evidence: {
+      schema_version: "prompt_release_canary_slo_evidence_v1",
+      release_id: "release-1",
+      account_mode: "paper",
+      traffic_percent: 10,
+      canary_started_at: "2026-07-10T00:00:00Z",
+      observation_ended_at: "2026-07-10T01:00:00Z",
+      eligible_event_count: 20,
+      excluded_event_count: 0,
+      excluded_count_by_reason: {},
+      event_set_hash: HASH,
+      stage_snapshot_hashes_hash: HASH,
+      aggregator_id: "prompt_release_canary_slo",
+      aggregator_version: "1",
+      artifact_hash: HASH,
     },
     rollback_triggers: ["schema_failure_rate_gt_0"],
     previous_approved_release_id: null,
@@ -337,6 +354,7 @@ describe("release-pinned prompt loading", () => {
       canary_started_at: null,
       canary_ended_at: null,
       runtime_slo_summary: null,
+      runtime_slo_evidence: null,
       activated_at: null,
     };
     const canary: ActivePromptReleaseManifest = {
@@ -345,6 +363,7 @@ describe("release-pinned prompt loading", () => {
       activation_scope: { ...active.activation_scope, traffic_percent: 10 },
       canary_ended_at: null,
       runtime_slo_summary: null,
+      runtime_slo_evidence: null,
       activated_at: null,
     };
     const registry = new ActivePromptReleaseRegistry(registryRoot);
