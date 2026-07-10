@@ -606,8 +606,9 @@ def test_operator_readiness_detects_lockbox_upstream_guard_drift(tmp_path: Path,
     assert guard.blocker == "lockbox upstream CLI guard does not match manual gate readiness"
 
 
-def test_operator_readiness_requires_actions_only_preflight():
-    handoff = build_operator_handoff(".")
+def test_operator_readiness_requires_actions_only_preflight(tmp_path: Path):
+    _copy_registry(tmp_path)
+    handoff = build_operator_handoff(tmp_path)
     stale_preflight = replace(
         handoff.command_sequence[0],
         command=f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root .",
@@ -623,8 +624,9 @@ def test_operator_readiness_requires_actions_only_preflight():
     assert "review-progress preflight must use the action queue" in sequence_blocker
 
 
-def test_operator_readiness_requires_no_write_promotion_status_steps():
-    handoff = build_operator_handoff(".")
+def test_operator_readiness_requires_no_write_promotion_status_steps(tmp_path: Path):
+    _copy_registry(tmp_path)
+    handoff = build_operator_handoff(tmp_path)
     stale_steps = tuple(
         replace(
             step,

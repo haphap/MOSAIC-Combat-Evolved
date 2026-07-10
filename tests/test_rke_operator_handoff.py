@@ -43,9 +43,10 @@ def _reset_lockbox_target(root: Path) -> None:
     )
 
 
-def test_operator_handoff_summarizes_remaining_manual_gates():
-    progress = build_manual_review_progress(".")
-    handoff = build_operator_handoff(".", progress_report=progress)
+def test_operator_handoff_summarizes_remaining_manual_gates(tmp_path: Path):
+    _copy_registry(tmp_path)
+    progress = build_manual_review_progress(tmp_path)
+    handoff = build_operator_handoff(tmp_path, progress_report=progress)
     progress_gold = next(gate for gate in progress.gates if gate.review_kind == "gold_set")
     progress_footprint = next(
         gate for gate in progress.gates if gate.review_kind == "footprint_review"

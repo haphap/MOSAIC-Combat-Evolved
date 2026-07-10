@@ -811,10 +811,29 @@ def _isolate_external_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
-    """Keep pytest registry copies free of reviewer scratch and huge private rows."""
+    """Keep pytest registry copies free of local/private artifacts."""
+
+    from mosaic.rke.registry_manifest import (
+        PRIVATE_LOCAL_REGISTRY_FILES,
+        PRIVATE_LOCAL_REGISTRY_PREFIXES,
+    )
 
     original_copytree = shutil.copytree
     project_registry_path = (Path.cwd() / "registry").resolve()
+    private_registry_paths = frozenset(
+        Path(relative).relative_to("registry").as_posix()
+        for relative in PRIVATE_LOCAL_REGISTRY_FILES
+    )
+    private_registry_prefixes = tuple(
+        Path(prefix.rstrip("/")).relative_to("registry").as_posix()
+        for prefix in PRIVATE_LOCAL_REGISTRY_PREFIXES
+    )
+
+    def is_private_registry_path(relative: str) -> bool:
+        return relative in private_registry_paths or any(
+            relative == prefix or relative.startswith(f"{prefix}/")
+            for prefix in private_registry_prefixes
+        )
 
     def load_jsonl_objects(path: Path, *, strict: bool = True) -> list[dict]:
         rows: list[dict] = []
@@ -1002,8 +1021,18 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
                 ignored = set(original_ignore(dirname, names)) if original_ignore else set()
                 ignored.update(name for name in names if name in _RKE_MANUAL_REVIEW_SCRATCH)
                 dirname_path = Path(dirname).resolve()
-                if dirname_path == project_registry_path / "sources":
-                    ignored.add(_RKE_TUSHARE_SOURCE_PATH.name)
+                try:
+                    directory_relative = dirname_path.relative_to(project_registry_path)
+                except ValueError:
+                    directory_relative = None
+                if directory_relative is not None:
+                    ignored.update(
+                        name
+                        for name in names
+                        if is_private_registry_path(
+                            (directory_relative / name).as_posix()
+                        )
+                    )
                 return ignored
 
             effective_ignore = ignore_review_scratch
