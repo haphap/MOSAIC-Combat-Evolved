@@ -9,7 +9,9 @@ import {
   pruneConsumedToolHistoryWithEntries,
   resolveToolOutputMaxChars,
   runAgentToolLoop,
+  toolArgsFingerprint,
   toolCallFingerprint,
+  toolResultFingerprint,
 } from "../src/agents/helpers/agent_loop.js";
 
 class ScriptedLlm {
@@ -176,6 +178,14 @@ describe("agent tool loop helpers", () => {
     expect(toolCallFingerprint("get_x", { a: 1 })).not.toBe(toolCallFingerprint("get_x", { a: 2 }));
   });
 
+  it("builds canonical full hashes for args and JSON results", () => {
+    expect(toolArgsFingerprint({ b: 2, a: 1 })).toBe(toolArgsFingerprint({ a: 1, b: 2 }));
+    expect(toolResultFingerprint('{"b":2,"a":1}')).toBe(toolResultFingerprint('{"a":1,"b":2}'));
+    expect(toolResultFingerprint("plain text")).not.toBe(toolResultFingerprint("plain text "));
+    expect(toolArgsFingerprint({ a: 1 })).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(toolResultFingerprint("result")).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
   it("serves repeated same-args tool calls from the per-agent cache", async () => {
     const llm = new ScriptedLlm([
       new AIMessage({
@@ -207,6 +217,7 @@ describe("agent tool loop helpers", () => {
       tools: [getX],
       systemMessage: "system",
       initialMessages: [new HumanMessage("initial")],
+      agentInvocationId: "run-1:get_x:agent_run",
       onLog: (message) => logs.push(message),
     });
 
@@ -216,6 +227,27 @@ describe("agent tool loop helpers", () => {
     expect(result.toolCacheHits).toBe(1);
     expect(executions).toBe(1);
     expect(logs.some((line) => line.includes("tool_cache_hit"))).toBe(true);
+    expect(result.toolStatuses).toHaveLength(2);
+    expect(result.toolStatuses[0]).toEqual(
+      expect.objectContaining({
+        call_id: "c1",
+        agent_invocation_id: "run-1:get_x:agent_run",
+        cache_hit: false,
+        failed: false,
+      }),
+    );
+    expect(result.toolStatuses[1]).toEqual(
+      expect.objectContaining({ call_id: "c2", cache_hit: true, failed: false }),
+    );
+    expect(result.toolStatuses[0]?.args_fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(result.toolStatuses[0]?.result_fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(result.toolStatuses[0]?.source_fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(result.toolStatuses[1]?.result_fingerprint).toBe(
+      result.toolStatuses[0]?.result_fingerprint,
+    );
+    expect(result.toolStatuses[1]?.source_fingerprint).toBe(
+      result.toolStatuses[0]?.source_fingerprint,
+    );
     expect(
       result.messages
         .filter((message) => message.getType() === "tool")
@@ -312,6 +344,13 @@ describe("agent tool loop helpers", () => {
     expect(result.toolCacheHits).toBe(1);
     expect(executions).toBe(1);
     expect(logs.some((line) => line.includes("tool_cache_hit"))).toBe(true);
+    expect(result.toolStatuses).toEqual([
+      expect.objectContaining({ call_id: "c1", failed: true, cache_hit: false }),
+      expect.objectContaining({ call_id: "c2", failed: true, cache_hit: true }),
+    ]);
+    expect(result.toolStatuses[1]?.source_fingerprint).toBe(
+      result.toolStatuses[0]?.source_fingerprint,
+    );
     expect(
       result.messages
         .filter((message) => message.getType() === "tool")

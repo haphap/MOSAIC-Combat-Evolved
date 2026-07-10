@@ -200,6 +200,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               tools: tools as StructuredToolInterface[],
               systemMessage: systemPrompt,
               initialMessages: [new HumanMessage(augmentedContext)],
+              agentInvocationId: layer4AgentInvocationId(state, spec, knobSnapshot),
               onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
               signal,
             });
@@ -550,6 +551,23 @@ function defaultExtractorSystem<TOutput extends Layer4AgentOutput>(
     `(empty arrays / confidence ≤ 0.3). ` +
     lang
   );
+}
+
+function layer4AgentInvocationId<TOutput extends Layer4AgentOutput>(
+  state: DailyCycleStateType,
+  spec: LayerFourAgentSpec<TOutput>,
+  knobSnapshot: ResearchKnobsSnapshot | null,
+): string {
+  const digest = stableRuntimeHash({
+    schema_version: "agent_invocation_id_v1",
+    run_id: state.trace_id || state.as_of_date || "current_run",
+    agent: spec.agentId,
+    stage: spec.runtimeStage,
+    cohort: state.active_cohort || "cohort_default",
+    as_of: state.as_of_date || "live",
+    knob_snapshot_hash: knobSnapshot?.hash ?? null,
+  });
+  return `agent-invocation:${digest.slice("sha256:".length)}`;
 }
 
 function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(

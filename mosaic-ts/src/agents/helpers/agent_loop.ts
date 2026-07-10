@@ -49,6 +49,8 @@ export interface AgentToolLoopOptions {
   onLog?: (msg: string) => void;
   /** Abort signal for the current agent wall-clock timeout. */
   signal?: AbortSignal;
+  /** Runtime-owned identity for the current agent/stage invocation. */
+  agentInvocationId?: string;
 }
 
 export interface AgentInitialToolCall {
@@ -204,6 +206,45 @@ function canonicalize(value: unknown): unknown {
   return value === undefined ? null : value;
 }
 
+function sha256Canonical(value: unknown): string {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalize(value)))
+    .digest("hex")}`;
+}
+
+export function toolArgsFingerprint(args: unknown): string {
+  return sha256Canonical({ schema_version: "tool_args_fingerprint_v1", args: args ?? {} });
+}
+
+export function toolResultFingerprint(output: string): string {
+  let result: unknown = output;
+  try {
+    result = JSON.parse(output);
+  } catch {
+    // Non-JSON tool output is hashed as its exact text.
+  }
+  return sha256Canonical({ schema_version: "tool_result_fingerprint_v1", result });
+}
+
+export function toolSourceFingerprint(input: {
+  name: string;
+  argsFingerprint: string;
+  resultFingerprint: string;
+  status: "current" | "fallback" | "missing" | "tool_failed";
+  asOf?: string;
+}): string {
+  return sha256Canonical({
+    schema_version: "tool_source_fingerprint_v1",
+    adapter_id: "agent_tool_loop_status",
+    adapter_version: "1",
+    tool: input.name,
+    args_fingerprint: input.argsFingerprint,
+    result_fingerprint: input.resultFingerprint,
+    status: input.status,
+    as_of: input.asOf ?? null,
+  });
+}
+
 export function toolCallFingerprint(name: string | undefined, args: unknown): string {
   const toolName = name || "unknown";
   const hash = createHash("sha256")
@@ -211,6 +252,91 @@ export function toolCallFingerprint(name: string | undefined, args: unknown): st
     .digest("hex")
     .slice(0, 10);
   return `${toolName}#${hash}`;
+}
+
+interface CachedToolResult {
+  output: string;
+  failed: boolean;
+  fallback: boolean;
+  asOf?: string;
+  argsFingerprint: string;
+  resultFingerprint: string;
+  sourceFingerprint: string;
+}
+
+function buildToolStatus(input: {
+  name: string;
+  callId: string;
+  agentInvocationId?: string;
+  args: unknown;
+  shortFingerprint: string;
+  cached: CachedToolResult;
+  cacheHit: boolean;
+  missing?: boolean;
+}): ToolStatus {
+  return {
+    name: input.name,
+    call_id: input.callId,
+    ...(input.agentInvocationId ? { agent_invocation_id: input.agentInvocationId } : {}),
+    called: true,
+    failed: input.cached.failed,
+    missing: input.missing ?? false,
+    fallback: input.cached.fallback,
+    cache_hit: input.cacheHit,
+    args: input.args,
+    fingerprint: input.shortFingerprint,
+    args_fingerprint: input.cached.argsFingerprint,
+    result_fingerprint: input.cached.resultFingerprint,
+    source_fingerprint: input.cached.sourceFingerprint,
+    ...(input.cached.asOf ? { as_of: input.cached.asOf } : {}),
+  };
+}
+
+function cachedToolResult(input: {
+  name: string;
+  args: unknown;
+  output: string;
+  failed: boolean;
+  fallback?: boolean;
+  asOf?: string;
+}): CachedToolResult {
+  const argsFingerprint = toolArgsFingerprint(input.args);
+  const resultFingerprint = toolResultFingerprint(input.output);
+  const status = input.failed ? "tool_failed" : input.fallback ? "fallback" : "current";
+  return {
+    output: input.output,
+    failed: input.failed,
+    fallback: input.fallback ?? false,
+    ...(input.asOf ? { asOf: input.asOf } : {}),
+    argsFingerprint,
+    resultFingerprint,
+    sourceFingerprint: toolSourceFingerprint({
+      name: input.name,
+      argsFingerprint,
+      resultFingerprint,
+      status,
+      ...(input.asOf ? { asOf: input.asOf } : {}),
+    }),
+  };
+}
+
+function missingToolResult(name: string, args: unknown): CachedToolResult {
+  const output = `Tool '${name}' is not registered for this agent.`;
+  const argsFingerprint = toolArgsFingerprint(args);
+  const resultFingerprint = toolResultFingerprint(output);
+  return {
+    output,
+    failed: false,
+    fallback: false,
+    argsFingerprint,
+    resultFingerprint,
+    sourceFingerprint: toolSourceFingerprint({
+      name,
+      argsFingerprint,
+      resultFingerprint,
+      status: "missing",
+    }),
+  };
 }
 
 function compactPriorToolReplayText(output: string): string {
@@ -388,7 +514,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   let llmElapsedMs = 0;
   const toolStatuses: ToolStatus[] = [];
   // ponytail: per-agent cache; make it shared only if duplicate tool IO remains costly.
-  const toolOutputCache = new Map<string, string>();
+  const toolOutputCache = new Map<string, CachedToolResult>();
   let toolReplayEntries: ToolReplayEntry[] = [];
 
   // Some BaseChatModel subclasses lack bindTools; the caller is responsible
@@ -424,18 +550,21 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       const tool = toolByName.get(name);
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
-        toolStatuses.push({
-          name,
-          called: true,
-          failed: false,
-          missing: true,
-          fallback: false,
-          cache_hit: false,
-          args: call.args,
-          fingerprint,
-        });
+        const cached = missingToolResult(name, call.args);
+        toolStatuses.push(
+          buildToolStatus({
+            name,
+            callId: call.id,
+            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+            args: call.args,
+            shortFingerprint: fingerprint,
+            cached,
+            cacheHit: false,
+            missing: true,
+          }),
+        );
         const toolMessage = new ToolMessage({
-          content: `Tool '${name}' is not registered for this agent.`,
+          content: cached.output,
           tool_call_id: call.id,
         });
         messages.push(toolMessage);
@@ -447,33 +576,43 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       try {
         const raw = await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
         output = typeof raw === "string" ? raw : String(raw);
-        toolOutputCache.set(fingerprint, output);
         const metadata = toolOutputStatusMetadata(output);
-        toolStatuses.push({
+        const cached = cachedToolResult({
           name,
-          called: true,
-          failed: false,
-          missing: false,
-          fallback: metadata.fallback,
-          cache_hit: false,
           args: call.args,
-          fingerprint,
-          ...(metadata.as_of ? { as_of: metadata.as_of } : {}),
+          output,
+          failed: false,
+          fallback: metadata.fallback,
+          ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
         });
+        toolOutputCache.set(fingerprint, cached);
+        toolStatuses.push(
+          buildToolStatus({
+            name,
+            callId: call.id,
+            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+            args: call.args,
+            shortFingerprint: fingerprint,
+            cached,
+            cacheHit: false,
+          }),
+        );
       } catch (err) {
         output = `Tool '${name}' raised: ${(err as Error).message}`;
         opts.onLog?.(output);
-        toolOutputCache.set(fingerprint, output);
-        toolStatuses.push({
-          name,
-          called: true,
-          failed: true,
-          missing: false,
-          fallback: false,
-          cache_hit: false,
-          args: call.args,
-          fingerprint,
-        });
+        const cached = cachedToolResult({ name, args: call.args, output, failed: true });
+        toolOutputCache.set(fingerprint, cached);
+        toolStatuses.push(
+          buildToolStatus({
+            name,
+            callId: call.id,
+            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+            args: call.args,
+            shortFingerprint: fingerprint,
+            cached,
+            cacheHit: false,
+          }),
+        );
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);
       const toolMessage = new ToolMessage({ content: compacted.text, tool_call_id: call.id });
@@ -542,18 +681,21 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       const tool = toolByName.get(name);
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
-        toolStatuses.push({
-          name,
-          called: true,
-          failed: false,
-          missing: true,
-          fallback: false,
-          cache_hit: false,
-          args: call.args,
-          fingerprint,
-        });
+        const cached = missingToolResult(name, call.args ?? {});
+        toolStatuses.push(
+          buildToolStatus({
+            name,
+            callId: call.id ?? `tool_call_${toolCalls}`,
+            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+            args: call.args,
+            shortFingerprint: fingerprint,
+            cached,
+            cacheHit: false,
+            missing: true,
+          }),
+        );
         const toolMessage = new ToolMessage({
-          content: `Tool '${name}' is not registered for this agent.`,
+          content: cached.output,
           tool_call_id: call.id ?? "",
         });
         messages.push(toolMessage);
@@ -563,21 +705,20 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       let output: string;
       const cachedOutput = toolOutputCache.get(fingerprint);
       if (cachedOutput !== undefined) {
-        output = cachedOutput;
+        output = cachedOutput.output;
         toolCacheHits++;
         opts.onLog?.(`tool_cache_hit fingerprint=${fingerprint}`);
-        const metadata = toolOutputStatusMetadata(output);
-        toolStatuses.push({
-          name,
-          called: true,
-          failed: false,
-          missing: false,
-          fallback: metadata.fallback,
-          cache_hit: true,
-          args: call.args,
-          fingerprint,
-          ...(metadata.as_of ? { as_of: metadata.as_of } : {}),
-        });
+        toolStatuses.push(
+          buildToolStatus({
+            name,
+            callId: call.id ?? `tool_call_${toolCalls}`,
+            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+            args: call.args,
+            shortFingerprint: fingerprint,
+            cached: cachedOutput,
+            cacheHit: true,
+          }),
+        );
       } else {
         toolExecutions++;
         try {
@@ -586,33 +727,48 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             opts.signal ? { signal: opts.signal } : undefined,
           );
           output = typeof raw === "string" ? raw : String(raw);
-          toolOutputCache.set(fingerprint, output);
           const metadata = toolOutputStatusMetadata(output);
-          toolStatuses.push({
+          const cached = cachedToolResult({
             name,
-            called: true,
+            args: call.args ?? {},
+            output,
             failed: false,
-            missing: false,
             fallback: metadata.fallback,
-            cache_hit: false,
-            args: call.args,
-            fingerprint,
-            ...(metadata.as_of ? { as_of: metadata.as_of } : {}),
+            ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
           });
+          toolOutputCache.set(fingerprint, cached);
+          toolStatuses.push(
+            buildToolStatus({
+              name,
+              callId: call.id ?? `tool_call_${toolCalls}`,
+              ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+              args: call.args,
+              shortFingerprint: fingerprint,
+              cached,
+              cacheHit: false,
+            }),
+          );
         } catch (err) {
           output = `Tool '${name}' raised: ${(err as Error).message}`;
           opts.onLog?.(output);
-          toolOutputCache.set(fingerprint, output);
-          toolStatuses.push({
+          const cached = cachedToolResult({
             name,
-            called: true,
+            args: call.args ?? {},
+            output,
             failed: true,
-            missing: false,
-            fallback: false,
-            cache_hit: false,
-            args: call.args,
-            fingerprint,
           });
+          toolOutputCache.set(fingerprint, cached);
+          toolStatuses.push(
+            buildToolStatus({
+              name,
+              callId: call.id ?? `tool_call_${toolCalls}`,
+              ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+              args: call.args,
+              shortFingerprint: fingerprint,
+              cached,
+              cacheHit: false,
+            }),
+          );
         }
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);

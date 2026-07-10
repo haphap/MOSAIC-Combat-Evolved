@@ -151,6 +151,10 @@ export interface ResearchKnobsSnapshot {
 
 export interface ToolStatus {
   name: string;
+  /** Provider/runtime call identity; unique even when a result is served from cache. */
+  call_id?: string;
+  /** Agent-stage invocation that owns this observation. */
+  agent_invocation_id?: string;
   called: boolean;
   failed: boolean;
   missing: boolean;
@@ -158,7 +162,12 @@ export interface ToolStatus {
   cache_hit: boolean;
   args?: unknown;
   as_of?: string;
+  /** Short args-only memo used in logs and replay compaction. */
   fingerprint?: string;
+  /** Full canonical SHA-256 values used by evidence provenance. */
+  args_fingerprint?: string;
+  result_fingerprint?: string;
+  source_fingerprint?: string;
 }
 
 export interface KnobConsumptionContext {
