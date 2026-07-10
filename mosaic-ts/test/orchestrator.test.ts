@@ -1,3 +1,6 @@
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { backtestFillCommand, runAutoresearchCycle } from "../src/autoresearch/orchestrator.js";
 import type { BridgeApi } from "../src/bridge/types.js";
@@ -7,13 +10,35 @@ vi.mock("../src/autoresearch/mutator.js", () => ({
   buildKnobMutationMetadata: vi.fn((opts) => ({
     schema_version: "knob_mutation_metadata_v1",
     mutation_id: opts.mutationId,
+    transaction_id: `TX-${opts.mutationId}`,
+    experiment_id: `EXP-${opts.mutationId}`,
+    mutation_kind: "generic_knob",
+    lifecycle_state: "proposed",
     created_at: "2026-01-01T00:00:00.000Z",
     agent: opts.agent,
     cohort: opts.cohort,
     prediction_target: opts.mutation.prediction_target,
     evaluation_metric: opts.mutation.evaluation_metric,
-    base_knobs_sha256: "sha256:base",
-    new_knobs_sha256: "sha256:new",
+    horizon: opts.mutation.horizon,
+    rollback_condition: opts.mutation.rollback_condition,
+    base_knobs_sha256: `sha256:${"1".repeat(64)}`,
+    new_knobs_sha256: `sha256:${"2".repeat(64)}`,
+    catalog_version: "domain_knob_catalog_v1",
+    catalog_hash: `sha256:${"3".repeat(64)}`,
+    schema_hash: `sha256:${"4".repeat(64)}`,
+    evaluation_contract_hash: `sha256:${"5".repeat(64)}`,
+    metric_registry_hash: `sha256:${"6".repeat(64)}`,
+    calculator_registry_hash: `sha256:${"7".repeat(64)}`,
+    domain_card_ids: [],
+    evaluation_policy: {
+      baseline_id: `sha256:${"1".repeat(64)}`,
+      baseline: "rolling_sharpe",
+      min_effect_size: 0,
+      min_sample_size: 1,
+      uncertainty_method: "not_applicable",
+      overlapping_sample_policy: "not_applicable",
+      require_uncertainty_bound: false,
+    },
     changed_paths: opts.mutation.knob_patches.map((patch: { path: string }) => patch.path),
     patches: opts.mutation.knob_patches,
     renormalization: opts.mutation.renormalization,
@@ -111,6 +136,10 @@ describe("runAutoresearchCycle", () => {
       },
       base_knobs: {} as never,
       new_knobs: {} as never,
+      prompt_file_hashes: {
+        zh: { old_sha256: `sha256:${"1".repeat(64)}`, new_sha256: `sha256:${"2".repeat(64)}` },
+        en: { old_sha256: `sha256:${"3".repeat(64)}`, new_sha256: `sha256:${"4".repeat(64)}` },
+      },
     });
   });
 
@@ -189,6 +218,70 @@ describe("runAutoresearchCycle", () => {
       } else {
         process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = oldEnv;
       }
+    }
+  });
+
+  it("commits knob mutations through the durable transaction journal", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-orchestrator-transaction-"));
+    const oldEnabled = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
+    const oldTransactionDir = process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR;
+    const oldLog = process.env.MOSAIC_KNOB_MUTATION_LOG;
+    process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = "*";
+    process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR = join(root, "transactions");
+    process.env.MOSAIC_KNOB_MUTATION_LOG = join(root, "knob_mutations.jsonl");
+    const api = fakeBridgeApi({
+      promptsWrite: vi.fn().mockResolvedValue({
+        target: "private_git",
+        prompt_repo_id: "private",
+        prompt_base_commit_hash: "baseprompt123",
+        prompt_commit_hash: "def4567",
+        prompt_sha256: "f".repeat(64),
+        commit_hash: "def4567",
+        branch: "autoresearch/volatility/20260101",
+        paths: [
+          "prompts/mosaic/cohort_default/macro/volatility.zh.md",
+          "prompts/mosaic/cohort_default/macro/volatility.en.md",
+        ],
+      }),
+      promptsPreflight: vi.fn().mockResolvedValue({
+        source_status: { prompt_repo_revision: "baseprompt123" },
+      }),
+    });
+    try {
+      const result = await runAutoresearchCycle({
+        cohort: "cohort_default",
+        fakeLlm: true,
+        maxMutations: 1,
+        deps: { llm: new FakeLlm() as never, api },
+      });
+
+      expect(result.mutations[0]?.status).toBe("needs_fill");
+      expect(api.promptsWrite).toHaveBeenCalledTimes(1);
+      expect(api.autoresearchRecordMutation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commit_hash: "def4567",
+          mutation_metadata: expect.objectContaining({
+            mutation_id: expect.stringMatching(/^KM-1-/),
+            transaction_manifest_hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+          }),
+        }),
+      );
+      const manifestDir = join(root, "transactions", "manifests");
+      const manifestFiles = readdirSync(manifestDir);
+      expect(manifestFiles).toHaveLength(1);
+      const manifest = JSON.parse(
+        readFileSync(join(manifestDir, manifestFiles[0] ?? "missing"), "utf-8"),
+      ) as { state: string; metadata_log: { appended: boolean } };
+      expect(manifest).toMatchObject({ state: "committed", metadata_log: { appended: true } });
+    } finally {
+      if (oldEnabled === undefined) delete process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
+      else process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = oldEnabled;
+      if (oldTransactionDir === undefined)
+        delete process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR;
+      else process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR = oldTransactionDir;
+      if (oldLog === undefined) delete process.env.MOSAIC_KNOB_MUTATION_LOG;
+      else process.env.MOSAIC_KNOB_MUTATION_LOG = oldLog;
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

@@ -30,6 +30,17 @@ function canonicalHash(value: unknown): string {
   return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 }
 
+function committedCandidateManifestHash(manifest: MutationTransactionManifest): string {
+  return canonicalHash({
+    ...manifest,
+    state: "committed_log_pending",
+    recovery_state: "not_needed",
+    metadata_log: { ...manifest.metadata_log, appended: false },
+    committed_at: null,
+    recovery_decision: null,
+  });
+}
+
 async function atomicWriteJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.tmp-${process.pid}-${Date.now()}`;
@@ -346,7 +357,7 @@ export class PromptMutationTransactionCoordinator {
     await this.journal.transition(manifest, logPending);
     manifest = logPending;
     try {
-      await metadataLog.appendOnce(manifest, canonicalHash(manifest));
+      await metadataLog.appendOnce(manifest, committedCandidateManifestHash(manifest));
     } catch (error) {
       const pending = { ...manifest, recovery_state: "pending" as const };
       await this.journal.snapshot(pending);
@@ -438,7 +449,7 @@ export class PromptMutationTransactionCoordinator {
     }
 
     if (manifest.state === "committed_log_pending") {
-      await metadataLog.appendOnce(manifest, canonicalHash(manifest));
+      await metadataLog.appendOnce(manifest, committedCandidateManifestHash(manifest));
       const committed: MutationTransactionManifest = {
         ...manifest,
         state: "committed",

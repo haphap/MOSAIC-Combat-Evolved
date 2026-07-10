@@ -15,18 +15,29 @@
  * persisted).
  */
 
+import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { isResearchKnobsEnabled } from "../agents/helpers/research_knobs.js";
-import type { AutoresearchMissingRun, BridgeApi } from "../bridge/types.js";
+import { LAYER_BY_AGENT } from "../agents/prompts/cohorts.js";
+import type { MutationTransactionManifest } from "../agents/prompts/prompt_release_contract.js";
+import type { AutoresearchMissingRun, BridgeApi, PromptWriteResult } from "../bridge/types.js";
 import { redactSensitiveText } from "../security/redaction.js";
 import {
   appendKnobMutationMetadataLog,
   buildKnobMutationMetadata,
+  type KnobMutationMetadata,
   mutate,
   mutateResearchKnobs,
   type ResearchKnobPromptMutation,
 } from "./mutator.js";
+import {
+  MutationPathLeaseRegistry,
+  type MutationRepositoryAdapter,
+  MutationTransactionJournal,
+  PromptMutationTransactionCoordinator,
+} from "./transaction_coordinator.js";
 
 export interface AutoresearchCycleOptions {
   cohort: string;
@@ -47,7 +58,15 @@ export interface AutoresearchCycleOptions {
 export interface MutationResult {
   agent: string;
   version_id: number | null;
-  status: "kept" | "reverted" | "dry_run" | "needs_fill" | "incompatible" | "error";
+  status:
+    | "kept"
+    | "reverted"
+    | "eligible_for_promotion"
+    | "invalid"
+    | "dry_run"
+    | "needs_fill"
+    | "incompatible"
+    | "error";
   delta_sharpe?: number;
   summary?: string;
   error?: string;
@@ -71,6 +90,45 @@ function knobMutationLogPath(): string | null {
   return repo ? join(repo, "mutation_patches", "knob_mutations.jsonl") : null;
 }
 
+function transactionRoot(): string {
+  const explicit = process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR?.trim();
+  if (explicit) return explicit;
+  const root =
+    process.env.MOSAIC_REPO_ROOT?.trim() ?? fileURLToPath(new URL("../../../", import.meta.url));
+  return join(root, ".mosaic", "autoresearch", "prompt-mutation-transactions");
+}
+
+function sha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function stableJsonHash(value: unknown): string {
+  return sha256(JSON.stringify(value));
+}
+
+function promptPairSha256(
+  agent: string,
+  cohort: string,
+  contents: { zh: string; en: string },
+): string {
+  const layer = LAYER_BY_AGENT[agent];
+  if (!layer) throw new Error(`unknown prompt agent: ${agent}`);
+  const files = {
+    [`prompts/mosaic/${cohort}/${layer}/${agent}.zh.md`]: contents.zh,
+    [`prompts/mosaic/${cohort}/${layer}/${agent}.en.md`]: contents.en,
+  };
+  const digest = createHash("sha256");
+  for (const [path, content] of Object.entries(files).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    digest.update(path);
+    digest.update("\0");
+    digest.update(content);
+    digest.update("\0");
+  }
+  return digest.digest("hex");
+}
+
 function isResearchKnobPromptMutation(value: unknown): value is ResearchKnobPromptMutation {
   return (
     value !== null &&
@@ -79,6 +137,217 @@ function isResearchKnobPromptMutation(value: unknown): value is ResearchKnobProm
     "base_knobs" in value &&
     "new_knobs" in value
   );
+}
+
+async function privatePromptBaseCommit(
+  api: BridgeApi,
+  cohort: string,
+  agent: string,
+  fallback: string,
+): Promise<string> {
+  if (typeof api.promptsPreflight !== "function") return fallback;
+  try {
+    const preflight = await api.promptsPreflight({ cohort, agents: [agent], langs: ["zh", "en"] });
+    const revision = preflight.source_status.prompt_repo_revision;
+    return revision.length >= 7 ? revision : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function executeKnobMutationTransaction(opts: {
+  api: BridgeApi;
+  versionId: number;
+  branch: string;
+  agent: string;
+  cohort: string;
+  codeCommit: string;
+  summary: string;
+  mutation: ResearchKnobPromptMutation;
+  metadata: KnobMutationMetadata;
+}): Promise<{
+  writeResult: PromptWriteResult;
+  metadata: KnobMutationMetadata;
+  coordinator: PromptMutationTransactionCoordinator;
+}> {
+  const layer = LAYER_BY_AGENT[opts.agent];
+  if (!layer) throw new Error(`unknown prompt agent: ${opts.agent}`);
+  const promptBaseCommit = await privatePromptBaseCommit(
+    opts.api,
+    opts.cohort,
+    opts.agent,
+    opts.codeCommit,
+  );
+  const promptPaths = {
+    zh: `prompts/mosaic/${opts.cohort}/${layer}/${opts.agent}.zh.md`,
+    en: `prompts/mosaic/${opts.cohort}/${layer}/${opts.agent}.en.md`,
+  };
+  const files: MutationTransactionManifest["components"][number]["files"] = [
+    {
+      path: promptPaths.zh,
+      old_hash: opts.mutation.prompt_file_hashes.zh.old_sha256,
+      new_hash: opts.mutation.prompt_file_hashes.zh.new_sha256,
+      staging_path_hash: stableJsonHash({
+        mutation_id: opts.metadata.mutation_id,
+        path: promptPaths.zh,
+        new_hash: opts.mutation.prompt_file_hashes.zh.new_sha256,
+      }),
+    },
+    {
+      path: promptPaths.en,
+      old_hash: opts.mutation.prompt_file_hashes.en.old_sha256,
+      new_hash: opts.mutation.prompt_file_hashes.en.new_sha256,
+      staging_path_hash: stableJsonHash({
+        mutation_id: opts.metadata.mutation_id,
+        path: promptPaths.en,
+        new_hash: opts.mutation.prompt_file_hashes.en.new_sha256,
+      }),
+    },
+  ];
+  if (opts.mutation.domain_registry_update) {
+    files.push({
+      path: opts.mutation.domain_registry_update.relative_path,
+      old_hash: opts.mutation.domain_registry_update.old_sha256,
+      new_hash: opts.mutation.domain_registry_update.new_sha256,
+      staging_path_hash: stableJsonHash({
+        mutation_id: opts.metadata.mutation_id,
+        path: opts.mutation.domain_registry_update.relative_path,
+        new_hash: opts.mutation.domain_registry_update.new_sha256,
+      }),
+    });
+  }
+  const created: MutationTransactionManifest = {
+    schema_version: "prompt_mutation_transaction_v1",
+    mutation_id: opts.metadata.mutation_id,
+    transaction_id: opts.metadata.transaction_id,
+    experiment_id: opts.metadata.experiment_id,
+    state: "created",
+    recovery_state: "not_needed",
+    base_release_id: process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_ID?.trim() || "release-uninitialized",
+    catalog_hash: opts.metadata.catalog_hash,
+    schema_hash: opts.metadata.schema_hash,
+    evaluation_contract_hash: opts.metadata.evaluation_contract_hash,
+    target_paths: [...opts.metadata.changed_paths],
+    components: [
+      {
+        repo_id: "MOSAIC-Prompts",
+        base_commit: promptBaseCommit,
+        new_commit: null,
+        candidate_ref: `refs/heads/${opts.branch}`,
+        prepare_status: "pending",
+        files,
+      },
+    ],
+    metadata_log: {
+      path: "mutation_patches/knob_mutations.jsonl",
+      entry_hash: stableJsonHash(opts.metadata),
+      appended: false,
+    },
+    created_at: opts.metadata.created_at,
+    prepared_at: null,
+    committed_at: null,
+    aborted_at: null,
+    recovery_decision: null,
+  };
+  const root = transactionRoot();
+  const coordinator = new PromptMutationTransactionCoordinator(
+    new MutationTransactionJournal(root),
+    new MutationPathLeaseRegistry(root),
+  );
+  let writeResult: PromptWriteResult | null = null;
+  const expectedHashes = Object.fromEntries(files.map((file) => [file.path, file.new_hash]));
+  const adapter: MutationRepositoryAdapter = {
+    repoId: "MOSAIC-Prompts",
+    prepare: async () => undefined,
+    commit: async () => {
+      writeResult = await opts.api.promptsWrite({
+        agent: opts.agent,
+        cohort: opts.cohort,
+        contents: { zh: opts.mutation.zh_prompt, en: opts.mutation.en_prompt },
+        ...(opts.mutation.domain_registry_update
+          ? {
+              extra_files: {
+                [opts.mutation.domain_registry_update.relative_path]:
+                  opts.mutation.domain_registry_update.content,
+              },
+            }
+          : {}),
+        target: "private_git",
+        branch: opts.branch,
+        message: `autoresearch: ${opts.summary}`,
+      });
+      const commit = writeResult.prompt_commit_hash ?? writeResult.commit_hash;
+      if (!commit) throw new Error("private prompt mutation returned no commit hash");
+      return commit;
+    },
+    inspect: async () => {
+      if (typeof opts.api.promptsCandidateState === "function") {
+        const state = await opts.api.promptsCandidateState({
+          branch: opts.branch,
+          expected_hashes: expectedHashes,
+        });
+        return {
+          candidate_visible: state.candidate_visible && state.hashes_match,
+          new_commit: state.new_commit,
+        };
+      }
+      const commit = writeResult?.prompt_commit_hash ?? writeResult?.commit_hash ?? null;
+      return { candidate_visible: commit !== null, new_commit: commit };
+    },
+    abort: async () => {
+      if (typeof opts.api.promptsAbortCandidate === "function") {
+        await opts.api.promptsAbortCandidate({ branch: opts.branch });
+      }
+    },
+  };
+  let durableMetadata = opts.metadata;
+  await coordinator.execute(created, [adapter], {
+    appendOnce: async (manifest, manifestHash) => {
+      const commit = manifest.components[0]?.new_commit;
+      if (!commit) throw new Error("committed prompt transaction lacks candidate commit");
+      durableMetadata = { ...opts.metadata, transaction_manifest_hash: manifestHash };
+      const promptSha =
+        writeResult?.prompt_sha256 ??
+        promptPairSha256(opts.agent, opts.cohort, {
+          zh: opts.mutation.zh_prompt,
+          en: opts.mutation.en_prompt,
+        });
+      await opts.api.autoresearchRecordMutation({
+        version_id: opts.versionId,
+        commit_hash: commit,
+        summary: opts.summary,
+        prompt_repo_id: writeResult?.prompt_repo_id ?? "private",
+        prompt_base_commit_hash: writeResult?.prompt_base_commit_hash ?? promptBaseCommit,
+        prompt_sha256: promptSha,
+        code_commit_hash: opts.codeCommit,
+        mutation_metadata: durableMetadata,
+      });
+      const logPath = knobMutationLogPath();
+      if (!logPath) throw new Error("private knob mutation metadata log is not configured");
+      await appendKnobMutationMetadataLog({ logPath, metadata: durableMetadata });
+    },
+  });
+  if (!writeResult) {
+    const committed = await new MutationTransactionJournal(root).findByMutationId(
+      opts.metadata.mutation_id,
+    );
+    const commit = committed?.components[0]?.new_commit;
+    if (!commit) throw new Error("prompt transaction committed without a candidate commit");
+    writeResult = {
+      target: "private_git",
+      prompt_repo_id: "private",
+      prompt_base_commit_hash: promptBaseCommit,
+      prompt_commit_hash: commit,
+      commit_hash: commit,
+      prompt_sha256: promptPairSha256(opts.agent, opts.cohort, {
+        zh: opts.mutation.zh_prompt,
+        en: opts.mutation.en_prompt,
+      }),
+      branch: opts.branch,
+      paths: files.map((file) => file.path),
+    };
+  }
+  return { writeResult, metadata: durableMetadata, coordinator };
 }
 
 export function backtestFillCommand(run: AutoresearchMissingRun): string {
@@ -220,37 +489,8 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       continue;
     }
 
-    // 4. Write prompts on branch
-    let writeResult: Awaited<ReturnType<BridgeApi["promptsWrite"]>>;
-    try {
-      writeResult = await deps.api.promptsWrite({
-        agent: triggerResult.agent,
-        cohort,
-        contents: { zh: mutation.zh_prompt, en: mutation.en_prompt },
-        ...(knobPromptMutation?.domain_registry_update
-          ? {
-              extra_files: {
-                [knobPromptMutation.domain_registry_update.relative_path]:
-                  knobPromptMutation.domain_registry_update.content,
-              },
-            }
-          : {}),
-        target: "private_git",
-        branch: triggerResult.branch_name,
-        message: `autoresearch: ${mutation.modification_summary}`,
-      });
-    } catch (err) {
-      results.push({
-        agent: triggerResult.agent,
-        version_id: versionId,
-        status: "error",
-        error: redactSensitiveText(`write failed: ${(err as Error).message}`),
-      });
-      continue;
-    }
-
     const mutationId = knobPromptMutation ? cycleMutationId : null;
-    const knobMutationMetadata =
+    let knobMutationMetadata =
       knobPromptMutation && mutationId
         ? buildKnobMutationMetadata({
             mutationId,
@@ -263,27 +503,55 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
           })
         : null;
 
-    // 5. Record mutation in store
-    await deps.api.autoresearchRecordMutation({
-      version_id: versionId,
-      commit_hash: writeResult.prompt_commit_hash ?? writeResult.commit_hash ?? "unknown",
-      summary: mutation.modification_summary,
-      ...(writeResult.prompt_repo_id ? { prompt_repo_id: writeResult.prompt_repo_id } : {}),
-      ...(writeResult.prompt_base_commit_hash
-        ? { prompt_base_commit_hash: writeResult.prompt_base_commit_hash }
-        : {}),
-      ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
-      code_commit_hash: triggerResult.base_commit,
-      ...(knobMutationMetadata ? { mutation_metadata: knobMutationMetadata } : {}),
-    });
-    if (knobMutationMetadata) {
-      const logPath = knobMutationLogPath();
-      if (logPath) {
-        await appendKnobMutationMetadataLog({
-          logPath,
+    // 4-5. Commit and durably record the candidate. Knob mutations use the
+    // transaction journal; legacy prose rewrites retain the existing path.
+    let writeResult: Awaited<ReturnType<BridgeApi["promptsWrite"]>>;
+    let mutationCoordinator: PromptMutationTransactionCoordinator | null = null;
+    try {
+      if (knobPromptMutation && knobMutationMetadata) {
+        const transactional = await executeKnobMutationTransaction({
+          api: deps.api,
+          versionId,
+          branch: triggerResult.branch_name,
+          agent: triggerResult.agent,
+          cohort,
+          codeCommit: triggerResult.base_commit,
+          summary: mutation.modification_summary,
+          mutation: knobPromptMutation,
           metadata: knobMutationMetadata,
         });
+        writeResult = transactional.writeResult;
+        knobMutationMetadata = transactional.metadata;
+        mutationCoordinator = transactional.coordinator;
+      } else {
+        writeResult = await deps.api.promptsWrite({
+          agent: triggerResult.agent,
+          cohort,
+          contents: { zh: mutation.zh_prompt, en: mutation.en_prompt },
+          target: "private_git",
+          branch: triggerResult.branch_name,
+          message: `autoresearch: ${mutation.modification_summary}`,
+        });
+        await deps.api.autoresearchRecordMutation({
+          version_id: versionId,
+          commit_hash: writeResult.prompt_commit_hash ?? writeResult.commit_hash ?? "unknown",
+          summary: mutation.modification_summary,
+          ...(writeResult.prompt_repo_id ? { prompt_repo_id: writeResult.prompt_repo_id } : {}),
+          ...(writeResult.prompt_base_commit_hash
+            ? { prompt_base_commit_hash: writeResult.prompt_base_commit_hash }
+            : {}),
+          ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
+          code_commit_hash: triggerResult.base_commit,
+        });
       }
+    } catch (err) {
+      results.push({
+        agent: triggerResult.agent,
+        version_id: versionId,
+        status: "error",
+        error: redactSensitiveText(`write failed: ${(err as Error).message}`),
+      });
+      continue;
     }
 
     // 6. Prepare worktree for evaluation
@@ -318,7 +586,12 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       });
       const thisEval = evalResult.results.find((r) => r.version_id === versionId);
       if (thisEval) {
-        if (thisEval.status === "kept" || thisEval.status === "reverted") {
+        if (
+          thisEval.status === "kept" ||
+          thisEval.status === "reverted" ||
+          thisEval.status === "eligible_for_promotion" ||
+          thisEval.status === "invalid"
+        ) {
           evalStatus = thisEval.status;
           deltaSharpe = thisEval.delta_sharpe;
         } else if (thisEval.status === "incompatible") {
@@ -346,6 +619,18 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       evalStatus = "error";
       evalError = redactSensitiveText((err as Error).message ?? "unknown");
       safeLog(`evaluation error: ${evalError}`);
+    }
+
+    if (
+      mutationCoordinator &&
+      mutationId &&
+      ["kept", "reverted", "invalid", "incompatible"].includes(evalStatus)
+    ) {
+      try {
+        await mutationCoordinator.completeExperiment(mutationId);
+      } catch (err) {
+        safeLog(`mutation lease release failed: ${(err as Error).message}`);
+      }
     }
 
     // 8. Cleanup worktree

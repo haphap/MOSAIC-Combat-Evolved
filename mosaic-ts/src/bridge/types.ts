@@ -1633,7 +1633,6 @@ export class BridgeApi {
     prompt_repo_id?: string;
     prompt_sha256?: string;
     code_commit_hash?: string;
-    mutation_metadata?: Record<string, unknown>;
   }): Promise<{ run_id: number }> {
     return this.client.call<{ run_id: number }>("backtest.create_run", params);
   }
@@ -2222,6 +2221,7 @@ export class BridgeApi {
     prompt_base_commit_hash?: string;
     prompt_sha256?: string;
     code_commit_hash?: string;
+    mutation_metadata?: object;
   }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.record_mutation", params);
   }

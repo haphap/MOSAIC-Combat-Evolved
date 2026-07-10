@@ -191,6 +191,7 @@ export interface KnobMutationMetadata {
   schema_version: "knob_mutation_metadata_v1";
   mutation_id: string;
   transaction_id: string;
+  transaction_manifest_hash?: string;
   experiment_id: string;
   mutation_kind: "domain_knob" | "generic_knob";
   lifecycle_state: "proposed";
@@ -1174,6 +1175,10 @@ export interface ResearchKnobPromptMutation extends Mutation {
   knob_mutation: KnobMutation;
   base_knobs: ResearchKnobs;
   new_knobs: ResearchKnobs;
+  prompt_file_hashes: {
+    zh: { old_sha256: string; new_sha256: string };
+    en: { old_sha256: string; new_sha256: string };
+  };
   domain_registry_update?: {
     relative_path: string;
     content: string;
@@ -1408,6 +1413,10 @@ export async function mutateResearchKnobs(
     knob_mutation: knobMutation,
     base_knobs: zh.knobs,
     new_knobs: assembled.knobs,
+    prompt_file_hashes: {
+      zh: { old_sha256: hashText(zhPrompt), new_sha256: hashText(assembled.zh_prompt) },
+      en: { old_sha256: hashText(enPrompt), new_sha256: hashText(assembled.en_prompt) },
+    },
     ...(domainRegistryUpdate ? { domain_registry_update: domainRegistryUpdate } : {}),
   };
 }
