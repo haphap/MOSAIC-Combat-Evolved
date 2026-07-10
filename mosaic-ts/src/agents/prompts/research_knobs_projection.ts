@@ -8,6 +8,8 @@ import {
 import type { RuntimeAgentSpec } from "./runtime_agent_spec.js";
 
 const FENCE_RE = /```research-knobs\s*\n[\s\S]*?```/g;
+const EVIDENCE_CONTRACT_RE =
+  /<!-- runtime-evidence-contract:start -->[\s\S]*?<!-- runtime-evidence-contract:end -->/g;
 
 const HORIZON_BY_LAYER = {
   macro: "5d",
@@ -321,6 +323,52 @@ export function upsertResearchKnobsFence(text: string, knobs: ResearchKnobs): st
   const marker = findInsertionMarker(text);
   if (!marker) return `${fence}\n\n${text.trimStart()}`;
   return text.replace(marker, `${fence}\n\n${marker}`);
+}
+
+export function upsertRuntimeEvidenceContract(
+  text: string,
+  spec: RuntimeAgentSpec,
+  language: "zh" | "en",
+): string {
+  if (!spec.fieldNames.includes("claims")) return text;
+  const outputFields = spec.fieldNames.map((field) => `\`${field}\``).join(", ");
+  const domainCardIds = domainKnobCardsForSpec(spec)
+    .map((card) => `\`${card.id}\``)
+    .join(", ");
+  const body =
+    language === "zh"
+      ? [
+          "## Runtime Evidence Output Contract",
+          "Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。",
+          `输出字段包括：${outputFields}。`,
+          `本 agent 的 domain knob card ids：${domainCardIds || "(none)"}。`,
+          "必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 " +
+            "`evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 " +
+            "`research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、" +
+            "position decision、portfolio action、risk adjustment 或 execution check 都必须用 " +
+            "`claim_refs` 引用支持它的 claim。证据不足时输出 conservative fallback 与 uncertainty " +
+            "claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。",
+        ]
+      : [
+          "## Runtime Evidence Output Contract",
+          "Runtime supplies the only valid evidence catalog and research rule ids for this invocation.",
+          `Output fields include: ${outputFields}.`,
+          `Domain knob card ids for this agent: ${domainCardIds || "(none)"}.`,
+          "Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog " +
+            "`evidence_id` values through `evidence_refs`; every inference claim must also cite an " +
+            "allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, " +
+            "position decision, portfolio action, risk adjustment, or execution check must use " +
+            "`claim_refs` to cite its supporting claim. When evidence is insufficient, emit the " +
+            "conservative fallback and an uncertainty claim; never invent evidence ids, fingerprints, " +
+            "rule ids, or cross-run references.",
+        ];
+  const block = [
+    "<!-- runtime-evidence-contract:start -->",
+    ...body,
+    "<!-- runtime-evidence-contract:end -->",
+  ].join("\n\n");
+  const cleaned = text.replace(EVIDENCE_CONTRACT_RE, "").trimEnd();
+  return `${cleaned}\n\n${block}\n`;
 }
 
 function evidenceKeyForTool(tool: string): string {

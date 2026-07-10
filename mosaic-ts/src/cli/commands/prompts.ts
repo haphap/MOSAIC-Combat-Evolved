@@ -40,6 +40,7 @@ import { checkResearchKnobsPrompts } from "../../agents/prompts/research_knobs_c
 import {
   buildRuntimeResearchKnobs,
   upsertResearchKnobsFence,
+  upsertRuntimeEvidenceContract,
 } from "../../agents/prompts/research_knobs_projection.js";
 import {
   buildRuntimeAgentManifestArtifact,
@@ -376,7 +377,7 @@ export function registerPrompts(program: Command): void {
 
   prompts
     .command("sync-research-knobs")
-    .description("Generate/update research-knobs fences from runtime agent specs.")
+    .description("Generate/update research-knobs fences and runtime evidence contracts.")
     .requiredOption("--private-prompts-root <path>", "Private prompts root to update")
     .option("--cohort <name>", "Cohort to update (default cohort_default)")
     .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
@@ -425,7 +426,11 @@ export function registerPrompts(program: Command): void {
             promptsRoot: opts.privatePromptsRoot,
           });
           const current = await readFile(path, "utf-8");
-          const next = upsertResearchKnobsFence(current, knobs);
+          const next = upsertRuntimeEvidenceContract(
+            upsertResearchKnobsFence(current, knobs),
+            spec,
+            language,
+          );
           if (next === current) continue;
           changed.push(path);
           if (opts.write) {

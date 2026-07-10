@@ -33,6 +33,7 @@ import { checkResearchKnobsPrompts } from "../src/agents/prompts/research_knobs_
 import {
   buildRuntimeResearchKnobs,
   upsertResearchKnobsFence,
+  upsertRuntimeEvidenceContract,
 } from "../src/agents/prompts/research_knobs_projection.js";
 import {
   RUNTIME_AGENT_SPECS,
@@ -128,6 +129,20 @@ function promptBodyForSpec(spec: RuntimeAgentSpec, lang: "zh" | "en"): string {
     "- declared_influence_rationale",
   ].join("\n");
 }
+
+describe("upsertRuntimeEvidenceContract", () => {
+  it("adds an idempotent localized contract with every formal evidence field", () => {
+    const spec = specForAgent("central_bank");
+    const first = upsertRuntimeEvidenceContract("# central_bank", spec, "en");
+    const second = upsertRuntimeEvidenceContract(first, spec, "en");
+
+    expect(second).toBe(first);
+    expect(first.match(/runtime-evidence-contract:start/g)).toHaveLength(1);
+    for (const field of ["claims", "claim_refs", "evidence_refs", "research_rule_refs"]) {
+      expect(first).toContain(`\`${field}\``);
+    }
+  });
+});
 
 describe("checkResearchKnobsPrompts", () => {
   let fake: FakeRoot;
