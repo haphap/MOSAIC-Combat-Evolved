@@ -686,8 +686,8 @@ describe("Layer-4 runtime source envelopes", () => {
     expect(first.candidate.previous_target_hash).toBe("sha256:prior-final");
     expect(first.candidate.frozen).toBe(true);
     expect(first.candidate.portfolio_actions).toHaveLength(2);
-    expect(first.reviews.llm_reviewed_tickers).toEqual(["600519.SH"]);
-    expect(first.reviews.fallback_tickers).toEqual(["688981.SH"]);
+    expect(first.reviews.llm_reviewed_tickers).toEqual([]);
+    expect(first.reviews.fallback_tickers).toEqual(["600519.SH", "688981.SH"]);
     expect(
       first.candidate.portfolio_actions.find((action) => action.ticker === "688981.SH"),
     ).toMatchObject({
@@ -2231,8 +2231,8 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       stage: "cio_proposal",
       operation: "source_freeze",
       status: "fallback",
-      reason_codes: ["UNREVIEWED_POSITION"],
-      fallback_factory_id: "portfolio.position_coverage.runtime_safety_hold.v1",
+      reason_codes: ["CIO_PROPOSAL_SEMANTIC_REJECTED", "UNREVIEWED_POSITION"],
+      fallback_factory_id: "portfolio.cio_proposal.no_new_risk.v1",
     });
     expect(llm.invokeCalls).toBe(2);
     expect(llm.structuredCalls).toBe(1);

@@ -42,6 +42,13 @@ export interface KnobInfluenceDeclaration {
         fallback_reason_code?: string | undefined;
       }
     | undefined;
+  runtime_fallback_audit?:
+    | {
+        fallback_factory_id: string;
+        fallback_factory_version: string;
+        reason_codes: string[];
+      }
+    | undefined;
 }
 
 /** Plan §5.1 — central_bank, geopolitical, china, dollar, yield_curve,
@@ -523,6 +530,29 @@ export interface FinalTargetState {
   frozen: true;
 }
 
+export interface PortfolioSummary {
+  schema_version: "portfolio.summary.v1";
+  base_position_snapshot_hash: string | null;
+  market_vintage_hash: string;
+  liquidity_vintage_hash: string;
+  candidate_target_hash: string;
+  final_target_hash: string;
+  cash_weight: number;
+  gross_exposure: number;
+  net_exposure: number;
+  target_weight_sum: number;
+  leverage_authorized: false;
+  action_mapping_hash: string;
+  validator_bundle_hash: string;
+  validator_results: Array<{
+    validator_hash: string;
+    status: "accepted" | "fallback";
+    reason_codes: string[];
+  }>;
+  summary_hash: string;
+  frozen: true;
+}
+
 export interface PreviousTargetState {
   schema_version: "portfolio.previous_target_state.v1";
   snapshot_status: "loaded" | "empty_confirmed" | "missing";
@@ -558,6 +588,7 @@ export interface Layer4RuntimeState {
   cro_review_state: CroReviewState | null;
   execution_feasibility_state: ExecutionFeasibilityState | null;
   final_target_state: FinalTargetState | null;
+  portfolio_summary: PortfolioSummary | null;
   cio_final_knob_snapshot: ResearchKnobsSnapshot | null;
   resolved_source_statuses: RuntimeSourceStatus[];
   source_evidence_observations: RuntimeSourceEvidenceObservation[];

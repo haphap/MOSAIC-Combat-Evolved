@@ -126,6 +126,11 @@ export function buildConservativeCioFinalFallback(opts: {
     portfolio_actions: portfolioActions,
     dissent_refs,
     confidence: 0,
+    runtime_fallback_audit: {
+      fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
+      fallback_factory_version: "1",
+      reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED"],
+    },
   };
   return attachRuntimeOwnedFallbackClaims({
     output: fallback,
@@ -478,6 +483,14 @@ function assertPositionDecisionSemantics(
         if (action.target_weight <= 0) {
           throw new PositionActionValidationError(
             `${action.ticker}: HOLD position_decision requires positive target_weight`,
+          );
+        }
+        if (
+          Math.abs(action.target_weight - currentWeight) > 1e-9 ||
+          (deltaWeight !== undefined && Math.abs(deltaWeight) > 1e-9)
+        ) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision requires unchanged target_weight`,
           );
         }
         break;

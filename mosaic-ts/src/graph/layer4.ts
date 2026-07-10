@@ -24,6 +24,7 @@ import { buildAutonomousExecutionNode } from "../agents/decision/autonomous_exec
 import { buildCioNode, buildCioProposalNode } from "../agents/decision/cio.js";
 import { buildCroNode } from "../agents/decision/cro.js";
 import {
+  buildPortfolioSummary,
   freezeCioProposal,
   freezeFinalTarget,
   Layer4RuntimeContractError,
@@ -132,6 +133,11 @@ export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycl
     throw new Error("candidate_freeze requires cio_proposal output");
   }
   const frozen = freezeCioProposal(state, currentRuntime.cio_proposal);
+  const proposalFallback = frozen.proposal.runtime_fallback_audit;
+  const fallbackReasonCodes = [
+    ...(proposalFallback?.reason_codes ?? []),
+    ...(frozen.reviews.fallback_tickers.length > 0 ? ["UNREVIEWED_POSITION"] : []),
+  ];
   const runtime = updateLayer4Runtime(
     currentRuntime,
     {
@@ -143,12 +149,14 @@ export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycl
     {
       stage: "cio_proposal",
       operation: "source_freeze",
-      status: frozen.reviews.fallback_tickers.length > 0 ? "fallback" : "completed",
-      ...(frozen.reviews.fallback_tickers.length > 0
+      status: fallbackReasonCodes.length > 0 ? "fallback" : "completed",
+      ...(fallbackReasonCodes.length > 0
         ? {
-            reason_codes: ["UNREVIEWED_POSITION"],
-            fallback_factory_id: "portfolio.position_coverage.runtime_safety_hold.v1",
-            fallback_factory_version: "1",
+            reason_codes: fallbackReasonCodes,
+            fallback_factory_id:
+              proposalFallback?.fallback_factory_id ??
+              "portfolio.position_coverage.runtime_safety_hold.v1",
+            fallback_factory_version: proposalFallback?.fallback_factory_version ?? "1",
           }
         : {}),
       input_hashes: { cio_proposal: frozen.candidate.proposal_hash },
@@ -227,9 +235,17 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
     [validatorHash],
     { allowRuntimeSafetyFallback: fallbackRejectionReasons.length > 0 },
   );
+  const portfolioSummary = buildPortfolioSummary({
+    state,
+    finalTarget,
+    validationStatus: fallbackRejectionReasons.length > 0 ? "fallback" : "accepted",
+    ...(fallbackRejectionReasons.length > 0
+      ? { reasonCodes: ["FINAL_TARGET_VALIDATION_REJECTED"] }
+      : {}),
+  });
   const updatedRuntime = updateLayer4Runtime(
     runtime,
-    { final_target_state: finalTarget },
+    { final_target_state: finalTarget, portfolio_summary: portfolioSummary },
     {
       stage: "shared_validation",
       operation: "validation",
@@ -247,7 +263,10 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
         execution_feasibility_state: finalTarget.execution_feasibility_hash,
         cio_final: stableRuntimeHash(output),
       },
-      output_hashes: { final_target_state: finalTarget.final_target_hash },
+      output_hashes: {
+        final_target_state: finalTarget.final_target_hash,
+        portfolio_summary: portfolioSummary.summary_hash,
+      },
     },
   );
   return {

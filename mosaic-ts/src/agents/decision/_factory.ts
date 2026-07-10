@@ -719,6 +719,15 @@ function stageResultTrace<TOutput extends Layer4AgentOutput>(
   Layer4RuntimeTraceEntry,
   "status" | "reason_codes" | "fallback_factory_id" | "fallback_factory_version"
 > {
+  const runtimeFallback = output.runtime_fallback_audit;
+  if (runtimeFallback) {
+    return {
+      status: "fallback",
+      reason_codes: [...runtimeFallback.reason_codes],
+      fallback_factory_id: runtimeFallback.fallback_factory_id,
+      fallback_factory_version: runtimeFallback.fallback_factory_version,
+    };
+  }
   const audit = (output as { verified_knob_audit?: { fallback_reason_code?: unknown } | undefined })
     .verified_knob_audit;
   const knobFallbackReason =

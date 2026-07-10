@@ -882,6 +882,17 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(runtime?.final_target_state?.liquidity_vintage_hash).toBe(
       runtime?.execution_feasibility_state?.liquidity_vintage_hash,
     );
+    expect(runtime?.portfolio_summary).toMatchObject({
+      schema_version: "portfolio.summary.v1",
+      final_target_hash: runtime?.final_target_state?.final_target_hash,
+      target_weight_sum: 0.8,
+      gross_exposure: 0.8,
+      net_exposure: 0.8,
+      leverage_authorized: false,
+      frozen: true,
+    });
+    expect(runtime?.portfolio_summary?.cash_weight).toBeCloseTo(0.2);
+    expect(runtime?.portfolio_summary?.summary_hash).toMatch(/^sha256:/);
     expect(
       runtime?.stage_trace
         .filter((entry) => entry.operation === "agent_run")
@@ -955,6 +966,16 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
       stage: "shared_validation",
       status: "fallback",
       fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
+    });
+    expect(final.layer4_outputs.runtime?.portfolio_summary).toMatchObject({
+      target_weight_sum: 0,
+      cash_weight: 1,
+      validator_results: [
+        expect.objectContaining({
+          status: "fallback",
+          reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED"],
+        }),
+      ],
     });
   });
 

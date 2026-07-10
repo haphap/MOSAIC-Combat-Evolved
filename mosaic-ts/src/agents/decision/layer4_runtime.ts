@@ -16,6 +16,7 @@ import type {
   Layer4RuntimeTraceEntry,
   PortfolioAction,
   PortfolioExposureState,
+  PortfolioSummary,
   PositionReview,
   PositionReviewState,
   PreviousTargetState,
@@ -32,6 +33,7 @@ export function emptyLayer4RuntimeState(): Layer4RuntimeState {
     cro_review_state: null,
     execution_feasibility_state: null,
     final_target_state: null,
+    portfolio_summary: null,
     cio_final_knob_snapshot: null,
     resolved_source_statuses: [],
     source_evidence_observations: [],
@@ -82,23 +84,32 @@ export function freezeCioProposal(
   const runId = state.trace_id || state.as_of_date || "current_run";
   const cohort = state.active_cohort || "cohort_default";
   const asOfDate = state.as_of_date || "live";
-  const explicitReviews = isCioProposalOutput(proposal) ? proposal.position_reviews : [];
   const positionsByTicker = new Map(
     state.current_positions.positions.map((position) => [position.ticker, position]),
   );
-  const reviewsByTicker = new Map(explicitReviews.map((review) => [review.ticker, review]));
-  const llmActions = proposal.portfolio_actions.map((action) => {
-    const position = positionsByTicker.get(action.ticker);
-    const review = reviewsByTicker.get(action.ticker);
-    if (position && (!review || !reviewMatchesAction(review, action))) {
-      return runtimeSafetyHold(position);
+  let selectedProposal = proposal;
+  let explicitReviews = isCioProposalOutput(selectedProposal)
+    ? selectedProposal.position_reviews
+    : [];
+  let actions: PortfolioAction[];
+  try {
+    if (selectedProposal.verified_claim_audit?.raw_output_accepted === false) {
+      throw new Layer4RuntimeContractError("CIO proposal evidence graph was rejected");
     }
-    return { ...action, review_source: "llm" as const };
-  });
-  const actions = appendFallbackHolds(llmActions, state.current_positions.positions).map((action) =>
-    normalizeCandidateAction(action, positionsByTicker.get(action.ticker)),
-  );
-  assertUniqueTickers(actions, "candidate portfolio action");
+    actions = validatedCandidateActions(
+      state,
+      selectedProposal,
+      explicitReviews,
+      positionsByTicker,
+    );
+  } catch (error) {
+    if (!(error instanceof Layer4RuntimeContractError)) throw error;
+    selectedProposal = buildConservativeCioProposalFallback(state, proposal, [error.message]);
+    explicitReviews = selectedProposal.position_reviews ?? [];
+    actions = selectedProposal.portfolio_actions.map((action) =>
+      normalizeCandidateAction(action, positionsByTicker.get(action.ticker)),
+    );
+  }
   const positionReviews = buildPositionReviewState(
     runId,
     "pending_candidate_hash",
@@ -107,11 +118,11 @@ export function freezeCioProposal(
     explicitReviews,
   );
   const frozenProposal: CioOutput = {
-    ...proposal,
+    ...selectedProposal,
     portfolio_actions: actions,
-    ...(isCioProposalOutput(proposal) ? { position_reviews: positionReviews.reviews } : {}),
+    position_reviews: positionReviews.reviews,
   };
-  const proposalHash = stableHash(proposal);
+  const proposalHash = stableHash(frozenProposal);
   const candidatePayload = {
     run_id: runId,
     cohort,
@@ -126,7 +137,7 @@ export function freezeCioProposal(
       asOfDate,
     ),
     portfolio_actions: actions,
-    confidence: proposal.confidence,
+    confidence: frozenProposal.confidence,
   };
   const candidate: CandidateTargetState = {
     schema_version: "portfolio.candidate_target_state.v1",
@@ -274,6 +285,57 @@ export function freezeFinalTarget(
     schema_version: "portfolio.final_target_state.v1",
     ...payload,
     final_target_hash: stableHash(payload),
+    frozen: true,
+  };
+}
+
+export function buildPortfolioSummary(input: {
+  state: DailyCycleStateType;
+  finalTarget: FinalTargetState;
+  validationStatus: "accepted" | "fallback";
+  reasonCodes?: ReadonlyArray<string>;
+}): PortfolioSummary {
+  const targetWeightSum = input.finalTarget.portfolio_actions.reduce(
+    (sum, action) => sum + action.target_weight,
+    0,
+  );
+  const actionMappingHash = stableHash({
+    schema_version: "portfolio.action_mapping.v1",
+    mappings: {
+      HOLD: "HOLD",
+      ADD: "BUY",
+      REDUCE: "REDUCE",
+      EXIT: "SELL",
+    },
+    delta_formula: "target_weight-current_weight",
+  });
+  const validatorBundleHash = stableHash({
+    schema_version: "portfolio.validator_bundle.v1",
+    validator_hashes: [...input.finalTarget.validator_hashes].sort(),
+  });
+  const payload = {
+    base_position_snapshot_hash: input.state.current_positions.position_snapshot_hash ?? null,
+    market_vintage_hash: input.finalTarget.market_data_vintage_hash,
+    liquidity_vintage_hash: input.finalTarget.liquidity_vintage_hash,
+    candidate_target_hash: input.finalTarget.candidate_target_hash,
+    final_target_hash: input.finalTarget.final_target_hash,
+    cash_weight: Math.max(0, 1 - targetWeightSum),
+    gross_exposure: targetWeightSum,
+    net_exposure: targetWeightSum,
+    target_weight_sum: targetWeightSum,
+    leverage_authorized: false as const,
+    action_mapping_hash: actionMappingHash,
+    validator_bundle_hash: validatorBundleHash,
+    validator_results: input.finalTarget.validator_hashes.map((validatorHash) => ({
+      validator_hash: validatorHash,
+      status: input.validationStatus,
+      reason_codes: [...(input.reasonCodes ?? [])],
+    })),
+  };
+  return {
+    schema_version: "portfolio.summary.v1",
+    ...payload,
+    summary_hash: stableHash(payload),
     frozen: true,
   };
 }
@@ -429,6 +491,132 @@ export function runtimeSourceVintageHash(
 
 type CroAdjustment = NonNullable<CroOutput["required_adjustments"]>[number];
 
+function validatedCandidateActions(
+  state: DailyCycleStateType,
+  proposal: CioOutput,
+  explicitReviews: ReadonlyArray<PositionReview>,
+  positionsByTicker: ReadonlyMap<string, CurrentPosition>,
+): PortfolioAction[] {
+  if (state.current_positions.snapshot_status === "missing") {
+    throw new Layer4RuntimeContractError(
+      "CIO proposal cannot construct a candidate from missing current positions",
+    );
+  }
+  assertUniqueTickers(proposal.portfolio_actions, "candidate portfolio action");
+  assertUniqueTickers(explicitReviews, "CIO position review");
+  const actionByTicker = new Map(
+    proposal.portfolio_actions.map((action) => [action.ticker, action]),
+  );
+  const reviewByTicker = new Map(explicitReviews.map((review) => [review.ticker, review]));
+  if (state.current_positions.snapshot_status === "loaded") {
+    for (const position of state.current_positions.positions) {
+      const action = actionByTicker.get(position.ticker);
+      const review = reviewByTicker.get(position.ticker);
+      if (!action || !review || !reviewMatchesAction(review, action)) {
+        throw new Layer4RuntimeContractError(
+          `${position.ticker}: CIO proposal lacks a matching explicit current-position review`,
+        );
+      }
+    }
+  }
+  const actions = proposal.portfolio_actions.map((action) =>
+    normalizeCandidateAction(action, positionsByTicker.get(action.ticker)),
+  );
+  for (const action of actions) assertCandidateActionSemantics(action);
+  const totalWeight = actions.reduce((sum, action) => sum + action.target_weight, 0);
+  if (totalWeight > 1 + 1e-6) {
+    throw new Layer4RuntimeContractError(
+      `candidate target weight sum ${totalWeight.toFixed(6)} exceeds 1.0 + epsilon`,
+    );
+  }
+  return actions.map((action) => ({ ...action, review_source: "llm" }));
+}
+
+function buildConservativeCioProposalFallback(
+  state: DailyCycleStateType,
+  sourceOutput: CioOutput,
+  rejectionReasons: ReadonlyArray<string>,
+): CioProposalOutput {
+  const positions =
+    state.current_positions.snapshot_status === "loaded" ? state.current_positions.positions : [];
+  const portfolio_actions = positions.map((position) => runtimeSafetyHold(position));
+  const position_reviews = positions.map(
+    (position): PositionReview => ({
+      ticker: position.ticker,
+      decision: "HOLD",
+      target_weight: position.current_weight,
+      reason: "runtime fallback preserved current exposure after invalid CIO proposal",
+      thesis_status: "weakened",
+      risk_flags: ["cio_proposal_rejected"],
+      confidence: 0,
+      review_source: "runtime_safety_fallback",
+    }),
+  );
+  const fallback: CioProposalOutput = {
+    ...sourceOutput,
+    portfolio_actions,
+    position_reviews,
+    confidence: 0,
+    runtime_fallback_audit: {
+      fallback_factory_id: "portfolio.cio_proposal.no_new_risk.v1",
+      fallback_factory_version: "1",
+      reason_codes: ["CIO_PROPOSAL_SEMANTIC_REJECTED"],
+    },
+  };
+  return attachRuntimeOwnedFallbackClaims({
+    output: fallback,
+    sourceOutput,
+    stage: "cio_proposal",
+    fallbackReasonCode: "CIO_PROPOSAL_SEMANTIC_FALLBACK",
+    rejectionReasons,
+    statement: "Runtime rejected the CIO proposal and preserved only current exposure.",
+  });
+}
+
+function assertCandidateActionSemantics(action: PortfolioAction): void {
+  const currentWeight = action.current_weight ?? 0;
+  const deltaWeight = action.delta_weight ?? action.target_weight - currentWeight;
+  const expectedDecision =
+    action.action === "BUY"
+      ? "ADD"
+      : action.action === "REDUCE"
+        ? "REDUCE"
+        : action.action === "SELL"
+          ? "EXIT"
+          : "HOLD";
+  if (action.position_decision !== expectedDecision) {
+    throw new Layer4RuntimeContractError(
+      `${action.ticker}: candidate position_decision does not match ${action.action}`,
+    );
+  }
+  if (action.action === "BUY" && (action.target_weight <= 0 || deltaWeight <= 1e-9)) {
+    throw new Layer4RuntimeContractError(
+      `${action.ticker}: candidate BUY requires positive target-current delta`,
+    );
+  }
+  if (
+    action.action === "REDUCE" &&
+    (currentWeight <= 0 || action.target_weight <= 0 || deltaWeight >= -1e-9)
+  ) {
+    throw new Layer4RuntimeContractError(
+      `${action.ticker}: candidate REDUCE requires 0 < target_weight < current_weight`,
+    );
+  }
+  if (
+    action.action === "SELL" &&
+    (currentWeight <= 0 || action.target_weight > 1e-9 || deltaWeight >= -1e-9)
+  ) {
+    throw new Layer4RuntimeContractError(
+      `${action.ticker}: candidate SELL requires an existing position and zero target`,
+    );
+  }
+  if (action.action === "HOLD" && (currentWeight <= 0 || Math.abs(deltaWeight) > 1e-9)) {
+    throw new Layer4RuntimeContractError(
+      `${action.ticker}: candidate HOLD requires unchanged positive current exposure`,
+    );
+  }
+}
+
 function normalizeCandidateAction(
   action: PortfolioAction,
   position: CurrentPosition | undefined,
@@ -489,6 +677,11 @@ function buildConservativeCroFallback(
     correlated_risks: [],
     black_swan_scenarios: [],
     confidence: 0,
+    runtime_fallback_audit: {
+      fallback_factory_id: "portfolio.cro_review.no_new_risk.v1",
+      fallback_factory_version: "1",
+      reason_codes: ["CRO_REVIEW_SEMANTIC_REJECTED"],
+    },
   };
   return attachRuntimeOwnedFallbackClaims({
     output: fallback,
@@ -602,6 +795,11 @@ function buildConservativeExecutionFallback(
         reason: "execution fallback blocked an unverified target delta",
       })),
     confidence: 0,
+    runtime_fallback_audit: {
+      fallback_factory_id: "portfolio.execution_feasibility.block_all.v1",
+      fallback_factory_version: "1",
+      reason_codes: ["EXECUTION_FEASIBILITY_SEMANTIC_REJECTED"],
+    },
   };
   return attachRuntimeOwnedFallbackClaims({
     output: fallback,
@@ -737,19 +935,6 @@ function assertUniqueTickers(entries: ReadonlyArray<{ ticker: string }>, label: 
   }
 }
 
-function appendFallbackHolds(
-  actions: ReadonlyArray<PortfolioAction>,
-  positions: ReadonlyArray<CurrentPosition>,
-): PortfolioAction[] {
-  const covered = new Set(actions.map((action) => action.ticker));
-  return [
-    ...actions,
-    ...positions
-      .filter((position) => !covered.has(position.ticker))
-      .map((position) => runtimeSafetyHold(position)),
-  ];
-}
-
 function runtimeSafetyHold(position: CurrentPosition): PortfolioAction {
   return {
     ticker: position.ticker,
@@ -864,7 +1049,7 @@ function buildPortfolioExposureState(
 function inferPositionDecision(action: PortfolioAction): PositionReview["decision"] {
   if (action.action === "SELL" || action.target_weight === 0) return "EXIT";
   if (action.action === "REDUCE") return "REDUCE";
-  if (action.action === "BUY" && (action.delta_weight ?? 0) > 0) return "ADD";
+  if (action.action === "BUY") return "ADD";
   return "HOLD";
 }
 
