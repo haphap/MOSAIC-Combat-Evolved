@@ -705,6 +705,7 @@
         "rejected_picks",
         "correlated_risks",
         "black_swan_scenarios",
+        "required_adjustments",
         "confidence",
         "claims"
       ],
@@ -767,6 +768,7 @@
       ],
       "output_schema_fields": [
         "trades",
+        "execution_checks",
         "confidence",
         "claims"
       ],

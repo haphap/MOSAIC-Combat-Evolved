@@ -287,6 +287,15 @@ export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
 export interface CroOutput extends KnobInfluenceDeclaration {
   agent: "cro";
   rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
+  required_adjustments?:
+    | Array<{
+        ticker: string;
+        adjustment: "VETO" | "CAP_WEIGHT" | "REDUCE_WEIGHT" | "REQUIRE_REVIEW";
+        max_target_weight?: number | undefined;
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
   correlated_risks: string[];
   black_swan_scenarios: string[];
   /** Self-rated confidence in [0, 1]. Same semantics as L1/L2/L3. */
@@ -317,6 +326,16 @@ export interface AutoExecOutput extends KnobInfluenceDeclaration {
     conviction: number;
     claim_refs?: string[] | undefined;
   }>;
+  execution_checks?:
+    | Array<{
+        ticker: string;
+        status: "feasible" | "partial" | "blocked";
+        estimated_cost_bps: number;
+        max_executable_delta_weight?: number | undefined;
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
   execution_enforcement?:
     | {
         checked_trade_count: number;

@@ -61,6 +61,7 @@ export function fallbackCro(text: string): CroOutput {
   return {
     agent: "cro",
     rejected_picks: [],
+    required_adjustments: [],
     correlated_risks: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],
     black_swan_scenarios: ["analysis missing"],
     confidence: 0,

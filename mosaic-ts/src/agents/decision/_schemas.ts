@@ -73,6 +73,18 @@ export const CroSchema = z
       )
       .max(20)
       .describe("Picks rejected after risk review. Empty if upstream looks clean."),
+    required_adjustments: z
+      .array(
+        z.object({
+          ticker: z.string().min(1),
+          adjustment: z.enum(["VETO", "CAP_WEIGHT", "REDUCE_WEIGHT", "REQUIRE_REVIEW"]),
+          max_target_weight: z.number().min(0).max(1).optional(),
+          reason: z.string().min(1),
+          claim_refs: CLAIM_REFS,
+        }),
+      )
+      .max(20)
+      .optional(),
     correlated_risks: z
       .array(z.string().min(1))
       .max(10)
@@ -89,12 +101,29 @@ export const CroSchema = z
   .describe(
     "Layer-4 chief risk officer adversarial review. Reads L1+L2+L3 fully and " +
       "raises objections. Empty rejected_picks is allowed when the upstream is clean.",
-  );
+  )
+  .superRefine((value, ctx) => {
+    if (!value.claims || value.rejected_picks.length === 0) return;
+    const vetoed = new Set(
+      (value.required_adjustments ?? [])
+        .filter((adjustment) => adjustment.adjustment === "VETO")
+        .map((adjustment) => adjustment.ticker),
+    );
+    for (const rejected of value.rejected_picks) {
+      if (vetoed.has(rejected.ticker)) continue;
+      ctx.addIssue({
+        code: "custom",
+        path: ["required_adjustments"],
+        message: `rejected ticker ${rejected.ticker} requires a structured VETO adjustment`,
+      });
+    }
+  });
 
 export const CRO_FIELD_NAMES = [
   "rejected_picks",
   "correlated_risks",
   "black_swan_scenarios",
+  "required_adjustments",
   "confidence",
   "claims",
 ] as const;
@@ -184,6 +213,19 @@ export const AutonomousExecutionSchema = z
       )
       .max(20)
       .describe("Per-ticker trade decisions; HOLD picks at zero size also fine."),
+    execution_checks: z
+      .array(
+        z.object({
+          ticker: z.string().min(1),
+          status: z.enum(["feasible", "partial", "blocked"]),
+          estimated_cost_bps: z.number().min(0),
+          max_executable_delta_weight: z.number().min(0).max(1).optional(),
+          reason: z.string().min(1),
+          claim_refs: CLAIM_REFS,
+        }),
+      )
+      .max(20)
+      .optional(),
     execution_enforcement: z
       .object({
         checked_trade_count: z.number().int().min(0),
@@ -199,9 +241,26 @@ export const AutonomousExecutionSchema = z
   .describe(
     "Layer-4 autonomous execution. Translates L3 picks + cro / alpha into concrete trade actions. " +
       "Darwinian weights are stubbed at uniform = 1/N until Phase 3 scorecard lands.",
-  );
+  )
+  .superRefine((value, ctx) => {
+    if (!value.claims || value.trades.length === 0) return;
+    const checked = new Set((value.execution_checks ?? []).map((check) => check.ticker));
+    for (const trade of value.trades) {
+      if (checked.has(trade.ticker)) continue;
+      ctx.addIssue({
+        code: "custom",
+        path: ["execution_checks"],
+        message: `trade ${trade.ticker} requires a structured execution check`,
+      });
+    }
+  });
 
-export const AUTONOMOUS_EXECUTION_FIELD_NAMES = ["trades", "confidence", "claims"] as const;
+export const AUTONOMOUS_EXECUTION_FIELD_NAMES = [
+  "trades",
+  "execution_checks",
+  "confidence",
+  "claims",
+] as const;
 
 // ---------------------------------------------------------------------------
 // 4. cio (most strict)

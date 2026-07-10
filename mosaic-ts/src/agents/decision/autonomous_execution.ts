@@ -124,6 +124,7 @@ export function fallbackAutonomousExecution(text: string): AutoExecOutput {
   return {
     agent: "autonomous_execution",
     trades: [],
+    execution_checks: [],
     confidence: 0,
   };
 }

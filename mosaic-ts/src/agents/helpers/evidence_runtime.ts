@@ -323,9 +323,21 @@ function outputClaimReferences(
               prefix: "rejected_pick",
               type: "recommendation" as const,
             },
+            {
+              field: "required_adjustments",
+              prefix: "cro_adjustment",
+              type: "recommendation" as const,
+            },
           ]
         : agent === "autonomous_execution"
-          ? [{ field: "trades", prefix: "trade", type: "portfolio_action" as const }]
+          ? [
+              { field: "trades", prefix: "trade", type: "portfolio_action" as const },
+              {
+                field: "execution_checks",
+                prefix: "execution_check",
+                type: "recommendation" as const,
+              },
+            ]
           : agent === "cio"
             ? [
                 {
@@ -421,7 +433,9 @@ function withFallbackClaimRefs<T>(output: T, claimId: string): T {
   for (const field of [
     "novel_picks",
     "rejected_picks",
+    "required_adjustments",
     "trades",
+    "execution_checks",
     "portfolio_actions",
     "position_reviews",
   ]) {

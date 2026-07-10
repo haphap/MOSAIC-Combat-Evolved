@@ -102,6 +102,7 @@ describe("each Layer-4 spec wires correct fields", () => {
       "rejected_picks",
       "correlated_risks",
       "black_swan_scenarios",
+      "required_adjustments",
       "confidence",
       "claims",
     ]);
@@ -118,7 +119,12 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(autonomousExecutionSpec.agentId).toBe("autonomous_execution");
     expect(autonomousExecutionSpec.runtimeStage).toBe("execution_feasibility");
     expect(autonomousExecutionSpec.stateUpdateField).toBe("autonomous_execution");
-    expect(autonomousExecutionSpec.fieldNames).toEqual(["trades", "confidence", "claims"]);
+    expect(autonomousExecutionSpec.fieldNames).toEqual([
+      "trades",
+      "execution_checks",
+      "confidence",
+      "claims",
+    ]);
     expect(autonomousExecutionSpec.requiredTools).toContain("get_rke_research_context");
   });
   it("cio", () => {
@@ -195,6 +201,28 @@ describe("schemas reject malformations", () => {
     ).toThrow();
   });
 
+  it("requires structured CRO vetoes when evidence claims are enabled", () => {
+    expect(() =>
+      croSpec.schema.parse({
+        agent: "cro",
+        rejected_picks: [{ ticker: "600519.SH", reason: "risk", claim_refs: ["claim-1"] }],
+        correlated_risks: [],
+        black_swan_scenarios: [],
+        confidence: 0.5,
+        claims: [
+          {
+            claim_id: "claim-1",
+            claim_type: "uncertainty",
+            statement: "risk",
+            structured_conclusion: {},
+            evidence_refs: [],
+            research_rule_refs: [],
+          },
+        ],
+      }),
+    ).toThrow(/structured VETO adjustment/);
+  });
+
   it("alpha_discovery rejects empty why_missed_by_others", () => {
     expect(() =>
       alphaDiscoverySpec.schema.parse({
@@ -231,6 +259,34 @@ describe("schemas reject malformations", () => {
         confidence: 0.5,
       }),
     ).toThrow();
+  });
+
+  it("requires an execution check for each evidence-enabled trade", () => {
+    expect(() =>
+      autonomousExecutionSpec.schema.parse({
+        agent: "autonomous_execution",
+        trades: [
+          {
+            ticker: "600519.SH",
+            action: "BUY",
+            size_pct: 0.1,
+            conviction: 0.5,
+            claim_refs: ["claim-1"],
+          },
+        ],
+        confidence: 0.5,
+        claims: [
+          {
+            claim_id: "claim-1",
+            claim_type: "uncertainty",
+            statement: "execution uncertain",
+            structured_conclusion: {},
+            evidence_refs: [],
+            research_rule_refs: [],
+          },
+        ],
+      }),
+    ).toThrow(/structured execution check/);
   });
 
   it("cio rejects target_weight sum > 1.05", () => {
