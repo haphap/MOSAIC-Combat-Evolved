@@ -460,6 +460,7 @@ export interface CandidateTargetState {
   cohort: string;
   as_of_date: string;
   proposal_hash: string;
+  l4_run_snapshot_hash: string;
   candidate_target_hash: string;
   position_snapshot_hash: string | null;
   previous_target_hash: string | null;
@@ -473,6 +474,7 @@ export interface PositionReviewState {
   schema_version: "portfolio.position_review_state.v1";
   run_id: string;
   candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
   position_review_hash: string;
   reviews: PositionReview[];
   llm_reviewed_tickers: string[];
@@ -483,6 +485,7 @@ export interface PositionReviewState {
 export interface PortfolioExposureState {
   schema_version: "portfolio.exposure_state.v1";
   candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
   exposure_hash: string;
   gross_exposure: number;
   net_exposure: number;
@@ -496,6 +499,7 @@ export interface CroReviewState {
   schema_version: "decision.cro_review_state.v1";
   run_id: string;
   candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
   review_hash: string;
   output: CroOutput;
   frozen: true;
@@ -505,6 +509,7 @@ export interface ExecutionFeasibilityState {
   schema_version: "decision.execution_feasibility_state.v1";
   run_id: string;
   candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
   cro_review_hash: string;
   liquidity_vintage_hash: string;
   feasibility_hash: string;
@@ -518,6 +523,7 @@ export interface FinalTargetState {
   cohort: string;
   as_of_date: string;
   candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
   cro_review_hash: string;
   execution_feasibility_hash: string;
   final_target_hash: string;
@@ -533,6 +539,7 @@ export interface FinalTargetState {
 
 export interface PortfolioSummary {
   schema_version: "portfolio.summary.v1";
+  l4_run_snapshot_hash: string;
   base_position_snapshot_hash: string | null;
   market_vintage_hash: string;
   liquidity_vintage_hash: string;
@@ -563,9 +570,33 @@ export interface PreviousTargetState {
   source_error_code: string | null;
 }
 
+export interface L4RunPromptSnapshot {
+  agent: "alpha_discovery" | "cio" | "cro" | "autonomous_execution";
+  stage: "alpha_discovery" | "cio_proposal" | "cro_review" | "execution_feasibility" | "cio_final";
+  prompt_source_hash: string;
+  knob_snapshot_hash: string | null;
+}
+
+export interface L4RunSnapshotBundle {
+  schema_version: "decision.l4_run_snapshot_bundle.v1";
+  run_id: string;
+  cohort: string;
+  as_of_date: string;
+  prompt_snapshots: L4RunPromptSnapshot[];
+  position_snapshot_hash: string;
+  account_snapshot_hash: string;
+  upstream_outputs_hash: string;
+  base_market_data_vintage_hash: string;
+  base_market_source_hashes: Record<string, string>;
+  mirofish_context_hash: string | null;
+  bundle_hash: string;
+  frozen: true;
+}
+
 export interface Layer4RuntimeTraceEntry {
   sequence: number;
   stage:
+    | "l4_snapshot_freeze"
     | "alpha_discovery"
     | "cio_proposal"
     | "cro_review"
@@ -582,6 +613,7 @@ export interface Layer4RuntimeTraceEntry {
 }
 
 export interface Layer4RuntimeState {
+  l4_run_snapshot_bundle: L4RunSnapshotBundle | null;
   cio_proposal: CioOutput | null;
   candidate_target_state: CandidateTargetState | null;
   position_review_state: PositionReviewState | null;

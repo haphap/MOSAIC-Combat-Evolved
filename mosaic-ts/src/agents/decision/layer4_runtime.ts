@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { attachRuntimeOwnedFallbackClaims } from "../helpers/evidence_runtime.js";
 import type { RuntimeSourceStatus } from "../helpers/research_knobs.js";
+import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
 import type {
   AutoExecOutput,
@@ -12,6 +13,8 @@ import type {
   CurrentPosition,
   ExecutionFeasibilityState,
   FinalTargetState,
+  L4RunPromptSnapshot,
+  L4RunSnapshotBundle,
   Layer4RuntimeState,
   Layer4RuntimeTraceEntry,
   PortfolioAction,
@@ -26,6 +29,7 @@ export class Layer4RuntimeContractError extends Error {}
 
 export function emptyLayer4RuntimeState(): Layer4RuntimeState {
   return {
+    l4_run_snapshot_bundle: null,
     cio_proposal: null,
     candidate_target_state: null,
     position_review_state: null,
@@ -72,6 +76,155 @@ export function runtimeStateForLayer4(state: DailyCycleStateType): Layer4Runtime
   return state.layer4_outputs.runtime ?? emptyLayer4RuntimeState();
 }
 
+export function layer4PromptSourceHash(source: { zh: string; en: string } | string): string {
+  return stableHash(
+    typeof source === "string"
+      ? { schema_version: "decision.l4_prompt_source.v1", prompt: source }
+      : { schema_version: "decision.l4_prompt_source.v1", zh: source.zh, en: source.en },
+  );
+}
+
+function layer4PositionSnapshotHash(state: DailyCycleStateType): string {
+  const declared = state.current_positions.position_snapshot_hash;
+  if (declared && /^sha256:[0-9a-f]{64}$/.test(declared)) return declared;
+  return stableHash({
+    schema_version: "portfolio.current_positions.v1",
+    declared_snapshot_hash: declared ?? null,
+    snapshot: state.current_positions,
+  });
+}
+
+function layer4AccountSnapshotHash(state: DailyCycleStateType): string {
+  return stableHash({
+    schema_version: "portfolio.account_snapshot.v1",
+    mode: state.mode,
+    position_source: state.current_positions.position_source,
+    snapshot_status: state.current_positions.snapshot_status,
+    position_snapshot_hash: layer4PositionSnapshotHash(state),
+  });
+}
+
+function layer4UpstreamOutputsHash(state: DailyCycleStateType): string {
+  return stableHash({
+    schema_version: "decision.l4_upstream_outputs.v1",
+    layer1_outputs: state.layer1_outputs,
+    layer1_consensus: state.layer1_consensus,
+    layer2_outputs: state.layer2_outputs,
+    layer2_consensus: state.layer2_consensus,
+    layer3_outputs: state.layer3_outputs,
+  });
+}
+
+function marketSourceHashes(statuses: ReadonlyArray<RuntimeSourceStatus>): Record<string, string> {
+  return Object.fromEntries(
+    statuses
+      .filter((status) => status.source_id === "current_market_data")
+      .map((status) => [`${status.source_id}|${status.scope}`, stableHash(status)] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+export function freezeL4RunSnapshotBundle(input: {
+  state: DailyCycleStateType;
+  promptSnapshots: ReadonlyArray<L4RunPromptSnapshot>;
+  sourceStatuses: ReadonlyArray<RuntimeSourceStatus>;
+  mirofishContextHash: string | null;
+}): L4RunSnapshotBundle {
+  const promptSnapshots = [...input.promptSnapshots].sort((left, right) =>
+    left.stage.localeCompare(right.stage),
+  );
+  const stageSet = new Set(promptSnapshots.map((snapshot) => snapshot.stage));
+  if (promptSnapshots.length !== 5 || stageSet.size !== 5) {
+    throw new Layer4RuntimeContractError("L4 snapshot requires all five invocation stages");
+  }
+  const baseMarketSourceHashes = marketSourceHashes(input.sourceStatuses);
+  const payload = {
+    run_id: input.state.trace_id || input.state.as_of_date || "current_run",
+    cohort: input.state.active_cohort || "cohort_default",
+    as_of_date: input.state.as_of_date || "live",
+    prompt_snapshots: promptSnapshots,
+    position_snapshot_hash: layer4PositionSnapshotHash(input.state),
+    account_snapshot_hash: layer4AccountSnapshotHash(input.state),
+    upstream_outputs_hash: layer4UpstreamOutputsHash(input.state),
+    base_market_data_vintage_hash: stableHash(baseMarketSourceHashes),
+    base_market_source_hashes: baseMarketSourceHashes,
+    mirofish_context_hash: input.mirofishContextHash,
+  };
+  return {
+    schema_version: "decision.l4_run_snapshot_bundle.v1",
+    ...payload,
+    bundle_hash: stableHash(payload),
+    frozen: true,
+  };
+}
+
+export function assertL4RunSnapshotStage(input: {
+  state: DailyCycleStateType;
+  agent: string;
+  stage: RuntimeAgentStageId;
+  promptSourceHash: string;
+  knobSnapshotHash: string | null;
+  mirofishContextHash: string | null;
+}): L4RunSnapshotBundle {
+  const bundle = runtimeStateForLayer4(input.state).l4_run_snapshot_bundle;
+  if (!bundle) throw new Layer4RuntimeContractError("L4 run snapshot bundle is missing");
+  const { schema_version: _schema, bundle_hash: bundleHash, frozen: _frozen, ...payload } = bundle;
+  if (bundleHash !== stableHash(payload)) {
+    throw new Layer4RuntimeContractError("L4 run snapshot bundle hash mismatch");
+  }
+  if (
+    bundle.run_id !== (input.state.trace_id || input.state.as_of_date || "current_run") ||
+    bundle.cohort !== (input.state.active_cohort || "cohort_default") ||
+    bundle.as_of_date !== (input.state.as_of_date || "live")
+  ) {
+    throw new Layer4RuntimeContractError("L4 run identity changed after snapshot freeze");
+  }
+  if (
+    bundle.position_snapshot_hash !== layer4PositionSnapshotHash(input.state) ||
+    bundle.account_snapshot_hash !== layer4AccountSnapshotHash(input.state) ||
+    bundle.upstream_outputs_hash !== layer4UpstreamOutputsHash(input.state)
+  ) {
+    throw new Layer4RuntimeContractError("L4 immutable input changed after snapshot freeze");
+  }
+  const prompt = bundle.prompt_snapshots.find((snapshot) => snapshot.stage === input.stage);
+  if (!prompt || prompt.agent !== input.agent) {
+    throw new Layer4RuntimeContractError("L4 prompt snapshot stage/agent mismatch");
+  }
+  if (
+    prompt.prompt_source_hash !== input.promptSourceHash ||
+    prompt.knob_snapshot_hash !== input.knobSnapshotHash
+  ) {
+    throw new Layer4RuntimeContractError("L4 prompt or knob hash drifted during run");
+  }
+  const currentSourceHashes = marketSourceHashes(
+    runtimeStateForLayer4(input.state).resolved_source_statuses,
+  );
+  for (const [key, expected] of Object.entries(bundle.base_market_source_hashes)) {
+    if (currentSourceHashes[key] !== expected) {
+      throw new Layer4RuntimeContractError(`L4 base market source drifted: ${key}`);
+    }
+  }
+  if (
+    input.agent !== "alpha_discovery" &&
+    bundle.mirofish_context_hash !== input.mirofishContextHash
+  ) {
+    throw new Layer4RuntimeContractError("L4 MiroFish context changed after snapshot freeze");
+  }
+  return bundle;
+}
+
+function layer4RunSnapshotHash(state: DailyCycleStateType): string {
+  return (
+    runtimeStateForLayer4(state).l4_run_snapshot_bundle?.bundle_hash ??
+    stableHash({
+      schema_version: "decision.l4_legacy_snapshot.v1",
+      run_id: state.trace_id || state.as_of_date || "current_run",
+      position_snapshot_hash: layer4PositionSnapshotHash(state),
+      upstream_outputs_hash: layer4UpstreamOutputsHash(state),
+    })
+  );
+}
+
 export function freezeCioProposal(
   state: DailyCycleStateType,
   proposal: CioOutput,
@@ -82,6 +235,7 @@ export function freezeCioProposal(
   exposure: PortfolioExposureState;
 } {
   const runId = state.trace_id || state.as_of_date || "current_run";
+  const l4RunSnapshotHash = layer4RunSnapshotHash(state);
   const cohort = state.active_cohort || "cohort_default";
   const asOfDate = state.as_of_date || "live";
   const positionsByTicker = new Map(
@@ -113,6 +267,7 @@ export function freezeCioProposal(
   const positionReviews = buildPositionReviewState(
     runId,
     "pending_candidate_hash",
+    l4RunSnapshotHash,
     actions,
     state.current_positions.positions,
     explicitReviews,
@@ -128,6 +283,7 @@ export function freezeCioProposal(
     cohort,
     as_of_date: asOfDate,
     proposal_hash: proposalHash,
+    l4_run_snapshot_hash: l4RunSnapshotHash,
     position_snapshot_hash: state.current_positions.position_snapshot_hash ?? null,
     previous_target_hash: state.layer4_outputs.previous_target_state?.final_target_hash ?? null,
     market_data_vintage_hash: runtimeSourceVintageHash(
@@ -148,6 +304,7 @@ export function freezeCioProposal(
   const finalizedPositionReviews = buildPositionReviewState(
     runId,
     candidate.candidate_target_hash,
+    l4RunSnapshotHash,
     actions,
     state.current_positions.positions,
     explicitReviews,
@@ -183,6 +340,7 @@ export function freezeCroReview(
   const payload = {
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
+    l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
     output: frozenOutput,
   };
   return {
@@ -209,6 +367,9 @@ export function freezeExecutionFeasibility(
   if (croReview.candidate_target_hash !== candidate.candidate_target_hash) {
     throw new Layer4RuntimeContractError("execution_feasibility candidate hash mismatch");
   }
+  if (croReview.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash) {
+    throw new Layer4RuntimeContractError("execution_feasibility L4 snapshot hash mismatch");
+  }
   let frozenOutput = isConservativeExecutionFallback(output)
     ? buildConservativeExecutionFallback(candidate, output)
     : output;
@@ -224,6 +385,7 @@ export function freezeExecutionFeasibility(
   const payload = {
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
+    l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
     cro_review_hash: croReview.review_hash,
     liquidity_vintage_hash: runtimeSourceVintageHash(
       sourceStatuses,
@@ -261,7 +423,9 @@ export function freezeFinalTarget(
   if (
     croReview.candidate_target_hash !== candidate.candidate_target_hash ||
     execution.candidate_target_hash !== candidate.candidate_target_hash ||
-    execution.cro_review_hash !== croReview.review_hash
+    execution.cro_review_hash !== croReview.review_hash ||
+    croReview.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash ||
+    execution.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash
   ) {
     throw new Layer4RuntimeContractError("final_target_state cross-stage hash mismatch");
   }
@@ -271,6 +435,7 @@ export function freezeFinalTarget(
     cohort: state.active_cohort || "cohort_default",
     as_of_date: state.as_of_date || "live",
     candidate_target_hash: candidate.candidate_target_hash,
+    l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
     cro_review_hash: croReview.review_hash,
     execution_feasibility_hash: execution.feasibility_hash,
     position_snapshot_hash: state.current_positions.position_snapshot_hash ?? null,
@@ -314,6 +479,7 @@ export function buildPortfolioSummary(input: {
     validator_hashes: [...input.finalTarget.validator_hashes].sort(),
   });
   const payload = {
+    l4_run_snapshot_hash: input.finalTarget.l4_run_snapshot_hash,
     base_position_snapshot_hash: input.state.current_positions.position_snapshot_hash ?? null,
     market_vintage_hash: input.finalTarget.market_data_vintage_hash,
     liquidity_vintage_hash: input.finalTarget.liquidity_vintage_hash,
@@ -357,7 +523,9 @@ export function validateFinalTargetEnvelope(
   if (
     croReview.candidate_target_hash !== candidate.candidate_target_hash ||
     execution.candidate_target_hash !== candidate.candidate_target_hash ||
-    execution.cro_review_hash !== croReview.review_hash
+    execution.cro_review_hash !== croReview.review_hash ||
+    croReview.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash ||
+    execution.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash
   ) {
     throw new Layer4RuntimeContractError("final target validation cross-stage hash mismatch");
   }
@@ -957,6 +1125,7 @@ function runtimeSafetyHold(position: CurrentPosition): PortfolioAction {
 function buildPositionReviewState(
   runId: string,
   candidateTargetHash: string,
+  l4RunSnapshotHash: string,
   actions: ReadonlyArray<PortfolioAction>,
   positions: ReadonlyArray<CurrentPosition>,
   explicitReviews: ReadonlyArray<PositionReview>,
@@ -992,6 +1161,7 @@ function buildPositionReviewState(
   const payload = {
     run_id: runId,
     candidate_target_hash: candidateTargetHash,
+    l4_run_snapshot_hash: l4RunSnapshotHash,
     reviews,
     llm_reviewed_tickers: llmReviewedTickers,
     fallback_tickers: fallbackTickers,
@@ -1032,6 +1202,7 @@ function buildPortfolioExposureState(
   const grossExposure = Object.values(tickerWeights).reduce((sum, weight) => sum + weight, 0);
   const payload = {
     candidate_target_hash: candidate.candidate_target_hash,
+    l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
     gross_exposure: grossExposure,
     net_exposure: grossExposure,
     cash_weight: Math.max(0, 1 - grossExposure),

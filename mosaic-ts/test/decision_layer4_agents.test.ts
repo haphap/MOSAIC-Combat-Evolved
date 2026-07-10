@@ -41,11 +41,13 @@ import {
   validateAutonomousExecutionActions,
 } from "../src/agents/decision/execution_validator.js";
 import {
+  assertL4RunSnapshotStage,
   emptyLayer4RuntimeState,
   freezeCioProposal,
   freezeCroReview,
   freezeExecutionFeasibility,
   freezeFinalTarget,
+  freezeL4RunSnapshotBundle,
   Layer4RuntimeContractError,
   missingPreviousTargetState,
   previousTargetStateFromFinal,
@@ -589,6 +591,50 @@ function loadedPositions(
   };
 }
 
+const testL4PromptSnapshots = [
+  {
+    agent: "alpha_discovery" as const,
+    stage: "alpha_discovery" as const,
+    prompt_source_hash: "p1",
+    knob_snapshot_hash: null,
+  },
+  {
+    agent: "cio" as const,
+    stage: "cio_proposal" as const,
+    prompt_source_hash: "p2",
+    knob_snapshot_hash: null,
+  },
+  {
+    agent: "cro" as const,
+    stage: "cro_review" as const,
+    prompt_source_hash: "p3",
+    knob_snapshot_hash: null,
+  },
+  {
+    agent: "autonomous_execution" as const,
+    stage: "execution_feasibility" as const,
+    prompt_source_hash: "p4",
+    knob_snapshot_hash: null,
+  },
+  {
+    agent: "cio" as const,
+    stage: "cio_final" as const,
+    prompt_source_hash: "p5",
+    knob_snapshot_hash: null,
+  },
+];
+
+function attachTestL4Snapshot(state: DailyCycleStateType): void {
+  const runtime = state.layer4_outputs.runtime ?? emptyLayer4RuntimeState();
+  const bundle = freezeL4RunSnapshotBundle({
+    state,
+    promptSnapshots: testL4PromptSnapshots,
+    sourceStatuses: runtime.resolved_source_statuses,
+    mirofishContextHash: null,
+  });
+  state.layer4_outputs.runtime = { ...runtime, l4_run_snapshot_bundle: bundle };
+}
+
 function cioOutput(portfolio_actions: PortfolioAction[]): CioOutput {
   return {
     agent: "cio",
@@ -635,6 +681,72 @@ function stateWithFrozenCandidate(): DailyCycleStateType {
 }
 
 describe("Layer-4 runtime source envelopes", () => {
+  it("rejects prompt, position, and base-market drift after L4 snapshot freeze", () => {
+    const state = baseState();
+    const status = {
+      source_id: "current_market_data",
+      scope: "ticker:600519.SH",
+      status: "loaded" as const,
+      as_of: state.as_of_date,
+      snapshot_hash: "sha256:market-v1",
+    };
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      resolved_source_statuses: [status],
+    };
+    attachTestL4Snapshot(state);
+
+    expect(
+      assertL4RunSnapshotStage({
+        state,
+        agent: "cio",
+        stage: "cio_proposal",
+        promptSourceHash: "p2",
+        knobSnapshotHash: null,
+        mirofishContextHash: null,
+      }).bundle_hash,
+    ).toMatch(/^sha256:/);
+    expect(() =>
+      assertL4RunSnapshotStage({
+        state,
+        agent: "cio",
+        stage: "cio_proposal",
+        promptSourceHash: "prompt-drift",
+        knobSnapshotHash: null,
+        mirofishContextHash: null,
+      }),
+    ).toThrow(/prompt or knob hash drifted/);
+
+    const originalPositions = state.current_positions;
+    state.current_positions = { ...originalPositions, position_snapshot_hash: "sha256:changed" };
+    expect(() =>
+      assertL4RunSnapshotStage({
+        state,
+        agent: "cio",
+        stage: "cio_proposal",
+        promptSourceHash: "p2",
+        knobSnapshotHash: null,
+        mirofishContextHash: null,
+      }),
+    ).toThrow(/immutable input changed/);
+    state.current_positions = originalPositions;
+
+    state.layer4_outputs.runtime = {
+      ...(state.layer4_outputs.runtime ?? emptyLayer4RuntimeState()),
+      resolved_source_statuses: [{ ...status, snapshot_hash: "sha256:market-v2" }],
+    };
+    expect(() =>
+      assertL4RunSnapshotStage({
+        state,
+        agent: "cio",
+        stage: "cio_proposal",
+        promptSourceHash: "p2",
+        knobSnapshotHash: null,
+        mirofishContextHash: null,
+      }),
+    ).toThrow(/base market source drifted/);
+  });
+
   it("freezes a deterministic candidate and marks runtime HOLDs as unreviewed", () => {
     const state = baseState();
     state.current_positions = loadedPositions([
@@ -2210,6 +2322,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     });
     const update = await node(sample);
     sample.layer4_outputs = { ...sample.layer4_outputs, ...update.layer4_outputs };
+    attachTestL4Snapshot(sample);
     const frozen = freezeCandidateTargetNode(sample);
     const runtime = (frozen.layer4_outputs as Partial<Layer4Outputs> | undefined)?.runtime;
 

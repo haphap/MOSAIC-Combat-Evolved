@@ -132,6 +132,35 @@ describe("Layer 4 runtime source adapters", () => {
     );
   });
 
+  it("does not refresh a base market scope after the L4 bundle freezes it", async () => {
+    const state = sourceState();
+    state.layer3_outputs.munger = { picks: [{ ticker: "600519.SH" }] } as never;
+    const frozenStatus = {
+      source_id: "current_market_data",
+      scope: "ticker:600519.SH",
+      status: "stale" as const,
+      as_of: "2026-07-08",
+      snapshot_hash: `sha256:${"1".repeat(64)}`,
+    };
+    state.layer4_outputs.runtime = {
+      l4_run_snapshot_bundle: {
+        base_market_source_hashes: {
+          "current_market_data|ticker:600519.SH": `sha256:${"2".repeat(64)}`,
+        },
+      },
+      resolved_source_statuses: [frozenStatus],
+      source_evidence_observations: [],
+    } as never;
+    const toolsCall = vi.fn();
+
+    const statuses = await resolveLayer4SourceStatuses(state, "candidate_market", {
+      toolsCall,
+    } as Pick<BridgeApi, "toolsCall">);
+
+    expect(statuses).toEqual([frozenStatus]);
+    expect(toolsCall).not.toHaveBeenCalled();
+  });
+
   it("retains normalized evidence separately from source status", async () => {
     const bundle = await resolveLayer4SourceBundle(sourceState(), "pre_candidate", {
       toolsCall: vi.fn(async () => ({ text: "date,close,volume\n2026-07-09,1500,1200" })),

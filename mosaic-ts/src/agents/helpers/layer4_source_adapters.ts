@@ -36,8 +36,14 @@ export async function resolveLayer4SourceBundle(
   const tickers =
     stage === "pre_candidate" ? preCandidateTickers(state) : frozenCandidateTickers(state);
   const existing = state.layer4_outputs?.runtime?.resolved_source_statuses ?? [];
+  const frozenBaseSources = new Set(
+    Object.keys(
+      state.layer4_outputs?.runtime?.l4_run_snapshot_bundle?.base_market_source_hashes ?? {},
+    ),
+  );
   const unresolved = tickers.filter(
     (ticker) =>
+      !frozenBaseSources.has(`${sourceId}|ticker:${ticker}`) &&
       !existing.some(
         (status) =>
           status.source_id === sourceId &&

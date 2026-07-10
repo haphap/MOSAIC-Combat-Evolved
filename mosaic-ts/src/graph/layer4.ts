@@ -18,7 +18,12 @@
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
-import { activeKnobValuesFromUpstreamDecisionAgents } from "../agents/decision/_factory.js";
+import {
+  activeKnobValuesFromUpstreamDecisionAgents,
+  layer4MirofishSnapshotHash,
+  pickPromptLanguage,
+  preloadLayer4MirofishContext,
+} from "../agents/decision/_factory.js";
 import { buildAlphaDiscoveryNode } from "../agents/decision/alpha_discovery.js";
 import { buildAutonomousExecutionNode } from "../agents/decision/autonomous_execution.js";
 import { buildCioNode, buildCioProposalNode } from "../agents/decision/cio.js";
@@ -27,7 +32,9 @@ import {
   buildPortfolioSummary,
   freezeCioProposal,
   freezeFinalTarget,
+  freezeL4RunSnapshotBundle,
   Layer4RuntimeContractError,
+  layer4PromptSourceHash,
   runtimeStateForLayer4,
   stableRuntimeHash,
   updateLayer4Runtime,
@@ -40,14 +47,17 @@ import {
 } from "../agents/decision/position_validator.js";
 import {
   type Layer4SourceResolutionStage,
+  mergeRuntimeSourceStatuses,
   resolveLayer4SourceBundle,
 } from "../agents/helpers/layer4_source_adapters.js";
+import { isResearchKnobsStageEnabled } from "../agents/helpers/research_knobs.js";
+import { loadPrompt, loadPromptWithKnobs } from "../agents/prompts/loader.js";
 import {
   DailyCycleState,
   type DailyCycleStateType,
   type DailyCycleStateUpdate,
 } from "../agents/state.js";
-import type { CioOutput } from "../agents/types.js";
+import type { CioOutput, L4RunPromptSnapshot } from "../agents/types.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { chainEdges, serialEdges } from "./_edges.js";
@@ -74,7 +84,7 @@ export const LAYER4_AGENT_NODES = [
 ] as const;
 
 export const LAYER4_RUNTIME_NODES = [
-  "pre_candidate_sources",
+  "l4_snapshot_freeze",
   "alpha_discovery",
   "cio_proposal_sources",
   "cio_proposal",
@@ -89,23 +99,118 @@ export const LAYER4_RUNTIME_NODES = [
 
 /** Build (and compile) the Layer-4 decision subgraph. */
 export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
+  const strictDeps = { ...deps, requireL4SnapshotBundle: true };
   const graph = new StateGraph(DailyCycleState)
-    .addNode("pre_candidate_sources", buildSourceResolutionNode(deps, "pre_candidate"))
-    .addNode("alpha_discovery", buildAlphaDiscoveryNode(deps))
+    .addNode("l4_snapshot_freeze", buildL4SnapshotFreezeNode(strictDeps))
+    .addNode("alpha_discovery", buildAlphaDiscoveryNode(strictDeps))
     .addNode("cio_proposal_sources", buildSourceResolutionNode(deps, "pre_candidate"))
-    .addNode("cio_proposal", buildCioProposalNode(deps))
+    .addNode("cio_proposal", buildCioProposalNode(strictDeps))
     .addNode("candidate_market_sources", buildSourceResolutionNode(deps, "candidate_market"))
     .addNode("candidate_freeze", freezeCandidateTargetNode)
-    .addNode("cro", buildCroNode(deps))
+    .addNode("cro", buildCroNode(strictDeps))
     .addNode("execution_liquidity_sources", buildSourceResolutionNode(deps, "execution_liquidity"))
-    .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
-    .addNode("cio_final", buildCioNode(deps))
+    .addNode("autonomous_execution", buildAutonomousExecutionNode(strictDeps))
+    .addNode("cio_final", buildCioNode(strictDeps))
     .addNode("shared_validation", validateFinalTargetNode);
 
   // Serial L4: keep one LLM/tool stream active at a time.
   chainEdges(graph, serialEdges([START, ...LAYER4_RUNTIME_NODES, END] as const));
 
   return graph.compile();
+}
+
+const L4_PROMPT_INVOCATIONS: ReadonlyArray<Pick<L4RunPromptSnapshot, "agent" | "stage">> = [
+  { agent: "alpha_discovery", stage: "alpha_discovery" },
+  { agent: "cio", stage: "cio_proposal" },
+  { agent: "cro", stage: "cro_review" },
+  { agent: "autonomous_execution", stage: "execution_feasibility" },
+  { agent: "cio", stage: "cio_final" },
+];
+
+export function buildL4SnapshotFreezeNode(
+  deps: BuildLayer4GraphDeps & { requireL4SnapshotBundle?: boolean },
+): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
+  return async (state) => {
+    const currentRuntime = runtimeStateForLayer4(state);
+    if (currentRuntime.l4_run_snapshot_bundle) {
+      throw new Layer4RuntimeContractError("L4 run snapshot bundle was already frozen");
+    }
+    const resolved = await resolveLayer4SourceBundle(state, "pre_candidate", deps.api);
+    const stateWithSources: DailyCycleStateType = {
+      ...state,
+      layer4_outputs: {
+        ...state.layer4_outputs,
+        runtime: {
+          ...currentRuntime,
+          resolved_source_statuses: resolved.statuses,
+          source_evidence_observations: resolved.evidence,
+        },
+      },
+    };
+    const mirofish = await preloadLayer4MirofishContext(deps, stateWithSources);
+    const sourceStatuses = mergeRuntimeSourceStatuses(
+      resolved.statuses,
+      mirofish.status ? [mirofish.status] : [],
+    );
+    const cohort = state.active_cohort || "cohort_default";
+    const language = pickPromptLanguage(deps.config);
+    const promptSnapshots = await Promise.all(
+      L4_PROMPT_INVOCATIONS.map(async ({ agent, stage }): Promise<L4RunPromptSnapshot> => {
+        if (isResearchKnobsStageEnabled(agent, stage)) {
+          const loaded = await loadPromptWithKnobs({
+            agent,
+            cohort,
+            stage,
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
+          return {
+            agent,
+            stage,
+            prompt_source_hash: layer4PromptSourceHash(loaded.bodies),
+            knob_snapshot_hash: loaded.snapshot.hash,
+          };
+        }
+        const prompt = await loadPrompt({
+          agent,
+          cohort,
+          language,
+          ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+        });
+        return {
+          agent,
+          stage,
+          prompt_source_hash: layer4PromptSourceHash(prompt),
+          knob_snapshot_hash: null,
+        };
+      }),
+    );
+    const bundle = freezeL4RunSnapshotBundle({
+      state: stateWithSources,
+      promptSnapshots,
+      sourceStatuses,
+      mirofishContextHash: layer4MirofishSnapshotHash(mirofish.context),
+    });
+    const runtime = updateLayer4Runtime(
+      currentRuntime,
+      {
+        l4_run_snapshot_bundle: bundle,
+        resolved_source_statuses: sourceStatuses,
+        source_evidence_observations: resolved.evidence,
+      },
+      {
+        stage: "l4_snapshot_freeze",
+        operation: "source_freeze",
+        status: "completed",
+        input_hashes: {
+          position_snapshot: bundle.position_snapshot_hash,
+          upstream_outputs: bundle.upstream_outputs_hash,
+          base_market_data: bundle.base_market_data_vintage_hash,
+        },
+        output_hashes: { l4_run_snapshot_bundle: bundle.bundle_hash },
+      },
+    );
+    return { layer4_outputs: { runtime } };
+  };
 }
 
 export function buildSourceResolutionNode(
@@ -129,6 +234,9 @@ export function buildSourceResolutionNode(
 
 export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycleStateUpdate {
   const currentRuntime = runtimeStateForLayer4(state);
+  if (!currentRuntime.l4_run_snapshot_bundle) {
+    throw new Layer4RuntimeContractError("candidate_freeze requires L4 run snapshot bundle");
+  }
   if (!currentRuntime.cio_proposal) {
     throw new Error("candidate_freeze requires cio_proposal output");
   }

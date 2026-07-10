@@ -74,8 +74,10 @@ import type {
 } from "../types.js";
 import { validateAutonomousExecutionActions } from "./execution_validator.js";
 import {
+  assertL4RunSnapshotStage,
   freezeCroReview,
   freezeExecutionFeasibility,
+  layer4PromptSourceHash,
   runtimeStateForLayer4,
   stableRuntimeHash,
   updateLayer4Runtime,
@@ -117,11 +119,13 @@ export interface LayerFourAgentDeps {
   promptsRoot?: string;
   /** Per-run cache so CRO, execution, and CIO consume the same MiroFish context. */
   mirofishContextCache?: Map<string, Promise<MirofishContextLoadResult>>;
+  /** Canonical graph sets this; direct unit nodes may omit the graph-level bundle. */
+  requireL4SnapshotBundle?: boolean;
 }
 
 export type LayerFourAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
 
-interface MirofishContextLoadResult {
+export interface MirofishContextLoadResult {
   context: MirofishContext | null;
   status: RuntimeSourceStatus | null;
 }
@@ -153,6 +157,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           // Phase 0: load prompt.
           let knobSnapshot: ResearchKnobsSnapshot | null = null;
           let systemPrompt: string;
+          let promptSourceHash: string;
           if (isResearchKnobsStageEnabled(spec.agentId, spec.runtimeStage)) {
             const runtimeSourceStatuses = [
               ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId, spec.runtimeStage),
@@ -167,12 +172,24 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             });
             knobSnapshot = loaded.snapshot;
             systemPrompt = loaded.prompt;
+            promptSourceHash = layer4PromptSourceHash(loaded.bodies);
           } else {
             systemPrompt = await loadPrompt({
               agent: spec.agentId,
               cohort,
               language,
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+            promptSourceHash = layer4PromptSourceHash(systemPrompt);
+          }
+          if (deps.requireL4SnapshotBundle || runtimeStateForLayer4(state).l4_run_snapshot_bundle) {
+            assertL4RunSnapshotStage({
+              state,
+              agent: spec.agentId,
+              stage: spec.runtimeStage,
+              promptSourceHash,
+              knobSnapshotHash: knobSnapshot?.hash ?? null,
+              mirofishContextHash: layer4MirofishSnapshotHash(mirofish.context),
             });
           }
 
@@ -455,6 +472,34 @@ function getMirofishContextCache(
 ): Map<string, Promise<MirofishContextLoadResult>> {
   deps.mirofishContextCache ??= new Map();
   return deps.mirofishContextCache;
+}
+
+export async function preloadLayer4MirofishContext(
+  deps: LayerFourAgentDeps,
+  state: DailyCycleStateType,
+): Promise<MirofishContextLoadResult> {
+  if (!deps.api || !deps.config.mirofish?.inject_context) {
+    return { context: null, status: null };
+  }
+  const cache = getMirofishContextCache(deps);
+  const cacheKey = mirofishContextCacheKey(state);
+  const existing = cache.get(cacheKey);
+  if (existing) return existing;
+  const loadPromise = fetchMirofishContext(deps, state);
+  cache.set(cacheKey, loadPromise);
+  return loadPromise;
+}
+
+export function layer4MirofishSnapshotHash(context: MirofishContext | null): string | null {
+  if (!context) return null;
+  return stableRuntimeHash({
+    schema_version: "decision.l4_mirofish_context_snapshot.v1",
+    context_hash: context.context_hash ?? null,
+    as_of_date: context.as_of_date,
+    scenario_count: context.scenario_count ?? null,
+    horizon_days: context.horizon_days ?? null,
+    generator_version: context.generator_version ?? null,
+  });
 }
 
 function mirofishContextCacheKey(state: DailyCycleStateType): string {

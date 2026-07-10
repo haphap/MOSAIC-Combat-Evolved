@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Layer 4 Run Snapshot Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "cohort",
+    "as_of_date",
+    "prompt_snapshots",
+    "position_snapshot_hash",
+    "account_snapshot_hash",
+    "upstream_outputs_hash",
+    "base_market_data_vintage_hash",
+    "base_market_source_hashes",
+    "mirofish_context_hash",
+    "bundle_hash",
+    "frozen"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "decision.l4_run_snapshot_bundle.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cohort": {
+      "type": "string",
+      "minLength": 1
+    },
+    "as_of_date": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_snapshots": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent", "stage", "prompt_source_hash", "knob_snapshot_hash"],
+        "properties": {
+          "agent": {
+            "enum": ["alpha_discovery", "cio", "cro", "autonomous_execution"]
+          },
+          "stage": {
+            "enum": [
+              "alpha_discovery",
+              "cio_proposal",
+              "cro_review",
+              "execution_feasibility",
+              "cio_final"
+            ]
+          },
+          "prompt_source_hash": {
+            "$ref": "#/$defs/sha256"
+          },
+          "knob_snapshot_hash": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/sha256"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "position_snapshot_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "account_snapshot_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "upstream_outputs_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "base_market_data_vintage_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "base_market_source_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
+      }
+    },
+    "mirofish_context_hash": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "bundle_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "frozen": {
+      "const": true
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

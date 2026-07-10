@@ -867,6 +867,21 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.llm_calls).toHaveLength(26);
     expect(final.replay_triggered).toBe(false);
     const runtime = final.layer4_outputs.runtime;
+    expect(runtime?.l4_run_snapshot_bundle).toMatchObject({
+      schema_version: "decision.l4_run_snapshot_bundle.v1",
+      frozen: true,
+    });
+    expect(runtime?.l4_run_snapshot_bundle?.prompt_snapshots).toHaveLength(5);
+    expect(runtime?.l4_run_snapshot_bundle?.bundle_hash).toMatch(/^sha256:/);
+    for (const snapshot of runtime?.l4_run_snapshot_bundle?.prompt_snapshots ?? []) {
+      expect(snapshot.prompt_source_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      if (snapshot.knob_snapshot_hash) {
+        expect(snapshot.knob_snapshot_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      }
+    }
+    expect(runtime?.l4_run_snapshot_bundle?.position_snapshot_hash).toMatch(
+      /^sha256:[0-9a-f]{64}$/,
+    );
     expect(runtime?.candidate_target_state?.frozen).toBe(true);
     expect(runtime?.candidate_target_state?.market_data_vintage_hash).toMatch(/^sha256:/);
     expect(runtime?.cro_review_state?.candidate_target_hash).toBe(
@@ -875,6 +890,17 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(runtime?.execution_feasibility_state?.candidate_target_hash).toBe(
       runtime?.candidate_target_state?.candidate_target_hash,
     );
+    expect(
+      new Set([
+        runtime?.candidate_target_state?.l4_run_snapshot_hash,
+        runtime?.position_review_state?.l4_run_snapshot_hash,
+        runtime?.portfolio_exposure_state?.l4_run_snapshot_hash,
+        runtime?.cro_review_state?.l4_run_snapshot_hash,
+        runtime?.execution_feasibility_state?.l4_run_snapshot_hash,
+        runtime?.final_target_state?.l4_run_snapshot_hash,
+        runtime?.portfolio_summary?.l4_run_snapshot_hash,
+      ]),
+    ).toEqual(new Set([runtime?.l4_run_snapshot_bundle?.bundle_hash]));
     expect(runtime?.final_target_state?.final_target_hash).toMatch(/^sha256:/);
     expect(runtime?.final_target_state?.market_data_vintage_hash).toBe(
       runtime?.candidate_target_state?.market_data_vintage_hash,
@@ -905,6 +931,11 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       "cio_final",
     ]);
     expect(runtime?.stage_trace.at(-1)?.stage).toBe("shared_validation");
+    expect(runtime?.stage_trace[0]).toMatchObject({
+      stage: "l4_snapshot_freeze",
+      operation: "source_freeze",
+      output_hashes: { l4_run_snapshot_bundle: runtime?.l4_run_snapshot_bundle?.bundle_hash },
+    });
     expect(logs).toContainEqual(
       expect.stringContaining("[agent:start] L1 central_bank timeout=off"),
     );

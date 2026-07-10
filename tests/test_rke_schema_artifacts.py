@@ -49,6 +49,7 @@ REQUIRED_SCHEMA_FILES = {
     "evidence_claim_graph_v1.schema.json",
     "prompt_mutation_transaction_v1.schema.json",
     "active_prompt_release_manifest_v1.schema.json",
+    "l4_run_snapshot_bundle_v1.schema.json",
     "domain_knob_values_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
