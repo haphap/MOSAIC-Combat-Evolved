@@ -182,6 +182,9 @@ export interface RuntimeSourceStatus {
   as_of?: string;
   snapshot_hash?: string;
   error_code?: string;
+  producer_stage?: string;
+  resolved_at_stage?: string;
+  adapter_id?: string;
 }
 
 export type EvidenceDependencyState =

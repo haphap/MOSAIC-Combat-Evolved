@@ -394,6 +394,7 @@ export interface CandidateTargetState {
   proposal_hash: string;
   candidate_target_hash: string;
   position_snapshot_hash: string | null;
+  market_data_vintage_hash: string;
   portfolio_actions: PortfolioAction[];
   confidence: number;
   frozen: true;
@@ -436,6 +437,7 @@ export interface ExecutionFeasibilityState {
   run_id: string;
   candidate_target_hash: string;
   cro_review_hash: string;
+  liquidity_vintage_hash: string;
   feasibility_hash: string;
   output: AutoExecOutput;
   frozen: true;
@@ -451,6 +453,8 @@ export interface FinalTargetState {
   execution_feasibility_hash: string;
   final_target_hash: string;
   position_snapshot_hash: string | null;
+  market_data_vintage_hash: string;
+  liquidity_vintage_hash: string;
   portfolio_actions: PortfolioAction[];
   confidence: number;
   validator_hashes: string[];
@@ -468,6 +472,9 @@ export interface Layer4RuntimeTraceEntry {
     | "shared_validation";
   operation: "agent_run" | "source_freeze" | "validation";
   status: "completed" | "fallback" | "rejected";
+  reason_codes?: string[] | undefined;
+  fallback_factory_id?: string | undefined;
+  fallback_factory_version?: string | undefined;
   input_hashes: Record<string, string>;
   output_hashes: Record<string, string>;
 }

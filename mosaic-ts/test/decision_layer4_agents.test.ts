@@ -579,6 +579,7 @@ describe("Layer-4 runtime source envelopes", () => {
     const second = freezeCioProposal(state, proposal);
 
     expect(first.candidate.candidate_target_hash).toBe(second.candidate.candidate_target_hash);
+    expect(first.candidate.market_data_vintage_hash).toMatch(/^sha256:/);
     expect(first.candidate.frozen).toBe(true);
     expect(first.candidate.portfolio_actions).toHaveLength(2);
     expect(first.reviews.llm_reviewed_tickers).toEqual(["600519.SH"]);
@@ -625,6 +626,9 @@ describe("Layer-4 runtime source envelopes", () => {
     expect(final.candidate_target_hash).toBe(frozen.candidate.candidate_target_hash);
     expect(final.cro_review_hash).toBe(cro.review_hash);
     expect(final.execution_feasibility_hash).toBe(execution.feasibility_hash);
+    expect(execution.liquidity_vintage_hash).toMatch(/^sha256:/);
+    expect(final.market_data_vintage_hash).toBe(frozen.candidate.market_data_vintage_hash);
+    expect(final.liquidity_vintage_hash).toBe(execution.liquidity_vintage_hash);
     expect(final.validator_hashes).toEqual(["validator:portfolio.v1"]);
   });
 
@@ -1726,6 +1730,13 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       "600519.SH",
       "688981.SH",
     ]);
+    expect(runtime?.stage_trace.at(-1)).toMatchObject({
+      stage: "cio_proposal",
+      operation: "source_freeze",
+      status: "fallback",
+      reason_codes: ["UNREVIEWED_POSITION"],
+      fallback_factory_id: "portfolio.position_coverage.runtime_safety_hold.v1",
+    });
     expect(llm.invokeCalls).toBe(2);
     expect(llm.structuredCalls).toBe(1);
   });

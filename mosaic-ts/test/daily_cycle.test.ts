@@ -839,6 +839,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.replay_triggered).toBe(false);
     const runtime = final.layer4_outputs.runtime;
     expect(runtime?.candidate_target_state?.frozen).toBe(true);
+    expect(runtime?.candidate_target_state?.market_data_vintage_hash).toMatch(/^sha256:/);
     expect(runtime?.cro_review_state?.candidate_target_hash).toBe(
       runtime?.candidate_target_state?.candidate_target_hash,
     );
@@ -846,6 +847,12 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       runtime?.candidate_target_state?.candidate_target_hash,
     );
     expect(runtime?.final_target_state?.final_target_hash).toMatch(/^sha256:/);
+    expect(runtime?.final_target_state?.market_data_vintage_hash).toBe(
+      runtime?.candidate_target_state?.market_data_vintage_hash,
+    );
+    expect(runtime?.final_target_state?.liquidity_vintage_hash).toBe(
+      runtime?.execution_feasibility_state?.liquidity_vintage_hash,
+    );
     expect(
       runtime?.stage_trace
         .filter((entry) => entry.operation === "agent_run")

@@ -169,6 +169,9 @@ export function renderLayer4RuntimeContext(state: DailyCycleStateType): string {
     lines.push("* candidate_target_state: (missing)");
   } else {
     lines.push(`* candidate_target_hash: ${runtime.candidate_target_state.candidate_target_hash}`);
+    lines.push(
+      `* market_data_vintage_hash: ${runtime.candidate_target_state.market_data_vintage_hash}`,
+    );
     for (const action of runtime.candidate_target_state.portfolio_actions) {
       lines.push(
         `  - candidate ${action.ticker}: ${action.action}, target=${action.target_weight.toFixed(4)}, ` +
@@ -182,6 +185,9 @@ export function renderLayer4RuntimeContext(state: DailyCycleStateType): string {
   if (runtime?.execution_feasibility_state) {
     lines.push(
       `* execution_feasibility_hash: ${runtime.execution_feasibility_state.feasibility_hash}`,
+    );
+    lines.push(
+      `* liquidity_vintage_hash: ${runtime.execution_feasibility_state.liquidity_vintage_hash}`,
     );
   }
   return lines.join("\n");

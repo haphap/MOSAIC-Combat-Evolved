@@ -12,13 +12,7 @@ import {
   type LayerFourAgentSpec,
 } from "./_factory.js";
 import { CRO_FIELD_NAMES, CroSchema } from "./_schemas.js";
-import {
-  renderCurrentPositionsContext,
-  renderLayer1Context,
-  renderLayer2Context,
-  renderLayer3Context,
-  renderLayer4RuntimeContext,
-} from "./_user_context.js";
+import { renderCurrentPositionsContext, renderLayer4RuntimeContext } from "./_user_context.js";
 
 const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
 
@@ -28,9 +22,6 @@ function buildUserContext(state: DailyCycleStateType): string {
     `Cycle context for cro (Layer 4 chief risk officer):\n` +
     `* as_of_date: ${date}\n` +
     `* mode:       ${state.mode || "live"}\n\n` +
-    `${renderLayer1Context(state)}\n` +
-    `${renderLayer2Context(state)}\n` +
-    `${renderLayer3Context(state)}\n` +
     `${renderCurrentPositionsContext(state)}\n\n` +
     `${renderLayer4RuntimeContext(state)}\n\n` +
     `Review every ticker and exposure in the frozen candidate target. Reject the ones with concentrated ` +

@@ -33,6 +33,10 @@ import {
 } from "../agents/decision/layer4_runtime.js";
 import { validateCioPositionActions } from "../agents/decision/position_validator.js";
 import {
+  type Layer4SourceResolutionStage,
+  resolveLayer4SourceStatuses,
+} from "../agents/helpers/layer4_source_adapters.js";
+import {
   DailyCycleState,
   type DailyCycleStateType,
   type DailyCycleStateUpdate,
@@ -64,10 +68,14 @@ export const LAYER4_AGENT_NODES = [
 ] as const;
 
 export const LAYER4_RUNTIME_NODES = [
+  "pre_candidate_sources",
   "alpha_discovery",
+  "cio_proposal_sources",
   "cio_proposal",
+  "candidate_market_sources",
   "candidate_freeze",
   "cro",
+  "execution_liquidity_sources",
   "autonomous_execution",
   "cio_final",
   "shared_validation",
@@ -76,10 +84,14 @@ export const LAYER4_RUNTIME_NODES = [
 /** Build (and compile) the Layer-4 decision subgraph. */
 export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
   const graph = new StateGraph(DailyCycleState)
+    .addNode("pre_candidate_sources", buildSourceResolutionNode(deps, "pre_candidate"))
     .addNode("alpha_discovery", buildAlphaDiscoveryNode(deps))
+    .addNode("cio_proposal_sources", buildSourceResolutionNode(deps, "pre_candidate"))
     .addNode("cio_proposal", buildCioProposalNode(deps))
+    .addNode("candidate_market_sources", buildSourceResolutionNode(deps, "candidate_market"))
     .addNode("candidate_freeze", freezeCandidateTargetNode)
     .addNode("cro", buildCroNode(deps))
+    .addNode("execution_liquidity_sources", buildSourceResolutionNode(deps, "execution_liquidity"))
     .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
     .addNode("cio_final", buildCioNode(deps))
     .addNode("shared_validation", validateFinalTargetNode);
@@ -88,6 +100,21 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
   chainEdges(graph, serialEdges([START, ...LAYER4_RUNTIME_NODES, END] as const));
 
   return graph.compile();
+}
+
+export function buildSourceResolutionNode(
+  deps: BuildLayer4GraphDeps,
+  stage: Layer4SourceResolutionStage,
+): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
+  return async (state) => {
+    const currentRuntime = runtimeStateForLayer4(state);
+    const resolved_source_statuses = await resolveLayer4SourceStatuses(state, stage, deps.api);
+    return {
+      layer4_outputs: {
+        runtime: { ...currentRuntime, resolved_source_statuses },
+      },
+    };
+  };
 }
 
 export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycleStateUpdate {
@@ -107,7 +134,14 @@ export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycl
     {
       stage: "cio_proposal",
       operation: "source_freeze",
-      status: "completed",
+      status: frozen.reviews.fallback_tickers.length > 0 ? "fallback" : "completed",
+      ...(frozen.reviews.fallback_tickers.length > 0
+        ? {
+            reason_codes: ["UNREVIEWED_POSITION"],
+            fallback_factory_id: "portfolio.position_coverage.runtime_safety_hold.v1",
+            fallback_factory_version: "1",
+          }
+        : {}),
       input_hashes: { cio_proposal: frozen.candidate.proposal_hash },
       output_hashes: {
         candidate_target_state: frozen.candidate.candidate_target_hash,

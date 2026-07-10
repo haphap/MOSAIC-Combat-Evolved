@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { RuntimeSourceStatus } from "../helpers/research_knobs.js";
 import type { DailyCycleStateType } from "../state.js";
 import type {
   AutoExecOutput,
@@ -63,6 +64,12 @@ export function freezeCioProposal(
     as_of_date: asOfDate,
     proposal_hash: proposalHash,
     position_snapshot_hash: state.current_positions.position_snapshot_hash ?? null,
+    market_data_vintage_hash: runtimeSourceVintageHash(
+      state.layer4_outputs.runtime?.resolved_source_statuses ?? [],
+      "current_market_data",
+      actions.map((action) => action.ticker),
+      asOfDate,
+    ),
     portfolio_actions: actions,
     confidence: proposal.confidence,
   };
@@ -113,6 +120,8 @@ export function freezeExecutionFeasibility(
   candidate: CandidateTargetState | null,
   croReview: CroReviewState | null,
   output: AutoExecOutput,
+  sourceStatuses: ReadonlyArray<RuntimeSourceStatus> = [],
+  asOfDate = "live",
 ): ExecutionFeasibilityState {
   if (!candidate || !croReview) {
     throw new Layer4RuntimeContractError(
@@ -126,6 +135,14 @@ export function freezeExecutionFeasibility(
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
     cro_review_hash: croReview.review_hash,
+    liquidity_vintage_hash: runtimeSourceVintageHash(
+      sourceStatuses,
+      "execution_liquidity_state",
+      candidate.portfolio_actions
+        .filter((action) => action.action !== "HOLD" || (action.delta_weight ?? 0) !== 0)
+        .map((action) => action.ticker),
+      asOfDate,
+    ),
     output,
   };
   return {
@@ -165,6 +182,8 @@ export function freezeFinalTarget(
     cro_review_hash: croReview.review_hash,
     execution_feasibility_hash: execution.feasibility_hash,
     position_snapshot_hash: state.current_positions.position_snapshot_hash ?? null,
+    market_data_vintage_hash: candidate.market_data_vintage_hash,
+    liquidity_vintage_hash: execution.liquidity_vintage_hash,
     portfolio_actions: output.portfolio_actions,
     confidence: output.confidence,
     validator_hashes: [...validatorHashes].sort(),
@@ -210,6 +229,38 @@ export function updateLayer4Runtime(
 
 export function stableRuntimeHash(value: unknown): string {
   return stableHash(value);
+}
+
+export function runtimeSourceVintageHash(
+  statuses: ReadonlyArray<RuntimeSourceStatus>,
+  sourceId: string,
+  tickers: ReadonlyArray<string>,
+  asOfDate: string,
+): string {
+  const scopes = [...new Set(tickers)].sort().map((ticker) => {
+    const scope = `ticker:${ticker}`;
+    const status = statuses.find((item) => item.source_id === sourceId && item.scope === scope);
+    return status
+      ? {
+          source_id: sourceId,
+          scope,
+          status: status.status,
+          as_of: status.as_of ?? null,
+          snapshot_hash: status.snapshot_hash ?? null,
+          error_code: status.error_code ?? null,
+          adapter_id: status.adapter_id ?? null,
+        }
+      : {
+          source_id: sourceId,
+          scope,
+          status: "missing",
+          as_of: null,
+          snapshot_hash: null,
+          error_code: `${sourceId}_adapter_not_resolved`,
+          adapter_id: null,
+        };
+  });
+  return stableHash({ source_id: sourceId, as_of_date: asOfDate, scopes });
 }
 
 function appendFallbackHolds(

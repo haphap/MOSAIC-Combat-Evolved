@@ -63,6 +63,7 @@ import type {
   CroOutput,
   Layer4AgentOutputKey,
   Layer4Outputs,
+  Layer4RuntimeTraceEntry,
   LlmCallRecord,
 } from "../types.js";
 import { validateAutonomousExecutionActions } from "./execution_validator.js";
@@ -568,7 +569,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       {
         stage: "cio_proposal",
         operation: "agent_run",
-        status: proposal.confidence === 0 ? "fallback" : "completed",
+        ...stageResultTrace(spec, output),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { cio_proposal: stableRuntimeHash(proposal) },
       },
@@ -583,7 +584,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       {
         stage: "cio_final",
         operation: "agent_run",
-        status: finalOutput.confidence === 0 ? "fallback" : "completed",
+        ...stageResultTrace(spec, output),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { cio_final: stableRuntimeHash(finalOutput) },
       },
@@ -602,7 +603,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       {
         stage: "alpha_discovery",
         operation: "agent_run",
-        status: output.confidence === 0 ? "fallback" : "completed",
+        ...stageResultTrace(spec, output),
         input_hashes: {},
         output_hashes: { alpha_discovery: stableRuntimeHash(output) },
       },
@@ -619,7 +620,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       {
         stage: "cro_review",
         operation: "agent_run",
-        status: output.confidence === 0 ? "fallback" : "completed",
+        ...stageResultTrace(spec, output),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { cro_review_state: review.review_hash },
       },
@@ -630,6 +631,8 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       currentRuntime.candidate_target_state,
       currentRuntime.cro_review_state,
       output as unknown as AutoExecOutput,
+      currentRuntime.resolved_source_statuses,
+      opts.state.as_of_date || "live",
     );
     runtime = updateLayer4Runtime(
       currentRuntime,
@@ -637,7 +640,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       {
         stage: "execution_feasibility",
         operation: "agent_run",
-        status: output.confidence === 0 ? "fallback" : "completed",
+        ...stageResultTrace(spec, output),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { execution_feasibility_state: feasibility.feasibility_hash },
       },
@@ -649,6 +652,26 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       runtime,
     } as Partial<Layer4Outputs>,
     llm_calls: [llmCall],
+  };
+}
+
+function stageResultTrace<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+  output: TOutput,
+): Pick<
+  Layer4RuntimeTraceEntry,
+  "status" | "reason_codes" | "fallback_factory_id" | "fallback_factory_version"
+> {
+  const audit = (output as { verified_knob_audit?: { fallback_reason_code?: unknown } | undefined })
+    .verified_knob_audit;
+  const fallbackReason =
+    typeof audit?.fallback_reason_code === "string" ? audit.fallback_reason_code : null;
+  if (output.confidence > 0 && !fallbackReason) return { status: "completed" };
+  return {
+    status: "fallback",
+    reason_codes: [fallbackReason ?? "AGENT_CONSERVATIVE_FALLBACK"],
+    fallback_factory_id: `decision.${spec.agentId}.${spec.runtimeStage}.fallback`,
+    fallback_factory_version: "1",
   };
 }
 

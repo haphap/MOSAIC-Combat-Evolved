@@ -39,35 +39,51 @@ export function resolveRuntimeSourceStatusesForAgent(
           ...(positionStatus === "missing"
             ? { error_code: currentPositions.source_error_code ?? "current_positions_missing" }
             : {}),
+          producer_stage: "cycle_input",
+          ...(stage ? { resolved_at_stage: stage } : {}),
+          adapter_id: "portfolio.current_positions_adapter.v1",
         },
       ),
-      runtimeStatus(
-        "previous_target_state",
-        `account:default|cohort:${cohort}`,
-        "empty_confirmed",
-        asOf,
-        {
-          snapshot_hash: stableHash({
-            cohort,
-            source_id: "previous_target_state",
-            status: "empty",
-          }),
-        },
-      ),
-      ...upstreamOutputStatuses(state, cohort, runId, asOf),
     );
-    const marketScopes = scopedTickers([
-      ...currentPositions.positions.map((position) => position.ticker),
-      ...(runtime?.candidate_target_state?.portfolio_actions ?? []).map((action) => action.ticker),
-    ]);
+    if (agentId === "alpha_discovery" || (agentId === "cio" && stage === "cio_proposal")) {
+      statuses.push(
+        ...upstreamOutputStatuses(state, cohort, runId, asOf, {
+          includeAlphaDiscovery: agentId === "cio",
+        }),
+      );
+    }
+    if (agentId === "cio" && stage === "cio_proposal") {
+      const previousTarget = runtime?.resolved_source_statuses.find(
+        (status) => status.source_id === "previous_target_state",
+      );
+      statuses.push(
+        previousTarget ??
+          runtimeStatus(
+            "previous_target_state",
+            `account:default|cohort:${cohort}`,
+            "missing",
+            asOf,
+            {
+              error_code: "previous_target_state_adapter_not_resolved",
+              ...(stage ? { resolved_at_stage: stage } : {}),
+              adapter_id: "portfolio.previous_target_adapter.v1",
+            },
+          ),
+      );
+    }
+    const marketScopes = scopedTickers(decisionMarketTickers(state, agentId, stage));
     if (marketScopes.length === 0) {
       statuses.push(
         currentPositions.snapshot_status === "missing"
           ? runtimeStatus("current_market_data", "ticker_scope:unknown", "missing", asOf, {
               error_code: "current_market_data_unresolved_without_positions",
+              ...(stage ? { resolved_at_stage: stage } : {}),
+              adapter_id: "market.scoped_snapshot_adapter.v1",
             })
-          : runtimeStatus("current_market_data", "ticker_scope:empty", "loaded", asOf, {
-              snapshot_hash: stableHash({ asOf, scope: "ticker_scope:empty" }),
+          : runtimeStatus("current_market_data", "ticker_scope:empty", "empty_confirmed", asOf, {
+              error_code: "current_market_data_scope_empty",
+              ...(stage ? { resolved_at_stage: stage } : {}),
+              adapter_id: "market.scoped_snapshot_adapter.v1",
             }),
       );
     } else {
@@ -83,7 +99,11 @@ export function resolveRuntimeSourceStatusesForAgent(
         );
       }
     }
-    if (currentPositions.snapshot_status === "loaded") {
+    if (
+      agentId === "cio" &&
+      stage === "cio_proposal" &&
+      currentPositions.snapshot_status === "loaded"
+    ) {
       for (const position of currentPositions.positions) {
         statuses.push(
           runtimeStatus("position_thesis_state", `ticker:${position.ticker}`, "loaded", asOf, {
@@ -92,6 +112,9 @@ export function resolveRuntimeSourceStatusesForAgent(
               last_review_date: position.last_review_date,
               ticker: position.ticker,
             }),
+            producer_stage: "cycle_input",
+            ...(stage ? { resolved_at_stage: stage } : {}),
+            adapter_id: "portfolio.position_thesis_adapter.v1",
           }),
         );
       }
@@ -133,10 +156,35 @@ export function resolveRuntimeSourceStatusesForAgent(
         runtime?.cro_review_state?.review_hash,
         asOf,
       ),
-      runtimeStatus("execution_liquidity_state", "ticker_scope:target_trades", "missing", asOf, {
-        error_code: "execution_liquidity_state_missing",
-      }),
     );
+    const liquidityScopes = scopedTickers(
+      (runtime?.candidate_target_state?.portfolio_actions ?? [])
+        .filter((action) => action.action !== "HOLD" || (action.delta_weight ?? 0) !== 0)
+        .map((action) => action.ticker),
+    );
+    if (liquidityScopes.length === 0) {
+      statuses.push(
+        runtimeStatus("execution_liquidity_state", "ticker_scope:empty", "empty_confirmed", asOf, {
+          error_code: "execution_liquidity_scope_empty",
+          ...(stage ? { resolved_at_stage: stage } : {}),
+          adapter_id: "execution.liquidity_adapter.v1",
+        }),
+      );
+    } else {
+      for (const scope of liquidityScopes) {
+        const resolved = runtime?.resolved_source_statuses.find(
+          (status) => status.source_id === "execution_liquidity_state" && status.scope === scope,
+        );
+        statuses.push(
+          resolved ??
+            runtimeStatus("execution_liquidity_state", scope, "missing", asOf, {
+              error_code: "execution_liquidity_adapter_not_resolved",
+              ...(stage ? { resolved_at_stage: stage } : {}),
+              adapter_id: "execution.liquidity_adapter.v1",
+            }),
+        );
+      }
+    }
   }
   if (agentId === "cio" && stage === "cio_final") {
     statuses.push(
@@ -189,7 +237,10 @@ function runtimeStatus(
   scope: string,
   status: RuntimeSourceStatus["status"],
   as_of?: string,
-  extra: Pick<RuntimeSourceStatus, "snapshot_hash" | "error_code"> = {},
+  extra: Pick<
+    RuntimeSourceStatus,
+    "snapshot_hash" | "error_code" | "producer_stage" | "resolved_at_stage" | "adapter_id"
+  > = {},
 ): RuntimeSourceStatus {
   return {
     source_id,
@@ -198,6 +249,9 @@ function runtimeStatus(
     ...(as_of ? { as_of } : {}),
     ...(extra.snapshot_hash ? { snapshot_hash: extra.snapshot_hash } : {}),
     ...(extra.error_code ? { error_code: extra.error_code } : {}),
+    ...(extra.producer_stage ? { producer_stage: extra.producer_stage } : {}),
+    ...(extra.resolved_at_stage ? { resolved_at_stage: extra.resolved_at_stage } : {}),
+    ...(extra.adapter_id ? { adapter_id: extra.adapter_id } : {}),
   };
 }
 
@@ -210,25 +264,40 @@ function upstreamOutputStatuses(
   cohort: string,
   runId: string,
   asOf: string | undefined,
+  opts: { includeAlphaDiscovery: boolean },
 ): RuntimeSourceStatus[] {
   const outputs: Record<string, unknown> = {
     ...state.layer1_outputs,
     ...state.layer2_outputs,
     ...state.layer3_outputs,
+    ...(opts.includeAlphaDiscovery
+      ? { alpha_discovery: state.layer4_outputs?.alpha_discovery }
+      : {}),
   };
-  return [
+  const agents = [
     ...AGENTS_BY_LAYER.macro,
     ...AGENTS_BY_LAYER.sector,
     ...AGENTS_BY_LAYER.superinvestor,
-  ].map((agent) => {
+    ...(opts.includeAlphaDiscovery ? ["alpha_discovery"] : []),
+  ];
+  return agents.map((agent) => {
     const output = outputs[agent];
     const outputStatus = upstreamOutputStatus(agent, output);
-    const extra: Pick<RuntimeSourceStatus, "snapshot_hash" | "error_code"> = output
+    const extra: Pick<
+      RuntimeSourceStatus,
+      "snapshot_hash" | "error_code" | "producer_stage" | "adapter_id"
+    > = output
       ? {
           snapshot_hash: stableHash(output),
           ...(outputStatus.error_code ? { error_code: outputStatus.error_code } : {}),
+          producer_stage: agent === "alpha_discovery" ? "alpha_discovery" : "agent_run",
+          adapter_id: "daily_cycle.agent_output_adapter.v1",
         }
-      : { error_code: outputStatus.error_code ?? `upstream_agent_output_missing:${agent}` };
+      : {
+          error_code: outputStatus.error_code ?? `upstream_agent_output_missing:${agent}`,
+          producer_stage: agent === "alpha_discovery" ? "alpha_discovery" : "agent_run",
+          adapter_id: "daily_cycle.agent_output_adapter.v1",
+        };
     return runtimeStatus(
       "upstream_agent_outputs",
       `agent:${agent}|cohort:${cohort}|run:${runId}`,
@@ -237,6 +306,35 @@ function upstreamOutputStatuses(
       extra,
     );
   });
+}
+
+function decisionMarketTickers(
+  state: DailyCycleStateType,
+  agentId: string,
+  stage: RuntimeAgentStageId | undefined,
+): string[] {
+  const current = state.current_positions.positions.map((position) => position.ticker);
+  if (agentId === "alpha_discovery" || (agentId === "cio" && stage === "cio_proposal")) {
+    const layer2 = Object.values(state.layer2_outputs).flatMap((output) =>
+      "longs" in output
+        ? [...output.longs.map((pick) => pick.ticker), ...output.shorts.map((pick) => pick.ticker)]
+        : [],
+    );
+    const layer3 = Object.values(state.layer3_outputs).flatMap((output) =>
+      output.picks.map((pick) => pick.ticker),
+    );
+    const alpha =
+      agentId === "cio"
+        ? (state.layer4_outputs?.alpha_discovery?.novel_picks.map((pick) => pick.ticker) ?? [])
+        : [];
+    return [...current, ...layer2, ...layer3, ...alpha];
+  }
+  return [
+    ...current,
+    ...(state.layer4_outputs?.runtime?.candidate_target_state?.portfolio_actions ?? []).map(
+      (action) => action.ticker,
+    ),
+  ];
 }
 
 function upstreamOutputStatus(

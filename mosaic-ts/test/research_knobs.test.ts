@@ -686,13 +686,13 @@ research-knobs:
       },
       portfolio_actions: [],
     } as unknown as Parameters<typeof resolveRuntimeSourceStatusesForAgent>[0];
-    const emptyStatuses = resolveRuntimeSourceStatusesForAgent(emptyState, "cio");
+    const emptyStatuses = resolveRuntimeSourceStatusesForAgent(emptyState, "cio", "cio_proposal");
 
     expect(emptyStatuses).toContainEqual(
       expect.objectContaining({
         source_id: "current_market_data",
         scope: "ticker_scope:empty",
-        status: "loaded",
+        status: "empty_confirmed",
       }),
     );
     expect(emptyStatuses).toContainEqual(
@@ -721,7 +721,11 @@ research-knobs:
       },
       portfolio_actions: [],
     } as unknown as Parameters<typeof resolveRuntimeSourceStatusesForAgent>[0];
-    const missingStatuses = resolveRuntimeSourceStatusesForAgent(missingState, "cio");
+    const missingStatuses = resolveRuntimeSourceStatusesForAgent(
+      missingState,
+      "cio",
+      "cio_proposal",
+    );
     expect(missingStatuses).toContainEqual(
       expect.objectContaining({
         source_id: "current_position_snapshot",
@@ -799,21 +803,13 @@ research-knobs:
         },
       },
     } as unknown as Parameters<typeof resolveRuntimeSourceStatusesForAgent>[0];
-    const loadedStatuses = resolveRuntimeSourceStatusesForAgent(loadedState, "cio");
+    const loadedStatuses = resolveRuntimeSourceStatusesForAgent(loadedState, "cio", "cio_proposal");
 
     expect(loadedStatuses).toContainEqual(
       expect.objectContaining({
         source_id: "current_market_data",
         scope: "ticker:600519.SH",
         snapshot_hash: expect.stringMatching(/^sha256:/),
-      }),
-    );
-    expect(loadedStatuses).toContainEqual(
-      expect.objectContaining({
-        source_id: "current_market_data",
-        scope: "ticker:000001.SZ",
-        status: "missing",
-        error_code: "current_market_data_adapter_not_resolved",
       }),
     );
     expect(loadedStatuses).toContainEqual(
@@ -830,6 +826,12 @@ research-knobs:
     const finalStatuses = resolveRuntimeSourceStatusesForAgent(loadedState, "cio", "cio_final");
     expect(finalStatuses).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          source_id: "current_market_data",
+          scope: "ticker:000001.SZ",
+          status: "missing",
+          error_code: "current_market_data_adapter_not_resolved",
+        }),
         expect.objectContaining({
           source_id: "candidate_target_state",
           status: "loaded",
@@ -881,7 +883,7 @@ research-knobs:
       portfolio_actions: [],
     } as unknown as Parameters<typeof resolveRuntimeSourceStatusesForAgent>[0];
 
-    const statuses = resolveRuntimeSourceStatusesForAgent(state, "cio");
+    const statuses = resolveRuntimeSourceStatusesForAgent(state, "cio", "cio_proposal");
 
     expect(statuses).toContainEqual(
       expect.objectContaining({
