@@ -16,6 +16,7 @@ from mosaic.rke.cli import _schema_status_next_actions, main
 from mosaic.rke.schema_validation import (
     REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS,
     SchemaValidationRecord,
+    SchemaValidationReport,
     SUPPORTED_JSON_SCHEMA_KEYWORDS,
     iter_json_schema_keywords,
     validate_report_intelligence_semantics,
@@ -170,7 +171,14 @@ PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES = (
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
         "registry/report_intelligence/audit_refresh_history.jsonl",
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/gap_distribution_history.jsonl",
+        "registry/report_intelligence/macro_agent_research_priors.jsonl",
+        "registry/report_intelligence/method_patterns.jsonl",
+        "registry/report_intelligence/metric_candidates.jsonl",
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/tool_gaps.jsonl",
     }
 )
 PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_COUNT_FIELDS = {
@@ -342,11 +350,10 @@ def _copy_report_intelligence_registry(tmp_path: Path) -> Path:
         )
     )
     registry = tmp_path / "registry/report_intelligence"
-    shutil.copytree(
-        source,
-        registry,
-        ignore=shutil.ignore_patterns("markdown", "mineru", "pdfs"),
-    )
+    registry.mkdir(parents=True)
+    for fixture_path in sorted(PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES):
+        name = Path(fixture_path).name
+        shutil.copy2(source / name, registry / name)
     return registry
 
 
@@ -5023,7 +5030,18 @@ def test_prompt_mutation_candidate_contract_rejects_data_acquisition_evidence_dr
 
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
-    shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
+    shutil.copytree(
+        Path("registry"),
+        registry,
+        dirs_exist_ok=True,
+        ignore=_ignore_private_registry_inputs,
+    )
+    report_intelligence = registry / "report_intelligence"
+    report_intelligence.mkdir()
+    shutil.copy2(
+        Path("registry/report_intelligence/feature_flags.json"),
+        report_intelligence / "feature_flags.json",
+    )
     return registry
 
 
@@ -7759,20 +7777,36 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
     ] == 15
 
 
-def test_schema_status_cli_reports_malformed_artifact(tmp_path: Path, capsys):
-    schema_dir = tmp_path / "schemas"
-    registry_dir = tmp_path / "registry"
-    schema_dir.mkdir()
-    for path in Path("schemas").iterdir():
-        if path.is_file():
-            (schema_dir / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+def test_schema_status_cli_reports_malformed_artifact(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    record = SchemaValidationRecord(
+        schema_path="schemas/source_metadata.schema.json",
+        artifact_path="registry/sources/central_bank_sources.jsonl",
+        item_count=0,
+        accepted=False,
+        failures=("line 1: invalid JSON",),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_schema_validation_report",
+        lambda root: SchemaValidationReport(
+            report_id="schema-validation-test",
+            records=(record,),
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_schema_status_next_actions",
+        lambda records, *, root: [],
+    )
 
-    shutil.copytree(Path("registry"), registry_dir, dirs_exist_ok=True)
-    (tmp_path / "registry/sources/central_bank_sources.jsonl").write_text("{\n", encoding="utf-8")
-
-    code = main(("schema-status", "--root", str(tmp_path)))
+    code = main(("schema-status", "--root", str(tmp_path), "--no-write"))
     output = json.loads(capsys.readouterr().out)
 
     assert code == 2
     assert output["accepted"] is False
-    assert output["failure_count"] >= 1
+    assert output["failure_count"] == 1
+    assert output["records"][0]["failures"] == ["line 1: invalid JSON"]
