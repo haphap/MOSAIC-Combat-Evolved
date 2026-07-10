@@ -6,7 +6,7 @@ import {
 } from "../src/agents/helpers/evidence_runtime.js";
 import type { ResearchKnobsSnapshot } from "../src/agents/helpers/research_knobs.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
-import type { CentralBankOutput, CioOutput } from "../src/agents/types.js";
+import type { CentralBankOutput, CioOutput, SemiconductorOutput } from "../src/agents/types.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const MARKET_HASH = `sha256:${"2".repeat(64)}`;
@@ -323,6 +323,71 @@ describe("runtime evidence snapshots", () => {
         output_id: "recommendation:0:central_bank",
         output_type: "recommendation",
         claim_refs: ["claim-macro-1"],
+      },
+    ]);
+  });
+
+  it("requires both sector-level and per-candidate claim references", () => {
+    const runtime = buildRuntimeEvidenceSnapshot({
+      state: state(),
+      agent: "semiconductor",
+      stage: "agent_run",
+      knobSnapshot: knobSnapshot(),
+    });
+    const evidenceId = runtime.evidenceLedger.find(
+      (entry) => entry.tool_or_source === "current_market_data",
+    )?.evidence_id;
+    const raw: SemiconductorOutput = {
+      agent: "semiconductor",
+      longs: [
+        {
+          ticker: "600519.SH",
+          thesis: "verified candidate",
+          conviction: 0.5,
+          claim_refs: ["claim-sector-1"],
+        },
+      ],
+      shorts: [],
+      sector_score: 0.2,
+      key_drivers: ["Current evidence"],
+      confidence: 0.5,
+      claim_refs: ["claim-sector-1"],
+      claims: [
+        {
+          claim_id: "claim-sector-1",
+          claim_type: "inference",
+          statement: "Current evidence supports the candidate and sector tilt.",
+          structured_conclusion: { sector_score: 0.2 },
+          evidence_refs: [evidenceId ?? "missing"],
+          research_rule_refs: ["decision.cio.policy.001"],
+        },
+      ],
+    };
+
+    const selected = selectOutputByClaimEvidence(
+      raw,
+      (): SemiconductorOutput => ({
+        agent: "semiconductor",
+        longs: [],
+        shorts: [],
+        sector_score: 0,
+        key_drivers: ["fallback"],
+        confidence: 0,
+      }),
+      runtime,
+    );
+
+    expect(selected.rawOutputAccepted).toBe(true);
+    expect(selected.graph.recommendation_claim_refs).toEqual([
+      {
+        output_id: "recommendation:0:semiconductor",
+        output_type: "recommendation",
+        claim_refs: ["claim-sector-1"],
+      },
+      {
+        output_id: "long_candidate:0:600519.SH",
+        output_type: "candidate",
+        claim_refs: ["claim-sector-1"],
       },
     ]);
   });

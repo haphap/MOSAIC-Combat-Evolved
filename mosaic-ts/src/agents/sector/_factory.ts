@@ -26,6 +26,12 @@ import type { z } from "zod";
 import type { BridgeApi, BridgeToolFactoryOptions, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import {
+  attachDeterministicFallbackClaimGraph,
+  buildRuntimeEvidenceSnapshot,
+  type RuntimeEvidenceSnapshot,
+  selectOutputByClaimEvidence,
+} from "../helpers/evidence_runtime.js";
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
   applyResearchKnobCapsWithFallback,
@@ -142,16 +148,37 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
           // Phase 1: tool-bound analysis. User context now includes Layer-1
           // regime summary so sector agent's picks are regime-aware.
           const userContext = buildLayerTwoUserContext(state, spec.agentId);
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
+            ? buildRuntimeEvidenceSnapshot({
+                state,
+                agent: spec.agentId,
+                stage: "agent_run",
+                knobSnapshot,
+              })
+            : null;
+          const evidenceUserContext = runtimeEvidence
+            ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
+            : userContext;
           const loopResult = await runAgentToolLoop({
             llm: deps.llmHandle.llm,
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
-            initialMessages: [new HumanMessage(userContext)],
+            initialMessages: [new HumanMessage(evidenceUserContext)],
+            ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
             maxLoops: 3,
             replayFullToolMaxChars: 80_000,
             onLog: (msg) => onLog(formatAgentEvent("phase", "L2", spec.agentId, [msg])),
             signal,
           });
+          if (knobSnapshot) {
+            runtimeEvidence = buildRuntimeEvidenceSnapshot({
+              state,
+              agent: spec.agentId,
+              stage: "agent_run",
+              knobSnapshot,
+              toolStatuses: loopResult.toolStatuses,
+            });
+          }
 
           // Phase 2: structured extraction.
           onLog(
@@ -167,7 +194,14 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             schema: spec.schema,
             messages: [
               new SystemMessage(extractorSystem),
-              new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
+              new HumanMessage(
+                [
+                  loopResult.analysisText || "(no analysis produced)",
+                  runtimeEvidence?.visibleCatalog,
+                ]
+                  .filter((part): part is string => Boolean(part))
+                  .join("\n\n"),
+              ),
             ],
             render: spec.render,
             agentName: spec.agentId,
@@ -178,17 +212,33 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
 
           const rawOutput =
             extractor.structured ?? spec.fallback(loopResult.analysisText, state.layer1_consensus);
+          const claimSelection = runtimeEvidence
+            ? selectOutputByClaimEvidence(
+                rawOutput,
+                () => spec.fallback("", state.layer1_consensus),
+                runtimeEvidence,
+              )
+            : null;
+          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
           const capped = knobSnapshot
             ? applyResearchKnobCapsWithFallback(
-                rawOutput,
+                claimSelectedOutput,
                 () => spec.fallback("", state.layer1_consensus),
                 knobSnapshot,
                 { toolStatuses: loopResult.toolStatuses },
               )
             : null;
-          const output = capped
+          let output = capped
             ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
-            : rawOutput;
+            : claimSelectedOutput;
+          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
+            output = attachDeterministicFallbackClaimGraph(
+              output,
+              runtimeEvidence,
+              claimSelection?.rejectionReasons ?? [],
+              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
+            ).output;
+          }
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
 
           onLog(
@@ -204,6 +254,13 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 loopResult.llmElapsedMs,
               ),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(runtimeEvidence
+                ? [
+                    `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
+                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
+                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                  ]
+                : []),
               ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
@@ -344,6 +401,8 @@ function defaultExtractorSystem<TOutput extends SectorAgentOutput>(
     `schema fields (${spec.fieldNames.join(", ")}). Only emit values supported by the ` +
     `analysis text; never invent ticker codes or net-flow numbers. If a field cannot be ` +
     `supported, leave longs/shorts empty, sector_score=0, confidence ≤ 0.4. ` +
+    `When a runtime evidence catalog is present, include claims, top-level claim_refs, ` +
+    `and per-pick claim_refs using only its evidence_id and allowed research rule ids. ` +
     lang
   );
 }

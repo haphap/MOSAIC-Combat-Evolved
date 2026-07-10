@@ -457,7 +457,12 @@ function outputClaimReferences(
                 : [];
   const references: RecommendationClaimReference[] = [];
   const requiredOutputIds = new Set<string>();
-  if (MACRO_OUTPUT_AGENTS.has(agent) || agent === "relationship_mapper") {
+  if (
+    MACRO_OUTPUT_AGENTS.has(agent) ||
+    SECTOR_PICK_AGENTS.has(agent) ||
+    SUPERINVESTOR_AGENTS.has(agent) ||
+    agent === "relationship_mapper"
+  ) {
     const outputId = `recommendation:0:${agent}`;
     requiredOutputIds.add(outputId);
     const claimRefs = Array.isArray(record.claim_refs)
