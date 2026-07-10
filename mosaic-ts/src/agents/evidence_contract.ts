@@ -69,7 +69,10 @@ export function validateClaimEvidenceGraph(
     expectedRunId?: string;
     expectedSnapshotHash?: string;
     runtimeOwnedEvidenceIds?: ReadonlySet<string>;
+    runtimeOwnedEvidenceById?: ReadonlyMap<string, EvidenceLedgerEntry>;
     allowFallbackEvidenceIds?: ReadonlySet<string>;
+    requiredOutputIds?: ReadonlySet<string>;
+    allowUncertaintyOnlyOutputIds?: ReadonlySet<string>;
   } = {},
 ): ClaimEvidenceGraphValidationResult {
   const parsed = ClaimEvidenceGraphSchema.safeParse(graphInput);
@@ -124,6 +127,12 @@ export function validateClaimEvidenceGraph(
     if (opts.runtimeOwnedEvidenceIds && !opts.runtimeOwnedEvidenceIds.has(evidence.evidence_id)) {
       reasons.push(`evidence_id_not_runtime_owned:${evidence.evidence_id}`);
     }
+    const runtimeEvidence = opts.runtimeOwnedEvidenceById?.get(evidence.evidence_id);
+    if (opts.runtimeOwnedEvidenceById && !runtimeEvidence) {
+      reasons.push(`evidence_id_not_runtime_owned:${evidence.evidence_id}`);
+    } else if (runtimeEvidence && canonicalJson(runtimeEvidence) !== canonicalJson(evidence)) {
+      reasons.push(`runtime_evidence_payload_mismatch:${evidence.evidence_id}`);
+    }
   }
 
   for (const claim of graph.claims) {
@@ -160,8 +169,44 @@ export function validateClaimEvidenceGraph(
         reasons.push(`output_unknown_claim_ref:${reference.output_id}:${claimId}`);
       }
     }
+    const referencedClaims = reference.claim_refs
+      .map((claimId) => claimsById.get(claimId))
+      .filter((claim): claim is ResearchClaim => claim !== undefined);
+    if (
+      referencedClaims.length > 0 &&
+      referencedClaims.every((claim) => claim.claim_type === "uncertainty") &&
+      !opts.allowUncertaintyOnlyOutputIds?.has(reference.output_id)
+    ) {
+      reasons.push(`output_only_uncertainty_claims:${reference.output_id}`);
+    }
+  }
+  if (opts.requiredOutputIds) {
+    const referencedOutputIds = new Set(
+      graph.recommendation_claim_refs.map((reference) => reference.output_id),
+    );
+    for (const outputId of [...opts.requiredOutputIds].sort()) {
+      if (!referencedOutputIds.has(outputId)) {
+        reasons.push(`required_output_claim_reference_missing:${outputId}`);
+      }
+    }
   }
   return { accepted: reasons.length === 0, reasons };
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => sortJson(item));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortJson(item)]),
+    );
+  }
+  return value;
 }
 
 function uniqueById<T>(

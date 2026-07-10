@@ -97,6 +97,40 @@ describe("claim-to-evidence graph", () => {
     );
   });
 
+  it("rejects mutation of a runtime-owned evidence payload", () => {
+    const graph = validGraph();
+    const runtimeEvidence = structuredClone(graph.evidence_ledger[0]);
+    if (!runtimeEvidence || !graph.evidence_ledger[0]) return;
+    graph.evidence_ledger[0].value = 0.99;
+
+    const result = validateClaimEvidenceGraph(graph, {
+      runtimeOwnedEvidenceById: new Map([[runtimeEvidence.evidence_id, runtimeEvidence]]),
+    });
+
+    expect(result.reasons).toContain("runtime_evidence_payload_mismatch:ev-1");
+  });
+
+  it("requires every declared output to have a supported claim chain", () => {
+    const missing = validateClaimEvidenceGraph(validGraph(), {
+      requiredOutputIds: new Set(["action-1", "action-2"]),
+    });
+    expect(missing.reasons).toContain("required_output_claim_reference_missing:action-2");
+
+    const uncertaintyGraph = validGraph();
+    const claim = uncertaintyGraph.claims[0];
+    if (!claim) return;
+    claim.claim_type = "uncertainty";
+    claim.evidence_refs = [];
+    claim.research_rule_refs = [];
+    const rejected = validateClaimEvidenceGraph(uncertaintyGraph);
+    expect(rejected.reasons).toContain("output_only_uncertainty_claims:action-1");
+
+    const allowed = validateClaimEvidenceGraph(uncertaintyGraph, {
+      allowUncertaintyOnlyOutputIds: new Set(["action-1"]),
+    });
+    expect(allowed).toEqual({ accepted: true, reasons: [] });
+  });
+
   it("rejects stale, failed, or unapproved fallback evidence", () => {
     for (const freshness of ["stale", "tool_failed", "fallback"] as const) {
       const graph = validGraph();
