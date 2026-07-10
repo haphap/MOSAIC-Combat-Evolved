@@ -300,6 +300,17 @@ export const ActivePromptReleaseManifestSchema = z
     evaluation_contract_hash: Sha256Schema,
     keep_decision_hash: Sha256Schema,
     keep_decision_state: z.literal("kept"),
+    release_evidence: z
+      .object({
+        version_id: z.number().int().min(1),
+        mutation_id: z.string().min(1),
+        experiment_id: z.string().min(1),
+        mutated_agent: z.string().min(1),
+        evaluation_result_hash: Sha256Schema,
+        transaction_manifest_hash: Sha256Schema,
+        prompt_pair_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+      .strict(),
     activation_scope: z
       .object({
         cohort: z.string().min(1),
@@ -314,6 +325,7 @@ export const ActivePromptReleaseManifestSchema = z
     runtime_slo_summary: z
       .object({
         passed: z.boolean(),
+        sample_count: z.number().int().min(20),
         schema_failure_rate: z.number().min(0).max(1),
         fallback_rate: z.number().min(0).max(1),
         source_failure_rate: z.number().min(0).max(1),
@@ -352,6 +364,16 @@ export const ActivePromptReleaseManifestSchema = z
         code: "custom",
         path: ["prompt_hash"],
         message: "release prompt set hash mismatch",
+      });
+    }
+    if (
+      manifest.prompt_pairs.filter((pair) => pair.agent === manifest.release_evidence.mutated_agent)
+        .length !== 1
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["release_evidence", "mutated_agent"],
+        message: "release evidence must identify exactly one prompt pair",
       });
     }
     if (manifest.bundled_fallback) {
@@ -438,6 +460,7 @@ export function promptReleaseRuntimeSloPasses(
   summary: NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>,
 ): boolean {
   return (
+    summary.sample_count >= 20 &&
     summary.schema_failure_rate === 0 &&
     summary.fallback_rate <= 0.1 &&
     summary.source_failure_rate <= 0.05 &&

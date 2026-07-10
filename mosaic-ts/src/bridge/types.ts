@@ -590,6 +590,8 @@ export interface PromptReleaseCheckResult {
     prompt_repo_id?: string | null;
     prompt_commit_hash?: string | null;
     prompt_sha256?: string | null;
+    mutation_id?: string | null;
+    experiment_id?: string | null;
     keep_decision_hash?: string | null;
     evaluation_result_hash?: string | null;
     transaction_manifest_hash?: string | null;

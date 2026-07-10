@@ -1341,6 +1341,8 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_id": version.get("prompt_repo_id"),
                 "prompt_commit_hash": version.get("modification_commit_hash"),
                 "prompt_sha256": version.get("prompt_sha256"),
+                "mutation_id": (mutation_metadata or {}).get("mutation_id"),
+                "experiment_id": (mutation_metadata or {}).get("experiment_id"),
                 "keep_decision_hash": version.get("promotion_decision_hash"),
                 "evaluation_result_hash": (evaluation_result or {}).get("result_hash"),
                 "transaction_manifest_hash": (mutation_metadata or {}).get(
@@ -1382,6 +1384,8 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_repo_id": version.get("prompt_repo_id"),
             "prompt_commit_hash": version.get("modification_commit_hash"),
             "prompt_sha256": version.get("prompt_sha256"),
+            "mutation_id": (mutation_metadata or {}).get("mutation_id"),
+            "experiment_id": (mutation_metadata or {}).get("experiment_id"),
             "keep_decision_hash": version.get("promotion_decision_hash"),
             "evaluation_result_hash": (evaluation_result or {}).get("result_hash"),
             "transaction_manifest_hash": (mutation_metadata or {}).get(

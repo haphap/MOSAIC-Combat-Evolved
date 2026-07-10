@@ -97,6 +97,15 @@ function release(
     evaluation_contract_hash: HASH,
     keep_decision_hash: HASH,
     keep_decision_state: "kept",
+    release_evidence: {
+      version_id: 1,
+      mutation_id: "mutation-1",
+      experiment_id: "experiment-1",
+      mutated_agent: "central_bank",
+      evaluation_result_hash: HASH,
+      transaction_manifest_hash: HASH,
+      prompt_pair_sha256: "1".repeat(64),
+    },
     activation_scope: {
       cohort: "cohort_default",
       account_mode: "paper",
@@ -109,6 +118,7 @@ function release(
     runtime_slo_summary: active
       ? {
           passed: true,
+          sample_count: 20,
           schema_failure_rate: 0,
           fallback_rate: 0,
           source_failure_rate: 0,

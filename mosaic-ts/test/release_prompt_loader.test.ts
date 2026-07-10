@@ -134,6 +134,15 @@ function release(opts: {
     evaluation_contract_hash: opts.closure?.evaluationContractHash ?? HASH,
     keep_decision_hash: HASH,
     keep_decision_state: "kept",
+    release_evidence: {
+      version_id: 1,
+      mutation_id: "mutation-1",
+      experiment_id: "experiment-1",
+      mutated_agent: "central_bank",
+      evaluation_result_hash: HASH,
+      transaction_manifest_hash: HASH,
+      prompt_pair_sha256: "1".repeat(64),
+    },
     activation_scope: {
       cohort: "cohort_default",
       account_mode: "paper",
@@ -145,6 +154,7 @@ function release(opts: {
     canary_ended_at: "2026-07-10T01:00:00Z",
     runtime_slo_summary: {
       passed: true,
+      sample_count: 20,
       schema_failure_rate: 0,
       fallback_rate: 0,
       source_failure_rate: 0,
@@ -187,6 +197,27 @@ describe("release-pinned prompt loading", () => {
     });
 
     expect(pairs).toEqual([pair(contents)]);
+  });
+
+  it("keeps explicit authoring roots outside the active release pointer", async () => {
+    const contents = { zh: prompt("authoring zh"), en: prompt("authoring en") };
+    const repo = gitRepo(contents);
+    const previous = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT;
+    process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = join(repo.root, "missing-registry");
+    try {
+      const loaded = await loadPromptWithKnobs({
+        agent: "central_bank",
+        cohort: "cohort_default",
+        stage: "agent_run",
+        privatePromptsRoot: join(repo.root, "prompts", "mosaic"),
+        noCache: true,
+      });
+      expect(loaded.bodies.zh).toContain("authoring zh");
+      expect(loaded.release).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT;
+      else process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = previous;
+    }
   });
 
   it("reads the manifest commit instead of a floating private worktree", async () => {
@@ -318,8 +349,13 @@ describe("release-pinned prompt loading", () => {
     };
     const registry = new ActivePromptReleaseRegistry(registryRoot);
     await registry.stage(staged);
-    await registry.transition(canary);
-    await registry.transition(active, { expectedBaseReleaseId: null });
+    await registry.transition(canary, {
+      audit: { operator: "operator:test", reason: "start canary" },
+    });
+    await registry.transition(active, {
+      expectedBaseReleaseId: null,
+      audit: { operator: "operator:test", reason: "activate" },
+    });
 
     const previous = {
       registry: process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT,
@@ -327,11 +363,13 @@ describe("release-pinned prompt loading", () => {
       root: process.env.MOSAIC_PROMPTS_ROOT,
       privateRepo: process.env.MOSAIC_PRIVATE_PROMPT_REPO,
       mode: process.env.MOSAIC_PROMPT_ACCOUNT_MODE,
+      codeCommit: process.env.MOSAIC_CODE_COMMIT,
     };
     try {
       process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = registryRoot;
       process.env.MOSAIC_PROMPTS_REPO = repo.root;
       process.env.MOSAIC_PROMPT_ACCOUNT_MODE = "paper";
+      process.env.MOSAIC_CODE_COMMIT = active.code_commit;
       delete process.env.MOSAIC_PROMPTS_ROOT;
       delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
       const loaded = await loadPromptWithKnobs({
@@ -345,6 +383,15 @@ describe("release-pinned prompt loading", () => {
         source: "private",
         prompt_commit: repo.commit,
       });
+      process.env.MOSAIC_CODE_COMMIT = "abcdef0";
+      await expect(
+        loadPromptWithKnobs({
+          agent: "central_bank",
+          cohort: "cohort_default",
+          stage: "agent_run",
+          noCache: true,
+        }),
+      ).rejects.toThrow("prompt_release_code_commit_mismatch");
     } finally {
       for (const [key, value] of [
         ["MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT", previous.registry],
@@ -352,6 +399,7 @@ describe("release-pinned prompt loading", () => {
         ["MOSAIC_PROMPTS_ROOT", previous.root],
         ["MOSAIC_PRIVATE_PROMPT_REPO", previous.privateRepo],
         ["MOSAIC_PROMPT_ACCOUNT_MODE", previous.mode],
+        ["MOSAIC_CODE_COMMIT", previous.codeCommit],
       ] as const) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;

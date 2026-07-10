@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -252,6 +253,15 @@ function release(
     evaluation_contract_hash: HASH,
     keep_decision_hash: HASH,
     keep_decision_state: "kept",
+    release_evidence: {
+      version_id: 1,
+      mutation_id: "mutation-1",
+      experiment_id: "experiment-1",
+      mutated_agent: "central_bank",
+      evaluation_result_hash: HASH,
+      transaction_manifest_hash: HASH,
+      prompt_pair_sha256: "1".repeat(64),
+    },
     activation_scope: {
       cohort: "cohort_default",
       account_mode: "paper",
@@ -264,6 +274,7 @@ function release(
     runtime_slo_summary: active
       ? {
           passed: true,
+          sample_count: 20,
           schema_failure_rate: 0,
           fallback_rate: 0,
           source_failure_rate: 0,
@@ -288,20 +299,28 @@ describe("aggregate active prompt release registry", () => {
   it("activates only through staged/canary with pointer CAS and supports audited rollback", async () => {
     const registry = new ActivePromptReleaseRegistry(tempRoot("release-registry"));
     await registry.stage(release("release-0", null, "staged"));
-    await registry.transition(release("release-0", null, "canary"));
+    await registry.transition(release("release-0", null, "canary"), {
+      audit: { operator: "operator:test", reason: "start canary" },
+    });
     await registry.transition(release("release-0", null, "active"), {
       expectedBaseReleaseId: null,
+      audit: { operator: "operator:test", reason: "activate" },
     });
     expect((await registry.resolveActive())?.release_id).toBe("release-0");
 
     await registry.stage(release("release-1", "release-0", "staged"));
-    await registry.transition(release("release-1", "release-0", "canary"));
+    await registry.transition(release("release-1", "release-0", "canary"), {
+      audit: { operator: "operator:test", reason: "start canary" },
+    });
     await registry.transition(release("release-1", "release-0", "active"), {
       expectedBaseReleaseId: "release-0",
+      audit: { operator: "operator:test", reason: "activate" },
     });
     expect((await registry.resolveActive())?.release_id).toBe("release-1");
 
-    await registry.transition(release("release-1", "release-0", "rolled_back"));
+    await registry.transition(release("release-1", "release-0", "rolled_back"), {
+      audit: { operator: "operator:test", reason: "rollback" },
+    });
     expect((await registry.resolveActive())?.release_id).toBe("release-0");
     expect((await registry.pointer()).pointer_version).toBe(3);
   });
@@ -309,25 +328,73 @@ describe("aggregate active prompt release registry", () => {
   it("rejects stale activation CAS and immutable component drift", async () => {
     const registry = new ActivePromptReleaseRegistry(tempRoot("release-stale"));
     await registry.stage(release("release-0", null, "staged"));
-    await registry.transition(release("release-0", null, "canary"));
+    await registry.transition(release("release-0", null, "canary"), {
+      audit: { operator: "operator:test", reason: "start canary" },
+    });
     await registry.transition(release("release-0", null, "active"), {
       expectedBaseReleaseId: null,
+      audit: { operator: "operator:test", reason: "activate" },
     });
     await registry.stage(release("release-1", "release-0", "staged"));
     const drifted = release("release-1", "release-0", "canary");
     drifted.prompt_commit = "abcdefg";
-    await expect(registry.transition(drifted)).rejects.toThrow(/immutable_closure_changed/);
+    await expect(
+      registry.transition(drifted, {
+        audit: { operator: "operator:test", reason: "start canary" },
+      }),
+    ).rejects.toThrow(/immutable_closure_changed/);
 
-    await registry.transition(release("release-1", "release-0", "canary"));
+    await registry.transition(release("release-1", "release-0", "canary"), {
+      audit: { operator: "operator:test", reason: "start canary" },
+    });
     await registry.transition(release("release-1", "release-0", "active"), {
       expectedBaseReleaseId: "release-0",
+      audit: { operator: "operator:test", reason: "activate" },
     });
     await registry.stage(release("release-stale", "release-0", "staged"));
-    await registry.transition(release("release-stale", "release-0", "canary"));
+    await registry.transition(release("release-stale", "release-0", "canary"), {
+      audit: { operator: "operator:test", reason: "start canary" },
+    });
     await expect(
       registry.transition(release("release-stale", "release-0", "active"), {
         expectedBaseReleaseId: "release-0",
+        audit: { operator: "operator:test", reason: "activate" },
       }),
     ).rejects.toThrow(/compare_and_swap_failed/);
+  });
+
+  it("reconciles manifest-first activation and rollback after a process crash", async () => {
+    const root = tempRoot("release-recovery");
+    const registry = new ActivePromptReleaseRegistry(root);
+    const staged = release("release-0", null, "staged");
+    const canary = release("release-0", null, "canary");
+    const active = release("release-0", null, "active");
+    await registry.stage(staged);
+    await registry.transition(canary, {
+      audit: { operator: "operator:test", reason: "start canary" },
+    });
+    const manifestPath = join(
+      root,
+      "releases",
+      `${createHash("sha256").update("release-0").digest("hex")}.json`,
+    );
+    writeFileSync(manifestPath, `${JSON.stringify(active, null, 2)}\n`, "utf-8");
+
+    await registry.transition(active, {
+      expectedBaseReleaseId: null,
+      audit: { operator: "operator:test", reason: "activate" },
+    });
+    expect((await registry.pointer()).current_release_id).toBe("release-0");
+
+    const rolledBack: ActivePromptReleaseManifest = {
+      ...active,
+      lifecycle_state: "rolled_back",
+      rolled_back_at: "2026-07-10T03:00:00Z",
+    };
+    writeFileSync(manifestPath, `${JSON.stringify(rolledBack, null, 2)}\n`, "utf-8");
+    await registry.transition(rolledBack, {
+      audit: { operator: "operator:test", reason: "rollback" },
+    });
+    expect((await registry.pointer()).current_release_id).toBeNull();
   });
 });

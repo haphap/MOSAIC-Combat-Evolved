@@ -23,6 +23,7 @@ export interface PromptReleaseLoadContext {
   expectedCatalogHash?: string;
   expectedSchemaHash?: string;
   expectedEvaluationContractHash?: string;
+  expectedCodeCommit?: string;
 }
 
 export interface ReleasePinnedPromptPair {
@@ -71,6 +72,24 @@ export async function buildReleasePromptPairsAtCommit(opts: {
   );
 }
 
+export async function promptPairVersionShaAtCommit(opts: {
+  repo: string;
+  commit: string;
+  pair: ReleasePromptPair;
+}): Promise<string> {
+  const digest = createHash("sha256");
+  for (const file of [opts.pair.zh, opts.pair.en].sort((left, right) =>
+    left.path.localeCompare(right.path),
+  )) {
+    const content = await gitShow(opts.repo, opts.commit, file.path);
+    digest.update(file.path, "utf-8");
+    digest.update("\0");
+    digest.update(content);
+    digest.update("\0");
+  }
+  return digest.digest("hex");
+}
+
 function sha256(value: Buffer): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
@@ -86,6 +105,15 @@ function gitShow(repo: string, commit: string, path: string): Promise<Buffer> {
         else resolve(stdout);
       },
     );
+  });
+}
+
+function gitHead(repo: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf-8" }, (error, stdout) => {
+      if (error) reject(new Error("prompt_release_code_identity_unavailable", { cause: error }));
+      else resolve(stdout.trim());
+    });
   });
 }
 
@@ -116,6 +144,9 @@ function assertClosure(context: PromptReleaseLoadContext, cohort: string): void 
   }
   if (context.accountMode && manifest.activation_scope.account_mode !== context.accountMode) {
     throw new Error("prompt_release_account_mode_mismatch");
+  }
+  if (context.expectedCodeCommit && manifest.code_commit !== context.expectedCodeCommit) {
+    throw new Error("prompt_release_code_commit_mismatch");
   }
   for (const [label, expected, actual] of [
     ["catalog", context.expectedCatalogHash, manifest.catalog_hash],
@@ -248,6 +279,26 @@ export async function loadLocalPromptReleaseClosure(): Promise<LocalEvaluationCl
   return JSON.parse(await readFile(path, "utf-8")) as LocalEvaluationClosure;
 }
 
+export async function loadPromptReleaseClosureAtCommit(opts: {
+  repo: string;
+  commit: string;
+}): Promise<LocalEvaluationClosure> {
+  const value = JSON.parse(
+    (
+      await gitShow(
+        opts.repo,
+        opts.commit,
+        "registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+      )
+    ).toString("utf-8"),
+  ) as Partial<LocalEvaluationClosure>;
+  const hashes = [value.catalog_hash, value.schema_hash, value.contract_hash];
+  if (hashes.some((hash) => typeof hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(hash))) {
+    throw new Error("prompt_release_evaluation_closure_invalid");
+  }
+  return value as LocalEvaluationClosure;
+}
+
 export async function resolveConfiguredPromptReleaseContext(): Promise<PromptReleaseLoadContext | null> {
   const registryRoot = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT?.trim();
   if (!registryRoot) return null;
@@ -255,20 +306,21 @@ export async function resolveConfiguredPromptReleaseContext(): Promise<PromptRel
   if (!manifest) throw new Error("active_prompt_release_missing");
   const source = getConfiguredPromptSource();
   const accountModeValue = process.env.MOSAIC_PROMPT_ACCOUNT_MODE?.trim();
-  if (
-    accountModeValue &&
-    !(["paper", "backtest", "live"] as const).includes(accountModeValue as AccountMode)
-  ) {
+  if (!accountModeValue) throw new Error("prompt_release_account_mode_required");
+  if (!(["paper", "backtest", "live"] as const).includes(accountModeValue as AccountMode)) {
     throw new Error("prompt_release_account_mode_invalid");
   }
   const closure = await loadLocalPromptReleaseClosure();
+  const expectedCodeCommit =
+    process.env.MOSAIC_CODE_COMMIT?.trim() || (await gitHead(findRepoRoot()));
   return {
     manifest,
     ...(source?.kind === "private-repo" ? { privatePromptRepo: source.repo } : {}),
     bundledRepo: findRepoRoot(),
-    ...(accountModeValue ? { accountMode: accountModeValue as AccountMode } : {}),
+    accountMode: accountModeValue as AccountMode,
     expectedCatalogHash: closure.catalog_hash,
     expectedSchemaHash: closure.schema_hash,
     expectedEvaluationContractHash: closure.contract_hash,
+    expectedCodeCommit,
   };
 }

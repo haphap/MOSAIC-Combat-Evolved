@@ -17,6 +17,7 @@
     "evaluation_contract_hash",
     "keep_decision_hash",
     "keep_decision_state",
+    "release_evidence",
     "activation_scope",
     "approval_policy_id",
     "approved_by",
@@ -78,6 +79,47 @@
     "keep_decision_state": {
       "const": "kept"
     },
+    "release_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version_id",
+        "mutation_id",
+        "experiment_id",
+        "mutated_agent",
+        "evaluation_result_hash",
+        "transaction_manifest_hash",
+        "prompt_pair_sha256"
+      ],
+      "properties": {
+        "version_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mutation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "experiment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mutated_agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evaluation_result_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "transaction_manifest_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "prompt_pair_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
     "activation_scope": {
       "type": "object",
       "additionalProperties": false,
@@ -121,6 +163,7 @@
           "additionalProperties": false,
           "required": [
             "passed",
+            "sample_count",
             "schema_failure_rate",
             "fallback_rate",
             "source_failure_rate",
@@ -134,6 +177,10 @@
           "properties": {
             "passed": {
               "type": "boolean"
+            },
+            "sample_count": {
+              "type": "integer",
+              "minimum": 20
             },
             "schema_failure_rate": {
               "type": "number",

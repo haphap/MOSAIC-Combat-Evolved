@@ -91,11 +91,22 @@ function inferReleaseStage(agent: string, stage?: RuntimeAgentStageId): RuntimeA
 }
 
 async function releasePinnedPair(
-  opts: Pick<LoadOptions, "agent" | "cohort" | "stage" | "releaseContext" | "noCache">,
+  opts: Pick<
+    LoadOptions,
+    | "agent"
+    | "cohort"
+    | "stage"
+    | "releaseContext"
+    | "noCache"
+    | "promptsRoot"
+    | "privatePromptsRoot"
+  >,
 ): Promise<ReleasePinnedPromptPair | null> {
   const context =
     opts.releaseContext === undefined
-      ? await resolveConfiguredPromptReleaseContext()
+      ? opts.promptsRoot || opts.privatePromptsRoot
+        ? null
+        : await resolveConfiguredPromptReleaseContext()
       : opts.releaseContext;
   if (!context) return null;
   return loadReleasePinnedPromptPair({
