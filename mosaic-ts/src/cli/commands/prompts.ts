@@ -38,7 +38,12 @@ import {
   buildRuntimeResearchKnobs,
   upsertResearchKnobsFence,
 } from "../../agents/prompts/research_knobs_projection.js";
-import { RUNTIME_AGENT_SPECS } from "../../agents/prompts/runtime_agent_spec.js";
+import {
+  buildRuntimeAgentManifestArtifact,
+  RUNTIME_AGENT_SPECS,
+  renderRuntimeAgentManifestArtifact,
+  validateRuntimeAgentManifestArtifact,
+} from "../../agents/prompts/runtime_agent_spec.js";
 import {
   appendKnobMutationMetadataLog,
   applyKnobPatchesToPromptPair,
@@ -240,6 +245,29 @@ export function registerPrompts(program: Command): void {
         console.log(rendered.trimEnd());
       } else {
         console.log(`domain_knob_catalog: ${redactSensitiveText(opts.out).slice(0, 220)}`);
+      }
+    });
+
+  prompts
+    .command("export-runtime-agent-manifest")
+    .description("Render the stage-aware runtime agent manifest.")
+    .option("--out <path>", "Write manifest JSON to a file")
+    .option("--json", "Print manifest JSON to stdout")
+    .action(async (opts: ExportDomainKnobCatalogOpts) => {
+      const artifact = buildRuntimeAgentManifestArtifact();
+      const reasons = validateRuntimeAgentManifestArtifact(artifact);
+      if (reasons.length > 0) {
+        throw new Error(`runtime agent manifest failed self-check: ${reasons.join("; ")}`);
+      }
+      const rendered = renderRuntimeAgentManifestArtifact(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        console.log(`runtime_agent_manifest: ${redactSensitiveText(opts.out).slice(0, 220)}`);
       }
     });
 

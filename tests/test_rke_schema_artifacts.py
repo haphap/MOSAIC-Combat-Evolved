@@ -43,6 +43,7 @@ REQUIRED_SCHEMA_FILES = {
     "research_knobs_v1.schema.json",
     "prompt_ir_runtime_contract_v1.schema.json",
     "domain_knob_catalog_v1.schema.json",
+    "runtime_agent_manifest_v1.schema.json",
     "domain_knob_values_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
@@ -6755,6 +6756,95 @@ def test_prompt_ir_runtime_contract_schema_requires_output_fields(tmp_path: Path
 
     assert not record.accepted
     assert any(".output_schema_fields: required" in failure for failure in record.failures)
+
+
+def _runtime_agent_manifest_fixture() -> dict:
+    return {
+        "schema_version": "runtime_agent_manifest_v1",
+        "runtime_agent_count": 1,
+        "runtime_stage_count": 2,
+        "canonical_l4_sequence": [
+            "alpha_discovery",
+            "cio_proposal",
+            "cro_review",
+            "execution_feasibility",
+            "cio_final",
+        ],
+        "agents": [
+            {
+                "agent": "cio",
+                "layer": "decision",
+                "prompt_ir_agent_id": "decision.cio",
+                "required_tools": ["get_rke_research_context"],
+                "output_schema_fields": ["portfolio_actions", "confidence"],
+                "stages": [
+                    {
+                        "stage": "cio_proposal",
+                        "enablement": "declared",
+                        "output_schema_ref": "decision.cio.proposal.v1",
+                        "fallback_factory_id": "decision.cio.cio_proposal.fallback",
+                        "fallback_factory_version": "1",
+                        "required_source_ids": ["current_position_snapshot"],
+                        "produced_source_ids": [
+                            "candidate_target_state",
+                            "position_review_state",
+                        ],
+                    },
+                    {
+                        "stage": "cio_final",
+                        "enablement": "legacy",
+                        "output_schema_ref": "decision.cio.final.v1",
+                        "fallback_factory_id": "decision.cio.cio_final.fallback",
+                        "fallback_factory_version": "1",
+                        "required_source_ids": [
+                            "candidate_target_state",
+                            "cro_review_state",
+                            "execution_feasibility_state",
+                        ],
+                        "produced_source_ids": [],
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _write_runtime_agent_manifest_fixture(tmp_path: Path, manifest: dict) -> SchemaValidationRecord:
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/runtime_agent_manifest_v1.schema.json",
+        schema_dir / "runtime_agent_manifest_v1.schema.json",
+    )
+    (artifact_dir / "runtime_agent_manifest_v1.json").write_text(
+        json.dumps(manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/runtime_agent_manifest_v1.schema.json",
+        artifact_path="registry/prompt_checks/runtime_agent_manifest_v1.json",
+        artifact_kind="json",
+    )
+
+
+def test_runtime_agent_manifest_schema_accepts_stage_contract(tmp_path: Path):
+    record = _write_runtime_agent_manifest_fixture(tmp_path, _runtime_agent_manifest_fixture())
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_runtime_agent_manifest_schema_requires_fallback_factory(tmp_path: Path):
+    manifest = _runtime_agent_manifest_fixture()
+    del manifest["agents"][0]["stages"][0]["fallback_factory_id"]
+
+    record = _write_runtime_agent_manifest_fixture(tmp_path, manifest)
+
+    assert not record.accepted
+    assert any("fallback_factory_id: required" in failure for failure in record.failures)
 
 
 def _domain_knob_catalog_fixture() -> dict:
