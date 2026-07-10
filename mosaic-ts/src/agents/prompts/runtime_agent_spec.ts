@@ -24,6 +24,7 @@ import { burrySpec } from "../superinvestor/burry.js";
 import { druckenmillerSpec } from "../superinvestor/druckenmiller.js";
 import { mungerSpec } from "../superinvestor/munger.js";
 import type { Layer } from "./cohorts.js";
+import { runtimeResearchKnobsStageEnablement } from "./runtime_stage_enablement.js";
 
 export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v1";
 
@@ -148,7 +149,7 @@ function stagesForAgent(
         `${promptIrAgentId}.output.v1`,
         [],
         ["upstream_agent_outputs"],
-        "legacy",
+        runtimeResearchKnobsStageEnablement(agent, "agent_run"),
         promptIrAgentId,
       ),
     ];
@@ -160,7 +161,7 @@ function stagesForAgent(
         "decision.alpha_discovery.output.v1",
         ["upstream_agent_outputs", "current_position_snapshot", "current_market_data"],
         ["upstream_agent_outputs"],
-        "enabled",
+        runtimeResearchKnobsStageEnablement(agent, "alpha_discovery"),
         promptIrAgentId,
       ),
     ];
@@ -178,7 +179,7 @@ function stagesForAgent(
           "portfolio_exposure_state",
         ],
         ["cro_review_state"],
-        "enabled",
+        runtimeResearchKnobsStageEnablement(agent, "cro_review"),
         promptIrAgentId,
       ),
     ];
@@ -196,7 +197,7 @@ function stagesForAgent(
           "execution_liquidity_state",
         ],
         ["execution_feasibility_state"],
-        "enabled",
+        runtimeResearchKnobsStageEnablement(agent, "execution_feasibility"),
         promptIrAgentId,
       ),
     ];
@@ -214,7 +215,7 @@ function stagesForAgent(
           "position_thesis_state",
         ],
         ["candidate_target_state", "position_review_state"],
-        "enabled",
+        runtimeResearchKnobsStageEnablement(agent, "cio_proposal"),
         promptIrAgentId,
       ),
       stageSpec(
@@ -229,7 +230,7 @@ function stagesForAgent(
           "current_market_data",
         ],
         [],
-        "enabled",
+        runtimeResearchKnobsStageEnablement(agent, "cio_final"),
         promptIrAgentId,
       ),
     ];

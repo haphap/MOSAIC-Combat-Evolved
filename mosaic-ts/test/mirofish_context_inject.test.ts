@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
+
+disableManifestResearchKnobsForLegacyFixtures();
+
 import { buildAutonomousExecutionNode } from "../src/agents/decision/autonomous_execution.js";
 import { buildCioNode } from "../src/agents/decision/cio.js";
 import { buildCroNode } from "../src/agents/decision/cro.js";

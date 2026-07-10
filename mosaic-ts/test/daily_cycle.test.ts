@@ -16,6 +16,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage, type SystemMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
+
+disableManifestResearchKnobsForLegacyFixtures();
+
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type {

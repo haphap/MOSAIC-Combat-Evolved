@@ -22,6 +22,7 @@ import {
 } from "../../agents/prompts/domain_knob_catalog.js";
 import {
   buildDomainKnobValueRegistry,
+  type DomainKnobValueRegistry,
   domainKnobValueRegistryPath,
   readDomainKnobValueRegistryFile,
   renderDomainKnobValueRegistry,
@@ -89,7 +90,8 @@ interface CheckResearchKnobsOpts {
 
 interface SyncResearchKnobsOpts {
   cohort?: string;
-  privatePromptsRoot: string;
+  privatePromptsRoot?: string;
+  promptsRoot?: string;
   agents?: string;
   write?: boolean;
 }
@@ -378,12 +380,18 @@ export function registerPrompts(program: Command): void {
   prompts
     .command("sync-research-knobs")
     .description("Generate/update research-knobs fences and runtime evidence contracts.")
-    .requiredOption("--private-prompts-root <path>", "Private prompts root to update")
+    .option("--private-prompts-root <path>", "Private prompts root and value registries to update")
+    .option("--prompts-root <path>", "Bundled prompts root to update from code defaults")
     .option("--cohort <name>", "Cohort to update (default cohort_default)")
     .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
     .option("--write", "Write changes. Without this, only reports pending updates.", false)
     .action(async (opts: SyncResearchKnobsOpts) => {
       const cohort = opts.cohort ?? "cohort_default";
+      if (Boolean(opts.privatePromptsRoot) === Boolean(opts.promptsRoot)) {
+        throw new Error("exactly one of --private-prompts-root or --prompts-root is required");
+      }
+      const promptsRoot = opts.privatePromptsRoot ?? opts.promptsRoot;
+      if (!promptsRoot) throw new Error("prompt root is required");
       const selected = opts.agents
         ? new Set(
             opts.agents
@@ -395,25 +403,28 @@ export function registerPrompts(program: Command): void {
       const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
       const changed: string[] = [];
       for (const spec of specs) {
-        const registryPath = domainKnobValueRegistryPath({
-          privatePromptsRoot: opts.privatePromptsRoot,
-          cohort,
-          agent: spec.agent,
-        });
-        const existingRegistry = await readDomainKnobValueRegistryFile(registryPath);
-        const registry = buildDomainKnobValueRegistry(spec, cohort, { existing: existingRegistry });
-        const registryReasons = validateDomainKnobValueRegistry(spec, registry, cohort);
-        if (registryReasons.length > 0) {
-          throw new Error(`${spec.agent}: ${registryReasons.join("; ")}`);
-        }
-        const renderedRegistry = renderDomainKnobValueRegistry(registry);
-        const currentRegistry = existingRegistry
-          ? renderDomainKnobValueRegistry(existingRegistry)
-          : "";
-        if (renderedRegistry !== currentRegistry) {
-          changed.push(registryPath);
-          if (opts.write) {
-            await writeDomainKnobValueRegistryFile(registryPath, registry);
+        let registry: DomainKnobValueRegistry | null = null;
+        if (opts.privatePromptsRoot) {
+          const registryPath = domainKnobValueRegistryPath({
+            privatePromptsRoot: opts.privatePromptsRoot,
+            cohort,
+            agent: spec.agent,
+          });
+          const existingRegistry = await readDomainKnobValueRegistryFile(registryPath);
+          registry = buildDomainKnobValueRegistry(spec, cohort, { existing: existingRegistry });
+          const registryReasons = validateDomainKnobValueRegistry(spec, registry, cohort);
+          if (registryReasons.length > 0) {
+            throw new Error(`${spec.agent}: ${registryReasons.join("; ")}`);
+          }
+          const renderedRegistry = renderDomainKnobValueRegistry(registry);
+          const currentRegistry = existingRegistry
+            ? renderDomainKnobValueRegistry(existingRegistry)
+            : "";
+          if (renderedRegistry !== currentRegistry) {
+            changed.push(registryPath);
+            if (opts.write) {
+              await writeDomainKnobValueRegistryFile(registryPath, registry);
+            }
           }
         }
         const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
@@ -423,7 +434,7 @@ export function registerPrompts(program: Command): void {
             layer: spec.layer,
             cohort,
             language,
-            promptsRoot: opts.privatePromptsRoot,
+            promptsRoot,
           });
           const current = await readFile(path, "utf-8");
           const next = upsertRuntimeEvidenceContract(

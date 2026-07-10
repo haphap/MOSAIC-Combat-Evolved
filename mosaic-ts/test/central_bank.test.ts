@@ -17,6 +17,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
+
+disableManifestResearchKnobsForLegacyFixtures();
+
 import {
   buildCentralBankNode,
   buildUserContext,
@@ -461,6 +465,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
 
   it("uses the evidence snapshot and rejects an enabled output without claims", async () => {
     process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = "central_bank";
+    process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES = "central_bank:agent_run";
     writeCentralBankPromptWithKnobs(fakePrompts.root);
     const llm = new ScriptedLlm({
       responses: [new AIMessage("analysis without required current-data tool call")],

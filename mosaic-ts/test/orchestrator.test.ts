@@ -2,6 +2,10 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
+
+disableManifestResearchKnobsForLegacyFixtures();
+
 import { backtestFillCommand, runAutoresearchCycle } from "../src/autoresearch/orchestrator.js";
 import type { BridgeApi } from "../src/bridge/types.js";
 

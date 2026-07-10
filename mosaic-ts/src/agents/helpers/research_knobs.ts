@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import YAML from "yaml";
 import { z } from "zod";
 import type { RuntimeAgentStageId, RuntimeDagStageId } from "../prompts/runtime_agent_spec.js";
+import { configuredRuntimeResearchKnobsStageKeys } from "../prompts/runtime_stage_enablement.js";
 
 const SET_LIKE_LIST_KEYS = new Set([
   "allowed_outputs",
@@ -342,19 +343,18 @@ export function formatResearchKnobAuditFields(audit: ResearchKnobCapAudit): stri
 export function researchKnobsEnabledAgents(
   value = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS,
 ): ReadonlySet<string> {
+  const enabledAgents = new Set(
+    [...configuredRuntimeResearchKnobsStageKeys()].map((key) => key.split(":", 1)[0] as string),
+  );
   const configured = value?.trim();
-  const defaultValue =
-    process.env.MOSAIC_PROMPTS_ROOT?.trim() ||
-    process.env.MOSAIC_PROMPTS_REPO?.trim() ||
-    process.env.MOSAIC_PRIVATE_PROMPT_REPO?.trim()
-      ? "*"
-      : "";
-  return new Set(
-    (configured ?? defaultValue)
+  if (!configured || configured === "*") return enabledAgents;
+  const requested = new Set(
+    configured
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean),
   );
+  return new Set([...enabledAgents].filter((agent) => requested.has(agent)));
 }
 
 export function isResearchKnobsEnabled(
@@ -368,17 +368,26 @@ export function researchKnobsEnabledAgentStages(
   value = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES,
   legacyAgentValue = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS,
 ): ReadonlySet<string> {
+  const manifestEnabled = configuredRuntimeResearchKnobsStageKeys();
   const configured = value?.trim();
   if (configured) {
+    const requested = configured
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
     return new Set(
-      configured
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
+      [...manifestEnabled].filter((key) => {
+        const agent = key.split(":", 1)[0];
+        return requested.some(
+          (pattern) => pattern === "*" || pattern === key || pattern === `${agent}:*`,
+        );
+      }),
     );
   }
-  const legacy = researchKnobsEnabledAgents(legacyAgentValue);
-  return new Set([...legacy].map((agent) => (agent === "*" ? "*" : `${agent}:*`)));
+  const legacyConfigured = legacyAgentValue?.trim();
+  if (!legacyConfigured) return manifestEnabled;
+  const legacy = researchKnobsEnabledAgents(legacyConfigured);
+  return new Set([...manifestEnabled].filter((key) => legacy.has(key.split(":", 1)[0] as string)));
 }
 
 export function isResearchKnobsStageEnabled(

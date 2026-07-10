@@ -217,75 +217,39 @@ export function buildRuntimeResearchKnobs(
             path: card.path,
             projection_bucket: card.projection_bucket,
             default: card.default,
-            activation_state: card.activation_state,
             owner_stage: card.owner_stage,
             consumer_stages: card.consumer_stages,
             runtime_input_sources: card.runtime_input_sources,
             runtime_input_source_policies: card.runtime_input_source_policies,
-            evidence_dependencies: card.evidence_dependencies,
+            evidence_dependencies: card.evidence_dependencies.map((dependency) => ({
+              dependency_id: dependency.dependency_id,
+              evidence_key: dependency.evidence_key,
+              tool: dependency.tool,
+              metric_ids: dependency.metric_ids,
+              scope_resolution: dependency.scope_resolution,
+              ...(dependency.scope_source_tool
+                ? { scope_source_tool: dependency.scope_source_tool }
+                : {}),
+              ...(dependency.max_scope_count !== undefined
+                ? { max_scope_count: dependency.max_scope_count }
+                : {}),
+              ...(dependency.min_scope_count !== undefined
+                ? { min_scope_count: dependency.min_scope_count }
+                : {}),
+              ...(dependency.empty_scope_behavior
+                ? { empty_scope_behavior: dependency.empty_scope_behavior }
+                : {}),
+              ...(dependency.min_scope_coverage !== undefined
+                ? { min_scope_coverage: dependency.min_scope_coverage }
+                : {}),
+            })),
             evidence_dependency_policies: card.evidence_dependency_policies,
-            evaluation_metric: card.evaluation_metric,
-            secondary_metrics: card.secondary_metrics,
-            learning_objective: card.learning_objective,
-            enforcement: card.enforcement,
-            cross_field_group: card.cross_field_group,
-            weight_group: card.weight_group,
-            atomic_mutation_group: card.atomic_mutation_group,
-            normalization: card.normalization,
-            ...(card.runtime_validator ? { runtime_validator: card.runtime_validator } : {}),
-            ...(card.audit_field ? { audit_field: card.audit_field } : {}),
           })),
-        weight_groups: domainWeightGroupMetadata(domainCards),
-        cross_field_groups: domainCrossFieldGroupMetadata(domainCards),
-        runtime_sources: [
-          ...new Set(domainCards.flatMap((card) => card.runtime_input_sources)),
-        ].sort(),
-        evaluation_metrics: [...new Set(domainCards.map((card) => card.evaluation_metric))].sort(),
       },
       prompt_ir_agent_id: spec.promptIrAgentId,
       rke_prior_shadow_only: true,
     },
   };
-}
-
-function domainWeightGroupMetadata(
-  cards: ReturnType<typeof domainKnobCardsForSpec>,
-): Record<string, unknown> {
-  const groups = new Map<string, typeof cards>();
-  for (const card of cards) {
-    if (!card.weight_group) continue;
-    const members = groups.get(card.weight_group) ?? [];
-    members.push(card);
-    groups.set(card.weight_group, members);
-  }
-  return Object.fromEntries(
-    [...groups.entries()].map(([group, members]) => [
-      group,
-      {
-        normalization: "sum_to_one",
-        projection_bucket: members[0]?.projection_bucket ?? "thresholds",
-        members: members.map((card) => card.id),
-      },
-    ]),
-  );
-}
-
-function domainCrossFieldGroupMetadata(
-  cards: ReturnType<typeof domainKnobCardsForSpec>,
-): Record<string, unknown> {
-  const groups = new Map<string, typeof cards>();
-  for (const card of cards) {
-    if (!card.cross_field_group) continue;
-    const members = groups.get(card.cross_field_group) ?? [];
-    members.push(card);
-    groups.set(card.cross_field_group, members);
-  }
-  return Object.fromEntries(
-    [...groups.entries()].map(([group, members]) => [
-      group,
-      { members: members.map((card) => card.id) },
-    ]),
-  );
 }
 
 function domainPredictionTargets(
@@ -332,16 +296,21 @@ export function upsertRuntimeEvidenceContract(
 ): string {
   if (!spec.fieldNames.includes("claims")) return text;
   const outputFields = spec.fieldNames.map((field) => `\`${field}\``).join(", ");
-  const domainCardIds = domainKnobCardsForSpec(spec)
-    .map((card) => `\`${card.id}\``)
-    .join(", ");
+  const domainCards = domainKnobCardsForSpec(spec);
+  const domainCardIds = domainCards.map((card) => `\`${card.id}\``).join(", ");
+  const requiredTools = spec.requiredTools.map((tool) => `\`${tool}\``).join(", ");
+  const influenceFields = domainCards.some((card) => card.evidence_dependencies.length > 0)
+    ? "`declared_knob_influence_ids`, `declared_influence_rationale`"
+    : "(none)";
   const body =
     language === "zh"
       ? [
           "## Runtime Evidence Output Contract",
           "Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。",
           `输出字段包括：${outputFields}。`,
+          `必需 runtime tools：${requiredTools || "(none)"}。`,
           `本 agent 的 domain knob card ids：${domainCardIds || "(none)"}。`,
+          `Knob influence 审计字段：${influenceFields}。`,
           "必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 " +
             "`evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 " +
             "`research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、" +
@@ -353,7 +322,9 @@ export function upsertRuntimeEvidenceContract(
           "## Runtime Evidence Output Contract",
           "Runtime supplies the only valid evidence catalog and research rule ids for this invocation.",
           `Output fields include: ${outputFields}.`,
+          `Required runtime tools: ${requiredTools || "(none)"}.`,
           `Domain knob card ids for this agent: ${domainCardIds || "(none)"}.`,
+          `Knob influence audit fields: ${influenceFields}.`,
           "Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog " +
             "`evidence_id` values through `evidence_refs`; every inference claim must also cite an " +
             "allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, " +

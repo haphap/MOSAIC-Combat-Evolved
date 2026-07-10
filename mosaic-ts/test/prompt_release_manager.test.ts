@@ -161,6 +161,7 @@ describe("prompt release manager", () => {
       specs: [SPEC],
       checkCandidate: async ({ source }: { source: string }) => {
         candidateSources.push(source);
+        return { snapshotHashes: { "central_bank:agent_run": HASH } };
       },
       now: () => "2026-07-10T00:00:00.000Z",
     };

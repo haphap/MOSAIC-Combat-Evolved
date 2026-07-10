@@ -33,7 +33,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.central_bank.output.v1",
           "fallback_factory_id": "macro.central_bank.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -65,7 +65,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.geopolitical.output.v1",
           "fallback_factory_id": "macro.geopolitical.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -99,7 +99,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.china.output.v1",
           "fallback_factory_id": "macro.china.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -132,7 +132,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.dollar.output.v1",
           "fallback_factory_id": "macro.dollar.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -165,7 +165,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.yield_curve.output.v1",
           "fallback_factory_id": "macro.yield_curve.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -198,7 +198,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.commodities.output.v1",
           "fallback_factory_id": "macro.commodities.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -232,7 +232,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.volatility.output.v1",
           "fallback_factory_id": "macro.volatility.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -268,7 +268,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.emerging_markets.output.v1",
           "fallback_factory_id": "macro.emerging_markets.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -301,7 +301,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.news_sentiment.output.v1",
           "fallback_factory_id": "macro.news_sentiment.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -334,7 +334,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "macro.institutional_flow.output.v1",
           "fallback_factory_id": "macro.institutional_flow.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -373,7 +373,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "sector.semiconductor.output.v1",
           "fallback_factory_id": "sector.semiconductor.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -409,7 +409,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "sector.energy.output.v1",
           "fallback_factory_id": "sector.energy.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -445,7 +445,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "sector.biotech.output.v1",
           "fallback_factory_id": "sector.biotech.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -481,7 +481,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "sector.consumer.output.v1",
           "fallback_factory_id": "sector.consumer.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -517,7 +517,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "sector.industrials.output.v1",
           "fallback_factory_id": "sector.industrials.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -554,7 +554,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "sector.financials.output.v1",
           "fallback_factory_id": "sector.financials.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -585,7 +585,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "sector.relationship_mapper.output.v1",
           "fallback_factory_id": "sector.relationship_mapper.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -620,7 +620,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "superinvestor.druckenmiller.output.v1",
           "fallback_factory_id": "superinvestor.druckenmiller.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -655,7 +655,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "superinvestor.munger.output.v1",
           "fallback_factory_id": "superinvestor.munger.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -690,7 +690,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "superinvestor.burry.output.v1",
           "fallback_factory_id": "superinvestor.burry.agent_run.fallback",
           "fallback_factory_version": "1",
@@ -725,7 +725,7 @@
       "stages": [
         {
           "stage": "agent_run",
-          "enablement": "legacy",
+          "enablement": "enabled",
           "output_schema_ref": "superinvestor.ackman.output.v1",
           "fallback_factory_id": "superinvestor.ackman.agent_run.fallback",
           "fallback_factory_version": "1",

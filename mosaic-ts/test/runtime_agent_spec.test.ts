@@ -17,6 +17,11 @@ describe("stage-aware runtime agent manifest", () => {
     expect(artifact.runtime_stage_count).toBe(26);
     expect(artifact.canonical_l4_sequence).toEqual(CANONICAL_L4_STAGE_SEQUENCE);
     expect(validateRuntimeAgentManifestArtifact(artifact)).toEqual([]);
+    expect(
+      artifact.agents
+        .flatMap((agent) => agent.stages)
+        .every((stage) => stage.enablement === "enabled"),
+    ).toBe(true);
   });
 
   it("declares CIO proposal and final as separate stage contracts", () => {

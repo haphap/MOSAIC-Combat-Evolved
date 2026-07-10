@@ -100,7 +100,8 @@ export function buildDomainKnobValueRegistry(
     lastMutationId?: string | null;
   } = {},
 ): DomainKnobValueRegistry {
-  const existingValues = opts.existing?.values_by_path ?? {};
+  const preserveExistingValues = Boolean(opts.existing?.last_mutation_id);
+  const existingValues = preserveExistingValues ? (opts.existing?.values_by_path ?? {}) : {};
   const values_by_path: Record<string, unknown> = {};
   const cards = mutableDomainCardsForSpec(spec);
   for (const card of cards) {

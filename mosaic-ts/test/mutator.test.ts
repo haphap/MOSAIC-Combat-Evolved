@@ -886,6 +886,31 @@ describe("knob mutation validation", () => {
     expect(repaired.values_by_path[holdConfidencePath]).toBe(0.5);
   });
 
+  it("preserves registry values only after a durable mutation id is present", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const baseline = buildDomainKnobValueRegistry(spec, "cohort_default");
+    const path = Object.keys(baseline.values_by_path).find((item) =>
+      item.endsWith("/learnable_parameters/policy_conflict_cap/value"),
+    );
+    expect(path).toBeDefined();
+    if (!path) return;
+    baseline.values_by_path[path] = 0.3;
+
+    expect(
+      buildDomainKnobValueRegistry(spec, "cohort_default", { existing: baseline }).values_by_path[
+        path
+      ],
+    ).toBe(0.25);
+    baseline.last_mutation_id = "KM-1";
+    expect(
+      buildDomainKnobValueRegistry(spec, "cohort_default", { existing: baseline }).values_by_path[
+        path
+      ],
+    ).toBe(0.3);
+  });
+
   it("rejects domain knob mutations with the wrong evaluation metric", () => {
     const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
     expect(spec).toBeDefined();

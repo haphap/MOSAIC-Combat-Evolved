@@ -88,6 +88,9 @@ describe("research knob cap enforcement", () => {
     const migrated = researchKnobsEnabledAgentStages(undefined, "cio,central_bank");
     expect(isResearchKnobsStageEnabled("cio", "cio_final", migrated)).toBe(true);
     expect(isResearchKnobsStageEnabled("central_bank", "agent_run", migrated)).toBe(true);
+
+    expect(researchKnobsEnabledAgentStages("", "").size).toBe(26);
+    expect(researchKnobsEnabledAgentStages("unknown:*", "").size).toBe(0);
   });
 
   it("rejects extra fields in the prompt projection schema", () => {

@@ -44,9 +44,13 @@ interface CandidateCheckOptions {
   source: "private" | "bundled";
 }
 
+export interface PromptReleaseCandidateCheckResult {
+  snapshotHashes: Readonly<Record<string, string>>;
+}
+
 export interface PromptReleaseManagerDependencies {
   specs?: ReadonlyArray<RuntimeAgentSpec>;
-  checkCandidate?: (opts: CandidateCheckOptions) => Promise<void>;
+  checkCandidate?: (opts: CandidateCheckOptions) => Promise<PromptReleaseCandidateCheckResult>;
   now?: () => string;
 }
 
@@ -112,8 +116,10 @@ async function withDetachedWorktree<T>(
   }
 }
 
-async function checkCandidateAtCommit(opts: CandidateCheckOptions): Promise<void> {
-  await withDetachedWorktree(opts.repo, opts.commit, async (root) => {
+async function checkCandidateAtCommit(
+  opts: CandidateCheckOptions,
+): Promise<PromptReleaseCandidateCheckResult> {
+  return withDetachedWorktree(opts.repo, opts.commit, async (root) => {
     const promptRoot = join(root, "prompts", "mosaic");
     const report = await checkResearchKnobsPrompts({
       cohort: opts.cohort,
@@ -128,6 +134,11 @@ async function checkCandidateAtCommit(opts: CandidateCheckOptions): Promise<void
         .flatMap((row) => row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`));
       throw new Error(`prompt_release_candidate_check_failed:${failures.slice(0, 10).join("|")}`);
     }
+    return {
+      snapshotHashes: Object.fromEntries(
+        report.rows.map((row) => [`${row.agent}:${row.stage}`, row.snapshot_hash ?? ""]),
+      ),
+    };
   });
 }
 
@@ -231,7 +242,7 @@ export async function stagePromptRelease(
   }
   await assertCleanCodeCheckout(codeRepo, codeCommit);
   const candidateCheck = deps.checkCandidate ?? checkCandidateAtCommit;
-  await candidateCheck({
+  const privateCheck = await candidateCheck({
     repo: opts.privatePromptRepo,
     commit: promptCommit,
     cohort: opts.cohort,
@@ -297,12 +308,17 @@ export async function stagePromptRelease(
   }
 
   const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
-  await candidateCheck({
+  const fallbackCheck = await candidateCheck({
     repo: codeRepo,
     commit: codeCommit,
     cohort: opts.cohort,
     source: "bundled",
   });
+  if (
+    sortedObjectJson(privateCheck.snapshotHashes) !== sortedObjectJson(fallbackCheck.snapshotHashes)
+  ) {
+    throw new Error("prompt_release_bundled_fallback_snapshot_mismatch");
+  }
   const fallbackPairs = await buildReleasePromptPairsAtCommit({
     repo: codeRepo,
     commit: codeCommit,
