@@ -33,6 +33,12 @@ import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import {
+  attachDeterministicFallbackClaimGraph,
+  buildRuntimeEvidenceSnapshot,
+  type RuntimeEvidenceSnapshot,
+  selectOutputByClaimEvidence,
+} from "../helpers/evidence_runtime.js";
+import {
   applyResearchKnobCapsWithFallback,
   assertResearchKnobCappedOutputSchema,
   formatResearchKnobAuditFields,
@@ -176,15 +182,36 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
 
           // Phase 1: tool-bound free-form analysis loop.
           const userContext = buildUserContext(state, spec.agentId);
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
+            ? buildRuntimeEvidenceSnapshot({
+                state,
+                agent: spec.agentId,
+                stage: "agent_run",
+                knobSnapshot,
+              })
+            : null;
+          const evidenceUserContext = runtimeEvidence
+            ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
+            : userContext;
           const loopResult = await runAgentToolLoop({
             llm: deps.llmHandle.llm,
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
-            initialMessages: [new HumanMessage(userContext)],
+            initialMessages: [new HumanMessage(evidenceUserContext)],
+            ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
             ...(spec.maxLoops !== undefined ? { maxLoops: spec.maxLoops } : {}),
             onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
             signal,
           });
+          if (knobSnapshot) {
+            runtimeEvidence = buildRuntimeEvidenceSnapshot({
+              state,
+              agent: spec.agentId,
+              stage: "agent_run",
+              knobSnapshot,
+              toolStatuses: loopResult.toolStatuses,
+            });
+          }
 
           // Phase 2: structured extraction from the analysis text.
           onLog(
@@ -200,7 +227,14 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
             schema: spec.schema,
             messages: [
               new SystemMessage(extractorSystem),
-              new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
+              new HumanMessage(
+                [
+                  loopResult.analysisText || "(no analysis produced)",
+                  runtimeEvidence?.visibleCatalog,
+                ]
+                  .filter((part): part is string => Boolean(part))
+                  .join("\n\n"),
+              ),
             ],
             render: spec.render,
             agentName: spec.agentId,
@@ -211,14 +245,29 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
 
           // Phase 3: assemble state update.
           const rawOutput = extractor.structured ?? spec.fallback(loopResult.analysisText);
-          const capped = knobSnapshot
-            ? applyResearchKnobCapsWithFallback(rawOutput, () => spec.fallback(""), knobSnapshot, {
-                toolStatuses: loopResult.toolStatuses,
-              })
+          const claimSelection = runtimeEvidence
+            ? selectOutputByClaimEvidence(rawOutput, () => spec.fallback(""), runtimeEvidence)
             : null;
-          const output = capped
+          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
+          const capped = knobSnapshot
+            ? applyResearchKnobCapsWithFallback(
+                claimSelectedOutput,
+                () => spec.fallback(""),
+                knobSnapshot,
+                { toolStatuses: loopResult.toolStatuses },
+              )
+            : null;
+          let output = capped
             ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
-            : rawOutput;
+            : claimSelectedOutput;
+          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
+            output = attachDeterministicFallbackClaimGraph(
+              output,
+              runtimeEvidence,
+              claimSelection?.rejectionReasons ?? [],
+              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
+            ).output;
+          }
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
 
           onLog(
@@ -234,6 +283,13 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                 loopResult.llmElapsedMs,
               ),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(runtimeEvidence
+                ? [
+                    `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
+                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
+                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                  ]
+                : []),
               ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
@@ -315,7 +371,8 @@ function defaultExtractorSystem<TOutput extends MacroAgentOutput>(
     `Only emit values supported by the analysis text; never invent numbers. ` +
     `If a field cannot be supported by the text, use the most conservative valid value ` +
     `(prefer NEUTRAL stances, 0 numeric values, 'unknown' for date windows, ` +
-    `confidence ≤ 0.4). ` +
+    `confidence ≤ 0.4). When a runtime evidence catalog is present, include claims and ` +
+    `top-level claim_refs using only its evidence_id and allowed research rule ids. ` +
     lang
   );
 }

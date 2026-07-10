@@ -459,7 +459,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
     expect(out.llm_calls?.[0]?.model).toBe("fake-model");
   });
 
-  it("uses research knobs snapshot and caps confidence when the agent is enabled", async () => {
+  it("uses the evidence snapshot and rejects an enabled output without claims", async () => {
     process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS = "central_bank";
     writeCentralBankPromptWithKnobs(fakePrompts.root);
     const llm = new ScriptedLlm({
@@ -486,10 +486,19 @@ describe("buildCentralBankNode (vertical slice)", () => {
     const update = await node(SAMPLE_STATE);
 
     const output = unwrapUpdate(update).layer1_outputs?.central_bank as CentralBankOutput;
-    expect(output.confidence).toBe(0.55);
+    expect(output.confidence).toBe(0);
+    expect(output.verified_claim_audit).toMatchObject({
+      raw_output_accepted: false,
+      fallback_reason_code: "CLAIM_EVIDENCE_GRAPH_REJECTED",
+    });
+    expect(output.verified_claim_graph?.claims).toEqual([
+      expect.objectContaining({ claim_type: "uncertainty", evidence_refs: [] }),
+    ]);
     expect(String(llm.invokeCalls[0]?.[0]?.content)).toContain("Runtime Research Knobs Contract");
+    expect(String(llm.invokeCalls[0]?.[1]?.content)).toContain("Runtime-owned evidence catalog");
     expect(logs.join("\n")).toContain("fired_caps=missing_current_data");
     expect(logs.join("\n")).toContain("knob_snapshot=sha256:");
+    expect(logs.join("\n")).toContain("claim_output=fallback");
   });
 
   it("forwards backtest context to the bridge when as_of_date is set", async () => {

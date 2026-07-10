@@ -111,6 +111,28 @@ const RUNTIME_SOURCE_ALIASES: Readonly<Record<string, string>> = {
   upstream_context: "upstream_agent_outputs",
 };
 
+const MACRO_OUTPUT_AGENTS = new Set([
+  "central_bank",
+  "geopolitical",
+  "china",
+  "dollar",
+  "yield_curve",
+  "commodities",
+  "volatility",
+  "emerging_markets",
+  "news_sentiment",
+  "institutional_flow",
+]);
+const SECTOR_PICK_AGENTS = new Set([
+  "semiconductor",
+  "energy",
+  "biotech",
+  "consumer",
+  "industrials",
+  "financials",
+]);
+const SUPERINVESTOR_AGENTS = new Set(["druckenmiller", "munger", "burry", "ackman"]);
+
 export function buildAgentInvocationId(input: {
   runId: string;
   agent: string;
@@ -425,9 +447,30 @@ function outputClaimReferences(
                     ]
                   : []),
               ]
-            : [];
+            : SECTOR_PICK_AGENTS.has(agent)
+              ? [
+                  { field: "longs", prefix: "long_candidate", type: "candidate" as const },
+                  { field: "shorts", prefix: "short_candidate", type: "candidate" as const },
+                ]
+              : SUPERINVESTOR_AGENTS.has(agent)
+                ? [{ field: "picks", prefix: "pick", type: "candidate" as const }]
+                : [];
   const references: RecommendationClaimReference[] = [];
   const requiredOutputIds = new Set<string>();
+  if (MACRO_OUTPUT_AGENTS.has(agent) || agent === "relationship_mapper") {
+    const outputId = `recommendation:0:${agent}`;
+    requiredOutputIds.add(outputId);
+    const claimRefs = Array.isArray(record.claim_refs)
+      ? record.claim_refs.filter((claimId): claimId is string => typeof claimId === "string")
+      : [];
+    if (claimRefs.length > 0) {
+      references.push({
+        output_id: outputId,
+        output_type: "recommendation",
+        claim_refs: claimRefs,
+      });
+    }
+  }
   for (const config of configs) {
     const candidateEntries = record[config.field];
     const entries: unknown[] = Array.isArray(candidateEntries) ? candidateEntries : [];
@@ -490,6 +533,7 @@ function deterministicFallbackSelection<T>(
 function withFallbackClaimRefs<T>(output: T, claimId: string): T {
   if (output === null || typeof output !== "object" || Array.isArray(output)) return output;
   const record = { ...(output as Record<string, unknown>) };
+  record.claim_refs = [claimId];
   record.claims = [
     {
       claim_id: claimId,

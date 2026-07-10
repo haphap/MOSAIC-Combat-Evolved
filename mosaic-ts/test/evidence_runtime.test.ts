@@ -6,7 +6,7 @@ import {
 } from "../src/agents/helpers/evidence_runtime.js";
 import type { ResearchKnobsSnapshot } from "../src/agents/helpers/research_knobs.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
-import type { CioOutput } from "../src/agents/types.js";
+import type { CentralBankOutput, CioOutput } from "../src/agents/types.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const MARKET_HASH = `sha256:${"2".repeat(64)}`;
@@ -270,6 +270,61 @@ describe("runtime evidence snapshots", () => {
       },
     ]);
     expect(selected.output.verified_claim_audit?.raw_output_accepted).toBe(true);
+  });
+
+  it("binds a macro recommendation to top-level claim references", () => {
+    const runtime = buildRuntimeEvidenceSnapshot({
+      state: state(),
+      agent: "central_bank",
+      stage: "agent_run",
+      knobSnapshot: knobSnapshot(),
+    });
+    const evidenceId = runtime.evidenceLedger.find(
+      (entry) => entry.tool_or_source === "current_market_data",
+    )?.evidence_id;
+    const raw: CentralBankOutput = {
+      agent: "central_bank",
+      stance: "NEUTRAL",
+      key_rate_change_bps: 0,
+      qe_qt_balance_change: "No verified balance change",
+      next_window: "unknown",
+      key_drivers: ["Current market evidence is neutral"],
+      confidence: 0.4,
+      claim_refs: ["claim-macro-1"],
+      claims: [
+        {
+          claim_id: "claim-macro-1",
+          claim_type: "inference",
+          statement: "Current evidence supports a neutral policy stance.",
+          structured_conclusion: { stance: "NEUTRAL" },
+          evidence_refs: [evidenceId ?? "missing"],
+          research_rule_refs: ["decision.cio.policy.001"],
+        },
+      ],
+    };
+
+    const selected = selectOutputByClaimEvidence(
+      raw,
+      (): CentralBankOutput => ({
+        agent: "central_bank",
+        stance: "NEUTRAL",
+        key_rate_change_bps: 0,
+        qe_qt_balance_change: "fallback",
+        next_window: "unknown",
+        key_drivers: ["fallback"],
+        confidence: 0,
+      }),
+      runtime,
+    );
+
+    expect(selected.rawOutputAccepted).toBe(true);
+    expect(selected.graph.recommendation_claim_refs).toEqual([
+      {
+        output_id: "recommendation:0:central_bank",
+        output_type: "recommendation",
+        claim_refs: ["claim-macro-1"],
+      },
+    ]);
   });
 
   it("replaces dangling action claims with a runtime-owned uncertainty fallback", () => {

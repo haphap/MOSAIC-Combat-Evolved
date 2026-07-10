@@ -33,6 +33,7 @@ export interface KnobInfluenceDeclaration {
   declared_knob_influence_ids?: string[] | undefined;
   declared_influence_rationale?: string | undefined;
   claims?: LlmResearchClaim[] | undefined;
+  claim_refs?: string[] | undefined;
   /** Runtime-owned fields, ignored by legacy consumers. */
   verified_claim_graph?: ClaimEvidenceGraph | undefined;
   verified_claim_audit?:

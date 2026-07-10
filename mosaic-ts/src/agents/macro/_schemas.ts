@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { LlmResearchClaimSchema } from "../evidence_contract.js";
 import type {
   CentralBankOutput,
   ChinaOutput,
@@ -52,6 +53,15 @@ const KNOB_INFLUENCE_FIELDS = {
     .string()
     .optional()
     .describe("Optional short rationale for declared knob influence ids."),
+  claims: z
+    .array(LlmResearchClaimSchema)
+    .optional()
+    .describe("Claim declarations referencing only runtime-provided evidence ids."),
+  claim_refs: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .describe("Claim ids supporting the top-level macro recommendation."),
 };
 
 const STRING_LIST_1_8 = (label: string) => z.array(z.string().min(1)).min(1).max(8).describe(label);
@@ -101,6 +111,8 @@ export const CENTRAL_BANK_FIELD_NAMES = [
   "next_window",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -141,6 +153,8 @@ export const CHINA_FIELD_NAMES = [
   "risk_drivers",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -183,6 +197,8 @@ export const GEOPOLITICAL_FIELD_NAMES = [
   "trade_impact",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -225,6 +241,8 @@ export const DOLLAR_FIELD_NAMES = [
   "dxy_cny_correlation",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -267,6 +285,8 @@ export const YIELD_CURVE_FIELD_NAMES = [
   "cn_us_spread_bps",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -314,6 +334,8 @@ export const COMMODITIES_FIELD_NAMES = [
   "china_demand_signal",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -353,6 +375,8 @@ export const VOLATILITY_FIELD_NAMES = [
   "regime_filter",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -395,6 +419,8 @@ export const EMERGING_MARKETS_FIELD_NAMES = [
   "capital_flow",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -437,6 +463,8 @@ export const NEWS_SENTIMENT_FIELD_NAMES = [
   "contrarian_flag",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -481,6 +509,8 @@ export const INSTITUTIONAL_FLOW_FIELD_NAMES = [
   "sectors_in_out",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
