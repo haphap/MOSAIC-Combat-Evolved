@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Domain Evaluation Sample Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "mutation_id",
+    "preregistration_hash",
+    "holdout_id",
+    "holdout_prior_consumption_count",
+    "evaluation_as_of",
+    "sample_window",
+    "decision_evidence_refs",
+    "samples"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "domain_evaluation_sample_manifest_v1"
+    },
+    "mutation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "preregistration_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "holdout_id": {
+      "$ref": "#/$defs/sha256"
+    },
+    "holdout_prior_consumption_count": {
+      "const": 0
+    },
+    "evaluation_as_of": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sample_window": {
+      "$ref": "#/$defs/window"
+    },
+    "decision_evidence_refs": {
+      "$ref": "#/$defs/string_array"
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sample"
+      }
+    }
+  },
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "sample_id",
+        "source_type",
+        "horizon",
+        "split",
+        "observed_at",
+        "label_available_at",
+        "data_vintage_hash",
+        "pit_valid",
+        "mature",
+        "exclusion_reasons",
+        "baseline_exclusion_reasons",
+        "treatment_exclusion_reasons",
+        "baseline",
+        "treatment",
+        "secondary_metrics",
+        "evidence_refs",
+        "regime"
+      ],
+      "properties": {
+        "sample_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_type": {
+          "enum": ["pit_outcome", "execution_record", "runtime_audit", "scorecard"]
+        },
+        "horizon": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*d$"
+        },
+        "split": {
+          "enum": ["evaluation", "holdout"]
+        },
+        "observed_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label_available_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data_vintage_hash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "pit_valid": {
+          "type": "boolean"
+        },
+        "mature": {
+          "type": "boolean"
+        },
+        "exclusion_reasons": {
+          "$ref": "#/$defs/string_array"
+        },
+        "baseline_exclusion_reasons": {
+          "$ref": "#/$defs/string_array"
+        },
+        "treatment_exclusion_reasons": {
+          "$ref": "#/$defs/string_array"
+        },
+        "baseline": {
+          "type": "object"
+        },
+        "treatment": {
+          "type": "object"
+        },
+        "secondary_metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["baseline", "treatment"],
+            "properties": {
+              "baseline": {
+                "type": "object"
+              },
+              "treatment": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "evidence_refs": {
+          "$ref": "#/$defs/string_array"
+        },
+        "regime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "overlap_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "string",
+          "minLength": 1
+        },
+        "end": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "string_array": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

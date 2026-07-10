@@ -182,6 +182,48 @@ export const KnobMutationSchema = z.object({
 export type KnobPatch = z.infer<typeof KnobPatchSchema>;
 export type KnobMutation = z.infer<typeof KnobMutationSchema>;
 
+export interface DomainEvaluationPreregistration {
+  schema_version: "domain_evaluation_preregistration_v1";
+  experiment_id: string;
+  experiment_family_id: string;
+  registered_at: string;
+  calendar_id: "cn_a_share";
+  split_policy: {
+    train: { start: string; end: string };
+    evaluation: { start: string; end: string };
+    holdout: {
+      holdout_id: string;
+      start: string;
+      end: string;
+      reuse_budget: 1;
+    };
+    purge_days: number;
+    embargo_days: number;
+  };
+  primary_metric: string;
+  secondary_guardrails: Array<{
+    metric_id: string;
+    direction: "higher_is_better" | "lower_is_better";
+    max_degradation: number;
+  }>;
+  min_effect_size: number;
+  min_samples_per_split: number;
+  common_support_required: true;
+  regime_guardrail: {
+    required_regimes: ["normal", "stress"];
+    min_samples_per_regime: number;
+    max_degradation: number;
+  };
+  multiple_testing: {
+    method: "benjamini_hochberg";
+    family_size: number;
+    candidate_rank: number;
+    attempt_index: number;
+    alpha: number;
+    adjusted_alpha: number;
+  };
+}
+
 export interface KnobMutationValidation {
   accepted: boolean;
   reasons: string[];
@@ -224,6 +266,8 @@ export interface KnobMutationMetadata {
     uncertainty_method: string;
     overlapping_sample_policy: string;
     require_uncertainty_bound: boolean;
+    preregistration?: DomainEvaluationPreregistration;
+    preregistration_hash?: string;
   };
   changed_paths: string[];
   patches: KnobPatch[];
@@ -512,6 +556,154 @@ export async function applyKnobPatchesToDomainKnobRegistryFile(opts: {
   return { ...applied, registry_path: opts.registryPath };
 }
 
+function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalizeJson(entry)]),
+    );
+  }
+  return value === undefined ? null : value;
+}
+
+function hashCanonicalJson(value: unknown): string {
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalizeJson(value)))
+    .digest("hex")}`;
+}
+
+function horizonDays(horizon: string): number {
+  const matched = /^(\d+)d$/.exec(horizon);
+  const days = matched ? Number.parseInt(matched[1] ?? "", 10) : Number.NaN;
+  if (!Number.isInteger(days) || days < 1) {
+    throw new PromptInvariantError(`evaluation horizon must be positive trading days: ${horizon}`);
+  }
+  return days;
+}
+
+function addUtcDays(value: Date, days: number): Date {
+  return new Date(value.getTime() + days * 86_400_000);
+}
+
+function isoDay(value: Date): string {
+  return `${value.toISOString().slice(0, 10)}T00:00:00.000Z`;
+}
+
+function guardrailMaxDegradation(metricId: string): number {
+  const metric = EVALUATION_METRIC_REGISTRY[metricId];
+  if (!metric) throw new PromptInvariantError(`guardrail metric is not registered: ${metricId}`);
+  if (metric.unit === "bps") return 5;
+  if (metric.unit === "ratio" || metric.unit === "score") return 0.02;
+  return 0;
+}
+
+function buildDomainEvaluationPreregistration(opts: {
+  experimentId: string;
+  agent: string;
+  cohort: string;
+  changedPaths: string[];
+  metricId: string;
+  card: DomainKnobCard;
+  registeredAt: string;
+  attemptIndex: number;
+  familySize: number;
+}): DomainEvaluationPreregistration {
+  const registeredAt = new Date(opts.registeredAt);
+  if (!Number.isFinite(registeredAt.getTime())) {
+    throw new PromptInvariantError("mutation createdAt must be an ISO-8601 timestamp");
+  }
+  if (
+    !Number.isInteger(opts.attemptIndex) ||
+    opts.attemptIndex < 1 ||
+    !Number.isInteger(opts.familySize) ||
+    opts.familySize < opts.attemptIndex
+  ) {
+    throw new PromptInvariantError("evaluation attempt index must fit the FDR family size");
+  }
+  const purgeDays = horizonDays(opts.card.horizon);
+  const embargoDays = purgeDays;
+  const splitDuration = Math.max(90, purgeDays * 4);
+  const trainEnd = addUtcDays(registeredAt, -(purgeDays + 1));
+  const trainStart = addUtcDays(trainEnd, -730);
+  const evaluationStart = addUtcDays(registeredAt, 1);
+  const evaluationEnd = addUtcDays(evaluationStart, splitDuration - 1);
+  const holdoutStart = addUtcDays(evaluationEnd, embargoDays + 1);
+  const holdoutEnd = addUtcDays(holdoutStart, splitDuration - 1);
+  const familyPayload = {
+    schema_version: "domain_evaluation_family_v1",
+    cohort: opts.cohort,
+    agent: opts.agent,
+    changed_paths: [...opts.changedPaths].sort(),
+    primary_metric: opts.metricId,
+  };
+  const experimentFamilyId = hashCanonicalJson(familyPayload);
+  const holdoutId = hashCanonicalJson({
+    schema_version: "domain_holdout_v1",
+    experiment_family_id: experimentFamilyId,
+    start: isoDay(holdoutStart),
+    end: isoDay(holdoutEnd),
+  });
+  const operationalGuardrails = ["fallback_rate", "missing_rate", "confidence_calibration_error"];
+  const secondaryMetricIds = uniqueStrings([
+    opts.card.evaluation_metric,
+    ...opts.card.secondary_metrics,
+    ...operationalGuardrails,
+  ]).filter((metricId) => metricId !== opts.metricId);
+  const alpha = 0.05;
+  return {
+    schema_version: "domain_evaluation_preregistration_v1",
+    experiment_id: opts.experimentId,
+    experiment_family_id: experimentFamilyId,
+    registered_at: registeredAt.toISOString(),
+    calendar_id: "cn_a_share",
+    split_policy: {
+      train: { start: isoDay(trainStart), end: isoDay(trainEnd) },
+      evaluation: { start: isoDay(evaluationStart), end: isoDay(evaluationEnd) },
+      holdout: {
+        holdout_id: holdoutId,
+        start: isoDay(holdoutStart),
+        end: isoDay(holdoutEnd),
+        reuse_budget: 1,
+      },
+      purge_days: purgeDays,
+      embargo_days: embargoDays,
+    },
+    primary_metric: opts.metricId,
+    secondary_guardrails: secondaryMetricIds.map((metricId) => {
+      const guardrailMetric = EVALUATION_METRIC_REGISTRY[metricId];
+      if (!guardrailMetric) {
+        throw new PromptInvariantError(`guardrail metric is not registered: ${metricId}`);
+      }
+      return {
+        metric_id: metricId,
+        direction: guardrailMetric.direction,
+        max_degradation: guardrailMaxDegradation(metricId),
+      };
+    }),
+    min_effect_size: 0,
+    min_samples_per_split: EVALUATION_METRIC_REGISTRY[opts.metricId]?.min_sample_size ?? 1,
+    common_support_required: true,
+    regime_guardrail: {
+      required_regimes: ["normal", "stress"],
+      min_samples_per_regime: Math.max(
+        5,
+        Math.ceil((EVALUATION_METRIC_REGISTRY[opts.metricId]?.min_sample_size ?? 1) / 4),
+      ),
+      max_degradation: guardrailMaxDegradation(opts.metricId),
+    },
+    multiple_testing: {
+      method: "benjamini_hochberg",
+      family_size: opts.familySize,
+      candidate_rank: opts.attemptIndex,
+      attempt_index: opts.attemptIndex,
+      alpha,
+      adjusted_alpha: (alpha * opts.attemptIndex) / opts.familySize,
+    },
+  };
+}
+
 export function buildKnobMutationMetadata(opts: {
   mutationId: string;
   agent: string;
@@ -523,6 +715,8 @@ export function buildKnobMutationMetadata(opts: {
   createdAt?: string;
   transactionId?: string;
   experimentId?: string;
+  attemptIndex?: number;
+  experimentFamilySize?: number;
 }): KnobMutationMetadata {
   const changedPaths = opts.mutation.knob_patches.map((patch) => patch.path);
   const domainCards = changedPaths
@@ -546,14 +740,29 @@ export function buildKnobMutationMetadata(opts: {
     );
   }
   const baseKnobsSha256 = hashKnobs(opts.baseKnobs);
+  const createdAt = opts.createdAt ?? new Date().toISOString();
+  const experimentId = opts.experimentId ?? `EXP-${opts.mutationId}`;
+  const preregistration = firstDomainCard
+    ? buildDomainEvaluationPreregistration({
+        experimentId,
+        agent: opts.agent,
+        cohort: opts.cohort,
+        changedPaths,
+        metricId: opts.mutation.evaluation_metric,
+        card: firstDomainCard,
+        registeredAt: createdAt,
+        attemptIndex: opts.attemptIndex ?? 1,
+        familySize: opts.experimentFamilySize ?? 20,
+      })
+    : null;
   return {
     schema_version: "knob_mutation_metadata_v1",
     mutation_id: opts.mutationId,
     transaction_id: opts.transactionId ?? `TX-${opts.mutationId}`,
-    experiment_id: opts.experimentId ?? `EXP-${opts.mutationId}`,
+    experiment_id: experimentId,
     mutation_kind: firstDomainCard ? "domain_knob" : "generic_knob",
     lifecycle_state: "proposed",
-    created_at: opts.createdAt ?? new Date().toISOString(),
+    created_at: createdAt,
     agent: opts.agent,
     ...(firstDomainCard ? { owner_agent: firstDomainCard.owner_agent } : {}),
     ...(firstDomainCard ? { owner_stage: firstDomainCard.owner_stage } : {}),
@@ -582,6 +791,12 @@ export function buildKnobMutationMetadata(opts: {
       uncertainty_method: metric?.uncertainty_method ?? "not_applicable",
       overlapping_sample_policy: metric?.overlapping_sample_policy ?? "not_applicable",
       require_uncertainty_bound: Boolean(firstDomainCard),
+      ...(preregistration
+        ? {
+            preregistration,
+            preregistration_hash: hashCanonicalJson(preregistration),
+          }
+        : {}),
     },
     changed_paths: changedPaths,
     patches: opts.mutation.knob_patches,

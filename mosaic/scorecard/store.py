@@ -201,6 +201,15 @@ CREATE INDEX IF NOT EXISTS idx_pv_pending
 CREATE INDEX IF NOT EXISTS idx_pv_cohort_agent
     ON prompt_versions(cohort, agent, created_at);
 
+CREATE TABLE IF NOT EXISTS domain_holdout_consumptions (
+    holdout_id TEXT PRIMARY KEY,                -- preregistered untouched holdout hash
+    mutation_id TEXT NOT NULL,
+    prompt_version_id INTEGER NOT NULL,
+    result_hash TEXT NOT NULL,
+    consumed_at TEXT NOT NULL,
+    UNIQUE(mutation_id, holdout_id)
+);
+
 CREATE TABLE IF NOT EXISTS autoresearch_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     prompt_version_id INTEGER REFERENCES prompt_versions(id) ON DELETE CASCADE,
@@ -2129,6 +2138,66 @@ class ScorecardStore:
             )
             if cur.rowcount == 0:
                 raise ValueError(f"prompt_version {version_id} not found")
+
+    def consume_domain_holdout(
+        self,
+        version_id: int,
+        *,
+        holdout_id: str,
+        mutation_id: str,
+        result_hash: str,
+    ) -> bool:
+        """Consume an untouched holdout once; exact retries are idempotent."""
+        for value, field in (
+            (holdout_id, "holdout_id"),
+            (result_hash, "result_hash"),
+        ):
+            if (
+                not isinstance(value, str)
+                or not value.startswith("sha256:")
+                or len(value) != 71
+                or any(character not in "0123456789abcdef" for character in value[7:])
+            ):
+                raise ValueError(f"{field} must be a sha256 digest")
+        if not isinstance(mutation_id, str) or not mutation_id:
+            raise ValueError("mutation_id must be a non-empty string")
+        with self._connect() as conn:
+            version = conn.execute(
+                "SELECT mutation_id FROM prompt_versions WHERE id = ?", (version_id,)
+            ).fetchone()
+            if version is None:
+                raise ValueError(f"prompt_version {version_id} not found")
+            if version["mutation_id"] != mutation_id:
+                raise ValueError("holdout mutation_id does not match prompt version")
+            existing = conn.execute(
+                "SELECT mutation_id, prompt_version_id, result_hash "
+                "FROM domain_holdout_consumptions WHERE holdout_id = ?",
+                (holdout_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["mutation_id"] == mutation_id
+                    and existing["prompt_version_id"] == version_id
+                    and existing["result_hash"] == result_hash
+                ):
+                    return False
+                raise ValueError("untouched holdout has already been consumed")
+            conn.execute(
+                "INSERT INTO domain_holdout_consumptions "
+                "(holdout_id, mutation_id, prompt_version_id, result_hash, consumed_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (holdout_id, mutation_id, version_id, result_hash, _utcnow_iso()),
+            )
+        return True
+
+    def get_domain_holdout_consumption(self, holdout_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT holdout_id, mutation_id, prompt_version_id, result_hash, consumed_at "
+                "FROM domain_holdout_consumptions WHERE holdout_id = ?",
+                (holdout_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
 
     def get_version_mutation_metadata(self, version_id: int) -> Optional[dict[str, Any]]:
         with self._connect() as conn:

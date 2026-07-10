@@ -1259,6 +1259,72 @@ describe("knob mutation validation", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("preregisters purged evaluation and single-use holdout before domain evaluation", () => {
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+    expect(spec).toBeDefined();
+    if (!spec) return;
+    const baseKnobs = buildRuntimeResearchKnobs(spec);
+    const target = baseKnobs.mutation_targets.find((item) =>
+      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+    );
+    expect(target).toBeDefined();
+    if (!target) return;
+    const mutation = knobMutation({
+      prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+      evaluation_metric: "confidence_calibration_error",
+      horizon: "5d",
+      rollback_condition: {
+        metric: "confidence_calibration_error",
+        worse_by: 0.03,
+        unit: "ratio",
+      },
+      knob_patches: [
+        {
+          path: target.path,
+          old_value: 0.2,
+          new_value: 0.35,
+          rationale: "Evaluate a bounded policy-weight change.",
+          expected_effect: "Improve calibrated policy regime calls.",
+        },
+      ],
+    });
+    expect(validateKnobMutation(baseKnobs, mutation).accepted).toBe(true);
+    const newKnobs = applyKnobPatchesToProjection(baseKnobs, mutation);
+    const metadata = buildKnobMutationMetadata({
+      mutationId: "KM-domain-preregistered",
+      experimentId: "EXP-domain-preregistered",
+      agent: "central_bank",
+      cohort: "cohort_default",
+      baseKnobs,
+      newKnobs,
+      mutation,
+      decision: "dry_run",
+      createdAt: "2026-07-10T00:00:00.000Z",
+      attemptIndex: 2,
+      experimentFamilySize: 20,
+    });
+
+    const preregistration = metadata.evaluation_policy.preregistration;
+    expect(preregistration).toMatchObject({
+      schema_version: "domain_evaluation_preregistration_v1",
+      experiment_id: "EXP-domain-preregistered",
+      calendar_id: "cn_a_share",
+      primary_metric: "confidence_calibration_error",
+      common_support_required: true,
+      multiple_testing: {
+        method: "benjamini_hochberg",
+        attempt_index: 2,
+        family_size: 20,
+        adjusted_alpha: 0.005,
+      },
+    });
+    expect(preregistration?.split_policy.holdout.reuse_budget).toBe(1);
+    expect(preregistration?.secondary_guardrails.map((item) => item.metric_id)).toEqual(
+      expect.arrayContaining(["fallback_rate", "missing_rate"]),
+    );
+    expect(metadata.evaluation_policy.preregistration_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
 });
 
 // ── mutate ────────────────────────────────────────────────────────────────

@@ -574,6 +574,16 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                 evaluation_result = evaluate_domain_mutation(
                     mutation_metadata, domain_sample_manifest
                 )
+                if evaluation_result.get("holdout_consumption_required") is True:
+                    try:
+                        store.consume_domain_holdout(
+                            version_id,
+                            holdout_id=evaluation_result["holdout_id"],
+                            mutation_id=evaluation_result["mutation_id"],
+                            result_hash=evaluation_result["result_hash"],
+                        )
+                    except ValueError as exc:
+                        raise DomainEvaluationError(str(exc)) from exc
                 store.set_domain_evaluation_result(version_id, evaluation_result)
                 evaluation_status = evaluation_result["status"]
                 store.set_version_mutation_lifecycle(version_id, evaluation_status)

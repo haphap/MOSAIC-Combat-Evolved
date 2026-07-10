@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Domain Evaluation Result v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "mutation_id",
+    "metric_id",
+    "calculator_id",
+    "calculator_version",
+    "sample_window",
+    "preregistration_hash",
+    "experiment_family_id",
+    "holdout_id",
+    "baseline_id",
+    "sample_count",
+    "sample_count_by_split",
+    "excluded_count_by_reason",
+    "arm_exclusion_count_by_reason",
+    "arm_exclusion_delta",
+    "pit_audit_hash",
+    "multiple_testing",
+    "decision_evidence_refs",
+    "status",
+    "required_sample_count",
+    "rollback_triggered",
+    "holdout_consumption_required",
+    "result_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "domain_evaluation_result_v1"
+    },
+    "mutation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metric_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "calculator_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "calculator_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sample_window": {
+      "type": "object"
+    },
+    "preregistration_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "experiment_family_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "holdout_id": {
+      "$ref": "#/$defs/sha256"
+    },
+    "baseline_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sample_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sample_count_by_split": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "excluded_count_by_reason": {
+      "$ref": "#/$defs/count_map"
+    },
+    "arm_exclusion_count_by_reason": {
+      "type": "object"
+    },
+    "arm_exclusion_delta": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "pit_audit_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "multiple_testing": {
+      "type": "object"
+    },
+    "decision_evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "status": {
+      "enum": ["needs_fill", "eligible_for_promotion", "reverted"]
+    },
+    "required_sample_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "rollback_triggered": {
+      "type": "boolean"
+    },
+    "holdout_consumption_required": {
+      "type": "boolean"
+    },
+    "result_hash": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "count_map": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
