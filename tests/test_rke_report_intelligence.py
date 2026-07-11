@@ -3486,7 +3486,33 @@ def test_local_macro_strategy_sources_scan_pdf_folder_not_file_list(tmp_path: Pa
         .read_text(encoding="utf-8")
     )
     assert manifest["scanned_pdf_count"] == 2
+    assert manifest["duplicate_pdf_count"] == 0
     assert manifest["privacy_policy"]
+
+
+def test_local_macro_strategy_sources_deduplicate_identical_pdfs(tmp_path: Path):
+    input_dir = tmp_path / "macro_pdfs"
+    first_pdf = input_dir / "desk-a/2026-01-02_BrokerA_宏观策略周报.pdf"
+    second_pdf = input_dir / "desk-b/2026-01-02_BrokerA_宏观策略周报-copy.pdf"
+    first_pdf.parent.mkdir(parents=True)
+    second_pdf.parent.mkdir(parents=True)
+    first_pdf.write_bytes(b"%PDF-1.4 identical")
+    second_pdf.write_bytes(b"%PDF-1.4 identical")
+
+    result = build_local_macro_strategy_report_sources(
+        root=tmp_path,
+        input_dir=input_dir,
+    )
+
+    assert result.scanned_pdf_count == 2
+    assert result.written_rows == 1
+    rows = _read_jsonl(tmp_path / "registry/sources/local_macro_strategy_reports.jsonl")
+    assert len(rows) == 1
+    manifest = json.loads(
+        (tmp_path / "registry/sources/local_macro_strategy_reports.manifest.json")
+        .read_text(encoding="utf-8")
+    )
+    assert manifest["duplicate_pdf_count"] == 1
 
 
 def test_local_macro_strategy_sources_classify_fx_reports(tmp_path: Path):

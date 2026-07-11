@@ -81,12 +81,17 @@ from the local registry. Do not re-add Report Intelligence artifacts to
 
 ## Private Registry Repo
 
-The private registry repo is the source of truth for report-intelligence
-JSON/JSONL artifacts. Do not record its real remote URL, access token, licensed
-source content, or operator-specific local paths in this public runbook.
-MOSAIC-RKE does not auto-clone or auto-pull that repo at runtime. Operators
-clone, pull, commit, and push it explicitly so a batch run cannot change its
-de-duplication baseline in the middle of processing.
+The private registry repo is the published source of truth for agent-consumed
+report-intelligence JSON/JSONL snapshots. The gitignored registry in this
+checkout remains the staging area for extraction, batch merge, review import,
+and validation. Promote staging into the private repo only as one stable,
+reviewed commit; agents must not consume a half-written extraction run.
+
+Do not record the private repo's real remote URL, access token, licensed source
+content, or operator-specific local paths in this public runbook. MOSAIC-RKE
+does not auto-clone, pull, commit, or push that repo. Operators keep those Git
+transitions explicit so a batch run cannot change its de-duplication baseline
+in the middle of processing.
 
 First setup on a machine:
 
@@ -96,28 +101,66 @@ export MOSAIC_REGISTRIES_REPO=<private-registry-checkout>
 ```
 
 Before formal extraction, batch merge, agent context export, or remote
-processing:
+processing, update and validate the last published snapshot:
 
 ```bash
 cd <private-registry-checkout>
 git pull --ff-only
 cd <mosaic-rke-checkout>
 mosaic-rke registries-preflight --root .
+mosaic-rke hydrate-private-registries --root .
 ```
 
-After generating or merging private registry outputs:
+Hydration validates the clean committed private checkout and then mirrors its
+managed JSON/JSONL files into the ignored staging tree, deleting stale managed
+staging files. Run it before new work on another machine so the next export
+preserves the complete published history rather than replacing it with only a
+new local batch.
+
+When `MOSAIC_REGISTRIES_REPO` is set, every command that writes staging data
+must explicitly keep its output in this checkout. For example:
 
 ```bash
-mosaic-rke export-private-registries --root . --output-dir <private-registry-checkout>
+mosaic-rke report-intelligence \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  <stage-specific-options>
+
+mosaic-rke merge-report-intelligence-batches \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  --input-dir <batch-output>
+```
+
+After staging generation, merge, review, and validation have completed, export
+the complete private JSON/JSONL snapshot with an explicit staging source:
+
+```bash
+mosaic-rke export-private-registries \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  --output-dir <private-registry-checkout>
 cd <private-registry-checkout>
 git status
+find registry -type f -size +95M -print
 git add registry registry_manifest.json
 git commit -m "sync report intelligence registries"
+cd <mosaic-rke-checkout>
+mosaic-rke registries-preflight --root .
+cd <private-registry-checkout>
 git push
 ```
 
-Use `MOSAIC_REGISTRY_DIR=<private-registry-checkout>/registry/report_intelligence`
-only when the registry directory is not under the standard repo layout. Explicit
+The size check is a proactive guard before GitHub's per-file hard limit; split
+or archive a growing JSONL before it reaches that limit. Do not omit the
+explicit export `--registry-dir` while `MOSAIC_REGISTRIES_REPO` is set, because
+the shared resolver would otherwise select the published checkout as both
+source and destination.
+
+Use `MOSAIC_REGISTRIES_REPO=<private-registry-checkout>` for the standard
+repository layout. `MOSAIC_REGISTRY_DIR=<nonstandard-report-intelligence-dir>`
+is only a direct read/write override for a nonstandard registry directory;
+full snapshot export and hydration require the standard repo layout. Explicit
 CLI/RPC `--registry-dir` or `registry_dir` still wins over both environment
 variables.
 
@@ -152,16 +195,17 @@ Last source build:
 ```bash
 uv run mosaic-rke build-local-macro-report-sources \
   --root . \
-  --input-dir /home/hap/Downloads/yanbaoke
+  --input-dir /home/hap/Downloads/yanbaoke/宏观策略
 ```
 
-- Scanned PDF count: `1967`
-- Written source rows: `1967`
-- Date range: `2017-10-15` to `2026-06-21`
+- Scanned PDF count: `788`
+- Written source rows: `788`
+- Duplicate PDF count: `0`
+- Date range: `2023-08-30` to `2026-06-09`
 - Report type counts:
-  `宏观策略=1014`, `宏观策略-A股=27`, `宏观策略-债券=274`,
-  `宏观策略-商品=68`, `宏观策略-大类资产=94`, `宏观策略-汇率=218`,
-  `宏观策略-海外=233`, `宏观策略-待分类=39`
+  `宏观策略=685`, `宏观策略-A股=22`, `宏观策略-债券=7`,
+  `宏观策略-商品=32`, `宏观策略-大类资产=19`, `宏观策略-汇率=14`,
+  `宏观策略-海外=9`
 
 ## Macro Series Backfill
 

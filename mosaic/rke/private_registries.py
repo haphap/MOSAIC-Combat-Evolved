@@ -24,6 +24,16 @@ PRIVATE_REGISTRY_MANIFEST_NAME = "registry_manifest.json"
 PRIVATE_REGISTRY_JSON_SUFFIXES = frozenset({".json", ".jsonl"})
 
 
+def _managed_private_registry_paths() -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            relative
+            for relative in PRIVATE_LOCAL_REGISTRY_FILES | {FINGERPRINT_MANIFEST_PATH}
+            if Path(relative).suffix in PRIVATE_REGISTRY_JSON_SUFFIXES
+        )
+    )
+
+
 def resolve_report_intelligence_registry_dir(
     root: str | Path = ".",
     registry_dir: str | Path | None = None,
@@ -44,7 +54,12 @@ def _repo_path_for_registry_dir(
     registry_dir: str | Path | None = None,
 ) -> Path:
     root_path = Path(root).expanduser().resolve()
-    repo = os.environ.get("MOSAIC_REGISTRIES_REPO", "").strip()
+    explicit_registry_dir = bool(str(registry_dir or "").strip())
+    repo = (
+        ""
+        if explicit_registry_dir
+        else os.environ.get("MOSAIC_REGISTRIES_REPO", "").strip()
+    )
     if repo:
         repo_path = Path(repo).expanduser()
         return (repo_path if repo_path.is_absolute() else root_path / repo_path).resolve()
@@ -455,17 +470,35 @@ def export_private_registries(
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
     source_repo = _repo_root_from_registry_dir(registry_path)
     copied: list[Path] = []
+    removed: list[Path] = []
     blockers: list[str] = []
 
+    if source_repo == output_path:
+        blockers.append("private registry source and output repo must differ")
+        return {
+            "accepted": False,
+            "root": str(root_path),
+            "source_repo": str(source_repo),
+            "output_dir": str(output_path),
+            "registry_dir": str(registry_path),
+            "copied_file_count": 0,
+            "copied_files": [],
+            "removed_file_count": 0,
+            "removed_files": [],
+            "manifest": {},
+            "blockers": blockers,
+            "blocker_count": len(blockers),
+        }
     if registry_path.exists():
         write_report_fingerprint_manifest(registry_path)
-    for relative in sorted(PRIVATE_LOCAL_REGISTRY_FILES | {FINGERPRINT_MANIFEST_PATH}):
-        if Path(relative).suffix not in PRIVATE_REGISTRY_JSON_SUFFIXES:
-            continue
+    for relative in _managed_private_registry_paths():
         source = source_repo / relative
-        if not source.exists() or not source.is_file():
-            continue
         target = output_path / relative
+        if not source.exists() or not source.is_file():
+            if target.is_file():
+                target.unlink()
+                removed.append(target)
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         copied.append(target)
@@ -480,9 +513,87 @@ def export_private_registries(
         "registry_dir": str(registry_path),
         "copied_file_count": len(copied),
         "copied_files": [path.relative_to(output_path).as_posix() for path in copied],
+        "removed_file_count": len(removed),
+        "removed_files": [path.relative_to(output_path).as_posix() for path in removed],
         "manifest": manifest,
         "blockers": blockers,
         "blocker_count": len(blockers),
+    }
+
+
+def hydrate_private_registries(
+    *,
+    root: str | Path = ".",
+    source_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Restore a validated published snapshot into the local ignored staging tree."""
+    root_path = Path(root).expanduser().resolve()
+    raw_source = str(source_dir or "").strip() or os.environ.get(
+        "MOSAIC_REGISTRIES_REPO", ""
+    ).strip()
+    blockers: list[str] = []
+    if not raw_source:
+        blockers.append("private registry source repo not configured")
+        return {
+            "accepted": False,
+            "root": str(root_path),
+            "source_dir": "",
+            "copied_file_count": 0,
+            "copied_files": [],
+            "removed_file_count": 0,
+            "removed_files": [],
+            "blockers": blockers,
+            "blocker_count": len(blockers),
+        }
+    source_path = Path(raw_source).expanduser()
+    if not source_path.is_absolute():
+        source_path = root_path / source_path
+    source_path = source_path.resolve()
+    if source_path == root_path:
+        blockers.append("private registry source repo and staging root must differ")
+    source_registry = source_path / DEFAULT_REPORT_INTELLIGENCE_REGISTRY_DIR
+    if not blockers:
+        preflight = registries_preflight(
+            root=root_path,
+            registry_dir=source_registry,
+        )
+        blockers.extend(str(item) for item in preflight["blockers"])
+    if blockers:
+        return {
+            "accepted": False,
+            "root": str(root_path),
+            "source_dir": str(source_path),
+            "copied_file_count": 0,
+            "copied_files": [],
+            "removed_file_count": 0,
+            "removed_files": [],
+            "blockers": blockers,
+            "blocker_count": len(blockers),
+        }
+
+    copied: list[Path] = []
+    removed: list[Path] = []
+    for relative in _managed_private_registry_paths():
+        source = source_path / relative
+        target = root_path / relative
+        if not source.is_file():
+            if target.is_file():
+                target.unlink()
+                removed.append(target)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        copied.append(target)
+    return {
+        "accepted": True,
+        "root": str(root_path),
+        "source_dir": str(source_path),
+        "copied_file_count": len(copied),
+        "copied_files": [path.relative_to(root_path).as_posix() for path in copied],
+        "removed_file_count": len(removed),
+        "removed_files": [path.relative_to(root_path).as_posix() for path in removed],
+        "blockers": [],
+        "blocker_count": 0,
     }
 
 
@@ -557,6 +668,18 @@ def _private_registry_manifest_blockers(
         )
     if manifest.get("file_count") != len(files):
         blockers.append("registry_manifest.json file_count mismatch")
+    registry_root = repo_path / "registry"
+    actual_registry_paths = (
+        {
+            path.relative_to(repo_path).as_posix()
+            for path in registry_root.rglob("*")
+            if path.is_file() and path.suffix in PRIVATE_REGISTRY_JSON_SUFFIXES
+        }
+        if registry_root.is_dir()
+        else set()
+    )
+    for relative in sorted(actual_registry_paths - seen_paths):
+        blockers.append(f"registry JSON file missing from manifest: {relative}")
     for required_path in required_paths:
         if required_path not in seen_paths:
             blockers.append(

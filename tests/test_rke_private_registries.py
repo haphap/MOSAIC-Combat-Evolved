@@ -6,6 +6,7 @@ from mosaic.rke.cli import main
 from mosaic.rke.private_registries import (
     build_report_fingerprint_manifest,
     export_private_registries,
+    hydrate_private_registries,
     registries_preflight,
     resolve_report_intelligence_registry_dir,
 )
@@ -138,7 +139,7 @@ def test_fingerprint_manifest_is_stable_and_indexes_claims(tmp_path):
     assert first[0]["footprint_index"][0]["footprint_id"] == "AFP-1"
 
 
-def test_export_private_registries_copies_json_not_cache(tmp_path):
+def test_export_private_registries_copies_json_not_cache(tmp_path, monkeypatch):
     registry = tmp_path / "registry/report_intelligence"
     _write_jsonl(
         tmp_path / "registry/sources/tushare_research_reports.jsonl",
@@ -162,6 +163,8 @@ def test_export_private_registries_copies_json_not_cache(tmp_path):
     cache_file.write_bytes(b"%PDF")
 
     out = tmp_path / "MOSAIC-Registries"
+    stale = out / "registry/report_intelligence/tool_gaps.jsonl"
+    _write_jsonl(stale, [{"tool_gap_id": "STALE"}])
     result = export_private_registries(root=tmp_path, output_dir=out)
 
     assert result["accepted"] is True
@@ -169,6 +172,10 @@ def test_export_private_registries_copies_json_not_cache(tmp_path):
     assert (out / "registry/report_intelligence/report_fingerprint_manifest.jsonl").exists()
     assert (out / "registry/sources/tushare_research_reports.jsonl").exists()
     assert not (out / ".mosaic/rke/report_intelligence/pdfs/SRC-1.pdf").exists()
+    assert not stale.exists()
+    assert result["removed_files"] == [
+        "registry/report_intelligence/tool_gaps.jsonl"
+    ]
     manifest = json.loads((out / "registry_manifest.json").read_text(encoding="utf-8"))
     assert manifest["cache_manifest"]["included"] is False
     assert manifest["forecast_claim_count"] == 1
@@ -193,9 +200,135 @@ def test_export_private_registries_copies_json_not_cache(tmp_path):
         check=True,
         capture_output=True,
     )
+    monkeypatch.setenv("MOSAIC_REGISTRIES_REPO", str(tmp_path / "wrong-repo"))
     preflight = registries_preflight(root=tmp_path, registry_dir=out / "registry/report_intelligence")
     assert preflight["accepted"] is True
+    assert preflight["repo_path"] == str(out.resolve())
     assert preflight["blockers"] == []
+
+
+def test_export_private_registries_explicit_staging_overrides_repo_env(
+    tmp_path, monkeypatch
+):
+    staging_root = tmp_path / "MOSAIC-RKE"
+    staging_registry = staging_root / "registry/report_intelligence"
+    _write_jsonl(
+        staging_root / "registry/sources/tushare_research_reports.jsonl",
+        [{"source_id": "SRC-STAGING", "source_hash": "sha256:staging"}],
+    )
+    _write_jsonl(
+        staging_registry / "report_metadata.jsonl",
+        [{"source_id": "SRC-STAGING", "report_id": "RPT-STAGING"}],
+    )
+    _write_jsonl(
+        staging_registry / "forecast_claims.jsonl",
+        [
+            {
+                "source_id": "SRC-STAGING",
+                "report_id": "RPT-STAGING",
+                "forecast_claim_id": "FC-STAGING",
+            }
+        ],
+    )
+    _write_jsonl(staging_registry / "analytical_footprints.jsonl", [])
+    _write_jsonl(
+        staging_registry / "processing_status.jsonl",
+        [{"source_id": "SRC-STAGING", "llm_status": "processed"}],
+    )
+    published_repo = tmp_path / "MOSAIC-Registries"
+    monkeypatch.setenv("MOSAIC_REGISTRIES_REPO", str(published_repo))
+
+    result = export_private_registries(
+        root=staging_root,
+        registry_dir="registry/report_intelligence",
+        output_dir=published_repo,
+    )
+
+    assert result["accepted"] is True
+    assert result["source_repo"] == str(staging_root.resolve())
+    exported = published_repo / "registry/report_intelligence/forecast_claims.jsonl"
+    assert json.loads(exported.read_text(encoding="utf-8"))[
+        "forecast_claim_id"
+    ] == "FC-STAGING"
+
+
+def test_export_private_registries_rejects_same_source_and_output(tmp_path):
+    registry = tmp_path / "registry/report_intelligence"
+    _write_jsonl(registry / "report_metadata.jsonl", [])
+
+    result = export_private_registries(root=tmp_path, output_dir=tmp_path)
+
+    assert result["accepted"] is False
+    assert result["blockers"] == [
+        "private registry source and output repo must differ"
+    ]
+    assert not (registry / "report_fingerprint_manifest.jsonl").exists()
+
+
+def test_hydrate_private_registries_restores_clean_snapshot(tmp_path):
+    source_root = tmp_path / "source-rke"
+    source_registry = source_root / "registry/report_intelligence"
+    _write_jsonl(
+        source_root / "registry/sources/tushare_research_reports.jsonl",
+        [{"source_id": "SRC-HYDRATE", "source_hash": "sha256:hydrate"}],
+    )
+    _write_jsonl(
+        source_registry / "report_metadata.jsonl",
+        [{"source_id": "SRC-HYDRATE", "report_id": "RPT-HYDRATE"}],
+    )
+    _write_jsonl(
+        source_registry / "forecast_claims.jsonl",
+        [
+            {
+                "source_id": "SRC-HYDRATE",
+                "report_id": "RPT-HYDRATE",
+                "forecast_claim_id": "FC-HYDRATE",
+            }
+        ],
+    )
+    _write_jsonl(source_registry / "analytical_footprints.jsonl", [])
+    _write_jsonl(
+        source_registry / "processing_status.jsonl",
+        [{"source_id": "SRC-HYDRATE", "llm_status": "processed"}],
+    )
+    published_repo = tmp_path / "MOSAIC-Registries"
+    export_private_registries(
+        root=source_root,
+        registry_dir="registry/report_intelligence",
+        output_dir=published_repo,
+    )
+    subprocess.run(["git", "init", "-q"], cwd=published_repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.invalid"],
+        cwd=published_repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "MOSAIC Tests"],
+        cwd=published_repo,
+        check=True,
+    )
+    subprocess.run(["git", "add", "."], cwd=published_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "fixture"],
+        cwd=published_repo,
+        check=True,
+    )
+    staging_root = tmp_path / "consumer-rke"
+    stale = staging_root / "registry/report_intelligence/tool_gaps.jsonl"
+    _write_jsonl(stale, [{"tool_gap_id": "STALE"}])
+
+    result = hydrate_private_registries(
+        root=staging_root,
+        source_dir=published_repo,
+    )
+
+    assert result["accepted"] is True
+    assert not stale.exists()
+    hydrated = staging_root / "registry/report_intelligence/forecast_claims.jsonl"
+    assert json.loads(hydrated.read_text(encoding="utf-8"))[
+        "forecast_claim_id"
+    ] == "FC-HYDRATE"
 
 
 def test_registries_preflight_reports_missing_dirty_and_duplicates(tmp_path, monkeypatch):
@@ -232,9 +365,10 @@ def test_registries_preflight_reports_missing_dirty_and_duplicates(tmp_path, mon
 
 
 def test_export_rke_agent_context_reads_env_registry(tmp_path, monkeypatch, capsys):
-    registry = tmp_path / "MOSAIC-Registries/registry/report_intelligence"
+    repo = tmp_path / "MOSAIC-Registries"
+    registry = repo / "registry/report_intelligence"
     _write_agent_context_registry(registry)
-    monkeypatch.setenv("MOSAIC_REGISTRY_DIR", str(registry))
+    monkeypatch.setenv("MOSAIC_REGISTRIES_REPO", str(repo))
 
     rc = main(("export-rke-agent-context", "--root", str(tmp_path), "--agent-id", "cio"))
 
