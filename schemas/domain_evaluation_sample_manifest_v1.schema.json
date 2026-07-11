@@ -6,6 +6,9 @@
   "required": [
     "schema_version",
     "mutation_id",
+    "sample_manifest_hash",
+    "generator",
+    "source_snapshot_hashes",
     "preregistration_hash",
     "holdout_id",
     "holdout_prior_consumption_count",
@@ -21,6 +24,23 @@
     "mutation_id": {
       "type": "string",
       "minLength": 1
+    },
+    "sample_manifest_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "source_snapshot_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
     },
     "preregistration_hash": {
       "$ref": "#/$defs/sha256"

@@ -67,6 +67,36 @@ def _canonical_json_hash(value: Any) -> str:
     return f"{_SHA256_PREFIX}{hashlib.sha256(payload).hexdigest()}"
 
 
+def _canonical_sample_manifest_payload(
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = dict(manifest)
+    payload.pop("sample_manifest_hash", None)
+    raw_samples = payload.get("samples")
+    if not isinstance(raw_samples, list):
+        raise DomainEvaluationError("sample_manifest.samples must be an array")
+    samples = [
+        dict(_mapping(sample, f"samples[{index}]"))
+        for index, sample in enumerate(raw_samples)
+    ]
+    samples.sort(
+        key=lambda sample: (
+            _parse_timestamp(
+                sample.get("observed_at"),
+                f"sample {sample.get('sample_id') or '<unknown>'} observed_at",
+            ),
+            str(sample.get("sample_id") or ""),
+        )
+    )
+    payload["samples"] = samples
+    return payload
+
+
+def domain_sample_manifest_hash(manifest: Mapping[str, Any]) -> str:
+    """Hash the complete normalized sample manifest, including every arm value."""
+    return _canonical_json_hash(_canonical_sample_manifest_payload(manifest))
+
+
 def _file_hash(path: Path) -> str:
     return f"{_SHA256_PREFIX}{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
@@ -875,14 +905,11 @@ def _pit_audit_hash(
     eligible_ids_by_split: Mapping[str, Sequence[str]],
     exclusions: Mapping[str, int],
 ) -> str:
-    return _json_hash(
+    return _canonical_json_hash(
         {
-            "schema_version": manifest.get("schema_version"),
-            "mutation_id": manifest.get("mutation_id"),
-            "evaluation_as_of": manifest.get("evaluation_as_of"),
-            "sample_window": manifest.get("sample_window"),
-            "preregistration_hash": manifest.get("preregistration_hash"),
-            "holdout_id": manifest.get("holdout_id"),
+            "sample_manifest_hash": manifest.get("sample_manifest_hash"),
+            "generator": manifest.get("generator"),
+            "source_snapshot_hashes": manifest.get("source_snapshot_hashes"),
             "eligible_sample_ids": sorted(eligible_ids),
             "eligible_sample_ids_by_split": {
                 split: sorted(sample_ids)
@@ -923,6 +950,29 @@ def evaluate_domain_mutation(
         raise DomainEvaluationError("unsupported domain sample manifest schema_version")
     if sample_manifest.get("mutation_id") != mutation_id:
         raise DomainEvaluationError("sample manifest mutation_id mismatch")
+    declared_manifest_hash = _require_hash(
+        sample_manifest.get("sample_manifest_hash"),
+        "sample_manifest.sample_manifest_hash",
+    )
+    if declared_manifest_hash != domain_sample_manifest_hash(sample_manifest):
+        raise DomainEvaluationError("sample manifest hash mismatch")
+    generator = _mapping(sample_manifest.get("generator"), "sample_manifest.generator")
+    for field in ("id", "version"):
+        if not isinstance(generator.get(field), str) or not generator.get(field):
+            raise DomainEvaluationError(f"sample manifest generator.{field} is required")
+    source_snapshot_hashes = _mapping(
+        sample_manifest.get("source_snapshot_hashes"),
+        "sample_manifest.source_snapshot_hashes",
+    )
+    if not source_snapshot_hashes:
+        raise DomainEvaluationError("sample manifest source_snapshot_hashes is required")
+    for source_id, source_hash in source_snapshot_hashes.items():
+        if not isinstance(source_id, str) or not source_id:
+            raise DomainEvaluationError("sample manifest source snapshot id is required")
+        _require_hash(
+            source_hash,
+            f"sample_manifest.source_snapshot_hashes.{source_id}",
+        )
     evaluation_policy = _mapping(metadata.get("evaluation_policy"), "evaluation_policy")
     preregistration_hash = _require_hash(
         evaluation_policy.get("preregistration_hash"),
@@ -956,9 +1006,7 @@ def evaluate_domain_mutation(
     )
     if window_start != expected_window_start or window_end != expected_window_end:
         raise DomainEvaluationError("sample_window does not match preregistered OOS ranges")
-    raw_samples = sample_manifest.get("samples")
-    if not isinstance(raw_samples, list):
-        raise DomainEvaluationError("sample_manifest.samples must be an array")
+    raw_samples = _canonical_sample_manifest_payload(sample_manifest)["samples"]
 
     exclusions: Counter[str] = Counter()
     eligible_ids: list[str] = []
@@ -979,6 +1027,7 @@ def evaluate_domain_mutation(
         "treatment": Counter(),
     }
     seen_ids: set[str] = set()
+    asymmetric_arm_exclusion_sample_count = 0
     registered_exclusions = set(metric.get("exclusion_rules", []))
     metrics = _mapping(contract.get("evaluation_metrics"), "evaluation_metrics")
     calculators = _mapping(
@@ -1076,6 +1125,9 @@ def evaluate_domain_mutation(
                 )
             arm_reason_sets[arm] = reasons
             arm_exclusions[arm].update(reasons)
+        if arm_reason_sets["baseline"] != arm_reason_sets["treatment"]:
+            asymmetric_arm_exclusion_sample_count += 1
+            exclusions["asymmetric_arm_exclusion"] += 1
         if arm_reason_sets["baseline"] or arm_reason_sets["treatment"]:
             exclusions["arm_excluded_from_common_support"] += 1
             continue
@@ -1086,6 +1138,9 @@ def evaluate_domain_mutation(
                 arm_exclusions["baseline"]["missing_arm"] += 1
             if not treatment_present:
                 arm_exclusions["treatment"]["missing_arm"] += 1
+            if baseline_present != treatment_present:
+                asymmetric_arm_exclusion_sample_count += 1
+                exclusions["asymmetric_arm_exclusion"] += 1
             exclusions["missing_common_support"] += 1
             continue
 
@@ -1094,12 +1149,22 @@ def evaluate_domain_mutation(
             raise DomainEvaluationError("calculator input field contract is not registered")
         baseline_arm = _mapping(sample["baseline"], f"sample {sample_id} baseline")
         treatment_arm = _mapping(sample["treatment"], f"sample {sample_id} treatment")
-        if any(
-            arm.get(field) is None
-            for arm in (baseline_arm, treatment_arm)
-            for field in required_input_fields
-        ):
+        null_input_by_arm = {
+            "baseline": any(
+                baseline_arm.get(field) is None for field in required_input_fields
+            ),
+            "treatment": any(
+                treatment_arm.get(field) is None for field in required_input_fields
+            ),
+        }
+        if any(null_input_by_arm.values()):
             if metric.get("null_policy") == "exclude_sample":
+                for arm, missing_input in null_input_by_arm.items():
+                    if missing_input:
+                        arm_exclusions[arm]["null_metric_input"] += 1
+                if null_input_by_arm["baseline"] != null_input_by_arm["treatment"]:
+                    asymmetric_arm_exclusion_sample_count += 1
+                    exclusions["asymmetric_arm_exclusion"] += 1
                 exclusions["null_metric_input"] += 1
                 continue
             raise DomainEvaluationError(f"sample {sample_id} has null metric input")
@@ -1213,6 +1278,9 @@ def evaluate_domain_mutation(
         "preregistration_hash": preregistration_hash,
         "experiment_family_id": preregistration.get("experiment_family_id"),
         "holdout_id": holdout_id,
+        "sample_manifest_hash": declared_manifest_hash,
+        "sample_generator": dict(generator),
+        "source_snapshot_hashes": dict(sorted(source_snapshot_hashes.items())),
         "baseline_id": (
             _mapping(metadata.get("evaluation_policy", {}), "evaluation_policy").get(
                 "baseline_id"
@@ -1235,6 +1303,14 @@ def evaluate_domain_mutation(
                 set(arm_exclusions["baseline"]) | set(arm_exclusions["treatment"])
             )
         },
+        "common_support_audit": {
+            "asymmetric_arm_exclusion_sample_count": (
+                asymmetric_arm_exclusion_sample_count
+            ),
+            "missingness_guardrail_passed": (
+                asymmetric_arm_exclusion_sample_count == 0
+            ),
+        },
         "pit_audit_hash": pit_audit_hash,
         "multiple_testing": dict(preregistration.get("multiple_testing", {})),
         "decision_evidence_refs": sorted(
@@ -1242,6 +1318,7 @@ def evaluate_domain_mutation(
                 *evidence_refs,
                 f"evaluation_contract:{contract['contract_hash']}",
                 f"pit_audit:{pit_audit_hash}",
+                f"sample_manifest:{declared_manifest_hash}",
             }
         ),
     }
@@ -1441,7 +1518,14 @@ def evaluate_domain_mutation(
         overall_directional["rollback_triggered"]
         or any(result["rollback_triggered"] for result in split_results.values())
     )
-    eligible = split_passes and not rollback_triggered and secondary_passes and regime_passes
+    missingness_passes = asymmetric_arm_exclusion_sample_count == 0
+    eligible = (
+        split_passes
+        and not rollback_triggered
+        and secondary_passes
+        and regime_passes
+        and missingness_passes
+    )
     reason_codes: list[str] = []
     if rollback_triggered:
         reason_codes.append("PRIMARY_ROLLBACK_TRIGGERED")
@@ -1451,6 +1535,8 @@ def evaluate_domain_mutation(
         reason_codes.append("SECONDARY_GUARDRAIL_FAILED")
     if not regime_passes:
         reason_codes.append("REGIME_GUARDRAIL_FAILED")
+    if not missingness_passes:
+        reason_codes.append("ASYMMETRIC_MISSINGNESS_GUARDRAIL_FAILED")
     return _finalize_result({
         **base_result,
         "status": "eligible_for_promotion" if eligible else "reverted",

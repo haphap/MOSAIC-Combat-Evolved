@@ -11,6 +11,7 @@ from mosaic.autoresearch.domain_evaluator import (
     DEFAULT_EVALUATION_CONTRACT_PATH,
     DomainEvaluationError,
     _uncertainty,
+    domain_sample_manifest_hash,
     evaluate_domain_mutation,
     load_evaluation_contract,
 )
@@ -279,9 +280,14 @@ def _manifest(metadata, calculator, baseline_value: float, treatment_value: floa
             "treatment": _arm(guardrail_calculator["id"], 0),
         }
 
-    return {
+    manifest = {
         "schema_version": "domain_evaluation_sample_manifest_v1",
         "mutation_id": metadata["mutation_id"],
+        "generator": {"id": "domain-evaluation-test-fixture", "version": "1"},
+        "source_snapshot_hashes": {
+            "scorecard": "sha256:" + "a" * 64,
+            "runtime_audit": "sha256:" + "b" * 64,
+        },
         "preregistration_hash": metadata["evaluation_policy"]["preregistration_hash"],
         "holdout_id": preregistration["split_policy"]["holdout"]["holdout_id"],
         "holdout_prior_consumption_count": 0,
@@ -325,6 +331,13 @@ def _manifest(metadata, calculator, baseline_value: float, treatment_value: floa
             for index in range(count * 2)
         ],
     }
+    manifest["sample_manifest_hash"] = domain_sample_manifest_hash(manifest)
+    return manifest
+
+
+def _rehash_manifest(manifest):
+    manifest["sample_manifest_hash"] = domain_sample_manifest_hash(manifest)
+    return manifest
 
 
 def test_generated_contract_hashes_validate():
@@ -546,6 +559,7 @@ def test_preregistration_hash_and_single_use_holdout_fail_closed():
     metadata = _metadata(contract, binding, metric, calculator)
     manifest = _manifest(metadata, calculator, 0.0, 0.02, metric["min_sample_size"])
     manifest["holdout_prior_consumption_count"] = 1
+    _rehash_manifest(manifest)
     with pytest.raises(DomainEvaluationError, match="already consumed"):
         evaluate_domain_mutation(metadata, manifest)
 
@@ -559,6 +573,7 @@ def test_secondary_operational_guardrail_can_block_promotion():
             "baseline": {"event": 0},
             "treatment": {"event": 1},
         }
+    _rehash_manifest(manifest)
 
     result = evaluate_domain_mutation(metadata, manifest)
 
@@ -575,6 +590,7 @@ def test_worst_regime_degradation_blocks_positive_overall_effect():
         sample["treatment"] = _arm(
             calculator["id"], 0.1 if sample["regime"] == "normal" else -0.03
         )
+    _rehash_manifest(manifest)
 
     result = evaluate_domain_mutation(metadata, manifest)
 
@@ -591,12 +607,15 @@ def test_arm_exclusion_delta_is_reported_on_common_support():
     manifest["samples"][0]["treatment_exclusion_reasons"] = [
         "missing_required_runtime_source"
     ]
+    _rehash_manifest(manifest)
 
     result = evaluate_domain_mutation(metadata, manifest)
 
-    assert result["status"] == "eligible_for_promotion"
+    assert result["status"] == "reverted"
     assert result["arm_exclusion_delta"]["missing_required_runtime_source"] == 1
     assert result["excluded_count_by_reason"]["arm_excluded_from_common_support"] == 1
+    assert result["common_support_audit"]["missingness_guardrail_passed"] is False
+    assert "ASYMMETRIC_MISSINGNESS_GUARDRAIL_FAILED" in result["decision_reason_codes"]
 
 
 def test_catalog_hash_drift_and_inactive_cards_are_rejected():
@@ -628,8 +647,37 @@ def test_prompt_rationale_is_not_a_calculator_input():
     for sample in manifest["samples"]:
         sample["prompt_rationale"] = "LLM says this mutation is excellent"
         sample["llm_confidence"] = 1.0
+    _rehash_manifest(manifest)
     result_with_rationale = evaluate_domain_mutation(metadata, manifest)
-    assert result_with_rationale == result_without_rationale
+    for field in (
+        "status",
+        "baseline_value",
+        "new_value",
+        "effect_size",
+        "improvement",
+        "uncertainty",
+        "split_results",
+        "secondary_guardrails",
+    ):
+        assert result_with_rationale[field] == result_without_rationale[field]
+
+
+def test_sample_manifest_hash_binds_values_vintages_and_normalizes_order():
+    contract, binding, metric, calculator = _binding_and_metric()
+    metadata = _metadata(contract, binding, metric, calculator)
+    manifest = _manifest(metadata, calculator, 0.0, 0.02, metric["min_sample_size"])
+    original_hash = manifest["sample_manifest_hash"]
+
+    reversed_manifest = {**manifest, "samples": list(reversed(manifest["samples"]))}
+    assert domain_sample_manifest_hash(reversed_manifest) == original_hash
+
+    manifest["samples"][0]["data_vintage_hash"] = "sha256:" + "f" * 64
+    assert domain_sample_manifest_hash(manifest) != original_hash
+    manifest["samples"][0]["treatment"] = _arm(calculator["id"], -0.5)
+    assert domain_sample_manifest_hash(manifest) != original_hash
+
+    with pytest.raises(DomainEvaluationError, match="sample manifest hash mismatch"):
+        evaluate_domain_mutation(metadata, manifest)
 
 
 def test_rank_correlation_calculator_is_deterministic():

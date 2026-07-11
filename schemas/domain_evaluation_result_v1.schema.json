@@ -13,12 +13,16 @@
     "preregistration_hash",
     "experiment_family_id",
     "holdout_id",
+    "sample_manifest_hash",
+    "sample_generator",
+    "source_snapshot_hashes",
     "baseline_id",
     "sample_count",
     "sample_count_by_split",
     "excluded_count_by_reason",
     "arm_exclusion_count_by_reason",
     "arm_exclusion_delta",
+    "common_support_audit",
     "pit_audit_hash",
     "multiple_testing",
     "decision_evidence_refs",
@@ -61,6 +65,17 @@
     "holdout_id": {
       "$ref": "#/$defs/sha256"
     },
+    "sample_manifest_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sample_generator": {
+      "type": "object"
+    },
+    "source_snapshot_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
     "baseline_id": {
       "type": "string",
       "minLength": 1
@@ -86,6 +101,23 @@
       "type": "object",
       "additionalProperties": {
         "type": "integer"
+      }
+    },
+    "common_support_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asymmetric_arm_exclusion_sample_count",
+        "missingness_guardrail_passed"
+      ],
+      "properties": {
+        "asymmetric_arm_exclusion_sample_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missingness_guardrail_passed": {
+          "type": "boolean"
+        }
       }
     },
     "pit_audit_hash": {
