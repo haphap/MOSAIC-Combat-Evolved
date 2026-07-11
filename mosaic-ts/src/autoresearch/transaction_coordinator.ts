@@ -264,6 +264,68 @@ function adapterFor(
   return adapter;
 }
 
+interface CandidateInspection {
+  candidate_visible: boolean;
+  new_commit: string | null;
+}
+
+interface CandidateCleanupResult {
+  clean: boolean;
+  abortSucceeded: boolean[];
+  inspections: Array<CandidateInspection | null>;
+  failures: string[];
+}
+
+async function inspectCandidates(
+  manifest: MutationTransactionManifest,
+  adapters: ReadonlyMap<string, MutationRepositoryAdapter>,
+): Promise<CandidateInspection[]> {
+  const results = await Promise.allSettled(
+    manifest.components.map((component) => adapterFor(adapters, component).inspect(component)),
+  );
+  const failures = results.flatMap((result, index) =>
+    result.status === "rejected"
+      ? [`${manifest.components[index]?.repo_id ?? index}:inspect:${String(result.reason)}`]
+      : [],
+  );
+  if (failures.length > 0) {
+    throw new MutationTransactionPendingRecoveryError(failures.join(" | "));
+  }
+  return results.map((result) => (result as PromiseFulfilledResult<CandidateInspection>).value);
+}
+
+async function abortAndInspectCandidates(
+  manifest: MutationTransactionManifest,
+  adapters: ReadonlyMap<string, MutationRepositoryAdapter>,
+): Promise<CandidateCleanupResult> {
+  const abortResults = await Promise.allSettled(
+    manifest.components.map((component) => adapterFor(adapters, component).abort(component)),
+  );
+  const inspectionResults = await Promise.allSettled(
+    manifest.components.map((component) => adapterFor(adapters, component).inspect(component)),
+  );
+  const failures: string[] = [];
+  const abortSucceeded = abortResults.map((result, index) => {
+    if (result.status === "fulfilled") return true;
+    failures.push(`${manifest.components[index]?.repo_id ?? index}:abort:${String(result.reason)}`);
+    return false;
+  });
+  const inspections = inspectionResults.map((result, index) => {
+    if (result.status === "fulfilled") return result.value;
+    failures.push(
+      `${manifest.components[index]?.repo_id ?? index}:inspect:${String(result.reason)}`,
+    );
+    return null;
+  });
+  return {
+    clean:
+      failures.length === 0 && inspections.every((inspection) => !inspection?.candidate_visible),
+    abortSucceeded,
+    inspections,
+    failures,
+  };
+}
+
 export class PromptMutationTransactionCoordinator {
   constructor(
     private readonly journal: MutationTransactionJournal,
@@ -298,11 +360,9 @@ export class PromptMutationTransactionCoordinator {
       throw error;
     }
     const adapters = adapterMap(adaptersInput);
-    const preparedRepoIds: string[] = [];
     try {
       for (const [index, component] of manifest.components.entries()) {
         await adapterFor(adapters, component).prepare(component);
-        preparedRepoIds.push(component.repo_id);
         manifest = {
           ...manifest,
           components: manifest.components.map((item, itemIndex) =>
@@ -312,19 +372,31 @@ export class PromptMutationTransactionCoordinator {
         await this.journal.snapshot(manifest);
       }
     } catch (error) {
-      for (const component of manifest.components) {
-        if (preparedRepoIds.includes(component.repo_id)) {
-          await adapterFor(adapters, component)
-            .abort(component)
-            .catch(() => undefined);
-        }
+      const cleanup = await abortAndInspectCandidates(manifest, adapters);
+      if (!cleanup.clean) {
+        const pending: MutationTransactionManifest = {
+          ...manifest,
+          recovery_state: "pending",
+          recovery_decision: "prepare_abort_incomplete",
+          components: manifest.components.map((component, index) => ({
+            ...component,
+            prepare_status:
+              cleanup.abortSucceeded[index] && !cleanup.inspections[index]?.candidate_visible
+                ? ("aborted" as const)
+                : component.prepare_status,
+          })),
+        };
+        await this.journal.snapshot(pending);
+        throw new MutationTransactionPendingRecoveryError(
+          [`prepare:${(error as Error).message}`, ...cleanup.failures].join(" | "),
+        );
       }
       const aborted: MutationTransactionManifest = {
         ...manifest,
         state: "aborted",
         components: manifest.components.map((component) => ({
           ...component,
-          prepare_status: preparedRepoIds.includes(component.repo_id) ? "aborted" : "pending",
+          prepare_status: "aborted",
         })),
         aborted_at: now(),
         recovery_decision: "prepare_failed_abort",
@@ -395,10 +467,34 @@ export class PromptMutationTransactionCoordinator {
     const adapters = adapterMap(adaptersInput);
 
     if (manifest.state === "created") {
+      const cleanup = await abortAndInspectCandidates(manifest, adapters);
+      if (!cleanup.clean) {
+        const pending: MutationTransactionManifest = {
+          ...manifest,
+          recovery_state: "pending",
+          recovery_decision: "created_abort_incomplete",
+          components: manifest.components.map((component, index) => ({
+            ...component,
+            prepare_status:
+              cleanup.abortSucceeded[index] && !cleanup.inspections[index]?.candidate_visible
+                ? ("aborted" as const)
+                : component.prepare_status,
+          })),
+        };
+        await this.journal.snapshot(pending);
+        throw new MutationTransactionPendingRecoveryError(
+          cleanup.failures.join(" | ") || "created transaction candidate remains visible",
+        );
+      }
       const aborted: MutationTransactionManifest = {
         ...manifest,
         state: "aborted",
         recovery_state: "reconciled",
+        components: manifest.components.map((component) => ({
+          ...component,
+          prepare_status: "aborted",
+          new_commit: null,
+        })),
         aborted_at: now(),
         recovery_decision: "created_transaction_aborted_on_recovery",
       };
@@ -408,20 +504,38 @@ export class PromptMutationTransactionCoordinator {
     }
 
     if (manifest.state === "prepared") {
-      const inspections = await Promise.all(
-        manifest.components.map((component) => adapterFor(adapters, component).inspect(component)),
-      );
+      let inspections: CandidateInspection[];
+      try {
+        inspections = await inspectCandidates(manifest, adapters);
+      } catch (error) {
+        const pending: MutationTransactionManifest = {
+          ...manifest,
+          recovery_state: "pending",
+          recovery_decision: "candidate_inspection_incomplete",
+        };
+        await this.journal.snapshot(pending);
+        throw error;
+      }
       const allVisible = inspections.every(
         (inspection) => inspection.candidate_visible && inspection.new_commit,
       );
       if (!allVisible) {
-        await Promise.all(
-          manifest.components.map((component) =>
-            adapterFor(adapters, component)
-              .abort(component)
-              .catch(() => undefined),
-          ),
-        );
+        const cleanup = await abortAndInspectCandidates(manifest, adapters);
+        if (!cleanup.clean) {
+          const pending: MutationTransactionManifest = {
+            ...manifest,
+            recovery_state: "pending",
+            recovery_decision: "partial_candidate_abort_incomplete",
+            components: manifest.components.map((component, index) => ({
+              ...component,
+              new_commit: cleanup.inspections[index]?.new_commit ?? component.new_commit,
+            })),
+          };
+          await this.journal.snapshot(pending);
+          throw new MutationTransactionPendingRecoveryError(
+            cleanup.failures.join(" | ") || "candidate ref remains visible after abort",
+          );
+        }
         const aborted: MutationTransactionManifest = {
           ...manifest,
           state: "aborted",

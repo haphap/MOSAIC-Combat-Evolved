@@ -649,6 +649,7 @@ function cioOutput(portfolio_actions: PortfolioAction[]): CioOutput {
 
 const heldPosition = {
   ticker: "600519.SH",
+  sector: "consumer",
   current_weight: 0.2,
   cost_basis: 100,
   market_price: 108,
@@ -1427,6 +1428,7 @@ describe("CIO position validator", () => {
       output: cioOutput([
         {
           ticker: "688981.SH",
+          sector: "semiconductor",
           action: "BUY",
           target_weight: 0.3,
           holding_period: "3M",
@@ -1440,6 +1442,42 @@ describe("CIO position validator", () => {
     });
 
     expect(result.output.portfolio_actions[0]?.risk_flags).toEqual(["cro_risk_override"]);
+  });
+
+  it("uses the catalog single-name cap when runtime policy values are unavailable", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "688981.SH",
+            sector: "semiconductor",
+            action: "BUY",
+            target_weight: 0.13,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([]),
+      }),
+    ).toThrow(/max_single_name_weight/);
+  });
+
+  it("uses the catalog sector cap when runtime policy values are unavailable", () => {
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput(
+          ["688981.SH", "300750.SZ", "002371.SZ"].map((ticker) => ({
+            ticker,
+            sector: "semiconductor",
+            action: "BUY" as const,
+            target_weight: 0.11,
+            holding_period: "3M",
+            dissent_notes: "",
+          })),
+        ),
+        currentPositions: loadedPositions([]),
+      }),
+    ).toThrow(/max_sector_weight/);
   });
 
   it("rejects sector concentration breaches when max_sector_weight is active", () => {
@@ -1706,6 +1744,8 @@ describe("CIO position validator", () => {
           delta_weight: -0.63,
           holding_period: "6M",
           position_decision_reason: "increase high-conviction intact thesis",
+          override_reason: "CRO-approved temporary concentration for the reviewed thesis",
+          risk_flags: ["cro_risk_override"],
           dissent_notes: "",
         },
       ]),

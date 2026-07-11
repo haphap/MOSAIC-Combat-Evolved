@@ -828,15 +828,17 @@ function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
       portfolio_actions: [
         {
           ticker: "688981.SH",
+          sector: "semiconductor",
           action: "BUY",
-          target_weight: 0.4,
+          target_weight: 0.1,
           holding_period: "3M",
           dissent_notes: "",
         },
         {
           ticker: "600519.SH",
+          sector: "consumer",
           action: "BUY",
-          target_weight: 0.4,
+          target_weight: 0.1,
           holding_period: "3M",
           dissent_notes: "",
         },
@@ -1100,13 +1102,13 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(runtime?.portfolio_summary).toMatchObject({
       schema_version: "portfolio.summary.v1",
       final_target_hash: runtime?.final_target_state?.final_target_hash,
-      target_weight_sum: 0.8,
-      gross_exposure: 0.8,
-      net_exposure: 0.8,
+      target_weight_sum: 0.2,
+      gross_exposure: 0.2,
+      net_exposure: 0.2,
       leverage_authorized: false,
       frozen: true,
     });
-    expect(runtime?.portfolio_summary?.cash_weight).toBeCloseTo(0.2);
+    expect(runtime?.portfolio_summary?.cash_weight).toBeCloseTo(0.8);
     expect(runtime?.portfolio_summary?.summary_hash).toMatch(/^sha256:/);
     expect(
       runtime?.stage_trace

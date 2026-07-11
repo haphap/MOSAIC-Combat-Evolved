@@ -22,6 +22,9 @@ export class PositionActionValidationError extends Error {
   override readonly name = "PositionActionValidationError";
 }
 
+const DEFAULT_MAX_SINGLE_NAME_WEIGHT = 0.12;
+const DEFAULT_MAX_SECTOR_WEIGHT = 0.3;
+
 export function buildConservativeCioFinalFallback(opts: {
   sourceOutput: CioOutput;
   currentPositions: CurrentPositionsSnapshot;
@@ -41,13 +44,13 @@ export function buildConservativeCioFinalFallback(opts: {
     opts.knobSnapshot,
     opts.sharedPolicyValues,
     "max_single_name_weight",
-    1,
+    DEFAULT_MAX_SINGLE_NAME_WEIGHT,
   );
   const maxSectorWeight = thresholdNumber(
     opts.knobSnapshot,
     opts.sharedPolicyValues,
     "max_sector_weight",
-    1,
+    DEFAULT_MAX_SECTOR_WEIGHT,
   );
   const candidateByTicker = new Map(
     opts.candidate.portfolio_actions.map((action) => [action.ticker, action]),
@@ -170,9 +173,14 @@ export function validateCioPositionActions(opts: {
     knobSnapshot,
     sharedPolicyValues,
     "max_single_name_weight",
-    1,
+    DEFAULT_MAX_SINGLE_NAME_WEIGHT,
   );
-  const maxSectorWeight = thresholdNumber(knobSnapshot, sharedPolicyValues, "max_sector_weight", 1);
+  const maxSectorWeight = thresholdNumber(
+    knobSnapshot,
+    sharedPolicyValues,
+    "max_sector_weight",
+    DEFAULT_MAX_SECTOR_WEIGHT,
+  );
   const staleThesisDays = thresholdNumber(
     knobSnapshot,
     sharedPolicyValues,
@@ -189,7 +197,12 @@ export function validateCioPositionActions(opts: {
   }
   assertPositionDecisionSemantics(actions, currentPositions);
   for (const action of actions) {
-    if (action.target_weight <= maxSingleNameWeight) continue;
+    if (
+      action.target_weight <= maxSingleNameWeight ||
+      action.target_weight <= (action.current_weight ?? 0) + 1e-9
+    ) {
+      continue;
+    }
     if (!nonEmptyText(action.override_reason)) {
       throw new PositionActionValidationError(
         `${action.ticker}: target_weight exceeds max_single_name_weight without override_reason`,

@@ -88,10 +88,14 @@ function transaction(
 
 class FakeRepoAdapter implements MutationRepositoryAdapter {
   readonly prepareCalls = vi.fn();
-  readonly abort = vi.fn(async () => undefined);
+  readonly abort = vi.fn(async (component: MutationTransactionManifest["components"][number]) => {
+    if (this.failAbort) throw new Error(`abort failed: ${this.repoId}`);
+    this.commits.delete(component.candidate_ref);
+  });
   readonly commits = new Map<string, string>();
   failPrepare = false;
   failCommit = false;
+  failAbort = false;
 
   constructor(readonly repoId: string) {}
 
@@ -225,6 +229,34 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
     expect(repoAdapters[0]?.abort).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the transaction and path lease pending when prepare cleanup fails", async () => {
+    const root = tempRoot("transaction-prepare-cleanup-fail");
+    const tx = coordinator(root);
+    const repoAdapters = adapters();
+    const firstAdapter = repoAdapters[0];
+    const failingPrepareAdapter = repoAdapters[1];
+    if (!firstAdapter || !failingPrepareAdapter) throw new Error("test adapter missing");
+    firstAdapter.failAbort = true;
+    failingPrepareAdapter.failPrepare = true;
+
+    await expect(tx.execute(transaction(), repoAdapters, new FakeMetadataLog())).rejects.toThrow(
+      MutationTransactionPendingRecoveryError,
+    );
+    expect(await new MutationTransactionJournal(root).load("transaction-1")).toMatchObject({
+      state: "created",
+      recovery_state: "pending",
+      recovery_decision: "prepare_abort_incomplete",
+    });
+    await expect(
+      tx.execute(transaction("mutation-2", "transaction-2"), adapters(), new FakeMetadataLog()),
+    ).rejects.toThrow("mutation_path_lease_conflict");
+
+    firstAdapter.failAbort = false;
+    await expect(
+      tx.reconcile("transaction-1", repoAdapters, new FakeMetadataLog()),
+    ).resolves.toMatchObject({ state: "aborted", recovery_state: "reconciled" });
+  });
+
   it("reconciles a partial cross-repo commit by removing candidate refs and aborting", async () => {
     const root = tempRoot("transaction-partial-commit");
     const tx = coordinator(root);
@@ -243,6 +275,35 @@ describe("cross-repo prompt mutation transaction coordinator", () => {
       recovery_decision: "partial_candidate_refs_removed",
     });
     expect(repoAdapters.every((adapter) => adapter.abort.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("does not claim a partial commit is aborted while candidate cleanup is incomplete", async () => {
+    const root = tempRoot("transaction-partial-cleanup-fail");
+    const tx = coordinator(root);
+    const repoAdapters = adapters();
+    const firstAdapter = repoAdapters[0];
+    const failingCommitAdapter = repoAdapters[1];
+    if (!firstAdapter || !failingCommitAdapter) throw new Error("test adapter missing");
+    failingCommitAdapter.failCommit = true;
+
+    await expect(tx.execute(transaction(), repoAdapters, new FakeMetadataLog())).rejects.toThrow(
+      MutationTransactionPendingRecoveryError,
+    );
+    firstAdapter.failAbort = true;
+    await expect(
+      tx.reconcile("transaction-1", repoAdapters, new FakeMetadataLog()),
+    ).rejects.toThrow(MutationTransactionPendingRecoveryError);
+    expect(await new MutationTransactionJournal(root).load("transaction-1")).toMatchObject({
+      state: "prepared",
+      recovery_state: "pending",
+      recovery_decision: "partial_candidate_abort_incomplete",
+    });
+    expect(firstAdapter.commits.size).toBe(1);
+
+    firstAdapter.failAbort = false;
+    await expect(
+      tx.reconcile("transaction-1", repoAdapters, new FakeMetadataLog()),
+    ).resolves.toMatchObject({ state: "aborted", recovery_state: "reconciled" });
   });
 
   it("recovers committed candidate refs after a metadata-log append failure", async () => {
