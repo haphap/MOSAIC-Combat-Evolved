@@ -22,6 +22,7 @@ from mosaic.rke.prompt_evolution_delivery import (
     empty_hash,
     git_value,
     internal_receipt,
+    prepare_run_dir,
     validate_delivery_status,
     verify_performance_budget,
     verify_prompt_budget_attestation,
@@ -166,6 +167,14 @@ def test_local_context_cannot_claim_github_receipts(monkeypatch):
         code_commit=git_value(ROOT, "rev-parse", "HEAD"),
     )
     assert receipt["status"] == "blocked"
+
+
+def test_run_directory_prepares_pytest_basetemp_parent(tmp_path: Path):
+    run_dir = tmp_path / "fresh" / "run"
+
+    prepare_run_dir(run_dir)
+
+    assert (run_dir / "pytest").is_dir()
 
 
 def test_upstream_ci_block_propagates_without_self_assertion():

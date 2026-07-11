@@ -295,6 +295,11 @@ def git_is_clean(root: Path) -> bool:
     return not git_value(root, "status", "--porcelain", "--untracked-files=all")
 
 
+def prepare_run_dir(run_dir: Path) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "pytest").mkdir(parents=True, exist_ok=True)
+
+
 def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
     python_basetemp = run_dir / "pytest"
     generated_dir = run_dir / "generated"
@@ -1340,7 +1345,7 @@ def generate_delivery_status(
     root = root.resolve()
     output = output.resolve()
     run_dir = output.parent / f"run-{run_id}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    prepare_run_dir(run_dir)
     code_commit = git_value(root, "rev-parse", "HEAD")
     git_tree = git_value(root, "rev-parse", "HEAD^{tree}")
     clean_start = git_is_clean(root)
