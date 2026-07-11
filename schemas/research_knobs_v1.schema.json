@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research Knobs v1 Prompt IR Projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "layer",
+    "agent",
+    "research_scope",
+    "prediction_targets",
+    "evidence_registry",
+    "evidence_weights",
+    "lookbacks",
+    "thresholds",
+    "confidence_caps",
+    "tie_breaks",
+    "mutation_targets"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "research_knobs_v1"
+    },
+    "layer": {
+      "enum": ["macro", "sector", "superinvestor", "decision"]
+    },
+    "agent": {
+      "type": "string"
+    },
+    "research_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["must_cover", "must_not_cover"],
+      "properties": {
+        "must_cover": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "must_not_cover": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "prediction_targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "target_variable", "horizon", "allowed_outputs"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "target_variable": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "string"
+          },
+          "allowed_outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "evidence_registry": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "current_data", "primary"],
+        "anyOf": [
+          {
+            "required": ["tool"]
+          },
+          {
+            "required": ["source"]
+          }
+        ],
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "current_data": {
+            "type": "boolean"
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "fallback_confidence_cap": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "evidence_weights": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "lookbacks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "confidence_caps": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cap", "trigger", "enforcement", "required_evidence"],
+        "properties": {
+          "cap": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "trigger": {
+            "enum": [
+              "missing_required_evidence",
+              "primary_tool_failed_or_fallback",
+              "conflicting_evidence"
+            ]
+          },
+          "enforcement": {
+            "const": "code"
+          },
+          "required_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "conflict_rule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["evidence", "operator"],
+            "properties": {
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "operator": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "tie_breaks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mutation_targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "type"],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "enum": ["number", "integer", "enum", "boolean"]
+          },
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number"
+          },
+          "allowed_values": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    "projection_metadata": {
+      "type": "object"
+    }
+  }
+}

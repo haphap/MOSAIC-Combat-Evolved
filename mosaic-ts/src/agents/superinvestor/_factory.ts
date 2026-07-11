@@ -17,21 +17,46 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
-import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
+import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_release_canary_slo.js";
+import type { BridgeApi, BridgeToolFactoryOptions, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
-import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
+import {
+  attachDeterministicFallbackClaimGraph,
+  buildAgentInvocationId,
+  buildRuntimeEvidenceSnapshot,
+  type RuntimeEvidenceSnapshot,
+  selectOutputByClaimEvidence,
+} from "../helpers/evidence_runtime.js";
+import {
+  type AgentCanaryEventContext,
+  agentCanaryEventContext,
+  beginAgentPromptCanaryInvocation,
+  buildAgentPromptCanaryEvent,
+} from "../helpers/prompt_canary.js";
+import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
+import {
+  applyResearchKnobCapsWithFallback,
+  assertResearchKnobCappedOutputSchema,
+  formatResearchKnobAuditFields,
+  isResearchKnobsStageEnabled,
+  type ResearchKnobsSnapshot,
+  type ToolStatus,
+} from "../helpers/research_knobs.js";
 import {
   AgentTimeoutError,
   buildLlmCall,
   formatAgentEvent,
   formatDurationMs,
+  formatTokenMetricFields,
   resolveAgentTimeoutMs,
   safeErrorMessage,
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
-import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { RegimeSignal, SuperinvestorOutput } from "../types.js";
 
@@ -69,6 +94,10 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
+    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
+    let canaryContext: AgentCanaryEventContext | null = null;
+    let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
+    let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L3", spec.agentId, [
         `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
@@ -82,28 +111,113 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L3", spec.agentId, ["prepare"]));
 
-          const systemPrompt = await loadPrompt({
-            agent: spec.agentId,
-            cohort,
-            language,
-            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-          });
+          let knobSnapshot: ResearchKnobsSnapshot | null = null;
+          let baseSystemPrompt: string;
+          let release: Parameters<typeof agentCanaryEventContext>[0]["release"];
+          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run", undefined, cohort)) {
+            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
+              state,
+              spec.agentId,
+              "agent_run",
+            );
+            const loaded = await loadPromptWithKnobs({
+              agent: spec.agentId,
+              cohort,
+              stage: "agent_run",
+              trafficAssignmentKey: state.trace_id || state.as_of_date,
+              runtimeSourceStatuses,
+              onReleaseAssigned: async (assignedRelease) => {
+                canaryContext = await beginAgentPromptCanaryInvocation({
+                  release: assignedRelease,
+                  state,
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                });
+              },
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+            knobSnapshot = loaded.snapshot;
+            baseSystemPrompt = loaded.prompt;
+            canaryKnobSnapshot = loaded.snapshot;
+            release = loaded.release;
+          } else {
+            baseSystemPrompt = await loadPrompt({
+              agent: spec.agentId,
+              cohort,
+              language,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+          }
+          const systemPrompt = `${baseSystemPrompt}\n\n${buildLayerThreeCurrentToolContract(spec.requiredTools)}`;
+          if (knobSnapshot) {
+            canaryContext = agentCanaryEventContext({
+              release,
+              state,
+              agentInvocationId:
+                canaryContext?.agentInvocationId ??
+                buildAgentInvocationId({
+                  runId: state.trace_id || state.as_of_date || "current_run",
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                  asOf: state.as_of_date || "live",
+                  snapshotHash: knobSnapshot.hash,
+                }),
+              systemPrompt,
+            });
+          }
 
-          const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
+          const toolOptions = {
             ...(state.mode === "backtest" && state.as_of_date
               ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
               : {}),
+          } satisfies BridgeToolFactoryOptions;
+          const tools = await pickResearchDigestTools({
+            api: deps.api,
+            names: spec.requiredTools,
+            options: toolOptions,
+            llmHandle: deps.llmHandle,
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
+            signal,
           });
 
           const userContext = buildLayerThreeUserContext(state, spec.agentId);
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
+            ? buildRuntimeEvidenceSnapshot({
+                state,
+                agent: spec.agentId,
+                stage: "agent_run",
+                knobSnapshot,
+              })
+            : null;
+          fallbackRuntimeEvidence = runtimeEvidence;
+          const evidenceUserContext = runtimeEvidence
+            ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
+            : userContext;
           const loopResult = await runAgentToolLoop({
             llm: deps.llmHandle.llm,
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
-            initialMessages: [new HumanMessage(userContext)],
+            initialMessages: [new HumanMessage(evidenceUserContext)],
+            ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
+            initialToolCalls: buildLayerThreeInitialToolCalls(state, spec.agentId),
+            maxLoops: 3,
+            replayFullToolMaxChars: 80_000,
             onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
             signal,
           });
+          if (knobSnapshot) {
+            runtimeEvidence = buildRuntimeEvidenceSnapshot({
+              state,
+              agent: spec.agentId,
+              stage: "agent_run",
+              knobSnapshot,
+              toolStatuses: loopResult.toolStatuses,
+            });
+            fallbackRuntimeEvidence = runtimeEvidence;
+          }
+          canaryToolStatuses = loopResult.toolStatuses;
 
           onLog(
             formatAgentEvent("phase", "L3", spec.agentId, [
@@ -118,7 +232,14 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             schema: spec.schema,
             messages: [
               new SystemMessage(extractorSystem),
-              new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
+              new HumanMessage(
+                [
+                  loopResult.analysisText || "(no analysis produced)",
+                  runtimeEvidence?.visibleCatalog,
+                ]
+                  .filter((part): part is string => Boolean(part))
+                  .join("\n\n"),
+              ),
             ],
             render: spec.render,
             agentName: spec.agentId,
@@ -127,16 +248,79 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             signal,
           });
 
-          const output =
+          const rawOutput =
             extractor.structured ?? spec.fallback(loopResult.analysisText, state.layer1_consensus);
+          const claimSelection = runtimeEvidence
+            ? selectOutputByClaimEvidence(
+                rawOutput,
+                () => spec.fallback("", state.layer1_consensus),
+                runtimeEvidence,
+              )
+            : null;
+          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
+          const capped = knobSnapshot
+            ? applyResearchKnobCapsWithFallback(
+                claimSelectedOutput,
+                () => spec.fallback("", state.layer1_consensus),
+                knobSnapshot,
+                { toolStatuses: loopResult.toolStatuses },
+              )
+            : null;
+          let output = capped
+            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
+            : claimSelectedOutput;
+          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
+            output = attachDeterministicFallbackClaimGraph(
+              output,
+              runtimeEvidence,
+              claimSelection?.rejectionReasons ?? [],
+              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
+            ).output;
+          }
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+          const canaryEvent = buildAgentPromptCanaryEvent({
+            context: canaryContext,
+            agent: spec.agentId,
+            stage: "agent_run",
+            startedAt,
+            structuredAccepted: extractor.structured !== null,
+            claimGraphAccepted: claimSelection?.rawOutputAccepted ?? true,
+            knobSnapshot,
+            knobAudit: capped?.audit ?? null,
+            toolStatuses: loopResult.toolStatuses,
+            output,
+            validatorIds: [
+              `${spec.agentId}.structured_output.v1`,
+              "evidence_claim_graph_v1",
+              "research_knobs_runtime_v1",
+            ],
+          });
+          if (canaryEvent) {
+            llmCall.prompt_canary_event = canaryEvent;
+            await persistPromptReleaseCanaryEvents([canaryEvent]);
+          }
 
           onLog(
             formatAgentEvent("done", "L3", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
               `analysis_llm=${loopResult.llmInvocations}`,
               `tools=${loopResult.toolCalls}`,
+              `tool_cache_hits=${loopResult.toolCacheHits}`,
+              `tool_executions=${loopResult.toolExecutions}`,
+              ...formatTokenMetricFields(
+                loopResult.promptTokens,
+                loopResult.completionTokens,
+                loopResult.llmElapsedMs,
+              ),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(runtimeEvidence
+                ? [
+                    `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
+                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
+                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                  ]
+                : []),
+              ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
           );
@@ -151,7 +335,49 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
       );
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
-        const output = spec.fallback("", state.layer1_consensus);
+        if (
+          isResearchKnobsStageEnabled(
+            spec.agentId,
+            "agent_run",
+            undefined,
+            state.active_cohort || "cohort_default",
+          ) &&
+          !fallbackRuntimeEvidence
+        ) {
+          throw err;
+        }
+        const fallback = spec.fallback("", state.layer1_consensus);
+        const output = fallbackRuntimeEvidence
+          ? attachDeterministicFallbackClaimGraph(
+              fallback,
+              fallbackRuntimeEvidence,
+              ["agent_timeout"],
+              "AGENT_TIMEOUT",
+            ).output
+          : fallback;
+        const canaryEvent = buildAgentPromptCanaryEvent({
+          context: canaryContext,
+          agent: spec.agentId,
+          stage: "agent_run",
+          startedAt,
+          structuredAccepted: false,
+          claimGraphAccepted: false,
+          knobSnapshot: canaryKnobSnapshot,
+          knobAudit: null,
+          toolStatuses: canaryToolStatuses,
+          output,
+          validatorIds: [
+            `${spec.agentId}.structured_output.v1`,
+            "evidence_claim_graph_v1",
+            "research_knobs_runtime_v1",
+          ],
+          forceFallback: true,
+        });
+        const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+        if (canaryEvent) {
+          llmCall.prompt_canary_event = canaryEvent;
+          await persistPromptReleaseCanaryEvents([canaryEvent]);
+        }
         onLog(
           formatAgentEvent("timeout", "L3", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -160,7 +386,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
         );
         return {
           layer3_outputs: { [spec.agentId]: output },
-          llm_calls: [buildLlmCall(spec.agentId, structuredHandle)],
+          llm_calls: [llmCall],
         };
       }
       onLog(
@@ -169,6 +395,26 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           `message=${safeErrorMessage(err)}`,
         ]),
       );
+      const failureEvent = buildAgentPromptCanaryEvent({
+        context: canaryContext,
+        agent: spec.agentId,
+        stage: "agent_run",
+        startedAt,
+        structuredAccepted: false,
+        claimGraphAccepted: false,
+        knobSnapshot: canaryKnobSnapshot,
+        knobAudit: null,
+        toolStatuses: canaryToolStatuses,
+        output: null,
+        validatorIds: [
+          `${spec.agentId}.structured_output.v1`,
+          "evidence_claim_graph_v1",
+          "research_knobs_runtime_v1",
+        ],
+        forceFallback: true,
+        forceSourceFailure: true,
+      });
+      if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
     }
   };
@@ -209,12 +455,133 @@ export function buildLayerThreeUserContext(state: DailyCycleStateType, agentId: 
     `* cohort:     ${cohort}\n\n` +
     `${regimeBlock}\n` +
     `${sectorBlocks}\n` +
+    buildLayerThreeToolPlan(agentId) +
+    `\n` +
     `Use get_rke_research_context only as report-derived research prior and ` +
     `style-fit hint. It may expand or annotate the candidate set, but any pick ` +
-    `must be confirmed by current fundamentals, price, and indicator tools. ` +
+    `must be confirmed by current stock research, fundamentals, financials, or price data. ` +
     `Apply your investment philosophy to the candidate set above. Use your ` +
     `philosophy-specific tools for current verification before selecting stocks.`
   );
+}
+
+export function buildLayerThreeInitialToolCalls(
+  state: DailyCycleStateType,
+  agentId: string,
+): AgentInitialToolCall[] {
+  const date = state.as_of_date || new Date().toISOString().slice(0, 10);
+  if (agentId === "ackman") {
+    return pickAckmanCandidateTickers(state)
+      .slice(0, 1)
+      .flatMap((ticker) => [
+        { name: "get_fundamentals", args: { ticker, curr_date: date } },
+        { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
+      ]);
+  }
+  if (agentId === "burry") {
+    return pickBurryCandidateTickers(state)
+      .slice(0, 1)
+      .flatMap((ticker) => [
+        { name: "get_fundamentals", args: { ticker, curr_date: date } },
+        { name: "get_balance_sheet", args: { ticker, freq: "annual", curr_date: date } },
+      ]);
+  }
+  if (agentId === "munger") {
+    return pickMungerCandidateTickers(state)
+      .slice(0, 1)
+      .flatMap((ticker) => [
+        { name: "get_fundamentals", args: { ticker, curr_date: date } },
+        { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
+      ]);
+  }
+  return [];
+}
+
+function buildLayerThreeToolPlan(agentId: string): string {
+  if (agentId === "ackman") {
+    return (
+      `## Tool plan\n` +
+      `* Initial evidence: verify the highest-priority consumer/financial quality candidate with fundamentals and cashflow.\n` +
+      `* Round 1: judge pricing power, FCF conversion, balance-sheet durability, and candidate fit for that candidate.\n` +
+      `* Round 2: use stock research, income statement, balance sheet, or stock data only for the same candidate or one backup.\n` +
+      `* Round 3: fill one critical gap only; do not broaden beyond the initial quality candidate and one backup.\n` +
+      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+    );
+  }
+  if (agentId === "munger") {
+    return (
+      `## Tool plan\n` +
+      `* Initial evidence: verify the highest-quality compounder candidate with fundamentals and cashflow.\n` +
+      `* Round 1: judge moat durability, cash conversion, and management-quality evidence for that candidate.\n` +
+      `* Round 2: use stock research, income statement, balance sheet, or stock data only for the same candidate or one backup.\n` +
+      `* Round 3: fill one critical gap only; do not broaden beyond the compounder candidate set.\n` +
+      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+    );
+  }
+  if (agentId === "burry") {
+    return (
+      `## Tool plan\n` +
+      `* Initial evidence: verify the highest-downside candidate with fundamentals and balance sheet.\n` +
+      `* Round 1: judge balance-sheet stress, cash burn, valuation risk, and downside asymmetry for that candidate.\n` +
+      `* Round 2: use cashflow, stock data, stock research, or RKE prior only for the same candidate or one backup.\n` +
+      `* Round 3: fill one critical short-thesis gap only; do not broaden beyond the initial downside candidate and one backup.\n` +
+      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+    );
+  }
+  return (
+    `## Tool plan\n` +
+    `* Round 1: pick at least 2 candidate tickers that fit your philosophy and verify them with stock research or fundamentals.\n` +
+    `* Round 2: verify the strongest candidates with available financial, cashflow, balance-sheet, price, or indicator tools.\n` +
+    `* Round 3: fill only critical gaps with stock research, cashflow, or policy evidence.\n` +
+    `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+  );
+}
+
+function buildLayerThreeCurrentToolContract(requiredTools: ReadonlyArray<string>): string {
+  return (
+    `## Current tool contract\n` +
+    `Only call these registered tools: ${requiredTools.join(", ")}.\n` +
+    `Do not call older prompt names that are not listed above.\n` +
+    `Use current financial, stock research, price, policy, or RKE-prior tools according to your role; ` +
+    `do not skip current verification for final picks.`
+  );
+}
+
+function pickAckmanCandidateTickers(state: DailyCycleStateType): string[] {
+  const outputs = state.layer2_outputs ?? {};
+  const preferred = ["consumer", "financials"];
+  const tickers: string[] = [];
+  for (const agent of preferred) {
+    const output = outputs[agent];
+    if (output && "longs" in output) {
+      tickers.push(...output.longs.map((pick) => pick.ticker));
+    }
+  }
+  if (tickers.length === 0) {
+    for (const output of Object.values(outputs)) {
+      if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
+    }
+  }
+  return [...new Set(tickers.filter(Boolean))];
+}
+
+function pickBurryCandidateTickers(state: DailyCycleStateType): string[] {
+  const tickers: string[] = [];
+  for (const output of Object.values(state.layer2_outputs ?? {})) {
+    if (output && "shorts" in output) tickers.push(...output.shorts.map((pick) => pick.ticker));
+  }
+  for (const output of Object.values(state.layer2_outputs ?? {})) {
+    if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
+  }
+  return [...new Set(tickers.filter(Boolean))];
+}
+
+function pickMungerCandidateTickers(state: DailyCycleStateType): string[] {
+  const tickers: string[] = [];
+  for (const output of Object.values(state.layer2_outputs ?? {})) {
+    if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
+  }
+  return [...new Set(tickers.filter(Boolean))];
 }
 
 function renderSectorPicks(state: DailyCycleStateType): string {
@@ -267,6 +634,8 @@ function defaultExtractorSystem<TOutput extends SuperinvestorOutput>(
     `universe in the analysis text — never invent codes. Each pick needs a thesis, ` +
     `conviction (0-1), and holding_period from {1W, 1M, 3M, 6M, 1Y, 5Y+}. ` +
     `If the analysis cannot support 3 picks, return what's defensible and mark confidence ≤ 0.4. ` +
+    `When a runtime evidence catalog is present, include claims, top-level claim_refs, ` +
+    `and per-pick claim_refs using only its evidence_id and allowed research rule ids. ` +
     lang
   );
 }

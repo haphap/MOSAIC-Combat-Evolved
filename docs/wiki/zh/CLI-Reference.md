@@ -17,7 +17,14 @@
 ```bash
 pnpm dev daily-cycle --cohort cohort_default --fake-llm
 ```
-选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--out <path>`。跑全部 25 agents,CIO 写出 `portfolio_actions`(落库 `recommendations` 表)。
+选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`。跑全部 25 agents,CIO 写出 `portfolio_actions`(落库 `recommendations` 表)。
+
+current-position fixture 文件可以是 JSON 数组,也可以是包含 `current_positions` 的对象;每行必须包含 ticker、当前权重、成本、市场价格、未实现盈亏、持有天数、建仓日期、来源 agent、entry thesis id 和最近复盘日期。`sector` 可选,但用于测试 `max_sector_weight` 时必须提供。CIO 校验会拒绝 action 或 target/current/delta 权重与 `ADD`/`REDUCE`/`EXIT` 语义矛盾的 `position_decision` 行。
+输出的 `position_audit` 会带 `tool_status_summary`,记录持仓来源与市场价格 evidence scope 状态。
+当持仓快照缺失时,runtime evidence audit 会把 `current_position_snapshot` 记录为
+missing,并把无法解析的行情 scope 标成
+`current_market_data:ticker_scope:unknown`;确认空仓仍使用空行情 scope,不会触发
+missing-data cap。
 
 Prompt 来源:默认使用 `MOSAIC-Combat-Evolved/prompts/mosaic` 内置 prompts。在 `.env` 中设置 `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` 后,后续 agent 运行会优先使用 private prompt repo;也可以用 `daily-cycle --prompts-repo <path>` / `--prompts-root <path>` 对单次运行覆盖。
 
@@ -36,9 +43,10 @@ pnpm dev darwinian --cohort cohort_default
 
 ```bash
 pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
+pnpm dev autoresearch trigger --cohort cohort_default --agent cio --dry-run --fake-llm --mutation-mode knob_patch --eval-days 5
 pnpm dev autoresearch log --cohort crisis_2008
 ```
-子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`。`trigger` 选项含 `--cohort`、`--agent`、`--max <n>`、`--dry-run`、`--fake-llm`、`--eval-days <n>`、`--llm-provider/--model/--base-url`。
+子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`。`trigger` 选项含 `--cohort`、`--agent`、`--max <n>`、`--dry-run`、`--fake-llm`、`--mutation-mode <auto|knob_patch|prompt_rewrite>`、`--eval-days <n>`、`--llm-provider/--model/--base-url`。`knob_patch` 模式改动 Prompt IR / domain-knob 路径,包括持仓与 MiroFish 卡片,不改写提示词正文。
 
 ## Prompt 运维
 
@@ -46,15 +54,45 @@ pnpm dev autoresearch log --cohort crisis_2008
 pnpm dev prompts init-private-repo ~/private-mosaic-prompts
 pnpm dev prompts audit-versions --status keep
 pnpm dev prompts verify-release --version-id 123
+pnpm dev prompts prompt-token-budget \
+  --private-prompts-root /path/to/MOSAIC-Prompts/prompts/mosaic \
+  --baseline ../registry/prompt_checks/prompt_token_budget_manifest_v1.json \
+  --out ../.mosaic/prompt-token-budget-candidate.json
 pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 ```
 
 - `init-private-repo` 创建 sparse private prompt repo。`--seed-baseline` 仅用于迁移,会制造大面积 override shadowing。
 - `audit-versions` 只打印 metadata: id、hash、repo id、状态、指标和分支,不展示 prompt 正文。
 - `verify-release` 检查 pinned release tuple(`code_commit_hash`、`prompt_repo_id`、`prompt_commit_hash`、`prompt_sha256`),在 commit 上重算 prompt SHA,并运行工具兼容性 gate。
+- `prompts export-domain-knob-catalog` 会渲染可执行 domain-card catalog,并校验 in-run dependency scope、数值边界/step、code-enforced validator/audit 字段等 schema 条件。
+- `prompt-token-budget` 使用固定 tokenizer 测量 104 条
+  private/bundled stage-language 记录,校验语义 parity、绝对上限及相对已提交
+  baseline 的 1.25x 增长门槛。
 - release 前还要在 private operator 环境运行 `pnpm prompt:drift -- --base-ref origin/main` 或 scheduled drift check。
 - `gc-worktrees` 清理项目 repo / private prompt repo 的 `data/worktrees` 下过期托管 worktree。
 - private prompt repo 必须配置 private remote、最小权限访问,并启用加密备份或静态加密存储。
+
+Release lifecycle 使用独立命令:
+
+```bash
+pnpm dev prompt-release provision-baseline --manifest APPROVED_BASELINE.json \
+  --private-prompts-repo "$MOSAIC_PROMPTS_REPO" --approved-by operator:NAME \
+  --reason 'import previously approved baseline'
+pnpm dev prompt-release canary --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'bounded canary' --traffic-percent 10
+pnpm dev prompt-release summarize-slo --release-id RELEASE_ID \
+  --observation-ended-at 2026-07-10T12:00:00Z \
+  --out .mosaic/prompt-releases/RELEASE_ID-slo.json
+pnpm dev prompt-release activate --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'closed canary SLO passed' \
+  --slo-artifact .mosaic/prompt-releases/RELEASE_ID-slo.json
+pnpm dev prompt-release rollback --release-id RELEASE_ID \
+  --approved-by operator:NAME --reason 'operator rollback'
+```
+
+Canary 流量、summary 与 activation 必须使用同一个
+`MOSAIC_PROMPT_CANARY_EVENT_LOG`;activation 会重算 assignment/terminal journal
+closure，拒绝手写、过期或抽样 measurements。
 
 ## PRISM(多周期训练)
 
@@ -77,11 +115,13 @@ pnpm dev janus weights
 ```bash
 pnpm dev mirofish generate --swarm --seed 7      # 生成情景
 pnpm dev mirofish train --path-aware             # 前向训练;--path-aware = 回撤惩罚评分
+pnpm dev mirofish train --current-positions-file .mosaic/tmp/mirofish-positions.json --fake-llm --dry-run
 pnpm dev mirofish history
 ```
 子命令:`generate`、`train`、`history`。
-- `generate`:`--days <n>`、`--seed <n>`、`--print`、`--reflexive`、`--swarm`、`--engine <name>`。
-- `train`:`--days`、`--seed`、`--agents <list>`、`--dry-run`、`--fake-llm`、`--reflexive`、`--engine <name>`、`--swarm`、`--scorer <name>`、`--path-aware`、LLM 选项。
+- `generate`:`--days <n>`、`--seed <n>`、`--print`、`--reflexive`、`--swarm`、`--engine <name>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--sector-exposure-json <json>`、`--theme-exposure-json <json>`。
+- `train`:`--days`、`--seed`、`--agents <list>`、`--dry-run`、`--fake-llm`、`--reflexive`、`--engine <name>`、`--swarm`、`--scorer <name>`、`--path-aware`、同样的 portfolio-stress fixture 参数、LLM 选项。
+portfolio-stress 文件和 `--current-positions-json` 都可以是 JSON 持仓数组,也可以是包含 `current_positions`、`sector_exposure`、`theme_exposure` 的对象;显式 exposure 参数会覆盖文件或 inline fixture 值。每个持仓必须带正数 `market_price` 或 `current_price`。
 
 ## 回测
 
@@ -89,6 +129,7 @@ pnpm dev mirofish history
 pnpm dev backtest --cohort cohort_default
 ```
 选项:`--cohort`、`--prompt-commit-hash <hash>`、`--fake-llm`、LLM 选项、`--veto-threshold <num>`、`--initial-cash <amount>`、`--benchmark <ticker>`、`--force-refill`、`--log-every <n>`、`--out <path>`。另有 `backtest-fill` 做缓存填充阶段。
+stage-1 carry-over 会用上一日 target weights 重建 `current_positions`,并记录 holding days、entry thesis id、realized/unrealized PnL、residual drift 和 closed-position exit reason。
 
 > `--out` 写指标 JSON。完整 ATLAS 同构产物(`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`)由 `backtest.run_historical` **RPC** 在传入 `results_dir` 时产出(见[桥 RPC](Bridge-RPC.md));尚未做成 `backtest` CLI 标志。
 

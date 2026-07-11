@@ -22,11 +22,53 @@ import { z } from "zod";
 import { extractTextContent } from "../agents/helpers/content.js";
 import type { BridgeApi, MirofishRecommendation, MirofishScenario } from "../bridge/types.js";
 
+export interface MirofishCurrentPositionInput {
+  ticker: string;
+  market_price?: number;
+  current_price?: number;
+  current_weight?: number;
+  cost_basis?: number;
+  holding_days?: number;
+  unrealized_pnl_pct?: number;
+  entry_thesis?: string;
+}
+
 export const RecommendationSchema = z.object({
   recommendation: z.enum(["BUY", "SELL", "HOLD"]),
   tickers: z.array(z.string()),
   conviction: z.number().min(0).max(1),
   reasoning: z.string(),
+  position_reviews: z
+    .array(
+      z.object({
+        ticker: z.string(),
+        decision: z.enum(["HOLD", "ADD", "REDUCE", "EXIT"]),
+        target_weight: z.number().optional(),
+        current_weight: z.number().optional(),
+        reason: z.string().optional(),
+      }),
+    )
+    .optional(),
+  new_entries: z
+    .array(
+      z.object({
+        ticker: z.string(),
+        target_weight: z.number().optional(),
+        reason: z.string().optional(),
+      }),
+    )
+    .optional(),
+  portfolio_actions: z
+    .array(
+      z.object({
+        ticker: z.string(),
+        action: z.enum(["BUY", "SELL", "HOLD", "REDUCE"]),
+        target_weight: z.number().optional(),
+        current_weight: z.number().optional(),
+        delta_weight: z.number().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export interface MirofishTrainingOptions {
@@ -39,6 +81,9 @@ export interface MirofishTrainingOptions {
   reflexive?: boolean;
   engine?: "montecarlo" | "swarm" | "oasis";
   scorer?: "terminal" | "path_aware";
+  currentPositions?: MirofishCurrentPositionInput[];
+  sectorExposure?: Record<string, number>;
+  themeExposure?: Record<string, number>;
   date?: string;
   deps: { llm: BaseChatModel; api: BridgeApi };
   onLog?: (msg: string) => void;
@@ -62,16 +107,18 @@ export interface MirofishTrainingResult {
 
 const META = [
   "You are an A-share portfolio analyst. Given a simulated 30-day market",
-  "scenario (price paths + events), give ONE trading recommendation.",
-  "Pick from the scenario's tickers. conviction is 0..1. Be decisive.",
+  "scenario (price paths + events), return a portfolio decision.",
+  "If current_positions are supplied, review each current holding with",
+  "position_reviews and portfolio_actions. Pick from the scenario's tickers.",
+  "conviction is 0..1. Be decisive.",
 ].join("\n");
 
 const JSON_META = [
   META,
   "",
   "Return ONLY one valid JSON object. No Markdown, no code fence, no prose before or after it.",
-  'Schema: {"recommendation":"BUY|SELL|HOLD","tickers":["000300.SH"],"conviction":0.0,"reasoning":"short rationale"}',
-  "Use uppercase English for recommendation. tickers must be selected from the scenario tickers.",
+  'Schema: {"recommendation":"BUY|SELL|HOLD","tickers":["000300.SH"],"conviction":0.0,"reasoning":"short rationale","position_reviews":[{"ticker":"600519.SH","decision":"HOLD|ADD|REDUCE|EXIT","current_weight":0.08,"target_weight":0.08,"reason":"short reason"}],"portfolio_actions":[{"ticker":"600519.SH","action":"BUY|SELL|HOLD|REDUCE","current_weight":0.08,"target_weight":0.08,"delta_weight":0.0}],"new_entries":[]}',
+  "Use uppercase English for actions. tickers must be selected from the scenario tickers.",
 ].join("\n");
 
 /** Deterministic canned rec for --fake-llm: long the strongest path. */
@@ -84,12 +131,128 @@ function cannedRecommendation(scenario: MirofishScenario): MirofishRecommendatio
       best = ticker;
     }
   }
+  const positionReviews = currentPositionReviewsFromScenario(scenario);
+  const currentTickers = new Set(positionReviews.map((review) => review.ticker));
+  const newEntries =
+    best && !currentTickers.has(best) && bestRet > 0
+      ? [{ ticker: best, target_weight: 0.03, reason: "fake-llm: strongest positive path" }]
+      : [];
   return {
     recommendation: bestRet >= 0 ? "BUY" : "SELL",
     tickers: best ? [best] : [],
     conviction: 0.6,
-    reasoning: "fake-llm: follow the strongest simulated path",
+    reasoning:
+      positionReviews.length > 0
+        ? "fake-llm: review current positions against simulated paths"
+        : "fake-llm: follow the strongest simulated path",
+    ...(positionReviews.length > 0 ? { position_reviews: positionReviews } : {}),
+    ...(positionReviews.length > 0
+      ? { portfolio_actions: portfolioActionsFromPositionReviews(positionReviews) }
+      : {}),
+    ...(newEntries.length > 0 ? { new_entries: newEntries } : {}),
   };
+}
+
+type MirofishPositionReview = NonNullable<MirofishRecommendation["position_reviews"]>[number];
+
+function currentPositionReviewsFromScenario(scenario: MirofishScenario): MirofishPositionReview[] {
+  const positions = scenario.portfolio_context?.current_positions ?? [];
+  return positions.flatMap((position) => {
+    const path = scenario.price_paths[position.ticker];
+    if (!path) return [];
+    const decision = positionDecisionForReturn(path.cumulative_return);
+    const currentWeight = position.current_weight ?? 0;
+    const targetWeight = targetWeightForDecision(decision, currentWeight);
+    return [
+      {
+        ticker: position.ticker,
+        decision,
+        current_weight: currentWeight,
+        target_weight: targetWeight,
+        reason: `fake-llm: simulated return ${(path.cumulative_return * 100).toFixed(1)}%`,
+      },
+    ];
+  });
+}
+
+function positionDecisionForReturn(cumulativeReturn: number): MirofishPositionReview["decision"] {
+  if (cumulativeReturn <= -0.1) return "EXIT";
+  if (cumulativeReturn < -0.03) return "REDUCE";
+  if (cumulativeReturn >= 0.08) return "ADD";
+  return "HOLD";
+}
+
+function targetWeightForDecision(
+  decision: MirofishPositionReview["decision"],
+  currentWeight: number,
+): number {
+  if (decision === "EXIT") return 0;
+  if (decision === "REDUCE") return Math.max(0, roundWeight(currentWeight * 0.5));
+  if (decision === "ADD") return roundWeight(currentWeight + 0.02);
+  return roundWeight(currentWeight);
+}
+
+function portfolioActionsFromPositionReviews(
+  reviews: MirofishPositionReview[],
+): NonNullable<MirofishRecommendation["portfolio_actions"]> {
+  return reviews.map((review) => {
+    const currentWeight = review.current_weight ?? 0;
+    const targetWeight = review.target_weight ?? currentWeight;
+    return {
+      ticker: review.ticker,
+      action: portfolioActionForDecision(review.decision),
+      current_weight: currentWeight,
+      target_weight: targetWeight,
+      delta_weight: roundWeight(targetWeight - currentWeight),
+    };
+  });
+}
+
+function portfolioActionForDecision(
+  decision: MirofishPositionReview["decision"],
+): NonNullable<MirofishRecommendation["portfolio_actions"]>[number]["action"] {
+  if (decision === "EXIT") return "SELL";
+  if (decision === "REDUCE") return "REDUCE";
+  if (decision === "ADD") return "BUY";
+  return "HOLD";
+}
+
+function roundWeight(value: number): number {
+  return Number(value.toFixed(4));
+}
+
+function renderScenarioCurrentPositions(scenario: MirofishScenario): string {
+  const positions = scenario.portfolio_context?.current_positions ?? [];
+  return positions
+    .map((position) => {
+      const ret = scenario.price_paths[position.ticker]?.cumulative_return;
+      return (
+        `  ${position.ticker}: current_weight=${position.current_weight ?? "?"}` +
+        ` cost_basis=${position.cost_basis ?? "?"}` +
+        ` holding_days=${position.holding_days ?? "?"}` +
+        ` unrealized_pnl_pct=${position.unrealized_pnl_pct ?? "?"}` +
+        ` simulated_return=${ret == null ? "?" : `${(ret * 100).toFixed(1)}%`}` +
+        (position.entry_thesis ? ` thesis=${position.entry_thesis}` : "")
+      );
+    })
+    .join("\n");
+}
+
+function renderScenarioExposures(scenario: MirofishScenario): string {
+  const lines: string[] = [];
+  const sector = formatExposureMap(scenario.portfolio_context?.sector_exposure);
+  const theme = formatExposureMap(scenario.portfolio_context?.theme_exposure);
+  if (sector) lines.push(`  sector_exposure: ${sector}`);
+  if (theme) lines.push(`  theme_exposure: ${theme}`);
+  return lines.join("\n");
+}
+
+function formatExposureMap(exposure: Record<string, number> | undefined): string {
+  if (!exposure) return "";
+  return Object.entries(exposure)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value.toFixed(4)}`)
+    .join(", ");
 }
 
 async function agentRecommendation(
@@ -106,12 +269,18 @@ async function agentRecommendation(
     )
     .join("\n");
   const events = scenario.events.map((e) => `  day ${e.day}: ${e.event} [${e.impact}]`).join("\n");
+  const currentPositions = renderScenarioCurrentPositions(scenario);
+  const exposures = renderScenarioExposures(scenario);
   const user = [
     `Agent: ${agent}`,
     `Scenario: ${scenario.scenario_name} (p=${scenario.probability})`,
     `Price paths (30d):\n${paths}`,
+    currentPositions ? `Current positions:\n${currentPositions}` : "",
+    exposures ? `Portfolio exposure:\n${exposures}` : "",
     `Events:\n${events}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const response = await llm.invoke([new SystemMessage(JSON_META), new HumanMessage(user)]);
   const content =
     typeof response.content === "string" ? response.content : extractTextContent(response.content);
@@ -222,7 +391,86 @@ function normalizeRecommendationPayload(
       "逻辑",
     ]) ?? "model omitted reasoning";
 
-  return { recommendation, tickers, conviction, reasoning };
+  return {
+    recommendation,
+    tickers,
+    conviction,
+    reasoning,
+    ...optionalArray("position_reviews", normalizePositionReviews(payload.position_reviews)),
+    ...optionalArray("new_entries", normalizeNewEntries(payload.new_entries)),
+    ...optionalArray("portfolio_actions", normalizePortfolioActions(payload.portfolio_actions)),
+  };
+}
+
+function optionalArray<T>(key: string, value: T[] | undefined): Record<string, T[]> {
+  return value && value.length > 0 ? { [key]: value } : {};
+}
+
+function normalizePositionReviews(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(isRecord).flatMap((item) => {
+    const ticker = pickString(item, ["ticker", "symbol", "code", "ts_code"]);
+    const decision = normalizePositionDecision(pickString(item, ["decision", "action"]));
+    if (!ticker || !decision) return [];
+    return [
+      {
+        ticker,
+        decision,
+        ...optionalNumber("target_weight", item.target_weight),
+        ...optionalNumber("current_weight", item.current_weight),
+        ...(typeof item.reason === "string" ? { reason: item.reason } : {}),
+      },
+    ];
+  });
+}
+
+function normalizeNewEntries(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(isRecord).flatMap((item) => {
+    const ticker = pickString(item, ["ticker", "symbol", "code", "ts_code"]);
+    if (!ticker) return [];
+    return [
+      {
+        ticker,
+        ...optionalNumber("target_weight", item.target_weight),
+        ...(typeof item.reason === "string" ? { reason: item.reason } : {}),
+      },
+    ];
+  });
+}
+
+function normalizePortfolioActions(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(isRecord).flatMap((item) => {
+    const ticker = pickString(item, ["ticker", "symbol", "code", "ts_code"]);
+    const action = normalizePortfolioAction(pickString(item, ["action", "decision"]));
+    if (!ticker || !action) return [];
+    return [
+      {
+        ticker,
+        action,
+        ...optionalNumber("target_weight", item.target_weight),
+        ...optionalNumber("current_weight", item.current_weight),
+        ...optionalNumber("delta_weight", item.delta_weight),
+      },
+    ];
+  });
+}
+
+function optionalNumber(key: string, value: unknown): Record<string, number> {
+  return typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {};
+}
+
+function normalizePositionDecision(value: string | undefined) {
+  const raw = value?.toUpperCase();
+  if (raw === "HOLD" || raw === "ADD" || raw === "REDUCE" || raw === "EXIT") return raw;
+  return undefined;
+}
+
+function normalizePortfolioAction(value: string | undefined) {
+  const raw = value?.toUpperCase();
+  if (raw === "BUY" || raw === "SELL" || raw === "HOLD" || raw === "REDUCE") return raw;
+  return undefined;
 }
 
 function normalizeAction(value: string | undefined): MirofishRecommendation["recommendation"] {
@@ -332,6 +580,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function mirofishCurrentPositionWireInput(position: MirofishCurrentPositionInput) {
+  return {
+    ticker: position.ticker,
+    ...(position.market_price != null ? { market_price: position.market_price } : {}),
+    ...(position.current_price != null ? { current_price: position.current_price } : {}),
+    ...(position.current_weight != null ? { current_weight: position.current_weight } : {}),
+    ...(position.cost_basis != null ? { cost_basis: position.cost_basis } : {}),
+    ...(position.holding_days != null ? { holding_days: position.holding_days } : {}),
+    ...(position.unrealized_pnl_pct != null
+      ? { unrealized_pnl_pct: position.unrealized_pnl_pct }
+      : {}),
+    ...(position.entry_thesis ? { entry_thesis: position.entry_thesis } : {}),
+  };
+}
+
 /**
  * Run one forward-training cycle over all scenarios × agents. In ``dryRun`` the
  * per-agent results are computed but not persisted to the ledger.
@@ -349,6 +612,9 @@ export async function runMirofishTraining(
     reflexive = false,
     engine,
     scorer,
+    currentPositions,
+    sectorExposure,
+    themeExposure,
     date,
     deps,
     onLog,
@@ -361,6 +627,11 @@ export async function runMirofishTraining(
     ...(scenarios ? { scenarios } : {}),
     ...(reflexive ? { reflexivity: true } : {}),
     ...(engine ? { engine } : {}),
+    ...(currentPositions && currentPositions.length > 0
+      ? { current_positions: currentPositions.map(mirofishCurrentPositionWireInput) }
+      : {}),
+    ...(sectorExposure ? { sector_exposure: sectorExposure } : {}),
+    ...(themeExposure ? { theme_exposure: themeExposure } : {}),
   });
   log(
     `generated ${scenes.length} scenarios (${numDays}d${reflexive ? ", reflexive" : ""}${engine ? `, engine=${engine}` : ""})`,

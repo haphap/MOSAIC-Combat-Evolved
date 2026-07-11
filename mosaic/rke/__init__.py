@@ -314,7 +314,9 @@ from .prompt_ir import (
     ToolRequirement,
     build_central_bank_prompt_ir,
     build_central_bank_runtime_input,
+    build_research_knobs_projection,
     validate_prompt_ir_contract,
+    validate_research_knobs_projection,
 )
 from .prompt_asset_validation import (
     PromptAssetValidationRecord,
@@ -707,7 +709,9 @@ __all__ = [
     "ToolRequirement",
     "build_central_bank_prompt_ir",
     "build_central_bank_runtime_input",
+    "build_research_knobs_projection",
     "validate_prompt_ir_contract",
+    "validate_research_knobs_projection",
     "PromptAssetValidationRecord",
     "PromptAssetValidationReport",
     "build_prompt_asset_validation_report",

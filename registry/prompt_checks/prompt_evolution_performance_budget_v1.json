@@ -1,0 +1,49 @@
+{
+  "schema_version": "prompt_evolution_performance_budget_v1",
+  "runner_class": {
+    "id": "github-hosted-linux-x64",
+    "image": "ubuntu-latest",
+    "node_version": "22",
+    "pnpm_version": "11",
+    "cache_state": "dependency-cache-allowed; application-cache-empty",
+    "required_environment": {
+      "RUNNER_OS": "Linux",
+      "RUNNER_ARCH": "X64"
+    }
+  },
+  "timing_budgets": [
+    {
+      "check_id": "focused_schema_contract",
+      "baseline_duration_ms": 3000,
+      "regression_multiplier": 1.5,
+      "absolute_cap_ms": 5000,
+      "effective_cap_ms": 4500
+    },
+    {
+      "check_id": "bundled_prompt_contract",
+      "baseline_duration_ms": 4000,
+      "regression_multiplier": 1.5,
+      "absolute_cap_ms": 10000,
+      "effective_cap_ms": 6000
+    },
+    {
+      "check_id": "schema_artifact_tests",
+      "baseline_duration_ms": 20000,
+      "regression_multiplier": 1.5,
+      "absolute_cap_ms": 180000,
+      "effective_cap_ms": 30000
+    }
+  ],
+  "fixture_budget": {
+    "test_id": "tests/test_pytest_registry_fixture.py::test_registry_copy_excludes_private_cache_and_stays_within_budget",
+    "max_copied_bytes": 8388608,
+    "max_copied_files": 256,
+    "forbidden_private_prefixes": [
+      "report_intelligence/pdfs",
+      "report_intelligence/markdown",
+      "report_intelligence/mineru"
+    ],
+    "private_fixture_opt_in_env": "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES"
+  },
+  "manifest_hash": "sha256:b6ca0c406433b5d5274945ef7ba91ccc13a2493c3854f8ece1b63a45489b7b47"
+}

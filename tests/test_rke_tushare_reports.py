@@ -26,7 +26,73 @@ from mosaic.rke.tushare_reports import (
     refresh_tushare_research_report_registry,
     write_research_reports_jsonl,
 )
-from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from mosaic.rke.registry_manifest import (
+    PRIVATE_LOCAL_REGISTRY_FILES,
+    is_public_registry_artifact,
+)
+
+
+def _copy_public_registry(tmp_path: Path) -> Path:
+    target = tmp_path / "registry"
+    for source in Path("registry").rglob("*"):
+        if not source.is_file() or not is_public_registry_artifact(str(source)):
+            continue
+        destination = tmp_path / source
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    return target
+
+
+def _seed_synthetic_manual_review_templates(root: Path) -> tuple[Path, Path]:
+    gold_path = root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    license_path = root / "registry/compliance/tushare_license_review_template.jsonl"
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    license_path.parent.mkdir(parents=True, exist_ok=True)
+    gold_path.write_text(
+        json.dumps(
+            {
+                "source_id": "SYNTHETIC-SOURCE",
+                "source_span_id": "SYNTHETIC-SOURCE:span-1",
+                "claim_id": "SYNTHETIC-CLAIM",
+                "document_id": "SYNTHETIC-DOCUMENT",
+                "manual_claim_text": "Synthetic fixture claim.",
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
+                "variable_mapping_correct": True,
+                "unsupported_field_false_grounded": True,
+                "reviewer": "test-reviewer",
+                "review_date": "2026-06-05",
+                "review_notes": "Synthetic public test fixture.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    license_path.write_text(
+        json.dumps(
+            {
+                "source_id": "SYNTHETIC-SOURCE",
+                "source_name": "Synthetic source",
+                "source_type": "synthetic_test_fixture",
+                "source_url": "https://example.invalid/synthetic",
+                "publish_date": "2026-06-05",
+                "current_license_status": "pending_review",
+                "approved_for_derived_claim_storage": False,
+                "approved_for_production_runtime": False,
+                "reviewer": "test-reviewer",
+                "review_date": "2026-06-05",
+                "notes": "Synthetic public test fixture.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return gold_path, license_path
 
 
 class FakeTusharePro:
@@ -318,7 +384,7 @@ def test_fetch_tushare_reports_cli_exposes_p9_profile():
 def test_refresh_tushare_research_report_registry_p9_profile_expands_report_types(
     tmp_path: Path,
 ):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
+    _copy_public_registry(tmp_path)
     fake = FullMarketFakeTusharePro()
 
     result = refresh_tushare_research_report_registry(
@@ -422,7 +488,7 @@ def test_load_tushare_research_reports_from_local_csv(tmp_path: Path):
 
 
 def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tmp_path: Path):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
+    _copy_public_registry(tmp_path)
     fake = FakeTusharePro()
 
     result = refresh_tushare_research_report_registry(
@@ -492,7 +558,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
 def test_refresh_tushare_research_report_registry_imports_local_file_without_tushare(
     tmp_path: Path,
 ):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
+    _copy_public_registry(tmp_path)
     local_input = tmp_path / "reports.csv"
     _write_local_tushare_csv(local_input)
 
@@ -1013,7 +1079,7 @@ def test_gold_variable_mapping_accepts_competitive_pressure_terms():
 def test_refresh_tushare_research_report_registry_skips_empty_abstract_rows(
     tmp_path: Path,
 ):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
+    _copy_public_registry(tmp_path)
     local_input = tmp_path / "reports.csv"
     local_input.write_text(
         "\n".join(
@@ -1050,7 +1116,7 @@ def test_refresh_tushare_research_report_registry_skips_empty_abstract_rows(
 def test_refresh_tushare_research_report_registry_preserves_existing_discovered_at(
     tmp_path: Path,
 ):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
+    _copy_public_registry(tmp_path)
     source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
     existing_reports = fetch_tushare_research_reports(
         stock_codes=("600519.SH",),
@@ -1084,12 +1150,10 @@ def test_refresh_tushare_research_report_registry_preserves_existing_discovered_
 def test_refresh_ignores_malformed_existing_source_when_preserving_discovered_at(
     tmp_path: Path,
 ):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
+    _copy_public_registry(tmp_path)
     source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
-    source_path.write_text(
-        source_path.read_text(encoding="utf-8") + "{\n",
-        encoding="utf-8",
-    )
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text("{\n", encoding="utf-8")
 
     result = refresh_tushare_research_report_registry(
         tmp_path,
@@ -1109,7 +1173,7 @@ def test_refresh_ignores_malformed_existing_source_when_preserving_discovered_at
 
 
 def test_refresh_can_merge_existing_research_report_source(tmp_path: Path):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
+    _copy_public_registry(tmp_path)
     source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
     existing_report = normalize_research_report_row(
         {
@@ -1160,9 +1224,8 @@ def test_refresh_can_merge_existing_research_report_source(tmp_path: Path):
 
 
 def test_refresh_preserves_malformed_review_templates_for_gate_blockers(tmp_path: Path):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
-    gold_review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
-    license_review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    _copy_public_registry(tmp_path)
+    gold_review_path, license_review_path = _seed_synthetic_manual_review_templates(tmp_path)
     gold_review_path.write_text(
         gold_review_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
         encoding="utf-8",
@@ -1204,9 +1267,8 @@ def test_refresh_preserves_malformed_review_templates_for_gate_blockers(tmp_path
 
 
 def test_refresh_preserves_malformed_json_review_templates_for_gate_blockers(tmp_path: Path):
-    shutil.copytree(Path("registry"), tmp_path / "registry")
-    gold_review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
-    license_review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    _copy_public_registry(tmp_path)
+    gold_review_path, license_review_path = _seed_synthetic_manual_review_templates(tmp_path)
     gold_expected_row = len(gold_review_path.read_text(encoding="utf-8").splitlines()) + 1
     license_expected_row = len(license_review_path.read_text(encoding="utf-8").splitlines()) + 1
     gold_review_path.write_text(gold_review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")

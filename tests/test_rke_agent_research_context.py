@@ -153,6 +153,7 @@ def test_macro_context_redacts_private_claim_text_and_maps_agent():
         source_profiles=[
             {
                 "entity_id": "INST-1",
+                "as_of_datetime": "2026-06-25T00:00:00+08:00",
                 "n_effective": 3.0,
                 "shrunk_performance_bucket": "insufficient_data",
                 "statistical_reliability_bucket": "limited",
@@ -161,6 +162,7 @@ def test_macro_context_redacts_private_claim_text_and_maps_agent():
         viewpoint_profiles=[
             {
                 "mechanism_chain": ["fx_rate"],
+                "last_revalidated_at": "2026-06-25T00:00:00+08:00",
                 "n_effective": 8.5,
                 "shrunk_performance_bucket": "supportive_evidence",
                 "statistical_reliability_bucket": "limited",
@@ -191,6 +193,7 @@ def test_macro_context_redacts_private_claim_text_and_maps_agent():
                 "forecast_claim_id": "FC-PRIVATE-1",
                 "label_status": "pending",
                 "label_type": "macro_series_directional",
+                "label_available_at": "2026-06-26T00:00:00+08:00",
             },
         ],
     )
@@ -216,6 +219,62 @@ def test_macro_context_redacts_private_claim_text_and_maps_agent():
     assert "source_span_ids" not in payload
     assert "未来1-3个月人民币" not in payload
     assert "央行逆周期调节" not in payload
+
+
+def test_historical_context_excludes_future_performance_profiles():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="dollar",
+        layer="macro",
+        as_of_date="2026-06-27",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-PIT-PROFILE",
+                "report_id": "RPT-PIT-PROFILE",
+                "target": {
+                    "target_type": "macro_series",
+                    "target_id": "USDCNY",
+                    "metric_family": "fx_rate",
+                },
+                "direction": "positive",
+                "horizon": {"bucket": "medium"},
+                "claim_regime_trace": {
+                    "macro": {"macro.dollar": {"regime_types": ["fx_usd_cycle"]}}
+                },
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-PIT-PROFILE",
+                "publish_datetime": "2026-06-01T00:00:00+08:00",
+                "institution_id": "INST-FUTURE",
+            }
+        ],
+        source_profiles=[
+            {
+                "entity_id": "INST-FUTURE",
+                "as_of_datetime": "2026-07-30T00:00:00+08:00",
+                "n_effective": 100.0,
+                "shrunk_performance_bucket": "supportive_evidence",
+                "statistical_reliability_bucket": "high_effective_n",
+            }
+        ],
+        outcomes=[
+            {
+                "forecast_claim_id": "FC-PIT-PROFILE",
+                "label_status": "completed",
+                "directional_hit": True,
+                "label_type": "macro_series_directional",
+                "exit_date": "2026-06-20",
+            }
+        ],
+    )
+
+    item = context["context_items"][0]
+    assert item["source_performance_bucket"] == "pending_or_unrated"
+    assert item["n_effective"] == 0.0
+    assert "runtime_preflight_status=passed" in (
+        rke_research_tools.format_rke_runtime_context(context)
+    )
 
 
 def test_superinvestor_context_filters_by_style_fit():
@@ -2072,6 +2131,10 @@ def test_normalize_agent_id_accepts_ts_and_rke_forms():
     assert normalize_agent_id("dollar", "macro") == "macro.dollar"
     assert normalize_agent_id("sector.semiconductor") == "sector.semiconductor"
     assert normalize_agent_id("ackman", "superinvestor") == "superinvestor.ackman"
+    assert (
+        normalize_agent_id("autonomous_execution", "decision")
+        == "decision.autonomous_execution"
+    )
     assert format_rke_agent_research_context(
         {
             "agent_id": "macro.dollar",

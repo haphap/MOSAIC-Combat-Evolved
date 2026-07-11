@@ -12,7 +12,9 @@ import {
   type LayerFourAgentSpec,
 } from "./_factory.js";
 import { CRO_FIELD_NAMES, CroSchema } from "./_schemas.js";
-import { renderLayer1Context, renderLayer2Context, renderLayer3Context } from "./_user_context.js";
+import { renderCurrentPositionsContext, renderLayer4RuntimeContext } from "./_user_context.js";
+
+const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
 
 function buildUserContext(state: DailyCycleStateType): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
@@ -20,10 +22,9 @@ function buildUserContext(state: DailyCycleStateType): string {
     `Cycle context for cro (Layer 4 chief risk officer):\n` +
     `* as_of_date: ${date}\n` +
     `* mode:       ${state.mode || "live"}\n\n` +
-    `${renderLayer1Context(state)}\n` +
-    `${renderLayer2Context(state)}\n` +
-    `${renderLayer3Context(state)}\n\n` +
-    `Review every pick across L2 longs and L3 picks. Reject the ones with concentrated ` +
+    `${renderCurrentPositionsContext(state)}\n\n` +
+    `${renderLayer4RuntimeContext(state)}\n\n` +
+    `Review every ticker and exposure in the frozen candidate target. Reject the ones with concentrated ` +
     `correlated risks, regulatory exposure, or black-swan vulnerability. ` +
     `Empty rejected_picks is fine when upstream looks clean.`
   );
@@ -31,9 +32,11 @@ function buildUserContext(state: DailyCycleStateType): string {
 
 export const croSpec: LayerFourAgentSpec<CroOutput> = {
   agentId: "cro",
+  runtimeStage: "cro_review",
   schema: CroSchema,
   fieldNames: CRO_FIELD_NAMES,
   stateUpdateField: "cro",
+  requiredTools: REQUIRED_TOOLS,
   buildUserContext,
   render: renderCro,
   fallback: fallbackCro,
@@ -58,6 +61,7 @@ export function fallbackCro(text: string): CroOutput {
   return {
     agent: "cro",
     rejected_picks: [],
+    required_adjustments: [],
     correlated_risks: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],
     black_swan_scenarios: ["analysis missing"],
     confidence: 0,

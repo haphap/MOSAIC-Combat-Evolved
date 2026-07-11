@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -24,21 +24,32 @@ from .temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
     {
         "$schema",
+        "$defs",
+        "$ref",
         "additionalProperties",
         "allOf",
+        "anyOf",
         "const",
+        "contains",
         "enum",
         "exclusiveMaximum",
         "exclusiveMinimum",
+        "format",
         "if",
         "items",
         "maxItems",
+        "maxContains",
         "maxLength",
         "maximum",
         "minItems",
+        "minContains",
         "minLength",
+        "minProperties",
         "minimum",
+        "oneOf",
+        "not",
         "pattern",
+        "propertyNames",
         "properties",
         "required",
         "then",
@@ -112,6 +123,21 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     ("schemas/production_patch.schema.json", "registry/patches/central_bank_paper_trading_patch.json", "json"),
+    (
+        "schemas/domain_knob_catalog_v1.schema.json",
+        "registry/prompt_checks/domain_knob_catalog_v1.json",
+        "json",
+    ),
+    (
+        "schemas/runtime_agent_manifest_v1.schema.json",
+        "registry/prompt_checks/runtime_agent_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/domain_knob_evaluation_contract_v1.schema.json",
+        "registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+        "json",
+    ),
 )
 
 
@@ -204,6 +230,9 @@ def iter_json_schema_keywords(schema: Mapping[str, Any]) -> tuple[str, ...]:
             if key == "properties" and isinstance(value, Mapping):
                 for property_schema in value.values():
                     walk(property_schema)
+            elif key == "$defs" and isinstance(value, Mapping):
+                for definition_schema in value.values():
+                    walk(definition_schema)
             elif key == "additionalProperties" and isinstance(value, Mapping):
                 walk(value)
             elif key == "items":
@@ -212,7 +241,7 @@ def iter_json_schema_keywords(schema: Mapping[str, Any]) -> tuple[str, ...]:
                 elif isinstance(value, list):
                     for item_schema in value:
                         walk(item_schema)
-            elif key in {"allOf"} and isinstance(value, list):
+            elif key in {"allOf", "anyOf", "oneOf"} and isinstance(value, list):
                 for item_schema in value:
                     walk(item_schema)
             elif key in {"if", "then"} and isinstance(value, Mapping):
@@ -250,18 +279,120 @@ def _json_unique_items(value: Sequence[Any]) -> bool:
     return True
 
 
-def _validate_value(value: Any, schema: Mapping[str, Any], path: str) -> list[str]:
+def _resolve_local_schema_ref(
+    root_schema: Mapping[str, Any], ref: str
+) -> Mapping[str, Any] | None:
+    if not ref.startswith("#/"):
+        return None
+    node: Any = root_schema
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(node, Mapping) or part not in node:
+            return None
+        node = node[part]
+    return node if isinstance(node, Mapping) else None
+
+
+def _validate_value(
+    value: Any,
+    schema: Mapping[str, Any],
+    path: str,
+    *,
+    root_schema: Mapping[str, Any] | None = None,
+    ref_stack: tuple[str, ...] = (),
+) -> list[str]:
+    if root_schema is None:
+        root_schema = schema
     failures: list[str] = []
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        if ref in ref_stack:
+            failures.append(f"{path}: cyclic schema ref {ref!r}")
+        else:
+            referenced_schema = _resolve_local_schema_ref(root_schema, ref)
+            if referenced_schema is None:
+                failures.append(f"{path}: unresolved schema ref {ref!r}")
+            else:
+                failures.extend(
+                    _validate_value(
+                        value,
+                        referenced_schema,
+                        path,
+                        root_schema=root_schema,
+                        ref_stack=(*ref_stack, ref),
+                    )
+                )
     all_of = schema.get("allOf")
     if isinstance(all_of, list):
         for item_schema in all_of:
             if isinstance(item_schema, Mapping):
-                failures.extend(_validate_value(value, item_schema, path))
+                failures.extend(
+                    _validate_value(
+                        value,
+                        item_schema,
+                        path,
+                        root_schema=root_schema,
+                        ref_stack=ref_stack,
+                    )
+                )
+    any_of = schema.get("anyOf")
+    if isinstance(any_of, list):
+        matching_branches = sum(
+            not _validate_value(
+                value,
+                item_schema,
+                path,
+                root_schema=root_schema,
+                ref_stack=ref_stack,
+            )
+            for item_schema in any_of
+            if isinstance(item_schema, Mapping)
+        )
+        if matching_branches == 0:
+            failures.append(f"{path}: no anyOf schema matched")
+    one_of = schema.get("oneOf")
+    if isinstance(one_of, list):
+        matching_branches = sum(
+            not _validate_value(
+                value,
+                item_schema,
+                path,
+                root_schema=root_schema,
+                ref_stack=ref_stack,
+            )
+            for item_schema in one_of
+            if isinstance(item_schema, Mapping)
+        )
+        if matching_branches != 1:
+            failures.append(f"{path}: expected exactly one oneOf schema match")
+    not_schema = schema.get("not")
+    if isinstance(not_schema, Mapping) and not _validate_value(
+        value,
+        not_schema,
+        path,
+        root_schema=root_schema,
+        ref_stack=ref_stack,
+    ):
+        failures.append(f"{path}: matched forbidden not schema")
     if_schema = schema.get("if")
     then_schema = schema.get("then")
     if isinstance(if_schema, Mapping) and isinstance(then_schema, Mapping):
-        if not _validate_value(value, if_schema, path):
-            failures.extend(_validate_value(value, then_schema, path))
+        if not _validate_value(
+            value,
+            if_schema,
+            path,
+            root_schema=root_schema,
+            ref_stack=ref_stack,
+        ):
+            failures.extend(
+                _validate_value(
+                    value,
+                    then_schema,
+                    path,
+                    root_schema=root_schema,
+                    ref_stack=ref_stack,
+                )
+            )
     expected_types = _schema_expected_types(schema)
     if expected_types and not any(
         _schema_type_matches(value, expected_type)
@@ -292,6 +423,13 @@ def _validate_value(value: Any, schema: Mapping[str, Any], path: str) -> list[st
             failures.append(f"{path}: above maxLength")
         if "pattern" in schema and not re.search(str(schema["pattern"]), value):
             failures.append(f"{path}: pattern mismatch")
+        if schema.get("format") == "date-time":
+            try:
+                parsed_datetime = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed_datetime.tzinfo is None:
+                    raise ValueError("timezone required")
+            except ValueError:
+                failures.append(f"{path}: invalid date-time format")
     if isinstance(value, list):
         if len(value) < int(schema.get("minItems") or 0):
             failures.append(f"{path}: below minItems")
@@ -302,8 +440,48 @@ def _validate_value(value: Any, schema: Mapping[str, Any], path: str) -> list[st
         item_schema = schema.get("items")
         if isinstance(item_schema, Mapping):
             for idx, item in enumerate(value):
-                failures.extend(_validate_value(item, item_schema, f"{path}[{idx}]"))
+                failures.extend(
+                    _validate_value(
+                        item,
+                        item_schema,
+                        f"{path}[{idx}]",
+                        root_schema=root_schema,
+                        ref_stack=ref_stack,
+                    )
+                )
+        contains_schema = schema.get("contains")
+        if isinstance(contains_schema, Mapping):
+            matching_items = sum(
+                not _validate_value(
+                    item,
+                    contains_schema,
+                    f"{path}[{idx}]",
+                    root_schema=root_schema,
+                    ref_stack=ref_stack,
+                )
+                for idx, item in enumerate(value)
+            )
+            min_contains = int(schema.get("minContains", 1))
+            max_contains = schema.get("maxContains")
+            if matching_items < min_contains:
+                failures.append(f"{path}: below minContains")
+            if max_contains is not None and matching_items > int(max_contains):
+                failures.append(f"{path}: above maxContains")
     if isinstance(value, dict):
+        if len(value) < int(schema.get("minProperties") or 0):
+            failures.append(f"{path}: below minProperties")
+        property_names = schema.get("propertyNames")
+        if isinstance(property_names, Mapping):
+            for field in value:
+                failures.extend(
+                    _validate_value(
+                        field,
+                        property_names,
+                        f"{path}.{field}<propertyName>",
+                        root_schema=root_schema,
+                        ref_stack=ref_stack,
+                    )
+                )
         required = tuple(schema.get("required") or ())
         for field in required:
             if field not in value:
@@ -311,7 +489,15 @@ def _validate_value(value: Any, schema: Mapping[str, Any], path: str) -> list[st
         properties = dict(schema.get("properties") or {})
         for field, field_schema in properties.items():
             if field in value and isinstance(field_schema, Mapping):
-                failures.extend(_validate_value(value[field], field_schema, f"{path}.{field}"))
+                failures.extend(
+                    _validate_value(
+                        value[field],
+                        field_schema,
+                        f"{path}.{field}",
+                        root_schema=root_schema,
+                        ref_stack=ref_stack,
+                    )
+                )
         additional = schema.get("additionalProperties", True)
         if additional is False:
             extra = set(value) - set(properties)
@@ -319,7 +505,15 @@ def _validate_value(value: Any, schema: Mapping[str, Any], path: str) -> list[st
         elif isinstance(additional, Mapping):
             for field, item in value.items():
                 if field not in properties:
-                    failures.extend(_validate_value(item, additional, f"{path}.{field}"))
+                    failures.extend(
+                        _validate_value(
+                            item,
+                            additional,
+                            f"{path}.{field}",
+                            root_schema=root_schema,
+                            ref_stack=ref_stack,
+                        )
+                    )
     return failures
 
 
@@ -357,7 +551,9 @@ def validate_json_schema_artifact(
         failures.append("artifact has no validation items")
     if schema is not None:
         for idx, item in enumerate(items):
-            failures.extend(_validate_value(item, schema, f"$[{idx}]"))
+            failures.extend(
+                _validate_value(item, schema, f"$[{idx}]", root_schema=schema)
+            )
     return SchemaValidationRecord(
         schema_path=schema_path,
         artifact_path=artifact_path,

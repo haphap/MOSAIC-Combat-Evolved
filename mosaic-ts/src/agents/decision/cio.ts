@@ -6,53 +6,91 @@
  */
 
 import type { DailyCycleStateType } from "../state.js";
-import type { CioOutput } from "../types.js";
+import type { CioFinalOutput, CioOutput, CioProposalOutput } from "../types.js";
 import {
   buildLayerFourAgentNode,
   type LayerFourAgentDeps,
   type LayerFourAgentNode,
   type LayerFourAgentSpec,
 } from "./_factory.js";
-import { CIO_FIELD_NAMES, CioSchema } from "./_schemas.js";
+import { CIO_FIELD_NAMES, CioFinalSchema, CioProposalSchema, CioSchema } from "./_schemas.js";
 import {
+  renderCurrentPositionsContext,
   renderJanusRegimeStub,
   renderLayer1Context,
   renderLayer2Context,
   renderLayer3Context,
   renderLayer4PeerContext,
+  renderLayer4RuntimeContext,
+  renderPreviousTargetContext,
 } from "./_user_context.js";
 
-function buildUserContext(state: DailyCycleStateType): string {
+const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
+
+function buildProposalUserContext(state: DailyCycleStateType): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   return (
-    `Cycle context for cio (Layer 4 final decision):\n` +
+    `Cycle context for cio (Layer 4 proposal):\n` +
     `* as_of_date: ${date}\n` +
     `* mode:       ${state.mode || "live"}\n\n` +
     `${renderLayer1Context(state)}\n` +
     `${renderLayer2Context(state)}\n` +
     `${renderLayer3Context(state)}\n` +
-    `${renderLayer4PeerContext(state, ["cio"])}\n\n` +
+    `${renderLayer4PeerContext(state, ["cro", "autonomous_execution", "cio"])}\n\n` +
+    `${renderCurrentPositionsContext(state)}\n\n` +
+    `${renderPreviousTargetContext(state)}\n\n` +
     `${renderJanusRegimeStub()}\n\n` +
-    `Synthesise the final portfolio. By default follow autonomous_execution's trades, ` +
-    `but override when:\n` +
-    `* cro flagged a black-swan that auto_exec didn't act on\n` +
-    `* alpha_discovery surfaced a high-conviction novel pick that fits the regime\n` +
-    `* total target_weight implied by auto_exec exceeds 100% (must rebalance down)\n` +
-    `Every override needs a non-empty dissent_notes explaining why. ` +
-    `target_weight should sum to 1.0 ± 0.05 unless intentionally holding cash ` +
+    `Build the candidate target portfolio before CRO and execution review. Include every current ` +
+    `position with a HOLD, ADD, REDUCE, or EXIT decision and consider alpha_discovery's novel picks. ` +
+    `target_weight must not exceed 1.0; a lower sum is intentional cash ` +
     `(BEARISH regime + low confidence is the legitimate cash-holding case).`
   );
 }
 
-export const cioSpec: LayerFourAgentSpec<CioOutput> = {
+function buildFinalUserContext(state: DailyCycleStateType): string {
+  const date = state.as_of_date || new Date().toISOString().slice(0, 10);
+  return (
+    `Cycle context for cio (Layer 4 final decision):\n` +
+    `* as_of_date: ${date}\n` +
+    `* mode:       ${state.mode || "live"}\n\n` +
+    `${renderLayer4RuntimeContext(state)}\n\n` +
+    `${renderLayer4PeerContext(state, ["alpha_discovery", "cio"])}\n\n` +
+    `${renderCurrentPositionsContext(state)}\n\n` +
+    `Start from the frozen candidate target. Apply CRO objections and execution feasibility; do not ` +
+    `silently add a ticker that was absent from the candidate. Every change from the candidate needs ` +
+    `a non-empty dissent_notes field. Return a complete final target for every current position.`
+  );
+}
+
+export const cioProposalSpec: LayerFourAgentSpec<CioProposalOutput> = {
   agentId: "cio",
-  schema: CioSchema,
+  runtimeStage: "cio_proposal",
+  stateWriteMode: "cio_proposal",
+  schema: CioProposalSchema,
   fieldNames: CIO_FIELD_NAMES,
   stateUpdateField: "cio",
-  buildUserContext,
+  requiredTools: REQUIRED_TOOLS,
+  buildUserContext: buildProposalUserContext,
   render: renderCio,
-  fallback: fallbackCio,
+  fallback: fallbackCioProposal,
 };
+
+export const cioSpec: LayerFourAgentSpec<CioFinalOutput> = {
+  agentId: "cio",
+  runtimeStage: "cio_final",
+  stateWriteMode: "cio_final",
+  schema: CioFinalSchema,
+  fieldNames: CIO_FIELD_NAMES,
+  stateUpdateField: "cio",
+  requiredTools: REQUIRED_TOOLS,
+  buildUserContext: buildFinalUserContext,
+  render: renderCio,
+  fallback: fallbackCioFinal,
+};
+
+export function buildCioProposalNode(deps: LayerFourAgentDeps): LayerFourAgentNode {
+  return buildLayerFourAgentNode(cioProposalSpec, deps);
+}
 
 export function buildCioNode(deps: LayerFourAgentDeps): LayerFourAgentNode {
   return buildLayerFourAgentNode(cioSpec, deps);
@@ -81,4 +119,12 @@ export function fallbackCio(text: string): CioOutput {
   };
 }
 
-export { CIO_FIELD_NAMES, CioSchema };
+export function fallbackCioProposal(text: string): CioProposalOutput {
+  return { ...fallbackCio(text), position_reviews: [] };
+}
+
+export function fallbackCioFinal(text: string): CioFinalOutput {
+  return { ...fallbackCio(text), dissent_refs: [] };
+}
+
+export { CIO_FIELD_NAMES, CioFinalSchema, CioProposalSchema, CioSchema };

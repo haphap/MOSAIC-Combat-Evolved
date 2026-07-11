@@ -29,21 +29,45 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { z } from "zod";
+import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_release_canary_slo.js";
 import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import {
+  attachDeterministicFallbackClaimGraph,
+  buildAgentInvocationId,
+  buildRuntimeEvidenceSnapshot,
+  type RuntimeEvidenceSnapshot,
+  selectOutputByClaimEvidence,
+} from "../helpers/evidence_runtime.js";
+import {
+  type AgentCanaryEventContext,
+  agentCanaryEventContext,
+  beginAgentPromptCanaryInvocation,
+  buildAgentPromptCanaryEvent,
+} from "../helpers/prompt_canary.js";
+import {
+  applyResearchKnobCapsWithFallback,
+  assertResearchKnobCappedOutputSchema,
+  formatResearchKnobAuditFields,
+  isResearchKnobsStageEnabled,
+  type ResearchKnobsSnapshot,
+  type ToolStatus,
+} from "../helpers/research_knobs.js";
 import {
   AgentTimeoutError,
   buildLlmCall,
   formatAgentEvent,
   formatDurationMs,
+  formatTokenMetricFields,
   resolveAgentTimeoutMs,
   safeErrorMessage,
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
-import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { MacroAgentOutput } from "../types.js";
 
@@ -82,6 +106,8 @@ export interface LayerOneAgentSpec<TOutput extends MacroAgentOutput> {
    * is a generic "extract from the analysis below" template.
    */
   buildExtractorSystem?: (lang: LoaderLanguage) => string;
+  /** Optional per-agent loop cap when broad candidate scans would exhaust context. */
+  maxLoops?: number;
 }
 
 export interface LayerOneAgentDeps {
@@ -113,6 +139,10 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
+    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
+    let canaryContext: AgentCanaryEventContext | null = null;
+    let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
+    let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L1", spec.agentId, [
         `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
@@ -126,13 +156,60 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L1", spec.agentId, ["prepare"]));
 
-          // Phase 0: load bilingual prompt for this cohort.
-          const systemPrompt = await loadPrompt({
-            agent: spec.agentId,
-            cohort,
-            language,
-            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-          });
+          // Phase 0: load prompt for this cohort. Research-knobs enabled
+          // agents fail closed on zh/en parity and share one immutable snapshot
+          // between prompt injection and runtime cap enforcement.
+          let knobSnapshot: ResearchKnobsSnapshot | null = null;
+          let systemPrompt: string;
+          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run", undefined, cohort)) {
+            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
+              state,
+              spec.agentId,
+              "agent_run",
+            );
+            const loaded = await loadPromptWithKnobs({
+              agent: spec.agentId,
+              cohort,
+              stage: "agent_run",
+              trafficAssignmentKey: state.trace_id || state.as_of_date,
+              runtimeSourceStatuses,
+              onReleaseAssigned: async (release) => {
+                canaryContext = await beginAgentPromptCanaryInvocation({
+                  release,
+                  state,
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                });
+              },
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+            knobSnapshot = loaded.snapshot;
+            systemPrompt = loaded.prompt;
+            canaryKnobSnapshot = loaded.snapshot;
+            canaryContext = agentCanaryEventContext({
+              release: loaded.release,
+              state,
+              agentInvocationId:
+                canaryContext?.agentInvocationId ??
+                buildAgentInvocationId({
+                  runId: state.trace_id || state.as_of_date || "current_run",
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                  asOf: state.as_of_date || "live",
+                  snapshotHash: loaded.snapshot.hash,
+                }),
+              systemPrompt,
+            });
+          } else {
+            systemPrompt = await loadPrompt({
+              agent: spec.agentId,
+              cohort,
+              language,
+              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+            });
+          }
 
           // Phase 0b: pull the agent's tools from the bridge (with backtest
           // context attached so date-bound tools clamp end_date correctly).
@@ -144,14 +221,39 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
 
           // Phase 1: tool-bound free-form analysis loop.
           const userContext = buildUserContext(state, spec.agentId);
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
+            ? buildRuntimeEvidenceSnapshot({
+                state,
+                agent: spec.agentId,
+                stage: "agent_run",
+                knobSnapshot,
+              })
+            : null;
+          fallbackRuntimeEvidence = runtimeEvidence;
+          const evidenceUserContext = runtimeEvidence
+            ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
+            : userContext;
           const loopResult = await runAgentToolLoop({
             llm: deps.llmHandle.llm,
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
-            initialMessages: [new HumanMessage(userContext)],
+            initialMessages: [new HumanMessage(evidenceUserContext)],
+            ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
+            ...(spec.maxLoops !== undefined ? { maxLoops: spec.maxLoops } : {}),
             onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
             signal,
           });
+          if (knobSnapshot) {
+            runtimeEvidence = buildRuntimeEvidenceSnapshot({
+              state,
+              agent: spec.agentId,
+              stage: "agent_run",
+              knobSnapshot,
+              toolStatuses: loopResult.toolStatuses,
+            });
+            fallbackRuntimeEvidence = runtimeEvidence;
+          }
+          canaryToolStatuses = loopResult.toolStatuses;
 
           // Phase 2: structured extraction from the analysis text.
           onLog(
@@ -167,7 +269,14 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
             schema: spec.schema,
             messages: [
               new SystemMessage(extractorSystem),
-              new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
+              new HumanMessage(
+                [
+                  loopResult.analysisText || "(no analysis produced)",
+                  runtimeEvidence?.visibleCatalog,
+                ]
+                  .filter((part): part is string => Boolean(part))
+                  .join("\n\n"),
+              ),
             ],
             render: spec.render,
             agentName: spec.agentId,
@@ -177,15 +286,74 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           });
 
           // Phase 3: assemble state update.
-          const output = extractor.structured ?? spec.fallback(loopResult.analysisText);
+          const rawOutput = extractor.structured ?? spec.fallback(loopResult.analysisText);
+          const claimSelection = runtimeEvidence
+            ? selectOutputByClaimEvidence(rawOutput, () => spec.fallback(""), runtimeEvidence)
+            : null;
+          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
+          const capped = knobSnapshot
+            ? applyResearchKnobCapsWithFallback(
+                claimSelectedOutput,
+                () => spec.fallback(""),
+                knobSnapshot,
+                { toolStatuses: loopResult.toolStatuses },
+              )
+            : null;
+          let output = capped
+            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
+            : claimSelectedOutput;
+          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
+            output = attachDeterministicFallbackClaimGraph(
+              output,
+              runtimeEvidence,
+              claimSelection?.rejectionReasons ?? [],
+              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
+            ).output;
+          }
           const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+          const canaryEvent = buildAgentPromptCanaryEvent({
+            context: canaryContext,
+            agent: spec.agentId,
+            stage: "agent_run",
+            startedAt,
+            structuredAccepted: extractor.structured !== null,
+            claimGraphAccepted: claimSelection?.rawOutputAccepted ?? true,
+            knobSnapshot,
+            knobAudit: capped?.audit ?? null,
+            toolStatuses: loopResult.toolStatuses,
+            output,
+            validatorIds: [
+              `${spec.agentId}.structured_output.v1`,
+              "evidence_claim_graph_v1",
+              "research_knobs_runtime_v1",
+            ],
+          });
+          if (canaryEvent) {
+            llmCall.prompt_canary_event = canaryEvent;
+            await persistPromptReleaseCanaryEvents([canaryEvent]);
+          }
 
           onLog(
             formatAgentEvent("done", "L1", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
               `analysis_llm=${loopResult.llmInvocations}`,
               `tools=${loopResult.toolCalls}`,
+              `tool_cache_hits=${loopResult.toolCacheHits}`,
+              `tool_executions=${loopResult.toolExecutions}`,
+              ...formatTokenMetricFields(
+                loopResult.promptTokens,
+                loopResult.completionTokens,
+                loopResult.llmElapsedMs,
+              ),
               `source=${extractor.structured ? "structured" : "fallback"}`,
+              ...(runtimeEvidence
+                ? [
+                    `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
+                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
+                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                  ]
+                : []),
+              ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
           );
@@ -200,7 +368,49 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
       );
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
-        const output = spec.fallback("");
+        if (
+          isResearchKnobsStageEnabled(
+            spec.agentId,
+            "agent_run",
+            undefined,
+            state.active_cohort || "cohort_default",
+          ) &&
+          !fallbackRuntimeEvidence
+        ) {
+          throw err;
+        }
+        const fallback = spec.fallback("");
+        const output = fallbackRuntimeEvidence
+          ? attachDeterministicFallbackClaimGraph(
+              fallback,
+              fallbackRuntimeEvidence,
+              ["agent_timeout"],
+              "AGENT_TIMEOUT",
+            ).output
+          : fallback;
+        const canaryEvent = buildAgentPromptCanaryEvent({
+          context: canaryContext,
+          agent: spec.agentId,
+          stage: "agent_run",
+          startedAt,
+          structuredAccepted: false,
+          claimGraphAccepted: false,
+          knobSnapshot: canaryKnobSnapshot,
+          knobAudit: null,
+          toolStatuses: canaryToolStatuses,
+          output,
+          validatorIds: [
+            `${spec.agentId}.structured_output.v1`,
+            "evidence_claim_graph_v1",
+            "research_knobs_runtime_v1",
+          ],
+          forceFallback: true,
+        });
+        const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+        if (canaryEvent) {
+          llmCall.prompt_canary_event = canaryEvent;
+          await persistPromptReleaseCanaryEvents([canaryEvent]);
+        }
         onLog(
           formatAgentEvent("timeout", "L1", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -209,7 +419,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
         );
         return {
           layer1_outputs: { [spec.agentId]: output },
-          llm_calls: [buildLlmCall(spec.agentId, structuredHandle)],
+          llm_calls: [llmCall],
         };
       }
       onLog(
@@ -218,6 +428,26 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           `message=${safeErrorMessage(err)}`,
         ]),
       );
+      const failureEvent = buildAgentPromptCanaryEvent({
+        context: canaryContext,
+        agent: spec.agentId,
+        stage: "agent_run",
+        startedAt,
+        structuredAccepted: false,
+        claimGraphAccepted: false,
+        knobSnapshot: canaryKnobSnapshot,
+        knobAudit: null,
+        toolStatuses: canaryToolStatuses,
+        output: null,
+        validatorIds: [
+          `${spec.agentId}.structured_output.v1`,
+          "evidence_claim_graph_v1",
+          "research_knobs_runtime_v1",
+        ],
+        forceFallback: true,
+        forceSourceFailure: true,
+      });
+      if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
     }
   };
@@ -266,7 +496,8 @@ function defaultExtractorSystem<TOutput extends MacroAgentOutput>(
     `Only emit values supported by the analysis text; never invent numbers. ` +
     `If a field cannot be supported by the text, use the most conservative valid value ` +
     `(prefer NEUTRAL stances, 0 numeric values, 'unknown' for date windows, ` +
-    `confidence ≤ 0.4). ` +
+    `confidence ≤ 0.4). When a runtime evidence catalog is present, include claims and ` +
+    `top-level claim_refs using only its evidence_id and allowed research rule ids. ` +
     lang
   );
 }

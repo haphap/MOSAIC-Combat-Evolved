@@ -30,7 +30,9 @@ import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import {
+  applyBacktestPortfolioActionsToPositions,
   buildFakeLlmHandle,
+  carryPreviousTargetState,
   enumerateTradingDays,
   makeInitialState,
 } from "../_backtest_helpers.js";
@@ -68,7 +70,7 @@ export function registerBacktest(program: Command): void {
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
-    .option("--veto-threshold <num>", "CRO veto threshold (default 0.5)")
+    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--initial-cash <amount>", "Initial cash (default 1000000)")
     .option("--benchmark <ticker>", "Benchmark for alpha calc (default SH000300)")
     .option(
@@ -211,9 +213,14 @@ async function fillStage1(
 
   let completed = 0;
   let totalActions = 0;
+  const firstState = makeInitialState(cohort, opts.start);
+  let currentPositions = firstState.current_positions;
+  let previousTarget = firstState.layer4_outputs.previous_target_state;
   for (const tradeDate of tradeDays) {
     const tStart = Date.now();
     const initialState = makeInitialState(cohort, tradeDate);
+    initialState.current_positions = currentPositions;
+    initialState.layer4_outputs.previous_target_state = previousTarget;
     const final = (await graph.invoke(initialState)) as DailyCycleStateType;
     const actions = (final.portfolio_actions ?? []).map((a) => ({
       ticker: a.ticker,
@@ -223,6 +230,12 @@ async function fillStage1(
       ...(a.dissent_notes ? { dissent_notes: a.dissent_notes } : {}),
     })) satisfies BacktestActionInput[];
     await api.backtestAppendActions(runId, tradeDate, actions);
+    currentPositions = applyBacktestPortfolioActionsToPositions(
+      currentPositions,
+      final.portfolio_actions ?? [],
+      tradeDate,
+    );
+    previousTarget = carryPreviousTargetState(final);
     totalActions += actions.length;
     completed += 1;
     const elapsed = ((Date.now() - tStart) / 1000).toFixed(1);

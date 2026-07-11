@@ -28,7 +28,9 @@ import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 import {
+  applyBacktestPortfolioActionsToPositions,
   buildFakeLlmHandle,
+  carryPreviousTargetState,
   enumerateTradingDays,
   makeInitialState,
 } from "../_backtest_helpers.js";
@@ -74,10 +76,7 @@ export function registerBacktestFill(program: Command): void {
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
-    .option(
-      "--veto-threshold <num>",
-      "CRO veto threshold (rejected/pool > this triggers replay; default 0.5)",
-    )
+    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--log-every <n>", "Print progress every N trade days (default 5)")
     .option("--prompts-root <path>", "Override prompts root directory (for worktree evaluation)")
     .option(
@@ -194,11 +193,16 @@ export function registerBacktestFill(program: Command): void {
         let totalActions = 0;
         const errors: Array<{ date: string; err: string }> = [];
         const succeededDates: string[] = [];
+        const firstState = makeInitialState(cohort, opts.start);
+        let currentPositions = firstState.current_positions;
+        let previousTarget = firstState.layer4_outputs.previous_target_state;
 
         for (const tradeDate of daysToRun) {
           const tStart = Date.now();
           try {
             const initialState: DailyCycleStateType = makeInitialState(cohort, tradeDate);
+            initialState.current_positions = currentPositions;
+            initialState.layer4_outputs.previous_target_state = previousTarget;
             const final = (await graph.invoke(initialState)) as DailyCycleStateType;
 
             const actions = (final.portfolio_actions ?? []).map((a) => ({
@@ -210,6 +214,12 @@ export function registerBacktestFill(program: Command): void {
             })) satisfies BacktestActionInput[];
 
             await api.backtestAppendActions(runId, tradeDate, actions);
+            currentPositions = applyBacktestPortfolioActionsToPositions(
+              currentPositions,
+              final.portfolio_actions ?? [],
+              tradeDate,
+            );
+            previousTarget = carryPreviousTargetState(final);
             totalActions += actions.length;
             succeededDates.push(tradeDate);
           } catch (err) {

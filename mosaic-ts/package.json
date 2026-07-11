@@ -31,8 +31,10 @@
     "@langchain/openai": "1.4.7",
     "commander": "14.0.3",
     "ink": "^7.0.4",
+    "js-tiktoken": "1.0.21",
     "picocolors": "1.1.1",
     "react": "^19.2.6",
+    "yaml": "^2.9.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

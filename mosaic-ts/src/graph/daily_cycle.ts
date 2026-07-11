@@ -3,11 +3,7 @@
  *
  * Composes the 4 per-layer subgraphs into a single end-to-end pipeline:
  *
- *   START → layer1 → layer2 → layer3 → layer4 → [veto_check]
- *                                                  ↓ replay
- *                                                  layer4_replay → END
- *                                                  ↓ end
- *                                                  END
+ *   START → layer1 → layer2 → layer3 → layer4 → END
  *
  * Per Plan §11.2 design decisions (revised after the first test run):
  *
@@ -20,12 +16,9 @@
  *     ``invokeSubgraph`` which computes a delta for append-reducer
  *     channels and forwards dict-merge / replace channels verbatim
  *     (those reducers are idempotent under same-content updates).
- *   * **Veto loop max-1-replay via topology, not a retries counter**:
- *     ``layer4_replay → END`` is unconditional, so the graph can cycle
- *     at most once even if the replay still produces a heavy veto.
- *   * **Veto trigger**: cro.rejected_picks count > 50% of the L3
- *     candidate-pool size (de-duplicated picks across the 4
- *     superinvestors). Empty rejection or low rate → END.
+ *   * Layer 4 owns the canonical alpha → CIO proposal → CRO → execution →
+ *     CIO final → validators sequence. There is no asymmetric replay path;
+ *     every executable target is reviewed by CRO exactly once.
  *
  * The CLI entry point lives in 2F (``cli/commands/daily-cycle.ts``);
  * this module is a pure factory.
@@ -37,12 +30,17 @@ import {
   type DailyCycleStateType,
   type DailyCycleStateUpdate,
 } from "../agents/state.js";
+import {
+  type PromptReleaseCanaryEvent,
+  PromptReleaseCanaryEventSchema,
+  persistPromptReleaseCanaryEvents,
+} from "../autoresearch/prompt_release_canary_slo.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { buildLayer1Graph } from "./layer1.js";
 import { buildLayer2Graph } from "./layer2.js";
 import { buildLayer3Graph } from "./layer3.js";
-import { buildLayer4Graph, buildLayer4ReplayGraph } from "./layer4.js";
+import { buildLayer4Graph } from "./layer4.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -56,56 +54,13 @@ export interface BuildDailyCycleGraphDeps {
   onLog?: (msg: string) => void;
   /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
   agentTimeoutSeconds?: number;
-  /** Veto threshold (rejected / candidate ratio). Default 0.5 per plan §11.2 #5. */
+  /** @deprecated Retained for CLI compatibility; the canonical L4 DAG has no veto replay. */
   vetoThreshold?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
 }
 
-export const DAILY_CYCLE_LAYER_NODES = [
-  "layer1",
-  "layer2",
-  "layer3",
-  "layer4",
-  "layer4_replay",
-] as const;
-
-/**
- * Compute the de-duplicated candidate pool size from L3 superinvestor picks.
- * Returns 0 if no L3 outputs are present.
- */
-export function getCandidatePoolSize(state: DailyCycleStateType): number {
-  const supers = state.layer3_outputs ?? {};
-  const tickers = new Set<string>();
-  for (const out of Object.values(supers)) {
-    for (const p of out.picks) tickers.add(p.ticker);
-  }
-  return tickers.size;
-}
-
-/**
- * CRO veto check. Routes to ``replay`` when the fraction of *unique* L3
- * candidate tickers rejected by CRO exceeds ``threshold``, else to ``end``.
- *
- * Dedupe rationale: cro.rejected_picks may legitimately contain the same
- * ticker more than once when CRO cites multiple distinct risks
- * (e.g. regulatory + concentration). Counting raw entries would inflate the
- * rate and trip the veto on a single-ticker double-flag. The semantically
- * correct heuristic is "fraction of unique candidate tickers CRO objected to".
- *
- * Exported for unit testing the routing decision in isolation.
- */
-export function checkCroVeto(state: DailyCycleStateType, threshold = 0.5): "replay" | "end" {
-  const cro = state.layer4_outputs?.cro;
-  if (!cro || cro.rejected_picks.length === 0) return "end";
-
-  const pool = getCandidatePoolSize(state);
-  if (pool === 0) return "end"; // no L3 picks at all → nothing to replay against
-
-  const uniqueRejected = new Set(cro.rejected_picks.map((r) => r.ticker)).size;
-  const rate = uniqueRejected / pool;
-  return rate > threshold ? "replay" : "end";
-}
+export const DAILY_CYCLE_LAYER_NODES = ["layer1", "layer2", "layer3", "layer4"] as const;
 
 /** Compiled-subgraph type. We rely on the structural ``invoke`` method
  *  rather than importing the heavy generic from ``@langchain/langgraph``. */
@@ -147,7 +102,6 @@ const _APPEND_REDUCER_CHANNELS = ["messages", "llm_calls"] as const satisfies Re
  */
 function invokeSubgraph(
   subgraph: InvokeOnly,
-  extra?: Partial<DailyCycleStateUpdate>,
 ): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
   return async (state) => {
     const result = await subgraph.invoke(state);
@@ -166,44 +120,65 @@ function invokeSubgraph(
       layer2_consensus: result.layer2_consensus,
       layer3_outputs: result.layer3_outputs,
       layer4_outputs: result.layer4_outputs,
+      current_positions: result.current_positions,
+      position_reviews: result.position_reviews,
+      position_audit: result.position_audit,
       portfolio_actions: result.portfolio_actions,
-      // Caller-supplied extra channels (e.g. replay_triggered on the replay node).
-      ...extra,
     } as DailyCycleStateUpdate;
   };
 }
 
 /** Build (and compile) the full 4-layer daily cycle graph. */
 export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
-  const { vetoThreshold = 0.5, ...subgraphDeps } = deps;
-
-  const l1 = buildLayer1Graph(subgraphDeps);
-  const l2 = buildLayer2Graph(subgraphDeps);
-  const l3 = buildLayer3Graph(subgraphDeps);
-  const l4 = buildLayer4Graph(subgraphDeps);
-  const l4Replay = buildLayer4ReplayGraph(subgraphDeps);
+  const l1 = buildLayer1Graph(deps);
+  const l2 = buildLayer2Graph(deps);
+  const l3 = buildLayer3Graph(deps);
+  const l4 = buildLayer4Graph(deps);
 
   const graph = new StateGraph(DailyCycleState)
     .addNode("layer1", invokeSubgraph(l1 as InvokeOnly))
     .addNode("layer2", invokeSubgraph(l2 as InvokeOnly))
     .addNode("layer3", invokeSubgraph(l3 as InvokeOnly))
     .addNode("layer4", invokeSubgraph(l4 as InvokeOnly))
-    .addNode("layer4_replay", invokeSubgraph(l4Replay as InvokeOnly, { replay_triggered: true }))
+    .addNode("prompt_canary_audit", async (state: DailyCycleStateType) => {
+      const events = state.llm_calls.flatMap((call) =>
+        call.prompt_canary_event ? [call.prompt_canary_event] : [],
+      );
+      await persistPromptReleaseCanaryEvents(finalizeCanaryEvents(state, events));
+      return {};
+    })
     .addEdge(START, "layer1")
     .addEdge("layer1", "layer2")
     .addEdge("layer2", "layer3")
     .addEdge("layer3", "layer4")
-    // Conditional edge after layer4: veto loop or done.
-    .addConditionalEdges(
-      "layer4",
-      (state: DailyCycleStateType) => checkCroVeto(state, vetoThreshold),
-      {
-        replay: "layer4_replay",
-        end: END,
-      },
-    )
-    // layer4_replay → END (unconditional; ensures max 1 replay).
-    .addEdge("layer4_replay", END);
+    .addEdge("layer4", "prompt_canary_audit")
+    .addEdge("prompt_canary_audit", END);
 
   return graph.compile();
+}
+
+function finalizeCanaryEvents(
+  state: DailyCycleStateType,
+  events: ReadonlyArray<PromptReleaseCanaryEvent>,
+) {
+  const sharedValidation = state.layer4_outputs.runtime?.stage_trace
+    .filter((entry) => entry.stage === "shared_validation")
+    .at(-1);
+  return events.map((event) => {
+    if (event.stage !== "cio_final") return event;
+    const rejected = sharedValidation?.status !== "completed";
+    const reasonCodes = new Set(sharedValidation?.reason_codes ?? []);
+    return PromptReleaseCanaryEventSchema.parse({
+      ...event,
+      fallback: event.fallback || rejected,
+      validator_rejected: event.validator_rejected || rejected,
+      validator_ids: [
+        ...new Set([...event.validator_ids, "portfolio.position_action_validator.v1"]),
+      ].sort(),
+      duplicate_order_intent_count:
+        event.duplicate_order_intent_count + (reasonCodes.has("DUPLICATE_ORDER_INTENT") ? 1 : 0),
+      exposure_breach_count:
+        event.exposure_breach_count + (reasonCodes.has("EXPOSURE_BREACH") ? 1 : 0),
+    });
+  });
 }

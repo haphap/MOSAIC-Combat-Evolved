@@ -4,12 +4,17 @@ MOSAIC's self-improvement stack has four parts: **Autoresearch** (prompt evoluti
 
 ## Autoresearch — prompt self-evolution
 
-`mosaic/autoresearch/` — selects an agent, has an LLM rewrite its prompt, commits the mutation on a git feature branch, runs a two-stage backtest to compute **ΔSharpe**, then keeps (merge to main) or reverts (delete branch) by threshold.
+`mosaic/autoresearch/` retains the legacy prompt-rewrite loop, where Delta
+Sharpe remains valid only for that legacy path. Governed generic confidence and
+evidence-weight targets and domain cards now use the generated metric/calculator
+contract, preregistered paired PIT evaluation, one-use holdout, and explicit
+rollback policy. Catalog presence alone is not evidence that a knob improved.
 
 - **`git_ops.py`** (`GitOps`) — thin, fail-loud wrapper over `git`. Mutations are committed inside a throwaway `git worktree` so the operator's working tree is never touched. Keep = `merge_to_main`, revert = `delete_branch`.
 - **`constraints.py`** — `check_cooldown` (24h per agent), `check_monthly_cap` (≤100/cohort/month), `check_keep_lockout` (3 days after a keep).
 - **`evaluator.py`** — computes ΔSharpe over the evaluation horizon (default 5 trading days).
 - **`decider.py`** — keep iff `delta_sharpe ≥ keep_threshold_delta_sharpe` (default 0.1).
+- **`knob_patch` mode** — mutates governed Prompt IR/domain-knob paths without rewriting prompt prose. Only cards with `activation_state: active` are eligible; `read_only` and `backlog` paths must be rejected.
 
 Branch naming: `cohort/{name}/auto/{agent}/{YYYY-MM-DD}`.
 
@@ -18,6 +23,62 @@ Branch naming: `cohort/{name}/auto/{agent}/{YYYY-MM-DD}`.
 `autoresearch.git` config (default **OFF**): when `push: true`, the keep-path runs `git push <remote> main` after a successful merge. A push failure is logged and swallowed (the keep decision still stands locally); a failed merge skips push. Credentials are the operator's responsibility (SSH key / credential helper). Config: `{ "push": false, "remote": "origin" }`.
 
 Defaults (`mosaic/default_config.py` → `autoresearch`): `agent_mutation_cooldown_hours: 24`, `keep_revert_lockout_days: 3`, `keep_threshold_delta_sharpe: 0.1`, `monthly_modification_cap_per_cohort: 100`, `evaluation_horizon_trading_days: 5`.
+
+### Governed research knobs
+
+The domain-knob catalog is the typed source for prompt projections. Every card
+has one activation state:
+
+- `active`: projected, counted by the coverage gate, and exposed as a mutation target.
+- `read_only`: projected with a versioned value for runtime use, but excluded from mutation targets and active coverage.
+- `backlog`: retained as authoring metadata and excluded from effective prompt buckets.
+
+The generated catalog and evaluation contract live under
+`registry/prompt_checks/`. Each evaluation binding includes the activation
+state, metric, horizon, and rollback policy; the same contract carries the
+metric-to-calculator registry. The bilingual private prompt
+checker validates 25 agents across 26 runtime stages; it does not activate a
+card or a release pointer.
+
+The evaluator dispatches each registered uncertainty policy to its actual
+estimator: paired or independent block bootstrap, Wilson intervals for binary
+rates, and Fisher-z intervals for rank correlation. Runtime evidence health is
+also aggregated across every same-name tool invocation, so a later failure or
+fallback cannot escape a confidence cap because the first call succeeded.
+Sample manifests are content-addressed over both arms, evidence vintages,
+generator identity, and source snapshots. Promotion also requires common
+support; arm-specific exclusions and asymmetric missing values fail closed.
+
+Kept mutations still move through staged and canary release states. Runtime
+records contain a durable pre-load assignment and one terminal outcome bound to
+release, stage snapshots, run identity, prompt source, schema/fallback, token,
+order, and exposure results. `prompt-release summarize-slo` reads the configured
+journal and closes both the invocation set and journal prefix; activation rereads
+the journal and rejects handwritten, stale, or subset summaries. Bundled prompt
+fallbacks count as source failures. The operator can run `autoresearch
+recover-transactions` after a crash and `prompt-release rollback` to restore the
+prior aggregate release pointer. Failed aborts remain pending and retain their
+path leases until candidate refs are confirmed absent.
+
+Non-canary traffic remains on the active pinned baseline. A first canary without
+that baseline is rejected; operators must import a previously approved active
+manifest with `prompt-release provision-baseline`. Runtime code identity remains
+pinned during canary traffic. Prompt caches include lifecycle state and rollout
+scope, so promotion of the same release id from canary to active refreshes
+runtime metadata.
+
+The decision-layer rollout uses one canonical sequence: alpha discovery, CIO
+proposal, frozen candidate target, CRO review, execution feasibility, CIO
+final, and shared validation. Runtime carries the prior accepted final target
+across backtest/shadow cycles, resolves market and liquidity evidence per
+ticker, freezes prompt/source inputs for CIO final, and replaces outputs that
+declare unsupported knob influence with a deterministic conservative fallback.
+When runtime/shared concentration policy values are absent, CIO validation and
+fallback use the catalog defaults (12% single-name and 30% sector) rather than
+disabling the limits.
+The claim/evidence graph validator exists, but the evidence-runtime gate remains
+open until runtime-owned result fingerprints and evidence ids are passed to the
+structured extractor and every recommendation/action has verified claim refs.
 
 ## PRISM — multi-regime training
 
@@ -45,7 +106,7 @@ CLI: `prism list|train|status|compare`.
 
 - **engine** (`config.mirofish.engine`): `montecarlo` (default — i.i.d. correlated paths + optional reflexivity kernel) or `swarm` (agent-to-agent interaction). Swarm is opt-in.
 - **scorer** (`config.mirofish.scorer`): `terminal` (default — direction × cumulative return) or `path_aware` (drawdown-penalized equity curve; the `--path-aware` shorthand on `mirofish train`).
-- **inject_context** (`config.mirofish.inject_context`, default OFF): append the latest scenario context to the CIO prompt (see [Agents](Agents.md)).
+- **inject_context** (`config.mirofish.inject_context`, default OFF): append one shared, simulation-only scenario context to the L4 CRO, autonomous execution, and CIO prompts for the run (see [Agents](Agents.md)).
 - An OASIS adapter can drive a real external MiroFish engine over HTTP (`MOSAIC_MIROFISH_URL`).
 
 CLI: `mirofish generate|train|history`; RPCs under `mirofish.*`.

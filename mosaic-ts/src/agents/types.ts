@@ -20,7 +20,38 @@
  * ``agents/<layer>/<agent>.ts``.
  */
 
+import type { PromptReleaseCanaryEvent } from "../autoresearch/prompt_release_canary_slo.js";
+import type { ClaimEvidenceGraph, LlmResearchClaim } from "./evidence_contract.js";
+import type {
+  ResearchKnobsSnapshot,
+  RuntimeSourceEvidenceObservation,
+  RuntimeSourceStatus,
+} from "./helpers/research_knobs.js";
+
 // ============================================================ Layer 1: Macro
+
+export interface KnobInfluenceDeclaration {
+  declared_knob_influence_ids?: string[] | undefined;
+  declared_influence_rationale?: string | undefined;
+  claims?: LlmResearchClaim[] | undefined;
+  claim_refs?: string[] | undefined;
+  /** Runtime-owned fields, ignored by legacy consumers. */
+  verified_claim_graph?: ClaimEvidenceGraph | undefined;
+  verified_claim_audit?:
+    | {
+        raw_output_accepted: boolean;
+        rejection_reasons: string[];
+        fallback_reason_code?: string | undefined;
+      }
+    | undefined;
+  runtime_fallback_audit?:
+    | {
+        fallback_factory_id: string;
+        fallback_factory_version: string;
+        reason_codes: string[];
+      }
+    | undefined;
+}
 
 /** Plan §5.1 — central_bank, geopolitical, china, dollar, yield_curve,
  *  commodities, volatility, emerging_markets, news_sentiment, institutional_flow.
@@ -29,7 +60,7 @@
  *  but consumers usually narrow by agent ID. The aggregator only reads the
  *  shared `confidence` + `key_drivers` fields.
  */
-export interface MacroAgentOutputBase {
+export interface MacroAgentOutputBase extends KnobInfluenceDeclaration {
   /** Agent ID, e.g. "central_bank". Useful for debugging when payloads are
    *  passed around without their map key. */
   agent: string;
@@ -104,10 +135,10 @@ export interface EmergingMarketsOutput extends MacroAgentOutputBase {
 
 export interface NewsSentimentOutput extends MacroAgentOutputBase {
   agent: "news_sentiment";
-  /** Retail sentiment from Xueqiu, normalised to [-1, 1]. */
+  /** Retail sentiment from news/Caixin/policy flow, normalised to [-1, 1]. */
   retail_sentiment_score: number;
   hot_topics: string[];
-  /** True when retail sentiment diverges sharply from institutional flow. */
+  /** True only when sentiment diverges from explicit current flow evidence. */
   contrarian_flag: boolean;
 }
 
@@ -156,9 +187,10 @@ export interface SectorPick {
   thesis: string;
   /** [0, 1]. */
   conviction: number;
+  claim_refs?: string[] | undefined;
 }
 
-export interface SectorAgentOutputBase {
+export interface SectorAgentOutputBase extends KnobInfluenceDeclaration {
   agent: string;
   longs: SectorPick[];
   shorts: SectorPick[];
@@ -169,7 +201,7 @@ export interface SectorAgentOutputBase {
   confidence: number;
 }
 
-export interface RelationshipMapperOutput {
+export interface RelationshipMapperOutput extends KnobInfluenceDeclaration {
   agent: "relationship_mapper";
   supply_chains: Array<{ name: string; tickers: string[]; risk: string }>;
   ownership_clusters: Array<{ cluster_id: string; tickers: string[] }>;
@@ -231,9 +263,10 @@ export interface SuperinvestorPick {
   conviction: number;
   /** Suggested holding period bracket. */
   holding_period: "1W" | "1M" | "3M" | "6M" | "1Y" | "5Y+";
+  claim_refs?: string[] | undefined;
 }
 
-export interface SuperinvestorOutput {
+export interface SuperinvestorOutput extends KnobInfluenceDeclaration {
   agent: "druckenmiller" | "munger" | "burry" | "ackman";
   picks: SuperinvestorPick[];
   /** Why these 3-5 names + macro/sector regime fit. */
@@ -260,30 +293,67 @@ export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
 
 /** Plan §5.4 — cro, alpha_discovery, autonomous_execution, cio. */
 
-export interface CroOutput {
+export interface CroOutput extends KnobInfluenceDeclaration {
   agent: "cro";
-  rejected_picks: Array<{ ticker: string; reason: string }>;
+  rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
+  required_adjustments?:
+    | Array<{
+        ticker: string;
+        adjustment: "VETO" | "CAP_WEIGHT" | "REDUCE_WEIGHT" | "REQUIRE_REVIEW";
+        max_target_weight?: number | undefined;
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
   correlated_risks: string[];
   black_swan_scenarios: string[];
   /** Self-rated confidence in [0, 1]. Same semantics as L1/L2/L3. */
   confidence: number;
 }
 
-export interface AlphaDiscoveryOutput {
+export interface AlphaDiscoveryOutput extends KnobInfluenceDeclaration {
   agent: "alpha_discovery";
-  novel_picks: Array<{ ticker: string; why_missed_by_others: string }>;
+  novel_picks: Array<{
+    ticker: string;
+    why_missed_by_others: string;
+    claim_refs?: string[] | undefined;
+  }>;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
 }
 
-export interface AutoExecOutput {
+export interface AutoExecOutput extends KnobInfluenceDeclaration {
   agent: "autonomous_execution";
   trades: Array<{
     ticker: string;
     action: "BUY" | "SELL" | "HOLD" | "REDUCE";
     size_pct: number;
+    delta_weight?: number | undefined;
+    estimated_slippage_pct?: number | undefined;
+    liquidity_score?: number | undefined;
+    order_split_count?: number | undefined;
     conviction: number;
+    claim_refs?: string[] | undefined;
   }>;
+  execution_checks?:
+    | Array<{
+        ticker: string;
+        status: "feasible" | "partial" | "blocked";
+        estimated_cost_bps: number;
+        max_executable_delta_weight?: number | undefined;
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
+  execution_enforcement?:
+    | {
+        checked_trade_count: number;
+        active_policy_ids: string[];
+        min_delta_trade_weight?: number | undefined;
+        slippage_cap?: number | undefined;
+        liquidity_floor?: number | undefined;
+      }
+    | undefined;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
 }
@@ -291,18 +361,294 @@ export interface AutoExecOutput {
 export interface PortfolioAction {
   ticker: string;
   action: "BUY" | "SELL" | "HOLD" | "REDUCE";
+  sector?: string | undefined;
+  position_decision?: "HOLD" | "ADD" | "REDUCE" | "EXIT" | undefined;
+  current_weight?: number | undefined;
   /** Target portfolio weight in [0, 1]. */
   target_weight: number;
+  delta_weight?: number | undefined;
   holding_period: SuperinvestorPick["holding_period"];
+  position_decision_reason?: string | undefined;
+  override_reason?: string | undefined;
+  thesis_status?: "intact" | "weakened" | "broken" | "expired" | undefined;
+  risk_flags?: string[] | undefined;
+  /** Runtime-owned provenance for position-review coverage accounting. */
+  review_source?: "llm" | "runtime_safety_fallback" | undefined;
   /** CIO note explaining dissent against another agent's call, if any. */
   dissent_notes: string;
+  claim_refs?: string[] | undefined;
 }
 
-export interface CioOutput {
+export interface CioOutput extends KnobInfluenceDeclaration {
   agent: "cio";
   portfolio_actions: PortfolioAction[];
+  position_reviews?: PositionReview[] | undefined;
+  dissent_refs?: CioDissentReference[] | undefined;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
+}
+
+export interface CioDissentReference {
+  ticker: string;
+  source: "cro_review" | "execution_feasibility";
+  source_hash: string;
+  reason: string;
+}
+
+export interface CioProposalOutput extends CioOutput {
+  position_reviews: PositionReview[];
+}
+
+export interface CioFinalOutput extends CioOutput {
+  dissent_refs: CioDissentReference[];
+}
+
+export interface CurrentPosition {
+  ticker: string;
+  sector?: string | undefined;
+  current_weight: number;
+  cost_basis: number;
+  market_price: number;
+  unrealized_pnl_pct: number;
+  realized_pnl_pct?: number | undefined;
+  residual_drift_pct?: number | undefined;
+  holding_days: number;
+  entry_date: string;
+  source_agent: string;
+  entry_thesis_id: string;
+  last_review_date: string;
+}
+
+export interface ClosedPosition {
+  ticker: string;
+  exit_date: string;
+  exit_reason: string;
+  realized_pnl_pct: number;
+  residual_drift_pct: number;
+  entry_thesis_id: string;
+  holding_days: number;
+}
+
+export interface CurrentPositionsSnapshot {
+  snapshot_status: "loaded" | "empty_confirmed" | "missing";
+  position_source:
+    | "paper_account"
+    | "backtest_replay"
+    | "cli_fixture"
+    | "empty_confirmed"
+    | "unknown";
+  source_error_code: string | null;
+  position_snapshot_hash?: string | undefined;
+  positions: CurrentPosition[];
+  closed_positions?: ClosedPosition[] | undefined;
+}
+
+export interface PositionReview {
+  ticker: string;
+  decision: "HOLD" | "ADD" | "REDUCE" | "EXIT";
+  target_weight: number;
+  reason: string;
+  thesis_status: "intact" | "weakened" | "broken" | "expired";
+  risk_flags: string[];
+  confidence: number;
+  review_source?: "llm" | "runtime_safety_fallback" | undefined;
+  claim_refs?: string[] | undefined;
+}
+
+export interface CandidateTargetState {
+  schema_version: "portfolio.candidate_target_state.v1";
+  run_id: string;
+  cohort: string;
+  as_of_date: string;
+  proposal_hash: string;
+  l4_run_snapshot_hash: string;
+  candidate_target_hash: string;
+  position_snapshot_hash: string | null;
+  previous_target_hash: string | null;
+  market_data_vintage_hash: string;
+  portfolio_actions: PortfolioAction[];
+  confidence: number;
+  frozen: true;
+}
+
+export interface PositionReviewState {
+  schema_version: "portfolio.position_review_state.v1";
+  run_id: string;
+  candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
+  position_review_hash: string;
+  reviews: PositionReview[];
+  llm_reviewed_tickers: string[];
+  fallback_tickers: string[];
+  frozen: true;
+}
+
+export interface PortfolioExposureState {
+  schema_version: "portfolio.exposure_state.v1";
+  candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
+  exposure_hash: string;
+  gross_exposure: number;
+  net_exposure: number;
+  cash_weight: number;
+  ticker_weights: Record<string, number>;
+  sector_weights: Record<string, number>;
+  frozen: true;
+}
+
+export interface CroReviewState {
+  schema_version: "decision.cro_review_state.v1";
+  run_id: string;
+  candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
+  review_hash: string;
+  output: CroOutput;
+  frozen: true;
+}
+
+export interface ExecutionFeasibilityState {
+  schema_version: "decision.execution_feasibility_state.v1";
+  run_id: string;
+  candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
+  cro_review_hash: string;
+  liquidity_vintage_hash: string;
+  feasibility_hash: string;
+  output: AutoExecOutput;
+  frozen: true;
+}
+
+export interface FinalTargetState {
+  schema_version: "portfolio.final_target_state.v1";
+  run_id: string;
+  cohort: string;
+  as_of_date: string;
+  candidate_target_hash: string;
+  l4_run_snapshot_hash: string;
+  cro_review_hash: string;
+  execution_feasibility_hash: string;
+  final_target_hash: string;
+  position_snapshot_hash: string | null;
+  previous_target_hash: string | null;
+  market_data_vintage_hash: string;
+  liquidity_vintage_hash: string;
+  portfolio_actions: PortfolioAction[];
+  confidence: number;
+  validator_hashes: string[];
+  frozen: true;
+}
+
+export interface PortfolioSummary {
+  schema_version: "portfolio.summary.v1";
+  l4_run_snapshot_hash: string;
+  base_position_snapshot_hash: string | null;
+  market_vintage_hash: string;
+  liquidity_vintage_hash: string;
+  candidate_target_hash: string;
+  final_target_hash: string;
+  cash_weight: number;
+  gross_exposure: number;
+  net_exposure: number;
+  target_weight_sum: number;
+  leverage_authorized: false;
+  action_mapping_hash: string;
+  validator_bundle_hash: string;
+  validator_results: Array<{
+    validator_hash: string;
+    status: "accepted" | "fallback";
+    reason_codes: string[];
+  }>;
+  summary_hash: string;
+  frozen: true;
+}
+
+export interface PreviousTargetState {
+  schema_version: "portfolio.previous_target_state.v1";
+  snapshot_status: "loaded" | "empty_confirmed" | "missing";
+  final_target_hash: string | null;
+  as_of_date: string | null;
+  portfolio_actions: PortfolioAction[];
+  source_error_code: string | null;
+}
+
+export interface L4RunPromptSnapshot {
+  agent: "alpha_discovery" | "cio" | "cro" | "autonomous_execution";
+  stage: "alpha_discovery" | "cio_proposal" | "cro_review" | "execution_feasibility" | "cio_final";
+  prompt_source_hash: string;
+  knob_snapshot_hash: string | null;
+}
+
+export interface L4RunSnapshotBundle {
+  schema_version: "decision.l4_run_snapshot_bundle.v1";
+  run_id: string;
+  cohort: string;
+  as_of_date: string;
+  prompt_snapshots: L4RunPromptSnapshot[];
+  position_snapshot_hash: string;
+  account_snapshot_hash: string;
+  upstream_outputs_hash: string;
+  base_market_data_vintage_hash: string;
+  base_market_source_hashes: Record<string, string>;
+  mirofish_context_hash: string | null;
+  bundle_hash: string;
+  frozen: true;
+}
+
+export interface Layer4RuntimeTraceEntry {
+  sequence: number;
+  stage:
+    | "l4_snapshot_freeze"
+    | "alpha_discovery"
+    | "cio_proposal"
+    | "cro_review"
+    | "execution_feasibility"
+    | "cio_final"
+    | "shared_validation";
+  operation: "agent_run" | "source_freeze" | "validation";
+  status: "completed" | "fallback" | "rejected";
+  reason_codes?: string[] | undefined;
+  fallback_factory_id?: string | undefined;
+  fallback_factory_version?: string | undefined;
+  input_hashes: Record<string, string>;
+  output_hashes: Record<string, string>;
+}
+
+export interface Layer4RuntimeState {
+  l4_run_snapshot_bundle: L4RunSnapshotBundle | null;
+  cio_proposal: CioOutput | null;
+  candidate_target_state: CandidateTargetState | null;
+  position_review_state: PositionReviewState | null;
+  portfolio_exposure_state: PortfolioExposureState | null;
+  cro_review_state: CroReviewState | null;
+  execution_feasibility_state: ExecutionFeasibilityState | null;
+  final_target_state: FinalTargetState | null;
+  portfolio_summary: PortfolioSummary | null;
+  cio_final_knob_snapshot: ResearchKnobsSnapshot | null;
+  resolved_source_statuses: RuntimeSourceStatus[];
+  source_evidence_observations: RuntimeSourceEvidenceObservation[];
+  stage_trace: Layer4RuntimeTraceEntry[];
+}
+
+export interface PositionAudit {
+  position_snapshot_hash: string | null;
+  snapshot_status: CurrentPositionsSnapshot["snapshot_status"];
+  position_source: CurrentPositionsSnapshot["position_source"];
+  source_error_code: string | null;
+  tool_status_summary?: Record<string, string> | undefined;
+  positions_loaded: number;
+  positions_reviewed: number;
+  positions_unreviewed: number;
+  runtime_safety_hold_count?: number | undefined;
+  cash_weight?: number | undefined;
+  gross_exposure?: number | undefined;
+  net_exposure?: number | undefined;
+  hold_count: number;
+  add_count: number;
+  reduce_count: number;
+  exit_count: number;
+  stale_thesis_count: number;
+  stop_loss_override_count: number;
+  target_current_drift_count: number;
 }
 
 export interface Layer4Outputs {
@@ -310,7 +656,13 @@ export interface Layer4Outputs {
   alpha_discovery: AlphaDiscoveryOutput | null;
   autonomous_execution: AutoExecOutput | null;
   cio: CioOutput | null;
+  /** Runtime-owned cross-stage envelopes; LLMs never author these hashes. */
+  runtime?: Layer4RuntimeState | undefined;
+  /** Prior cycle final target supplied as an explicit cycle input. */
+  previous_target_state?: PreviousTargetState | undefined;
 }
+
+export type Layer4AgentOutputKey = "cro" | "alpha_discovery" | "autonomous_execution" | "cio";
 
 // ============================================================ Observability
 
@@ -327,6 +679,7 @@ export interface LlmCallRecord {
   provider: string;
   /** Estimated USD cost; computed at the call site, may be 0 for local providers. */
   cost_usd: number;
+  prompt_canary_event?: PromptReleaseCanaryEvent;
 }
 
 // ============================================================ Convenience
@@ -342,6 +695,9 @@ export interface DailyCycleResult {
   layer2_consensus: SectorConsensus | null;
   layer3_outputs: Record<string, SuperinvestorOutput>;
   layer4_outputs: Layer4Outputs;
+  current_positions: CurrentPositionsSnapshot;
+  position_reviews: PositionReview[];
+  position_audit: PositionAudit;
   /** The CIO's final allocation, surfaced for convenience. */
   portfolio_actions: PortfolioAction[];
   llm_calls: LlmCallRecord[];

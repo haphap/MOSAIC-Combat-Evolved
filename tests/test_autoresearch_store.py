@@ -8,6 +8,8 @@ get_store() singleton (§14 R-T4) + update_scoring no-op warning (§14 R-T5).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from pathlib import Path
 
@@ -53,11 +55,22 @@ class TestSchema:
             }
         assert "prompt_versions" in tables
         assert "autoresearch_log" in tables
+        assert "domain_holdout_consumptions" in tables
         assert {
             "prompt_repo_id",
             "prompt_base_commit_hash",
             "prompt_sha256",
             "code_commit_hash",
+            "mutation_id",
+            "transaction_id",
+            "experiment_id",
+            "mutation_metadata_json",
+            "mutation_lifecycle",
+            "evaluation_result_json",
+            "promotion_decision_json",
+            "promotion_decision_hash",
+            "promotion_approved_by",
+            "promotion_approval_policy_id",
         }.issubset(prompt_version_cols)
 
     def test_reinstantiate_is_idempotent(self, store: ScorecardStore):
@@ -98,6 +111,12 @@ class TestSchema:
             "prompt_base_commit_hash",
             "prompt_sha256",
             "code_commit_hash",
+            "mutation_id",
+            "transaction_id",
+            "experiment_id",
+            "mutation_metadata_json",
+            "mutation_lifecycle",
+            "evaluation_result_json",
         }.issubset(cols)
 
 
@@ -149,6 +168,135 @@ class TestPromptVersionLifecycle:
         assert v["pre_sharpe"] == pytest.approx(0.8)
         assert v["post_sharpe"] == pytest.approx(1.05)
         assert v["delta_sharpe"] == pytest.approx(0.25)
+
+    def test_domain_mutation_metadata_and_lifecycle_are_persisted(
+        self, store: ScorecardStore
+    ):
+        vid = _new_version(store)
+        metadata = {
+            "mutation_id": "KM-1",
+            "transaction_id": "TX-KM-1",
+            "experiment_id": "EXP-KM-1",
+            "mutation_kind": "domain_knob",
+        }
+        store.set_version_mutation(vid, "b" * 40, mutation_metadata=metadata)
+        assert store.get_version_mutation_metadata(vid) == metadata
+        assert store.get_prompt_version(vid)["mutation_lifecycle"] == "proposed"
+
+        store.set_version_mutation_lifecycle(vid, "validated")
+        store.set_version_mutation_lifecycle(vid, "shadow_evaluating")
+        store.set_version_mutation_lifecycle(vid, "needs_fill")
+        store.set_version_mutation_lifecycle(vid, "shadow_evaluating")
+        store.set_version_mutation_lifecycle(vid, "eligible_for_promotion")
+        result = {"schema_version": "domain_evaluation_result_v1", "status": "eligible"}
+        store.set_domain_evaluation_result(vid, result)
+
+        assert store.get_domain_evaluation_result(vid) == result
+        assert store.get_prompt_version(vid)["mutation_lifecycle"] == "eligible_for_promotion"
+
+    def test_domain_lifecycle_rejects_skipped_transition(self, store: ScorecardStore):
+        vid = _new_version(store)
+        metadata = {
+            "mutation_id": "KM-1",
+            "transaction_id": "TX-KM-1",
+            "experiment_id": "EXP-KM-1",
+        }
+        store.set_version_mutation(vid, "b" * 40, mutation_metadata=metadata)
+        with pytest.raises(ValueError, match="illegal domain mutation lifecycle"):
+            store.set_version_mutation_lifecycle(vid, "eligible_for_promotion")
+
+    def test_domain_holdout_consumption_is_single_use_and_retry_idempotent(
+        self, store: ScorecardStore
+    ):
+        first = _new_version(store)
+        store.set_version_mutation(
+            first,
+            "b" * 40,
+            mutation_metadata={
+                "mutation_id": "KM-1",
+                "transaction_id": "TX-KM-1",
+                "experiment_id": "EXP-KM-1",
+            },
+        )
+        holdout_id = f"sha256:{'1' * 64}"
+        result_hash = f"sha256:{'2' * 64}"
+
+        assert store.consume_domain_holdout(
+            first,
+            holdout_id=holdout_id,
+            mutation_id="KM-1",
+            result_hash=result_hash,
+        )
+        assert not store.consume_domain_holdout(
+            first,
+            holdout_id=holdout_id,
+            mutation_id="KM-1",
+            result_hash=result_hash,
+        )
+        assert store.get_domain_holdout_consumption(holdout_id)["mutation_id"] == "KM-1"
+
+        second = _new_version(
+            store,
+            branch_name="cohort/crisis_2008/auto/volatility/2008-09-16",
+        )
+        store.set_version_mutation(
+            second,
+            "c" * 40,
+            mutation_metadata={
+                "mutation_id": "KM-2",
+                "transaction_id": "TX-KM-2",
+                "experiment_id": "EXP-KM-2",
+            },
+        )
+        with pytest.raises(ValueError, match="already been consumed"):
+            store.consume_domain_holdout(
+                second,
+                holdout_id=holdout_id,
+                mutation_id="KM-2",
+                result_hash=f"sha256:{'3' * 64}",
+            )
+
+    def test_domain_promotion_decision_is_atomic_and_idempotent(
+        self, store: ScorecardStore
+    ):
+        vid = _new_version(store)
+        metadata = {
+            "mutation_id": "KM-1",
+            "transaction_id": "TX-KM-1",
+            "experiment_id": "EXP-KM-1",
+        }
+        store.set_version_mutation(vid, "b" * 40, mutation_metadata=metadata)
+        store.set_version_mutation_lifecycle(vid, "validated")
+        store.set_version_mutation_lifecycle(vid, "shadow_evaluating")
+        store.set_version_mutation_lifecycle(vid, "eligible_for_promotion")
+        decision = {
+            "schema_version": "domain_promotion_decision_v1",
+            "decision": "keep",
+            "approved_by": "operator:test",
+            "approval_policy_id": "domain_release_manual_v1",
+            "decided_at": "2026-07-10T00:00:00+00:00",
+        }
+        decision_hash = "sha256:" + hashlib.sha256(
+            json.dumps(
+                decision,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+        assert store.record_domain_promotion_decision(
+            vid, decision, decision_hash=decision_hash
+        )
+        assert not store.record_domain_promotion_decision(
+            vid, decision, decision_hash=decision_hash
+        )
+        assert store.get_domain_promotion_decision(vid) == decision
+        version = store.get_prompt_version(vid)
+        assert version["mutation_lifecycle"] == "kept"
+        assert version["status"] == "keep"
+        assert version["promotion_decision_hash"] == decision_hash
 
     def test_decide_keep(self, store: ScorecardStore):
         vid = _new_version(store)

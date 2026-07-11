@@ -10,6 +10,7 @@
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
+import { AGENTS_BY_LAYER } from "../agents/prompts/cohorts.js";
 import { DailyCycleState } from "../agents/state.js";
 import { buildAckmanNode } from "../agents/superinvestor/ackman.js";
 import { buildBurryNode } from "../agents/superinvestor/burry.js";
@@ -31,7 +32,7 @@ export interface BuildLayer3GraphDeps {
   promptsRoot?: string;
 }
 
-export const LAYER3_AGENT_NODES = ["druckenmiller", "munger", "burry", "ackman"] as const;
+export const LAYER3_AGENT_NODES = AGENTS_BY_LAYER.superinvestor;
 
 export function buildLayer3Graph(deps: BuildLayer3GraphDeps) {
   const graph = new StateGraph(DailyCycleState)

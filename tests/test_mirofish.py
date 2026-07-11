@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from mosaic import mirofish as mf
+from mosaic.mirofish.context import derive_context
 from mosaic.mirofish import scenarios as sc
 
 
@@ -119,6 +120,147 @@ def test_score_clamped_and_error_zero():
         {"recommendation": "BUY", "tickers": list(s["price_paths"])[:1], "conviction": 1.0}, s
     )
     assert 0.0 <= v <= 1.0
+
+
+def test_portfolio_decision_scorer_rewards_hold_and_exit_quality():
+    scenario = {
+        "scenario_type": "test",
+        "price_paths": {
+            "WIN.SH": {
+                "ticker": "WIN.SH",
+                "start_price": 100.0,
+                "prices": [100.0, 112.0],
+                "cumulative_return": 0.12,
+                "volatility": 0.2,
+            },
+            "LOSS.SH": {
+                "ticker": "LOSS.SH",
+                "start_price": 100.0,
+                "prices": [100.0, 88.0],
+                "cumulative_return": -0.12,
+                "volatility": 0.2,
+            },
+        },
+    }
+    good = mf.score_recommendation(
+        {
+            "recommendation": "HOLD",
+            "tickers": [],
+            "conviction": 0.7,
+            "position_reviews": [
+                {"ticker": "WIN.SH", "decision": "HOLD", "current_weight": 0.1, "target_weight": 0.1},
+                {"ticker": "LOSS.SH", "decision": "EXIT", "current_weight": 0.1, "target_weight": 0.0},
+            ],
+        },
+        scenario,
+        path_aware=True,
+    )
+    bad = mf.score_recommendation(
+        {
+            "recommendation": "HOLD",
+            "tickers": [],
+            "conviction": 0.7,
+            "position_reviews": [
+                {"ticker": "WIN.SH", "decision": "EXIT", "current_weight": 0.1, "target_weight": 0.0},
+                {"ticker": "LOSS.SH", "decision": "HOLD", "current_weight": 0.1, "target_weight": 0.1},
+            ],
+        },
+        scenario,
+        path_aware=True,
+    )
+    assert good > 0.5 > bad
+
+
+def test_derive_context_includes_metadata_and_position_stress():
+    scenarios = [
+        {
+            "scenario_type": "base",
+            "scenario_name": "Base",
+            "probability": 0.5,
+            "num_days": 20,
+            "final_state": {"regime": "NEUTRAL", "narrative": "n", "csi300_return": 0.02},
+            "portfolio_context": {"current_position_tickers": ["WIN.SH", "LOSS.SH"]},
+            "price_paths": {
+                "000300.SH": {"cumulative_return": 0.02},
+                "WIN.SH": {"cumulative_return": 0.04},
+                "LOSS.SH": {"cumulative_return": -0.03},
+            },
+        },
+        {
+            "scenario_type": "tail_down",
+            "scenario_name": "Crash",
+            "probability": 0.05,
+            "num_days": 20,
+            "final_state": {"regime": "RISK_OFF", "narrative": "n", "csi300_return": -0.3},
+            "portfolio_context": {"current_position_tickers": ["WIN.SH", "LOSS.SH"]},
+            "price_paths": {
+                "000300.SH": {"cumulative_return": -0.3},
+                "WIN.SH": {"cumulative_return": -0.04},
+                "LOSS.SH": {"cumulative_return": -0.22},
+            },
+        },
+    ]
+
+    context = derive_context(scenarios)
+
+    assert context["scenario_count"] == 2
+    assert context["horizon_days"] == 20
+    assert context["context_hash"].startswith("sha256:")
+    assert context["generator_version"] == "mirofish_context_v1"
+    stress = {row["ticker"]: row for row in context["position_stress"]}
+    assert stress["LOSS.SH"]["suggested_action"] == "EXIT"
+    assert stress["LOSS.SH"]["tail_loss"] == -0.22
+
+
+def test_context_hash_binds_current_position_snapshot():
+    base_scenarios = [
+        {
+            "scenario_type": "base",
+            "scenario_name": "Base",
+            "probability": 0.5,
+            "num_days": 20,
+            "final_state": {"regime": "NEUTRAL", "narrative": "n", "csi300_return": 0.02},
+            "portfolio_context": {
+                "current_position_tickers": ["600519.SH"],
+                "position_count": 1,
+                "sector_exposure": {"consumer": 0.08},
+                "theme_exposure": {"premium_consumption": 0.08},
+                "current_positions": [
+                    {
+                        "ticker": "600519.SH",
+                        "market_price": 1680.0,
+                        "cost_basis": 1500.0,
+                        "holding_days": 42,
+                        "unrealized_pnl_pct": 0.12,
+                        "entry_thesis": "premium moat thesis",
+                    }
+                ],
+            },
+            "price_paths": {
+                "000300.SH": {"cumulative_return": 0.02},
+                "600519.SH": {"cumulative_return": -0.04},
+            },
+        }
+    ]
+    changed_snapshot = [
+        {
+            **base_scenarios[0],
+            "portfolio_context": {
+                **base_scenarios[0]["portfolio_context"],
+                "sector_exposure": {"consumer": 0.09},
+                "current_positions": [
+                    {
+                        **base_scenarios[0]["portfolio_context"]["current_positions"][0],
+                        "holding_days": 43,
+                    }
+                ],
+            },
+        }
+    ]
+
+    assert derive_context(base_scenarios)["context_hash"] != derive_context(changed_snapshot)[
+        "context_hash"
+    ]
 
 
 # ── reflexivity overlay ──────────────────────────────────────────────────────

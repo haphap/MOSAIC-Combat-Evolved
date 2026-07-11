@@ -27,7 +27,10 @@ import {
   renderDarwinianWeightsStub,
   renderLayer3Context,
   renderLayer4PeerContext,
+  renderLayer4RuntimeContext,
 } from "./_user_context.js";
+
+const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
 
 /** Build the static portion of the user-context (peers + L3 picks). The
  *  Darwinian weights block is injected by the factory wrapper below. */
@@ -39,9 +42,9 @@ function buildBaseUserContext(state: DailyCycleStateType, weightsBlock: string):
     `* mode:       ${state.mode || "live"}\n\n` +
     `${renderLayer3Context(state)}\n\n` +
     `${renderLayer4PeerContext(state, ["autonomous_execution", "cio"])}\n\n` +
+    `${renderLayer4RuntimeContext(state)}\n\n` +
     `${weightsBlock}\n\n` +
-    `Translate the Layer-3 picks (after subtracting cro's rejected_picks and ` +
-    `optionally adding alpha_discovery's novel_picks) into concrete trade actions ` +
+    `Translate the frozen candidate target after applying cro's review into executable deltas ` +
     `with size_pct in [0, 1]. Apply the Darwinian weights above as a per-agent ` +
     `multiplier when sizing each pick (an agent in quartile 1 gets more weight than ` +
     `quartile 4). HOLD with size_pct = 0 is fine for picks that are valid but ` +
@@ -82,9 +85,11 @@ async function buildUserContextWithWeights(
 
 export const autonomousExecutionSpec: LayerFourAgentSpec<AutoExecOutput> = {
   agentId: "autonomous_execution",
+  runtimeStage: "execution_feasibility",
   schema: AutonomousExecutionSchema,
   fieldNames: AUTONOMOUS_EXECUTION_FIELD_NAMES,
   stateUpdateField: "autonomous_execution",
+  requiredTools: REQUIRED_TOOLS,
   // Static spec uses sync stub fallback; the factory below wraps this for
   // async deps-aware injection. Tests that import the spec directly still
   // get a working buildUserContext without bridge mocks.
@@ -119,6 +124,7 @@ export function fallbackAutonomousExecution(text: string): AutoExecOutput {
   return {
     agent: "autonomous_execution",
     trades: [],
+    execution_checks: [],
     confidence: 0,
   };
 }

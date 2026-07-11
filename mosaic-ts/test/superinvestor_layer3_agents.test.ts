@@ -7,10 +7,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
+
+disableManifestResearchKnobsForLegacyFixtures();
+
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
-import { buildLayerThreeUserContext } from "../src/agents/superinvestor/_factory.js";
+import {
+  buildLayerThreeInitialToolCalls,
+  buildLayerThreeUserContext,
+} from "../src/agents/superinvestor/_factory.js";
 import {
   ackmanSpec,
   buildAckmanNode,
@@ -72,7 +79,14 @@ describe("each superinvestor spec wires the right factory inputs", () => {
     it(`${name}`, () => {
       expect(spec.agentId).toBe(name);
       expect(spec.requiredTools.length).toBeGreaterThanOrEqual(1);
-      expect(spec.fieldNames).toEqual(["picks", "philosophy_note", "key_drivers", "confidence"]);
+      expect(spec.fieldNames).toEqual([
+        "picks",
+        "philosophy_note",
+        "key_drivers",
+        "confidence",
+        "claims",
+        "claim_refs",
+      ]);
     });
   }
 
@@ -198,6 +212,30 @@ describe("buildLayerThreeUserContext", () => {
       layer2_consensus: null,
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],
@@ -207,6 +245,8 @@ describe("buildLayerThreeUserContext", () => {
     expect(ctx).toContain("688981.SH");
     expect(ctx).toContain("druckenmiller");
     expect(ctx).toContain("score=0.60");
+    expect(ctx).toContain("pick at least 2 candidate tickers");
+    expect(ctx).toContain("confirmed by current stock research");
   });
 
   it("degrades gracefully when L1/L2 state is empty", () => {
@@ -225,6 +265,30 @@ describe("buildLayerThreeUserContext", () => {
       layer2_consensus: null,
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],
@@ -264,6 +328,30 @@ describe("buildLayerThreeUserContext", () => {
       layer2_consensus: null,
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],
@@ -271,6 +359,216 @@ describe("buildLayerThreeUserContext", () => {
     const ctx = buildLayerThreeUserContext(state, "druckenmiller");
     expect(ctx).toContain("半导体设备链");
     expect(ctx).toContain("contagion_risks");
+  });
+
+  it("plans Ackman tools around quality-compounder duties", () => {
+    const state: DailyCycleStateType = {
+      messages: [],
+      active_cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      mode: "live",
+      trace_id: "t",
+      continuity_context: {},
+      lesson_context: {},
+      method_context: {},
+      layer1_outputs: {},
+      layer1_consensus: null,
+      layer2_outputs: {
+        consumer: {
+          agent: "consumer",
+          longs: [
+            { ticker: "600519.SH", thesis: "pricing power", conviction: 0.8 },
+            { ticker: "000858.SZ", thesis: "brand compounder", conviction: 0.7 },
+          ],
+          shorts: [],
+          sector_score: 0.4,
+          key_drivers: ["d"],
+          confidence: 0.7,
+        },
+        financials: {
+          agent: "financials",
+          longs: [{ ticker: "600036.SH", thesis: "quality bank", conviction: 0.6 }],
+          shorts: [],
+          sector_score: 0.2,
+          key_drivers: ["d"],
+          confidence: 0.6,
+        },
+      },
+      layer2_consensus: null,
+      layer3_outputs: {},
+      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
+      portfolio_actions: [],
+      replay_triggered: false,
+      llm_calls: [],
+    };
+
+    const ctx = buildLayerThreeUserContext(state, "ackman");
+    expect(ctx).toContain("pricing power, FCF conversion");
+    expect(ctx).toContain("same candidate or one backup");
+    expect(ctx).toContain("initial quality candidate and one backup");
+    expect(buildLayerThreeInitialToolCalls(state, "ackman")).toEqual([
+      { name: "get_fundamentals", args: { ticker: "600519.SH", curr_date: "2024-06-24" } },
+      {
+        name: "get_cashflow",
+        args: { ticker: "600519.SH", freq: "annual", curr_date: "2024-06-24" },
+      },
+    ]);
+  });
+
+  it("plans Burry tools around downside-first duties", () => {
+    const state: DailyCycleStateType = {
+      messages: [],
+      active_cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      mode: "live",
+      trace_id: "t",
+      continuity_context: {},
+      lesson_context: {},
+      method_context: {},
+      layer1_outputs: {},
+      layer1_consensus: null,
+      layer2_outputs: {
+        semiconductor: {
+          agent: "semiconductor",
+          longs: [{ ticker: "688981.SH", thesis: "cycle bottom", conviction: 0.5 }],
+          shorts: [{ ticker: "300750.SZ", thesis: "crowded", conviction: 0.6 }],
+          sector_score: 0.4,
+          key_drivers: ["d"],
+          confidence: 0.7,
+        },
+      },
+      layer2_consensus: null,
+      layer3_outputs: {},
+      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
+      portfolio_actions: [],
+      replay_triggered: false,
+      llm_calls: [],
+    };
+
+    const ctx = buildLayerThreeUserContext(state, "burry");
+    expect(ctx).toContain("balance-sheet stress, cash burn");
+    expect(ctx).toContain("initial downside candidate and one backup");
+    expect(buildLayerThreeInitialToolCalls(state, "burry")).toEqual([
+      { name: "get_fundamentals", args: { ticker: "300750.SZ", curr_date: "2024-06-24" } },
+      {
+        name: "get_balance_sheet",
+        args: { ticker: "300750.SZ", freq: "annual", curr_date: "2024-06-24" },
+      },
+    ]);
+  });
+
+  it("plans Munger tools around compounding-quality duties", () => {
+    const state: DailyCycleStateType = {
+      messages: [],
+      active_cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      mode: "live",
+      trace_id: "t",
+      continuity_context: {},
+      lesson_context: {},
+      method_context: {},
+      layer1_outputs: {},
+      layer1_consensus: null,
+      layer2_outputs: {
+        consumer: {
+          agent: "consumer",
+          longs: [{ ticker: "600519.SH", thesis: "pricing power", conviction: 0.8 }],
+          shorts: [],
+          sector_score: 0.4,
+          key_drivers: ["d"],
+          confidence: 0.7,
+        },
+      },
+      layer2_consensus: null,
+      layer3_outputs: {},
+      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
+      portfolio_actions: [],
+      replay_triggered: false,
+      llm_calls: [],
+    };
+
+    expect(buildLayerThreeInitialToolCalls(state, "munger")).toEqual([
+      { name: "get_fundamentals", args: { ticker: "600519.SH", curr_date: "2024-06-24" } },
+      {
+        name: "get_cashflow",
+        args: { ticker: "600519.SH", freq: "annual", curr_date: "2024-06-24" },
+      },
+    ]);
+    const ctx = buildLayerThreeUserContext(state, "munger");
+    expect(ctx).toContain("moat durability, cash conversion");
+    expect(ctx).toContain("same candidate or one backup");
   });
 });
 
@@ -283,6 +581,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     invokeCalls = 0;
     bindToolsCalled = 0;
     structuredCalls = 0;
+    lastMessages: BaseMessage[] | undefined;
     readonly response: AIMessage;
     readonly structuredResponse: SuperinvestorOutput;
     constructor(text: string, structured: SuperinvestorOutput) {
@@ -303,6 +602,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     }
     async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
       this.invokeCalls++;
+      this.lastMessages = _messages;
       return this.response;
     }
   }
@@ -311,8 +611,8 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-l3-"));
     const dir = join(promptDir, "cohort_default", "superinvestor");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "druckenmiller.zh.md"), "FAKE", "utf-8");
-    writeFileSync(join(dir, "druckenmiller.en.md"), "FAKE", "utf-8");
+    writeFileSync(join(dir, "druckenmiller.zh.md"), "FAKE old tool get_xueqiu_heat", "utf-8");
+    writeFileSync(join(dir, "druckenmiller.en.md"), "FAKE old tool get_xueqiu_heat", "utf-8");
     clearPromptCache();
   });
   afterEach(() => {
@@ -432,6 +732,30 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
       layer2_consensus: null,
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],
@@ -446,6 +770,9 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     expect(llm.bindToolsCalled).toBe(1);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.structuredCalls).toBe(1);
+    const system = String(llm.lastMessages?.[0]?.content ?? "");
+    expect(system).toContain("Only call these registered tools");
+    expect(system).toContain("get_stock_research");
   });
 });
 

@@ -1,0 +1,441 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Domain Knob Evaluation Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "catalog_version",
+    "schema_hash",
+    "catalog_hash",
+    "metric_registry_hash",
+    "calculator_registry_hash",
+    "contract_hash",
+    "evaluation_metrics",
+    "evaluation_calculators",
+    "generic_bindings",
+    "card_bindings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "domain_knob_evaluation_contract_v1"
+    },
+    "contract_version": {
+      "const": "domain_knob_evaluation_contract_v1"
+    },
+    "catalog_version": {
+      "const": "domain_knob_catalog_v1"
+    },
+    "schema_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "catalog_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "metric_registry_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "calculator_registry_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "contract_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "evaluation_metrics": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/metric"
+      }
+    },
+    "evaluation_calculators": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/calculator"
+      }
+    },
+    "generic_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "owner_agent",
+          "owner_stages",
+          "target_type",
+          "minimum",
+          "maximum",
+          "step",
+          "weight_group",
+          "write_back_repo_id",
+          "write_back_path_template",
+          "write_back_json_pointer",
+          "evaluation_metrics",
+          "horizons",
+          "rollback_metrics"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/rule_packs/"
+          },
+          "owner_agent": {
+            "type": "string",
+            "pattern": "^(macro|sector|superinvestor|decision)\\.[a-z][a-z0-9_]*$"
+          },
+          "owner_stages": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "agent_run",
+                "alpha_discovery",
+                "cio_proposal",
+                "cro_review",
+                "execution_feasibility",
+                "cio_final"
+              ]
+            }
+          },
+          "target_type": {
+            "const": "number"
+          },
+          "minimum": {
+            "type": "number"
+          },
+          "maximum": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "weight_group": {
+            "type": ["string", "null"],
+            "enum": ["evidence_weights", null]
+          },
+          "write_back_repo_id": {
+            "const": "MOSAIC-Prompts"
+          },
+          "write_back_path_template": {
+            "type": "string",
+            "pattern": "^registry/prompt_governance/\\{cohort\\}/[a-z][a-z0-9_]*\\.json$"
+          },
+          "write_back_json_pointer": {
+            "type": "string",
+            "pattern": "^/values_by_path/"
+          },
+          "evaluation_metrics": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "horizons": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "rollback_metrics": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "card_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "card_id",
+          "owner_agent",
+          "owner_stage",
+          "activation_state",
+          "prediction_target",
+          "evaluation_metric",
+          "secondary_metrics",
+          "horizon",
+          "rollback_condition"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/rule_packs/"
+          },
+          "card_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner_agent": {
+            "type": "string",
+            "pattern": "^(macro|sector|superinvestor|decision)\\.[a-z][a-z0-9_]*$"
+          },
+          "owner_stage": {
+            "enum": [
+              "agent_run",
+              "alpha_discovery",
+              "cio_proposal",
+              "cro_review",
+              "execution_feasibility",
+              "cio_final"
+            ]
+          },
+          "activation_state": {
+            "enum": ["active", "read_only", "backlog"]
+          },
+          "prediction_target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evaluation_metric": {
+            "type": "string",
+            "minLength": 1
+          },
+          "secondary_metrics": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "horizon": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rollback_condition": {
+            "$ref": "#/$defs/rollback"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "worse_by", "unit"],
+      "properties": {
+        "metric": {
+          "type": "string",
+          "minLength": 1
+        },
+        "worse_by": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit": {
+          "enum": ["ratio", "bps", "count", "score", "currency", "registered_custom_unit"]
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "unit",
+        "value_convention",
+        "direction",
+        "aggregation",
+        "window",
+        "baseline",
+        "calculator_id",
+        "calculator_version",
+        "valid_range",
+        "null_policy",
+        "non_finite_policy",
+        "normalization_version",
+        "uncertainty_method",
+        "overlapping_sample_policy",
+        "min_sample_size",
+        "pit_required",
+        "exclusion_rules"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "enum": ["ratio", "bps", "count", "score", "currency", "registered_custom_unit"]
+        },
+        "value_convention": {
+          "enum": [
+            "signed_return",
+            "nonnegative_loss_magnitude",
+            "rate_0_1",
+            "bps_cost",
+            "score",
+            "count"
+          ]
+        },
+        "direction": {
+          "enum": ["higher_is_better", "lower_is_better"]
+        },
+        "aggregation": {
+          "enum": [
+            "mean",
+            "median",
+            "p50",
+            "p95",
+            "max",
+            "min",
+            "sum",
+            "hit_rate",
+            "calibration_error",
+            "rank_correlation"
+          ]
+        },
+        "window": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseline": {
+          "enum": ["previous_knob_snapshot", "cohort_control", "shadow_ab", "rolling_window"]
+        },
+        "calculator_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "calculator_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "valid_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum", "maximum"],
+          "properties": {
+            "minimum": {
+              "type": ["number", "null"]
+            },
+            "maximum": {
+              "type": ["number", "null"]
+            }
+          }
+        },
+        "null_policy": {
+          "enum": ["exclude_sample", "reject_evaluation"]
+        },
+        "non_finite_policy": {
+          "const": "reject_evaluation"
+        },
+        "normalization_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uncertainty_method": {
+          "enum": [
+            "paired_block_bootstrap",
+            "block_bootstrap",
+            "wilson_interval",
+            "fisher_z"
+          ]
+        },
+        "overlapping_sample_policy": {
+          "enum": ["inverse_overlap_weight", "purged_nonoverlap", "not_applicable"]
+        },
+        "min_sample_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pit_required": {
+          "const": true
+        },
+        "exclusion_rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "calculator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "implementation_language",
+        "implementation_ref",
+        "input_schema_ref",
+        "output_schema_ref",
+        "deterministic",
+        "pit_enforced",
+        "supported_value_conventions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation_language": {
+          "const": "python"
+        },
+        "implementation_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_schema_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output_schema_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deterministic": {
+          "const": true
+        },
+        "pit_enforced": {
+          "const": true
+        },
+        "supported_value_conventions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "signed_return",
+              "nonnegative_loss_magnitude",
+              "rate_0_1",
+              "bps_cost",
+              "score",
+              "count"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

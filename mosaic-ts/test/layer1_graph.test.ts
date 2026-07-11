@@ -17,6 +17,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
+
+disableManifestResearchKnobsForLegacyFixtures();
+
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type {
@@ -328,6 +332,30 @@ describe("buildLayer1Graph (end-to-end serial / aggregate)", () => {
         alpha_discovery: null,
         autonomous_execution: null,
         cio: null,
+      },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
       },
       portfolio_actions: [],
       replay_triggered: false,

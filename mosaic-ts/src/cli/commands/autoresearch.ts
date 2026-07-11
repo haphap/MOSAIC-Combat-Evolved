@@ -11,7 +11,11 @@
 
 import type { Command } from "commander";
 import pc from "picocolors";
-import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
+import {
+  completePromptMutationExperiment,
+  recoverPromptMutationTransactions,
+  runAutoresearchCycle,
+} from "../../autoresearch/orchestrator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
@@ -24,6 +28,7 @@ interface TriggerOptions {
   max?: string;
   dryRun?: boolean;
   fakeLlm?: boolean;
+  mutationMode?: "auto" | "knob_patch" | "prompt_rewrite";
   evalDays?: string;
   llmProvider?: string;
   model?: string;
@@ -32,6 +37,14 @@ interface TriggerOptions {
 
 interface EvaluateOptions {
   cohort?: string;
+}
+
+interface PromotionOptions {
+  versionId: string;
+  decision: "keep" | "revert";
+  approvedBy: string;
+  approvalPolicy: "domain_release_manual_v1" | "decision_release_manual_v1";
+  reason: string;
 }
 
 interface LogOptions {
@@ -62,6 +75,10 @@ export function registerAutoresearch(program: Command): void {
     .option("--max <n>", "Max mutations per cycle (default 1)")
     .option("--dry-run", "Generate mutation but do not commit")
     .option("--fake-llm", "Use in-memory mock LLM (zero cost)")
+    .option(
+      "--mutation-mode <mode>",
+      "auto | knob_patch | prompt_rewrite (default auto; auto uses knob patches for enabled research-knobs agents)",
+    )
     .option("--eval-days <n>", "Evaluation window in trading days (default 60)")
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
@@ -101,6 +118,7 @@ export function registerAutoresearch(program: Command): void {
           dryRun: opts.dryRun ?? false,
           ...(opts.agent ? { forceAgent: opts.agent } : {}),
           ...(opts.fakeLlm ? { fakeLlm: true } : {}),
+          ...(opts.mutationMode ? { mutationMode: opts.mutationMode } : {}),
           deps: { llm: llmHandle.llm, api },
           onLog: (msg) => console.log(pc.dim(`  ${msg}`)),
         });
@@ -148,6 +166,15 @@ export function registerAutoresearch(program: Command): void {
 
         const { results } = await api.autoresearchEvaluatePending({ cohort });
 
+        for (const result of results) {
+          if (
+            result.mutation_id &&
+            ["kept", "reverted", "invalid", "incompatible"].includes(result.status)
+          ) {
+            await completePromptMutationExperiment(result.mutation_id);
+          }
+        }
+
         if (results.length === 0) {
           console.log(pc.dim("  no pending mutations to evaluate"));
         } else {
@@ -161,6 +188,83 @@ export function registerAutoresearch(program: Command): void {
                 (r.delta_sharpe != null ? r.delta_sharpe.toFixed(4) : "n/a"),
             );
           }
+        }
+      } catch (err) {
+        handleError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
+
+  // ── autoresearch domain promotion review ──────────────────────────────
+
+  cmd
+    .command("review-domain")
+    .description("Record an authorized domain-mutation promotion decision.")
+    .requiredOption("--version-id <id>", "Prompt version id")
+    .requiredOption("--decision <decision>", "keep | revert")
+    .requiredOption("--approved-by <operator>", "Operator identity, prefixed with operator:")
+    .requiredOption(
+      "--approval-policy <policy>",
+      "domain_release_manual_v1 | decision_release_manual_v1",
+    )
+    .requiredOption("--reason <text>", "Review rationale")
+    .action(async (opts: PromotionOptions) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        if (!(["keep", "revert"] as const).includes(opts.decision)) {
+          throw new Error("--decision must be keep or revert");
+        }
+        if (
+          !(["domain_release_manual_v1", "decision_release_manual_v1"] as const).includes(
+            opts.approvalPolicy,
+          )
+        ) {
+          throw new Error("--approval-policy is unsupported");
+        }
+        const result = await api.autoresearchReviewDomainPromotion({
+          version_id: Number.parseInt(opts.versionId, 10),
+          decision: opts.decision,
+          approved_by: opts.approvedBy,
+          approval_policy_id: opts.approvalPolicy,
+          review_reason: opts.reason,
+        });
+        console.log(
+          `${result.status} version=${result.version_id} decision=${result.decision_hash}`,
+        );
+        const mutationId = result.decision.mutation_id;
+        if (typeof mutationId === "string" && mutationId) {
+          await completePromptMutationExperiment(mutationId);
+        }
+      } catch (err) {
+        handleError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
+
+  cmd
+    .command("recover-transactions")
+    .description("Reconcile durable prompt-mutation transactions after a process restart.")
+    .option("--transaction-dir <path>", "Mutation transaction journal root")
+    .action(async (opts: { transactionDir?: string }) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        const reconciled = await recoverPromptMutationTransactions(
+          api,
+          opts.transactionDir ??
+            process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR?.trim() ??
+            undefined,
+        );
+        console.log(`reconciled transactions=${reconciled.length}`);
+        for (const manifest of reconciled) {
+          console.log(
+            `  ${manifest.transaction_id} ${manifest.state} ${manifest.recovery_decision ?? ""}`,
+          );
         }
       } catch (err) {
         handleError(err, client);

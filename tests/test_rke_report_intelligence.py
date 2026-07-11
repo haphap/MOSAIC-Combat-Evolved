@@ -4897,6 +4897,23 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     )
 
 
+def _approve_draft_rows(
+    path: Path,
+    *,
+    reviewer: str,
+    review_date: str,
+    not_import_field: str,
+) -> None:
+    rows = _read_jsonl(path)
+    for row in rows:
+        row["approval_status"] = "approved"
+        row["human_approval_required"] = False
+        row[not_import_field] = False
+        row["reviewer"] = reviewer
+        row["review_date"] = review_date
+    _write_jsonl(path, rows)
+
+
 def _git_ls_files(prefix: str) -> list[str]:
     result = subprocess.run(
         ["git", "ls-files", prefix],
@@ -11852,6 +11869,14 @@ def test_industry_etf_proxy_matches_normalized_sector_aliases():
     education_proxy = _industry_etf_proxy_for_sector("教育")
     assert education_proxy is not None
     assert education_proxy["etf_symbol"] == "SH513360"
+    auto_parts_proxy = _industry_etf_proxy_for_sector("汽车零部件")
+    assert auto_parts_proxy is not None
+    assert auto_parts_proxy["sector_name"] == "汽车零部件"
+    assert auto_parts_proxy["etf_symbol"] == "SH515700"
+    non_bank_proxy = _industry_etf_proxy_for_sector("非银行金融")
+    assert non_bank_proxy is not None
+    assert non_bank_proxy["sector_name"] == "非银行金融"
+    assert non_bank_proxy["etf_symbol"] == "SH512880"
     assert _industry_etf_proxy_for_sector("专业服务") is None
 
 
@@ -16965,7 +16990,7 @@ def test_write_footprint_negative_approval_draft_is_private_not_import(
                 "report_id": "RPT-FOUND",
                 "sample_kind": "report_level_footprint_recall_candidate",
                 "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-FOUND",
-                "target_row_hash": "sha256:found",
+                "target_row_hash": "sha256:" + "1" * 64,
                 "report_type": "宏观策略",
                 "forecast_claim_count": 1,
                 "extracted_footprint_count": 2,
@@ -16984,7 +17009,7 @@ def test_write_footprint_negative_approval_draft_is_private_not_import(
                 "report_id": "RPT-MISSED",
                 "sample_kind": "report_level_footprint_recall_candidate",
                 "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-MISSED",
-                "target_row_hash": "sha256:missed",
+                "target_row_hash": "sha256:" + "2" * 64,
                 "report_type": "行业研报",
                 "forecast_claim_count": 0,
                 "extracted_footprint_count": 0,
@@ -17047,7 +17072,7 @@ def test_approve_footprint_negative_draft_writes_progress_input(
                 "report_id": "RPT-FOUND",
                 "sample_kind": "report_level_footprint_recall_candidate",
                 "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-FOUND",
-                "target_row_hash": "sha256:found",
+                "target_row_hash": "sha256:" + "1" * 64,
                 "extracted_footprint_count": 1,
                 "suggested_review_focus": "claims_with_extracted_footprints",
                 "expected_footprint_present": None,
@@ -17063,7 +17088,7 @@ def test_approve_footprint_negative_draft_writes_progress_input(
                 "report_id": "RPT-MISSED",
                 "sample_kind": "report_level_footprint_recall_candidate",
                 "review_context_ref": "registry/report_intelligence/report_metadata.jsonl#SRC-MISSED",
-                "target_row_hash": "sha256:missed",
+                "target_row_hash": "sha256:" + "2" * 64,
                 "extracted_footprint_count": 0,
                 "suggested_review_focus": "no_extracted_footprints",
                 "expected_footprint_present": None,
@@ -17078,6 +17103,13 @@ def test_approve_footprint_negative_draft_writes_progress_input(
     write_analytical_footprint_negative_example_approval_draft(
         tmp_path,
         expected_positive_minimum_target=2,
+    )
+    _approve_draft_rows(
+        tmp_path
+        / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH,
+        reviewer="negative-reviewer",
+        review_date="2026-06-24",
+        not_import_field="not_apply_footprint_negative_examples_input",
     )
 
     report = write_analytical_footprint_negative_example_approved_import(
@@ -17665,6 +17697,12 @@ def test_approve_analytical_footprint_review_draft_writes_valid_import(
         priority=True,
     )
     write_analytical_footprint_review_approval_draft(tmp_path)
+    _approve_draft_rows(
+        tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_APPROVAL_DRAFT_JSONL_PATH,
+        reviewer="user_approved",
+        review_date="2026-06-24",
+        not_import_field="not_apply_footprint_review_input",
+    )
 
     report = write_analytical_footprint_review_approved_import(
         tmp_path,
@@ -17694,6 +17732,53 @@ def test_approve_analytical_footprint_review_draft_writes_valid_import(
     assert dry_run.accepted
     assert dry_run.input_rows == 1
     assert dry_run.rejected_rows == 0
+
+
+def test_approved_import_rejects_pending_or_unbound_draft(tmp_path: Path):
+    target_path = tmp_path / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLES_PATH
+    target_hash = "sha256:" + "1" * 64
+    _write_jsonl(
+        target_path,
+        [
+            {
+                "negative_example_id": "NEG-1",
+                "target_row_hash": target_hash,
+                "expected_footprint_present": None,
+                "extracted_footprint_found": None,
+            }
+        ],
+    )
+    draft_path = (
+        tmp_path
+        / ANALYTICAL_FOOTPRINT_NEGATIVE_EXAMPLE_APPROVAL_DRAFT_JSONL_PATH
+    )
+    _write_jsonl(
+        draft_path,
+        [
+            {
+                "negative_example_id": "NEG-1",
+                "target_row_hash": "",
+                "approval_status": "pending_human_approval",
+                "human_approval_required": True,
+                "not_apply_footprint_negative_examples_input": True,
+                "reviewer": "",
+                "review_date": "",
+                "expected_footprint_present": True,
+                "extracted_footprint_found": False,
+            }
+        ],
+    )
+
+    report = write_analytical_footprint_negative_example_approved_import(
+        tmp_path,
+        reviewer="reviewer",
+        review_date="2026-06-24",
+        overwrite=True,
+    )
+
+    assert not report.accepted
+    assert any("approval_status must be approved" in item for item in report.blockers)
+    assert any("target_row_hash must be sha256" in item for item in report.blockers)
 
 
 def test_analytical_footprint_review_evidence_falls_back_to_cached_markdown(

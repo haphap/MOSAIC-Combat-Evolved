@@ -116,8 +116,8 @@ export interface MosaicConfig {
   };
 
   // ----- MiroFish (Plan §11.8 / 7M) -----
-  /** Forward-simulation toggles. ``inject_context`` (default false) appends the
-   *  latest MiroFish scenario context to the CIO prompt (7M Step 2). */
+  /** Forward-simulation toggles. ``inject_context`` (default false) appends one
+   *  shared simulation-only MiroFish context to CRO, execution, and CIO. */
   mirofish?: {
     engine?: string;
     scorer?: string;
@@ -185,6 +185,12 @@ export interface PaperTrade {
   commission: number;
   pnl: number | null;
   analysis_id: string | null;
+  order_intent_key: string | null;
+  final_target_hash: string | null;
+  base_account_snapshot_hash: string | null;
+  fill_status: "filled" | "partial" | "rejected";
+  filled_quantity: number;
+  residual_quantity: number;
   created_at: string;
 }
 
@@ -197,6 +203,19 @@ export interface PaperOrderResult {
   commission: number;
   total_cost?: number;
   pnl?: number;
+  order_intent_key?: string | null;
+  final_target_hash?: string | null;
+  base_account_snapshot_hash?: string | null;
+  fill_status?: "filled" | "partial" | "rejected";
+  filled_quantity?: number;
+  residual_quantity?: number;
+  idempotent_replay?: boolean;
+}
+
+export interface PaperPortfolioSnapshot {
+  account: PaperAccount;
+  positions: PaperPosition[];
+  snapshot_hash: string;
 }
 
 export interface PaperSuggestion {
@@ -241,6 +260,21 @@ export interface BacktestRunInfo {
   distinct_trade_days?: number;
   first_trade_date?: string | null;
   last_trade_date?: string | null;
+}
+
+export interface BacktestActionSummary {
+  run_id: number;
+  action_count: number;
+  trade_day_count: number;
+  first_trade_date: string | null;
+  last_trade_date: string | null;
+  ticker_count: number;
+  turnover_proxy: number;
+  max_observed_holding_days: number;
+  stale_thesis_proxy_count: number;
+  action_counts: Record<string, number>;
+  holding_period_counts: Record<string, number>;
+  metric_availability: Record<string, string>;
 }
 
 /** Returned by ``backtest.run_historical``. Mirrors
@@ -325,6 +359,18 @@ export interface CioAction {
   ticker: string;
   action: string;
   target_weight_pct: number | null;
+  current_weight_pct?: number | null;
+  delta_weight_pct?: number | null;
+  position_decision?: "HOLD" | "ADD" | "REDUCE" | "EXIT" | null;
+  position_decision_reason?: string | null;
+  override_reason?: string | null;
+  thesis_status?: "intact" | "weakened" | "broken" | "expired" | null;
+  risk_flags_json?: string | null;
+  declared_knob_influence_ids_json?: string | null;
+  declared_influence_rationale?: string | null;
+  verified_knob_audit_json?: string | null;
+  decision_agent_audits_json?: string | null;
+  dissent_notes?: string | null;
   rationale_snapshot: string | null;
   forward_return_5d: number | null;
   scored_at: string | null;
@@ -396,6 +442,7 @@ export interface PromptWriteResult {
   prompt_base_commit_hash?: string;
   prompt_commit_hash?: string;
   prompt_sha256?: string;
+  extra_files_sha256?: string | null;
   commit_hash?: string;
   branch?: string;
   paths: string[];
@@ -420,6 +467,8 @@ export interface PromptVersionAuditRow {
   prompt_base_commit_hash?: string | null;
   prompt_sha256?: string | null;
   code_commit_hash?: string | null;
+  mutation_id?: string | null;
+  mutation_lifecycle?: string | null;
   delta_sharpe?: number | null;
   created_at?: string | null;
   decided_at?: string | null;
@@ -461,6 +510,76 @@ export interface PromptPreflightResult {
   rows: PromptPreflightRow[];
 }
 
+export interface PromptContractCheckRow {
+  agent: string;
+  layer: string;
+  lang: PromptLang;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_file_path: string;
+  prompt_sha256: string;
+  prompt_contract_check_ref: string;
+  benchmark_run_id: string;
+  ready: boolean;
+  blockers: string[];
+  contract_categories: Record<string, boolean>;
+  research_knobs_required?: boolean;
+  research_knobs_check_passed?: boolean;
+}
+
+export interface PromptContractCheckResult {
+  schema_version: "prompt_contract_check_v1";
+  contract_version: string;
+  benchmark_run_id: string;
+  cohort: string;
+  ready: boolean;
+  row_count: number;
+  ready_count: number;
+  blocked_count: number;
+  blocked_reasons: string[];
+  counts_by_layer: Record<string, number>;
+  counts_by_language: Record<string, number>;
+  counts_by_ready_status: Record<string, number>;
+  counts_by_blocker_code: Record<string, number>;
+  rows: PromptContractCheckRow[];
+}
+
+export interface PromptFormalReleaseCheckRow {
+  agent: string;
+  layer: string;
+  lang: PromptLang;
+  benchmark_run_id: string;
+  prompt_version_id: number;
+  prompt_repo_id: string;
+  prompt_repo_revision: string;
+  prompt_file_path: string;
+  prompt_sha256: string;
+  audit_version_ref: string;
+  verify_release_ref: string;
+  leak_drift_check_ref: string;
+  prompt_contract_check_ref: string;
+  verify_release_passed: boolean;
+  leak_drift_passed: boolean;
+  prompt_contract_check_passed: boolean;
+  research_knobs_required?: boolean;
+  research_knobs_check_passed?: boolean;
+  ready: boolean;
+  blockers: string[];
+}
+
+export interface PromptFormalReleaseChecksResult {
+  schema_version: "prompt_formal_release_checks_v1";
+  benchmark_run_id: string;
+  cohort: string;
+  ready: boolean;
+  row_count: number;
+  ready_count: number;
+  blocked_count: number;
+  blocked_reasons: string[];
+  prompt_source_status: PromptPreflightResult["source_status"];
+  rows: PromptFormalReleaseCheckRow[];
+}
+
 export interface PromptReleaseCheckResult {
   ready: boolean;
   checks: Record<string, boolean>;
@@ -473,6 +592,11 @@ export interface PromptReleaseCheckResult {
     prompt_repo_id?: string | null;
     prompt_commit_hash?: string | null;
     prompt_sha256?: string | null;
+    mutation_id?: string | null;
+    experiment_id?: string | null;
+    keep_decision_hash?: string | null;
+    evaluation_result_hash?: string | null;
+    transaction_manifest_hash?: string | null;
   };
 }
 
@@ -543,6 +667,8 @@ export interface RkeAllAgentPromptProvenanceRow {
   audit_version_ref: string;
   verify_release_ref: string;
   leak_drift_check_ref: string;
+  prompt_contract_check_ref: string;
+  prompt_contract_check_passed: boolean;
   fallback_used: boolean;
   ready: boolean;
   blockers: string[];
@@ -618,6 +744,8 @@ export interface RkeFixedEpisodeBenchmarkEvidenceResult {
     benchmark_run_id: string;
     episode_manifest_ref: string;
     as_of_date_manifest_ref: string;
+    benchmark_runner_ref: string;
+    prompt_contract_check_manifest_ref: string;
     model_config_manifest_ref: string;
     paired_output_manifest_ref: string;
     output_schema_validation_report_ref: string;
@@ -628,11 +756,15 @@ export interface RkeFixedEpisodeBenchmarkEvidenceResult {
     benchmark_run_id: string;
     decision: string;
     reviewer_timestamp: string;
+    reviewer_independence_confirmed: boolean;
   };
   promotion_allowed: boolean;
 }
 
 export interface RkeAgentClaimFootprintInput {
+  replay_run_id?: string;
+  episode_id?: string;
+  model_config_id?: string;
   agent: string;
   layer?: string;
   as_of_date: string;
@@ -785,8 +917,13 @@ export interface RkeDarwinianAutoresearchConsumptionReadinessResult {
     rke_prior_usage_metrics_ref: string;
     downstream_outcome_metrics_ref: string;
     darwinian_weight_update_ref: string;
+    agent_skill_decomposition_ref: string;
     autoresearch_update_ref: string;
+    rejected_update_reasons_ref: string;
     rollback_readiness_ref: string;
+    agent_weight_count: number | null;
+    non_stub_weight_count: number | null;
+    layer_weight_sum_ready: boolean;
     darwinian_consumed: boolean;
     autoresearch_consumed: boolean;
   };
@@ -897,6 +1034,8 @@ export interface RkePromptMutationReleaseRecord {
   prompt_sha256: string;
   verify_release_ref: string;
   leak_drift_check_ref: string;
+  prompt_contract_check_ref: string;
+  prompt_contract_check_passed: boolean;
   release_ready: boolean;
   blockers: string[];
 }
@@ -904,7 +1043,7 @@ export interface RkePromptMutationReleaseRecord {
 export interface RkePromptMutationReleaseReadinessResult {
   schema_version: "rke_prompt_mutation_release_readiness_v1";
   benchmark_run_id: string;
-  readiness_status: "ready" | "blocked_preflight";
+  readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   blocked_reasons: string[];
   lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
   branch_candidate_count: number;
@@ -934,7 +1073,7 @@ export interface RkePromptMutationRollbackRecord {
 export interface RkePromptMutationRollbackReadinessResult {
   schema_version: "rke_prompt_mutation_rollback_readiness_v1";
   benchmark_run_id: string;
-  readiness_status: "ready" | "blocked_preflight";
+  readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   blocked_reasons: string[];
   lifecycle_manifest_status: "ready_for_private_branch" | "blocked_preflight";
   branch_candidate_count: number;
@@ -964,7 +1103,7 @@ export interface RkePatchActivationRecord {
 export interface RkePatchActivationReadinessResult {
   schema_version: "rke_patch_activation_readiness_v1";
   benchmark_run_id: string;
-  readiness_status: "ready" | "blocked_preflight";
+  readiness_status: "ready" | "blocked_preflight" | "not_applicable";
   blocked_reasons: string[];
   candidate_manifest_status: "ready_for_private_prompt_lifecycle" | "blocked_preflight";
   patch_candidate_count: number;
@@ -985,8 +1124,22 @@ export interface RkeShadowReplayReadinessResult {
   prompt_provenance_readiness_status: "ready" | "blocked_preflight";
   benchmark_evidence_status: "ready" | "blocked_preflight";
   darwinian_manifest_status: "ready" | "blocked_preflight";
-  prompt_release_readiness_status: "ready" | "blocked_preflight";
-  rollback_readiness_status: "ready" | "blocked_preflight";
+  darwinian_consumption_status: "ready" | "blocked_preflight";
+  prompt_release_readiness_status: "ready" | "blocked_preflight" | "not_applicable";
+  rollback_readiness_status: "ready" | "blocked_preflight" | "not_applicable";
+  replay_evidence: {
+    benchmark_run_id: string;
+    replay_run_id: string;
+    replay_run_ref: string;
+    replay_output_manifest_ref: string;
+    runtime_context_consumption_ref: string;
+    replay_footprint_ref: string;
+    downstream_outcome_metrics_ref: string;
+    replay_output_count: number | null;
+    replay_footprint_count: number | null;
+    privacy_scan_passed: boolean;
+    current_data_confirmed: boolean;
+  };
   rke_context_hash_count: number;
   ranking_policy_id_counts: Record<string, number>;
   retrieval_rank_count: number;
@@ -1116,10 +1269,21 @@ export interface AutoresearchMissingRun {
 
 export interface AutoresearchEvalResult {
   version_id: number;
+  mutation_id?: string;
   status: string;
   delta_sharpe?: number;
   detail?: string;
   missing_runs?: AutoresearchMissingRun[];
+  missing_domain_samples?: boolean;
+  evaluation_result?: Record<string, unknown> | null;
+}
+
+export interface AutoresearchDomainPromotionResult {
+  version_id: number;
+  status: "kept" | "reverted";
+  decision_hash: string;
+  decision: Record<string, unknown>;
+  created: boolean;
 }
 
 /** A single autoresearch log row from ``autoresearch.get_log``. */
@@ -1256,6 +1420,21 @@ export interface MirofishScenario {
   price_paths: Record<string, MirofishPricePath>;
   events: Array<{ day: number; date: string; event: string; impact: string }>;
   final_state: { regime: string; narrative: string; csi300_return: number };
+  portfolio_context?: {
+    current_position_tickers?: string[];
+    position_count?: number;
+    sector_exposure?: Record<string, number>;
+    theme_exposure?: Record<string, number>;
+    current_positions?: Array<{
+      ticker: string;
+      market_price?: number;
+      current_weight?: number;
+      cost_basis?: number;
+      holding_days?: number;
+      unrealized_pnl_pct?: number;
+      entry_thesis?: string;
+    }>;
+  };
 }
 
 export interface MirofishRecommendation {
@@ -1263,6 +1442,31 @@ export interface MirofishRecommendation {
   tickers: string[];
   conviction: number;
   reasoning?: string;
+  position_reviews?:
+    | Array<{
+        ticker: string;
+        decision: "HOLD" | "ADD" | "REDUCE" | "EXIT";
+        target_weight?: number | undefined;
+        current_weight?: number | undefined;
+        reason?: string | undefined;
+      }>
+    | undefined;
+  new_entries?:
+    | Array<{
+        ticker: string;
+        target_weight?: number | undefined;
+        reason?: string | undefined;
+      }>
+    | undefined;
+  portfolio_actions?:
+    | Array<{
+        ticker: string;
+        action: "BUY" | "SELL" | "HOLD" | "REDUCE";
+        target_weight?: number | undefined;
+        current_weight?: number | undefined;
+        delta_weight?: number | undefined;
+      }>
+    | undefined;
 }
 
 export interface MirofishHistoryEntry {
@@ -1280,6 +1484,11 @@ export interface MirofishHistoryEntry {
  *  ``hct_direction`` / ``tail_summary`` may be null (see derive_context). */
 export interface MirofishContext {
   n_scenarios: number;
+  scenario_count?: number;
+  horizon_days?: number;
+  as_of_date?: string;
+  context_hash?: string;
+  generator_version?: string;
   regime: string | null;
   narrative: string | null;
   csi300_return: number;
@@ -1287,6 +1496,14 @@ export interface MirofishContext {
   hct_direction: "LONG" | "SHORT" | null;
   hct_csi300_return: number;
   tail_summary: string | null;
+  position_stress?:
+    | Array<{
+        ticker: string;
+        tail_loss?: number | undefined;
+        scenario_agreement?: number | undefined;
+        suggested_action?: "HOLD" | "ADD" | "REDUCE" | "EXIT" | undefined;
+      }>
+    | undefined;
   engine: string;
   date?: string;
   created_at?: string;
@@ -1379,6 +1596,12 @@ export class BridgeApi {
     return this.client.call<PaperAccount>("paper.get_account", opts);
   }
 
+  paperGetPortfolioSnapshot(
+    opts: { user_id?: string; db_path?: string } = {},
+  ): Promise<PaperPortfolioSnapshot> {
+    return this.client.call<PaperPortfolioSnapshot>("paper.get_portfolio_snapshot", opts);
+  }
+
   paperGetPositions(opts: { user_id?: string; db_path?: string } = {}): Promise<PaperPosition[]> {
     return this.client.call<PaperPosition[]>("paper.get_positions", opts);
   }
@@ -1418,6 +1641,9 @@ export class BridgeApi {
     quantity: number;
     user_id?: string;
     analysis_id?: string;
+    order_intent_key?: string;
+    expected_account_snapshot_hash?: string;
+    final_target_hash?: string;
     db_path?: string;
   }): Promise<PaperOrderResult> {
     return this.client.call<PaperOrderResult>("paper.buy", params);
@@ -1428,6 +1654,9 @@ export class BridgeApi {
     quantity: number;
     user_id?: string;
     analysis_id?: string;
+    order_intent_key?: string;
+    expected_account_snapshot_hash?: string;
+    final_target_hash?: string;
     db_path?: string;
   }): Promise<PaperOrderResult> {
     return this.client.call<PaperOrderResult>("paper.sell", params);
@@ -1480,6 +1709,10 @@ export class BridgeApi {
     since?: string;
   }): Promise<{ runs: BacktestRunInfo[] }> {
     return this.client.call<{ runs: BacktestRunInfo[] }>("backtest.list_runs", opts ?? {});
+  }
+
+  backtestActionSummary(runId: number): Promise<BacktestActionSummary> {
+    return this.client.call<BacktestActionSummary>("backtest.action_summary", { run_id: runId });
   }
 
   // R-A3: stage-1 failed-day tracking.
@@ -1638,12 +1871,30 @@ export class BridgeApi {
     agent: string;
     cohort: string;
     contents: Partial<Record<PromptLang, string>>;
+    extra_files?: Record<string, string>;
+    expected_base_hashes?: Record<string, string>;
     target?: "private_git" | "project_git" | "working_tree";
     branch?: string;
+    base_ref?: string;
     message?: string;
     allow_public_prompt_write?: boolean;
   }): Promise<PromptWriteResult> {
     return this.client.call<PromptWriteResult>("prompts.write", params);
+  }
+
+  promptsCandidateState(params: {
+    branch: string;
+    target?: "private_git" | "project_git";
+    expected_hashes: Record<string, string>;
+  }): Promise<{ candidate_visible: boolean; new_commit: string | null; hashes_match: boolean }> {
+    return this.client.call("prompts.candidate_state", params);
+  }
+
+  promptsAbortCandidate(params: {
+    branch: string;
+    target?: "private_git" | "project_git";
+  }): Promise<{ ok: boolean }> {
+    return this.client.call("prompts.abort_candidate", params);
   }
 
   promptsInitPrivateRepo(params: {
@@ -1671,6 +1922,28 @@ export class BridgeApi {
     langs?: PromptLang[];
   }): Promise<PromptPreflightResult> {
     return this.client.call<PromptPreflightResult>("prompts.preflight", params ?? {});
+  }
+
+  promptsContractCheck(params?: {
+    cohort?: string;
+    agents?: string[];
+    langs?: PromptLang[];
+    prompt_rows?: PromptPreflightRow[];
+    benchmark_run_id?: string;
+  }): Promise<PromptContractCheckResult> {
+    return this.client.call<PromptContractCheckResult>("prompts.contract_check", params ?? {});
+  }
+
+  promptsFormalReleaseChecks(params?: {
+    cohort?: string;
+    agents?: string[];
+    langs?: PromptLang[];
+    benchmark_run_id?: string;
+  }): Promise<PromptFormalReleaseChecksResult> {
+    return this.client.call<PromptFormalReleaseChecksResult>(
+      "prompts.formal_release_checks",
+      params ?? {},
+    );
   }
 
   promptsVerifyRelease(params: {
@@ -1771,7 +2044,7 @@ export class BridgeApi {
 
   rkeBenchmarkDarwinianAutoresearchInputManifest(params?: {
     benchmark_run_id?: string;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: {
       benchmark_run_id?: string;
       prompt_repo_id?: string;
@@ -1788,7 +2061,7 @@ export class BridgeApi {
 
   rkeBenchmarkDarwinianAutoresearchConsumptionReadiness(params?: {
     benchmark_run_id?: string;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
     consumption_evidence?: Record<string, unknown>;
   }): Promise<RkeDarwinianAutoresearchConsumptionReadinessResult> {
@@ -1853,13 +2126,15 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
@@ -1874,13 +2149,15 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
@@ -1896,13 +2173,15 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
     rollback_evidence?: Array<Record<string, unknown>>;
@@ -1920,15 +2199,17 @@ export class BridgeApi {
     cohort?: string;
     prompt_source_status?: Record<string, unknown>;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     profile_evidence?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
     darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     patch_activation_evidence?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
@@ -1955,15 +2236,17 @@ export class BridgeApi {
     benchmark_run_id: string;
     cohort?: string;
     all_agent_prompt_release_checks?: Array<Record<string, unknown>>;
+    prompt_contract_checks?: Array<Record<string, unknown>>;
     paired_output_count?: number;
     model_config_output_counts?: Record<string, number>;
     benchmark_quality_summary?: Record<string, unknown>;
     benchmark_evidence_refs?: Record<string, unknown>;
     manual_review?: Record<string, unknown>;
     profile_evidence?: Record<string, unknown>;
-    downstream_outcome_metrics?: Record<string, number>;
+    downstream_outcome_metrics?: Record<string, unknown>;
     prompt_mutation_provenance?: Record<string, unknown>;
     darwinian_autoresearch_consumption_evidence?: Record<string, unknown>;
+    replay_evidence?: Record<string, unknown>;
     candidates?: Array<Record<string, unknown>>;
     patch_activation_evidence?: Array<Record<string, unknown>>;
     prompt_mutation_release_checks?: Array<Record<string, unknown>>;
@@ -1991,6 +2274,7 @@ export class BridgeApi {
     prompt_base_commit_hash?: string;
     prompt_sha256?: string;
     code_commit_hash?: string;
+    mutation_metadata?: object;
   }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.record_mutation", params);
   }
@@ -1998,10 +2282,24 @@ export class BridgeApi {
   autoresearchEvaluatePending(params?: {
     cohort?: string;
     version_id?: number;
+    domain_sample_manifest?: Record<string, unknown>;
   }): Promise<{ results: AutoresearchEvalResult[] }> {
     return this.client.call<{ results: AutoresearchEvalResult[] }>(
       "autoresearch.evaluate_pending",
       params ?? {},
+    );
+  }
+
+  autoresearchReviewDomainPromotion(params: {
+    version_id: number;
+    decision: "keep" | "revert";
+    approved_by: string;
+    approval_policy_id: "domain_release_manual_v1" | "decision_release_manual_v1";
+    review_reason: string;
+  }): Promise<AutoresearchDomainPromotionResult> {
+    return this.client.call<AutoresearchDomainPromotionResult>(
+      "autoresearch.review_domain_promotion",
+      params,
     );
   }
 
@@ -2123,6 +2421,18 @@ export class BridgeApi {
     seed?: number;
     scenarios?: string[];
     start_prices?: Record<string, number>;
+    current_positions?: Array<{
+      ticker: string;
+      market_price?: number;
+      current_price?: number;
+      current_weight?: number;
+      cost_basis?: number;
+      unrealized_pnl_pct?: number;
+      holding_days?: number;
+      entry_thesis?: string;
+    }>;
+    sector_exposure?: Record<string, number>;
+    theme_exposure?: Record<string, number>;
     reflexivity?: boolean;
     engine?: "montecarlo" | "swarm" | "oasis";
     /** Cap OASIS sim rounds (oasis engine only; positive int, server default 5). */

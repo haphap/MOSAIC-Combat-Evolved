@@ -1,0 +1,659 @@
+import { attachRuntimeOwnedFallbackClaims } from "../helpers/evidence_runtime.js";
+import { buildPositionAuditToolStatusSummary } from "../helpers/position_audit.js";
+import type { ResearchKnobsSnapshot } from "../helpers/research_knobs.js";
+import type {
+  CandidateTargetState,
+  CioFinalOutput,
+  CioOutput,
+  CroReviewState,
+  CurrentPositionsSnapshot,
+  PortfolioAction,
+  PositionAudit,
+  PositionReview,
+} from "../types.js";
+
+export interface PositionValidationResult {
+  output: CioOutput;
+  position_reviews: PositionReview[];
+  position_audit: PositionAudit;
+}
+
+export class PositionActionValidationError extends Error {
+  override readonly name = "PositionActionValidationError";
+}
+
+const DEFAULT_MAX_SINGLE_NAME_WEIGHT = 0.12;
+const DEFAULT_MAX_SECTOR_WEIGHT = 0.3;
+
+export function buildConservativeCioFinalFallback(opts: {
+  sourceOutput: CioOutput;
+  currentPositions: CurrentPositionsSnapshot;
+  candidate: CandidateTargetState;
+  croReview: CroReviewState;
+  knobSnapshot?: ResearchKnobsSnapshot | null;
+  sharedPolicyValues?: Readonly<Record<string, unknown>>;
+  rejectionReasons: ReadonlyArray<string>;
+}): CioFinalOutput {
+  const stopLossPct = thresholdNumber(
+    opts.knobSnapshot,
+    opts.sharedPolicyValues,
+    "stop_loss_pct",
+    -0.08,
+  );
+  const maxSingleNameWeight = thresholdNumber(
+    opts.knobSnapshot,
+    opts.sharedPolicyValues,
+    "max_single_name_weight",
+    DEFAULT_MAX_SINGLE_NAME_WEIGHT,
+  );
+  const maxSectorWeight = thresholdNumber(
+    opts.knobSnapshot,
+    opts.sharedPolicyValues,
+    "max_sector_weight",
+    DEFAULT_MAX_SECTOR_WEIGHT,
+  );
+  const candidateByTicker = new Map(
+    opts.candidate.portfolio_actions.map((action) => [action.ticker, action]),
+  );
+  const adjustmentByTicker = new Map(
+    (opts.croReview.output.required_adjustments ?? []).map((adjustment) => [
+      adjustment.ticker,
+      adjustment,
+    ]),
+  );
+  const targetByTicker = new Map<string, number>();
+  for (const position of opts.currentPositions.positions) {
+    const candidateAction = candidateByTicker.get(position.ticker);
+    let target = Math.min(position.current_weight, candidateAction?.target_weight ?? 0);
+    const adjustment = adjustmentByTicker.get(position.ticker);
+    if (adjustment?.adjustment === "VETO") target = 0;
+    if (
+      (adjustment?.adjustment === "CAP_WEIGHT" || adjustment?.adjustment === "REDUCE_WEIGHT") &&
+      adjustment.max_target_weight !== undefined
+    ) {
+      target = Math.min(target, adjustment.max_target_weight);
+    }
+    if (position.unrealized_pnl_pct <= stopLossPct) target = 0;
+    targetByTicker.set(position.ticker, Math.min(target, maxSingleNameWeight));
+  }
+  applyFallbackSectorCaps(opts.currentPositions, targetByTicker, maxSectorWeight);
+  const totalTarget = [...targetByTicker.values()].reduce((sum, weight) => sum + weight, 0);
+  if (totalTarget > 1) {
+    const scale = 1 / totalTarget;
+    for (const [ticker, target] of targetByTicker.entries()) {
+      targetByTicker.set(ticker, target * scale);
+    }
+  }
+
+  const portfolioActions = opts.currentPositions.positions.map((position): PortfolioAction => {
+    const candidateAction = candidateByTicker.get(position.ticker);
+    const targetWeight = targetByTicker.get(position.ticker) ?? 0;
+    const isExit = targetWeight <= 1e-9;
+    const isReduce = !isExit && targetWeight < position.current_weight - 1e-9;
+    const riskFlags = [
+      "shared_validation_fallback",
+      ...(position.unrealized_pnl_pct <= stopLossPct ? ["stop_loss_required_exit"] : []),
+      ...(candidateAction ? [] : ["candidate_coverage_missing"]),
+    ];
+    return {
+      ticker: position.ticker,
+      action: isExit ? "SELL" : isReduce ? "REDUCE" : "HOLD",
+      ...(position.sector ? { sector: position.sector } : {}),
+      position_decision: isExit ? "EXIT" : isReduce ? "REDUCE" : "HOLD",
+      current_weight: position.current_weight,
+      target_weight: targetWeight,
+      delta_weight: targetWeight - position.current_weight,
+      holding_period: candidateAction?.holding_period ?? "1M",
+      position_decision_reason: isExit
+        ? "runtime safety fallback required exit or zero-risk target"
+        : isReduce
+          ? "runtime safety fallback retained only validated reduced exposure"
+          : "runtime safety fallback preserved current exposure",
+      thesis_status: isExit ? "broken" : "weakened",
+      risk_flags: riskFlags,
+      review_source: "runtime_safety_fallback",
+      dissent_notes: "",
+    };
+  });
+  const dissent_refs = [...adjustmentByTicker.keys()]
+    .filter((ticker) => candidateByTicker.has(ticker))
+    .sort()
+    .map((ticker) => ({
+      ticker,
+      source: "cro_review" as const,
+      source_hash: opts.croReview.review_hash,
+      reason: "runtime fallback applied the frozen CRO adjustment",
+    }));
+  const fallback: CioFinalOutput = {
+    agent: "cio",
+    portfolio_actions: portfolioActions,
+    dissent_refs,
+    confidence: 0,
+    runtime_fallback_audit: {
+      fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
+      fallback_factory_version: "1",
+      reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED"],
+    },
+  };
+  return attachRuntimeOwnedFallbackClaims({
+    output: fallback,
+    sourceOutput: opts.sourceOutput,
+    stage: "cio_final",
+    fallbackReasonCode: "SHARED_VALIDATION_REJECTED",
+    rejectionReasons: opts.rejectionReasons,
+    statement: "Runtime rejected the CIO final target and selected a no-new-risk target.",
+  });
+}
+
+export function validateCioPositionActions(opts: {
+  output: CioOutput;
+  currentPositions: CurrentPositionsSnapshot;
+  knobSnapshot?: ResearchKnobsSnapshot | null;
+  sharedPolicyValues?: Readonly<Record<string, unknown>>;
+}): PositionValidationResult {
+  const { output, currentPositions, knobSnapshot, sharedPolicyValues } = opts;
+  if (currentPositions.snapshot_status === "missing" && output.portfolio_actions.length > 0) {
+    throw new PositionActionValidationError(
+      "current_positions snapshot is missing; CIO cannot emit portfolio_actions",
+    );
+  }
+  if (isMirofishOnlyAction(output) && output.portfolio_actions.length > 0) {
+    throw new PositionActionValidationError(
+      "MiroFish-only influence cannot emit portfolio_actions without current data support",
+    );
+  }
+  if (isPriorOrSimulationOnlyAction(output) && output.portfolio_actions.length > 0) {
+    throw new PositionActionValidationError(
+      "RKE/MiroFish prior-only influence cannot emit portfolio_actions without current data support",
+    );
+  }
+  assertUniqueActionTickers(output.portfolio_actions);
+  const stopLossPct = thresholdNumber(knobSnapshot, sharedPolicyValues, "stop_loss_pct", -0.08);
+  const maxSingleNameWeight = thresholdNumber(
+    knobSnapshot,
+    sharedPolicyValues,
+    "max_single_name_weight",
+    DEFAULT_MAX_SINGLE_NAME_WEIGHT,
+  );
+  const maxSectorWeight = thresholdNumber(
+    knobSnapshot,
+    sharedPolicyValues,
+    "max_sector_weight",
+    DEFAULT_MAX_SECTOR_WEIGHT,
+  );
+  const staleThesisDays = thresholdNumber(
+    knobSnapshot,
+    sharedPolicyValues,
+    "stale_thesis_days",
+    20,
+  );
+  const actions = output.portfolio_actions.map((action) =>
+    normalizeAction(action, currentPositions, staleThesisDays, stopLossPct),
+  );
+  assertMirofishInfluencedPositionChangesHaveDissent(output, actions, currentPositions);
+  const reviews = positionReviewsFromActions(actions, currentPositions, output.confidence);
+  if (currentPositions.snapshot_status === "loaded") {
+    assertEveryCurrentPositionReviewed(currentPositions, actions, reviews);
+  }
+  assertPositionDecisionSemantics(actions, currentPositions);
+  for (const action of actions) {
+    if (action.target_weight <= maxSingleNameWeight) continue;
+    if (!nonEmptyText(action.override_reason)) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: target_weight exceeds max_single_name_weight without override_reason`,
+      );
+    }
+    if (!hasCroRiskOverride(action)) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: target_weight exceeds max_single_name_weight without CRO risk override`,
+      );
+    }
+  }
+  assertSectorConcentration(actions, maxSectorWeight);
+  for (const position of currentPositions.positions) {
+    const action = actions.find((item) => item.ticker === position.ticker);
+    const rawAction = output.portfolio_actions.find((item) => item.ticker === position.ticker);
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action &&
+      action.action === "HOLD" &&
+      !nonEmptyText(action.override_reason)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks override_reason`,
+      );
+    }
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action &&
+      action.action === "HOLD" &&
+      !hasCroRiskOverride(action)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks CRO risk override`,
+      );
+    }
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action &&
+      action.action === "HOLD" &&
+      !hasStopLossCounterevidence(rawAction)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks counterevidence`,
+      );
+    }
+  }
+  const totalWeight = actions.reduce((sum, action) => sum + action.target_weight, 0);
+  if (totalWeight > 1 + 1e-6) {
+    throw new PositionActionValidationError(
+      `portfolio_actions target_weight sum ${totalWeight.toFixed(6)} exceeds 1.0 + epsilon`,
+    );
+  }
+  return {
+    output: { ...output, portfolio_actions: actions },
+    position_reviews: reviews,
+    position_audit: buildPositionAudit({
+      currentPositions,
+      reviews,
+      actions,
+      stopLossPct,
+      staleThesisDays,
+    }),
+  };
+}
+
+function isMirofishOnlyAction(output: CioOutput): boolean {
+  const declared = output.declared_knob_influence_ids ?? [];
+  return declared.length > 0 && declared.every((id) => id.startsWith("mirofish_"));
+}
+
+function isPriorOrSimulationOnlyAction(output: CioOutput): boolean {
+  const declared = output.declared_knob_influence_ids ?? [];
+  return declared.length > 0 && declared.every(isPriorOrSimulationInfluenceId);
+}
+
+function isPriorOrSimulationInfluenceId(id: string): boolean {
+  const normalized = id.toLowerCase();
+  return (
+    normalized.startsWith("mirofish_") ||
+    normalized === "rke_prior" ||
+    normalized === "research_prior" ||
+    normalized === "get_rke_research_context" ||
+    normalized.startsWith("rke_prior_") ||
+    normalized.startsWith("research_prior_")
+  );
+}
+
+function hasMirofishInfluence(output: CioOutput): boolean {
+  return (output.declared_knob_influence_ids ?? []).some((id) => id.startsWith("mirofish_"));
+}
+
+function hasCroRiskOverride(action: PortfolioAction): boolean {
+  return (action.risk_flags ?? []).includes("cro_risk_override");
+}
+
+function hasStopLossCounterevidence(action: PortfolioAction | undefined): boolean {
+  return Boolean(
+    nonEmptyText(action?.position_decision_reason) ?? nonEmptyText(action?.dissent_notes),
+  );
+}
+
+function assertMirofishInfluencedPositionChangesHaveDissent(
+  output: CioOutput,
+  actions: ReadonlyArray<PortfolioAction>,
+  currentPositions: CurrentPositionsSnapshot,
+): void {
+  if (!hasMirofishInfluence(output)) return;
+  const currentTickers = new Set(currentPositions.positions.map((position) => position.ticker));
+  for (const action of actions) {
+    if (!currentTickers.has(action.ticker)) continue;
+    const decision = action.position_decision;
+    if (
+      (decision === "ADD" || decision === "REDUCE" || decision === "EXIT") &&
+      !nonEmptyText(action.dissent_notes)
+    ) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: MiroFish-influenced position change requires dissent_notes`,
+      );
+    }
+  }
+}
+
+function normalizeAction(
+  action: PortfolioAction,
+  currentPositions: CurrentPositionsSnapshot,
+  staleThesisDays: number,
+  stopLossPct: number,
+): PortfolioAction {
+  const position = currentPositions.positions.find((item) => item.ticker === action.ticker);
+  const sector = nonEmptyText(action.sector) ?? nonEmptyText(position?.sector);
+  const currentWeight = position?.current_weight ?? action.current_weight;
+  const deltaWeight =
+    currentWeight === undefined ? action.delta_weight : action.target_weight - currentWeight;
+  const positionDecision = action.position_decision ?? inferPositionDecision(action, currentWeight);
+  const staleThesis = position ? position.holding_days > staleThesisDays : false;
+  const stopLossBreached = position
+    ? position.unrealized_pnl_pct <= stopLossPct && action.action === "HOLD"
+    : false;
+  const riskFlags = [
+    ...new Set([
+      ...(action.risk_flags ?? []),
+      ...(stopLossBreached ? ["stop_loss_breached"] : []),
+      ...(staleThesis ? ["stale_thesis"] : []),
+    ]),
+  ];
+  const positionDecisionReason =
+    nonEmptyText(action.position_decision_reason) ??
+    nonEmptyText(action.dissent_notes) ??
+    (staleThesis ? "stale thesis review required" : undefined) ??
+    `${action.action} target weight`;
+  return {
+    ...action,
+    ...(sector ? { sector } : {}),
+    ...(positionDecision ? { position_decision: positionDecision } : {}),
+    ...(currentWeight !== undefined ? { current_weight: currentWeight } : {}),
+    ...(deltaWeight !== undefined ? { delta_weight: deltaWeight } : {}),
+    thesis_status: action.thesis_status ?? "intact",
+    risk_flags: riskFlags,
+    position_decision_reason: positionDecisionReason,
+  };
+}
+
+function assertUniqueActionTickers(actions: ReadonlyArray<PortfolioAction>): void {
+  const seen = new Set<string>();
+  for (const action of actions) {
+    if (seen.has(action.ticker)) {
+      throw new PositionActionValidationError(
+        `duplicate portfolio action ticker: ${action.ticker}`,
+      );
+    }
+    seen.add(action.ticker);
+  }
+}
+
+function assertSectorConcentration(
+  actions: ReadonlyArray<PortfolioAction>,
+  maxSectorWeight: number,
+): void {
+  if (maxSectorWeight >= 1) return;
+  const totals = new Map<string, number>();
+  for (const action of actions) {
+    if (action.target_weight <= 0) continue;
+    const sector = nonEmptyText(action.sector);
+    if (!sector) {
+      throw new PositionActionValidationError(
+        `${action.ticker}: max_sector_weight active but sector is missing`,
+      );
+    }
+    totals.set(sector, (totals.get(sector) ?? 0) + action.target_weight);
+  }
+  for (const [sector, total] of totals.entries()) {
+    if (total > maxSectorWeight + 1e-9) {
+      throw new PositionActionValidationError(
+        `${sector}: target_weight ${total.toFixed(3)} exceeds max_sector_weight ${maxSectorWeight}`,
+      );
+    }
+  }
+}
+
+function assertPositionDecisionSemantics(
+  actions: ReadonlyArray<PortfolioAction>,
+  currentPositions: CurrentPositionsSnapshot,
+): void {
+  const currentByTicker = new Map(
+    currentPositions.positions.map((position) => [position.ticker, position.current_weight]),
+  );
+  for (const action of actions) {
+    const currentWeight = action.current_weight ?? currentByTicker.get(action.ticker);
+    const deltaWeight =
+      action.delta_weight ??
+      (currentWeight === undefined ? undefined : action.target_weight - currentWeight);
+    const decision = action.position_decision ?? inferPositionDecision(action, currentWeight);
+    switch (decision) {
+      case "ADD":
+        if (action.action !== "BUY") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision must map to BUY action`,
+          );
+        }
+        if (action.target_weight <= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision requires positive target_weight`,
+          );
+        }
+        if (currentWeight !== undefined && action.target_weight <= currentWeight) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision requires target_weight above current_weight`,
+          );
+        }
+        if (deltaWeight !== undefined && deltaWeight <= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: ADD position_decision requires positive delta_weight`,
+          );
+        }
+        break;
+      case "REDUCE":
+        if (action.action !== "REDUCE") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision must map to REDUCE action`,
+          );
+        }
+        if (currentWeight === undefined) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision requires current_weight`,
+          );
+        }
+        if (action.target_weight <= 0 || action.target_weight >= currentWeight) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision requires 0 < target_weight < current_weight`,
+          );
+        }
+        if (deltaWeight === undefined || deltaWeight >= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: REDUCE position_decision requires negative delta_weight`,
+          );
+        }
+        break;
+      case "EXIT":
+        if (action.action !== "SELL") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision must map to SELL action`,
+          );
+        }
+        if (currentWeight === undefined) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision requires current_weight`,
+          );
+        }
+        if (action.target_weight !== 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision requires target_weight = 0`,
+          );
+        }
+        if (deltaWeight !== undefined && deltaWeight > 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: EXIT position_decision cannot have positive delta_weight`,
+          );
+        }
+        break;
+      case "HOLD":
+        if (action.action !== "HOLD") {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision must map to HOLD action`,
+          );
+        }
+        if (currentWeight === undefined) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision requires current_weight`,
+          );
+        }
+        if (action.target_weight <= 0) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision requires positive target_weight`,
+          );
+        }
+        if (
+          Math.abs(action.target_weight - currentWeight) > 1e-9 ||
+          (deltaWeight !== undefined && Math.abs(deltaWeight) > 1e-9)
+        ) {
+          throw new PositionActionValidationError(
+            `${action.ticker}: HOLD position_decision requires unchanged target_weight`,
+          );
+        }
+        break;
+    }
+  }
+}
+
+function inferPositionDecision(
+  action: PortfolioAction,
+  currentWeight: number | undefined,
+): PortfolioAction["position_decision"] {
+  if (action.action === "SELL" || action.target_weight === 0) return "EXIT";
+  if (action.action === "REDUCE") return "REDUCE";
+  if (
+    action.action === "BUY" &&
+    currentWeight !== undefined &&
+    action.target_weight > currentWeight
+  ) {
+    return "ADD";
+  }
+  if (action.action === "BUY") return "ADD";
+  return "HOLD";
+}
+
+function positionReviewsFromActions(
+  actions: ReadonlyArray<PortfolioAction>,
+  currentPositions: CurrentPositionsSnapshot,
+  confidence: number,
+): PositionReview[] {
+  const currentTickers = new Set(currentPositions.positions.map((position) => position.ticker));
+  return actions
+    .filter((action) => currentTickers.has(action.ticker))
+    .map((action) => ({
+      ticker: action.ticker,
+      decision: action.position_decision ?? "HOLD",
+      target_weight: action.target_weight,
+      reason:
+        nonEmptyText(action.position_decision_reason) ??
+        nonEmptyText(action.dissent_notes) ??
+        "position reviewed",
+      thesis_status: action.thesis_status ?? "intact",
+      risk_flags: action.risk_flags ?? [],
+      confidence: action.review_source === "runtime_safety_fallback" ? 0 : confidence,
+      review_source: action.review_source ?? "llm",
+    }));
+}
+
+function nonEmptyText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function assertEveryCurrentPositionReviewed(
+  currentPositions: CurrentPositionsSnapshot,
+  actions: ReadonlyArray<PortfolioAction>,
+  reviews: ReadonlyArray<PositionReview>,
+): void {
+  const covered = new Set([
+    ...actions.map((action) => action.ticker),
+    ...reviews.map((review) => review.ticker),
+  ]);
+  const missing = currentPositions.positions
+    .map((position) => position.ticker)
+    .filter((ticker) => !covered.has(ticker));
+  if (missing.length > 0) {
+    throw new PositionActionValidationError(
+      `current_positions missing from portfolio_actions/position_reviews: ${missing.join(",")}`,
+    );
+  }
+}
+
+function applyFallbackSectorCaps(
+  currentPositions: CurrentPositionsSnapshot,
+  targetByTicker: Map<string, number>,
+  maxSectorWeight: number,
+): void {
+  if (maxSectorWeight >= 1) return;
+  const tickersBySector = new Map<string, string[]>();
+  for (const position of currentPositions.positions) {
+    if (!position.sector) {
+      targetByTicker.set(position.ticker, 0);
+      continue;
+    }
+    const tickers = tickersBySector.get(position.sector) ?? [];
+    tickers.push(position.ticker);
+    tickersBySector.set(position.sector, tickers);
+  }
+  for (const tickers of tickersBySector.values()) {
+    const total = tickers.reduce((sum, ticker) => sum + (targetByTicker.get(ticker) ?? 0), 0);
+    if (total <= maxSectorWeight || total <= 0) continue;
+    const scale = maxSectorWeight / total;
+    for (const ticker of tickers) {
+      targetByTicker.set(ticker, (targetByTicker.get(ticker) ?? 0) * scale);
+    }
+  }
+}
+
+function thresholdNumber(
+  snapshot: ResearchKnobsSnapshot | null | undefined,
+  sharedPolicyValues: Readonly<Record<string, unknown>> | undefined,
+  key: string,
+  fallback: number,
+): number {
+  const value =
+    snapshot?.knobs.thresholds[key] ?? snapshot?.knobs.lookbacks[key] ?? sharedPolicyValues?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function buildPositionAudit(opts: {
+  currentPositions: CurrentPositionsSnapshot;
+  reviews: ReadonlyArray<PositionReview>;
+  actions: ReadonlyArray<PortfolioAction>;
+  stopLossPct: number;
+  staleThesisDays: number;
+}): PositionAudit {
+  const modelReviews = opts.reviews.filter(
+    (review) => review.review_source !== "runtime_safety_fallback",
+  );
+  const reviewed = new Set(modelReviews.map((review) => review.ticker));
+  const stopLossOverrideCount = opts.currentPositions.positions.filter((position) => {
+    const action = opts.actions.find((item) => item.ticker === position.ticker);
+    return (
+      position.unrealized_pnl_pct <= opts.stopLossPct &&
+      action?.action === "HOLD" &&
+      Boolean(action.override_reason)
+    );
+  }).length;
+  const grossExposure = opts.actions.reduce((sum, action) => sum + action.target_weight, 0);
+  return {
+    position_snapshot_hash: opts.currentPositions.position_snapshot_hash ?? null,
+    snapshot_status: opts.currentPositions.snapshot_status,
+    position_source: opts.currentPositions.position_source,
+    source_error_code: opts.currentPositions.source_error_code,
+    tool_status_summary: buildPositionAuditToolStatusSummary(opts.currentPositions),
+    positions_loaded: opts.currentPositions.positions.length,
+    positions_reviewed: reviewed.size,
+    positions_unreviewed: opts.currentPositions.positions.filter(
+      (position) => !reviewed.has(position.ticker),
+    ).length,
+    runtime_safety_hold_count: opts.actions.filter(
+      (action) => action.review_source === "runtime_safety_fallback" && action.action === "HOLD",
+    ).length,
+    cash_weight: Math.max(0, 1 - grossExposure),
+    gross_exposure: grossExposure,
+    net_exposure: grossExposure,
+    hold_count: modelReviews.filter((review) => review.decision === "HOLD").length,
+    add_count: modelReviews.filter((review) => review.decision === "ADD").length,
+    reduce_count: modelReviews.filter((review) => review.decision === "REDUCE").length,
+    exit_count: modelReviews.filter((review) => review.decision === "EXIT").length,
+    stale_thesis_count: opts.currentPositions.positions.filter(
+      (position) => position.holding_days > opts.staleThesisDays,
+    ).length,
+    stop_loss_override_count: stopLossOverrideCount,
+    target_current_drift_count: opts.actions.filter(
+      (action) => Math.abs(action.delta_weight ?? 0) > 0.01,
+    ).length,
+  };
+}

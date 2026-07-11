@@ -14,6 +14,8 @@ Exposes the prompt-mutation lifecycle to the TS orchestrator:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -34,6 +36,22 @@ def _store():
     from mosaic.scorecard import get_store
 
     return get_store()
+
+
+def _canonical_hash(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _authorized_prompt_release_operators() -> set[str]:
+    raw = os.getenv("MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS", "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 def _repo_root() -> Path:
@@ -377,6 +395,7 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         prompt_base_commit_hash: str | None
         prompt_sha256: str | None
         code_commit_hash: str | None
+        mutation_metadata: dict | None
 
     Returns:
         {"ok": true}
@@ -398,8 +417,26 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
     code_commit_hash = params.get("code_commit_hash")
     if code_commit_hash is not None and not isinstance(code_commit_hash, str):
         raise RpcError(INVALID_PARAMS, "'code_commit_hash' must be a string")
+    mutation_metadata = params.get("mutation_metadata")
+    if mutation_metadata is not None and not isinstance(mutation_metadata, dict):
+        raise RpcError(INVALID_PARAMS, "'mutation_metadata' must be an object")
 
     store = _store()
+    existing_version = store.get_prompt_version(version_id)
+    if existing_version is None:
+        raise RpcError(INVALID_PARAMS, f"prompt_version {version_id} not found")
+    if mutation_metadata is not None:
+        existing_metadata = store.get_version_mutation_metadata(version_id)
+        if existing_metadata is not None:
+            if (
+                existing_metadata == mutation_metadata
+                and existing_version.get("modification_commit_hash") == commit_hash
+            ):
+                return {"ok": True, "idempotent": True}
+            raise RpcError(
+                AUTORESEARCH_ERROR,
+                f"prompt_version {version_id} already has different mutation metadata",
+            )
     store.set_version_mutation(
         version_id,
         commit_hash,
@@ -408,8 +445,14 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         prompt_base_commit_hash=prompt_base_commit_hash,
         prompt_sha256=prompt_sha256,
         code_commit_hash=code_commit_hash,
+        mutation_metadata=mutation_metadata,
     )
-    store.append_log(version_id, "mutated", f"commit={commit_hash[:12]}")
+    if mutation_metadata is not None:
+        store.append_log(version_id, "proposed", f"mutation_id={mutation_metadata['mutation_id']}")
+        store.set_version_mutation_lifecycle(version_id, "validated")
+        store.append_log(version_id, "validated", f"mutation_id={mutation_metadata['mutation_id']}")
+    else:
+        store.append_log(version_id, "mutated", f"commit={commit_hash[:12]}")
 
     return {"ok": True}
 
@@ -438,6 +481,10 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         {"results": [{version_id, status, delta_sharpe?}, ...]}
     """
     from mosaic.autoresearch.decider import decide
+    from mosaic.autoresearch.domain_evaluator import (
+        DomainEvaluationError,
+        evaluate_domain_mutation,
+    )
     from mosaic.autoresearch.evaluator import (
         compute_delta,
         ensure_baseline_run,
@@ -452,6 +499,14 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         not isinstance(version_id_filter, int) or isinstance(version_id_filter, bool)
     ):
         raise RpcError(INVALID_PARAMS, "'version_id' must be an integer when provided")
+    domain_sample_manifest = params.get("domain_sample_manifest")
+    if domain_sample_manifest is not None and not isinstance(domain_sample_manifest, dict):
+        raise RpcError(INVALID_PARAMS, "'domain_sample_manifest' must be an object")
+    if domain_sample_manifest is not None and version_id_filter is None:
+        raise RpcError(
+            INVALID_PARAMS,
+            "'domain_sample_manifest' requires a specific 'version_id'",
+        )
 
     store = _store()
     config = _config()
@@ -474,14 +529,6 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             continue
 
         v_cohort = v["cohort"]
-        cohort_info = cohorts_cfg.get(v_cohort, {})
-        start_date = cohort_info.get("start", "")
-        end_date = cohort_info.get("end", "")
-
-        if not start_date or not end_date:
-            results.append({"version_id": version_id, "status": "error",
-                            "detail": f"cohort '{v_cohort}' missing date range"})
-            continue
 
         git = _git_ops_for_branch(v["branch_name"], v)
         compatibility = validate_prompt_tool_compatibility(v, git, baseline_git=_git_ops())
@@ -499,6 +546,104 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                 "status": "incompatible",
                 "detail": detail,
             })
+            continue
+
+        mutation_metadata = store.get_version_mutation_metadata(version_id)
+        is_contract_evaluated_mutation = bool(
+            mutation_metadata
+            and (
+                mutation_metadata.get("mutation_kind")
+                in ("domain_knob", "generic_knob")
+                or mutation_metadata.get("domain_card_id")
+                or mutation_metadata.get("domain_card_ids")
+            )
+        )
+        if is_contract_evaluated_mutation:
+            lifecycle = store.get_prompt_version(version_id).get("mutation_lifecycle")
+            if lifecycle in ("eligible_for_promotion", "reverted", "invalid", "kept"):
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": lifecycle,
+                        "evaluation_result": store.get_domain_evaluation_result(version_id),
+                    }
+                )
+                continue
+            if domain_sample_manifest is None:
+                if lifecycle == "validated":
+                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
+                    store.append_log(version_id, "shadow_evaluating", "awaiting PIT sample manifest")
+                    lifecycle = "shadow_evaluating"
+                if lifecycle == "shadow_evaluating":
+                    store.set_version_mutation_lifecycle(version_id, "needs_fill")
+                    store.append_log(version_id, "needs_fill", "missing PIT sample manifest")
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": "needs_fill",
+                        "missing_domain_samples": True,
+                        "missing_paired_samples": True,
+                    }
+                )
+                continue
+            try:
+                if lifecycle == "validated":
+                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
+                elif lifecycle == "needs_fill":
+                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
+                evaluation_result = evaluate_domain_mutation(
+                    mutation_metadata, domain_sample_manifest
+                )
+                if evaluation_result.get("holdout_consumption_required") is True:
+                    try:
+                        store.consume_domain_holdout(
+                            version_id,
+                            holdout_id=evaluation_result["holdout_id"],
+                            mutation_id=evaluation_result["mutation_id"],
+                            result_hash=evaluation_result["result_hash"],
+                        )
+                    except ValueError as exc:
+                        raise DomainEvaluationError(str(exc)) from exc
+                store.set_domain_evaluation_result(version_id, evaluation_result)
+                evaluation_status = evaluation_result["status"]
+                store.set_version_mutation_lifecycle(version_id, evaluation_status)
+                store.append_log(
+                    version_id,
+                    evaluation_status,
+                    (
+                        f"metric={evaluation_result['metric_id']} "
+                        f"samples={evaluation_result['sample_count']} "
+                        f"effect={evaluation_result.get('effect_size')}"
+                    ),
+                )
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": evaluation_status,
+                        "evaluation_result": evaluation_result,
+                    }
+                )
+            except DomainEvaluationError as exc:
+                current = store.get_prompt_version(version_id).get("mutation_lifecycle")
+                if current not in ("invalid", "reverted", "kept"):
+                    store.set_version_mutation_lifecycle(version_id, "invalid")
+                store.append_log(version_id, "invalid", str(exc))
+                results.append(
+                    {
+                        "version_id": version_id,
+                        "status": "invalid",
+                        "detail": str(exc),
+                    }
+                )
+            continue
+
+        cohort_info = cohorts_cfg.get(v_cohort, {})
+        start_date = cohort_info.get("start", "")
+        end_date = cohort_info.get("end", "")
+
+        if not start_date or not end_date:
+            results.append({"version_id": version_id, "status": "error",
+                            "detail": f"cohort '{v_cohort}' missing date range"})
             continue
 
         # Check if both runs exist.
@@ -577,7 +722,127 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                 "detail": f"{type(exc).__name__}: {exc}",
             })
 
+    mutation_ids = {row["id"]: row.get("mutation_id") for row in versions}
+    for result in results:
+        mutation_id = mutation_ids.get(result["version_id"])
+        if mutation_id:
+            result["mutation_id"] = mutation_id
     return {"results": results}
+
+
+# ---------------------------------------------------------------------------
+# autoresearch.review_domain_promotion
+# ---------------------------------------------------------------------------
+
+
+@method("autoresearch.review_domain_promotion")
+def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, Any]:
+    """Record an explicit operator keep/revert decision after holdout evaluation."""
+    version_id = _require_int(params, "version_id")
+    decision = _require_str(params, "decision")
+    if decision not in ("keep", "revert"):
+        raise RpcError(INVALID_PARAMS, "'decision' must be 'keep' or 'revert'")
+    approved_by = _require_str(params, "approved_by")
+    if approved_by not in _authorized_prompt_release_operators():
+        raise RpcError(INVALID_PARAMS, "'approved_by' is not an authorized prompt release operator")
+    approval_policy_id = _require_str(params, "approval_policy_id")
+    if approval_policy_id not in (
+        "domain_release_manual_v1",
+        "decision_release_manual_v1",
+    ):
+        raise RpcError(INVALID_PARAMS, "unsupported domain promotion approval policy")
+    review_reason = _require_str(params, "review_reason")
+    store = _store()
+    version = store.get_prompt_version(version_id)
+    if version is None:
+        raise RpcError(INVALID_PARAMS, f"prompt version {version_id} not found")
+    existing_decision = store.get_domain_promotion_decision(version_id)
+    if existing_decision is not None:
+        if (
+            existing_decision.get("decision") != decision
+            or existing_decision.get("approved_by") != approved_by
+            or existing_decision.get("approval_policy_id") != approval_policy_id
+            or existing_decision.get("review_reason") != review_reason
+        ):
+            raise RpcError(AUTORESEARCH_ERROR, "domain promotion decision already exists")
+        return {
+            "version_id": version_id,
+            "status": "kept" if decision == "keep" else "reverted",
+            "decision_hash": _canonical_hash(existing_decision),
+            "decision": existing_decision,
+            "created": False,
+        }
+    if version.get("mutation_lifecycle") != "eligible_for_promotion":
+        raise RpcError(AUTORESEARCH_ERROR, "domain mutation is not eligible for promotion")
+    metadata = store.get_version_mutation_metadata(version_id)
+    evaluation = store.get_domain_evaluation_result(version_id)
+    if not metadata or metadata.get("mutation_kind") not in (
+        "domain_knob",
+        "generic_knob",
+    ):
+        raise RpcError(AUTORESEARCH_ERROR, "prompt version is not a governed knob mutation")
+    if not evaluation or evaluation.get("status") != "eligible_for_promotion":
+        raise RpcError(AUTORESEARCH_ERROR, "eligible domain evaluation result is missing")
+    if evaluation.get("holdout_consumption_required") is not True:
+        raise RpcError(AUTORESEARCH_ERROR, "domain evaluation did not consume a holdout")
+    holdout = store.get_domain_holdout_consumption(evaluation.get("holdout_id"))
+    if (
+        not holdout
+        or holdout.get("mutation_id") != metadata.get("mutation_id")
+        or holdout.get("result_hash") != evaluation.get("result_hash")
+    ):
+        raise RpcError(AUTORESEARCH_ERROR, "holdout consumption evidence is not closed")
+    if not metadata.get("transaction_manifest_hash"):
+        raise RpcError(AUTORESEARCH_ERROR, "mutation transaction evidence is missing")
+    if not all(
+        version.get(field)
+        for field in (
+            "modification_commit_hash",
+            "prompt_sha256",
+            "code_commit_hash",
+        )
+    ):
+        raise RpcError(AUTORESEARCH_ERROR, "prompt/code release pin metadata is missing")
+    decided_at = datetime.now(timezone.utc).isoformat()
+    decision_evidence = {
+        "schema_version": "domain_promotion_decision_v1",
+        "version_id": version_id,
+        "mutation_id": metadata["mutation_id"],
+        "experiment_id": metadata["experiment_id"],
+        "decision": decision,
+        "approved_by": approved_by,
+        "approval_policy_id": approval_policy_id,
+        "review_reason": review_reason,
+        "evaluation_result_hash": evaluation["result_hash"],
+        "pit_audit_hash": evaluation["pit_audit_hash"],
+        "holdout_id": evaluation["holdout_id"],
+        "transaction_manifest_hash": metadata["transaction_manifest_hash"],
+        "prompt_commit_hash": version.get("modification_commit_hash"),
+        "prompt_sha256": version.get("prompt_sha256"),
+        "code_commit_hash": version.get("code_commit_hash"),
+        "decided_at": decided_at,
+    }
+    decision_hash = _canonical_hash(decision_evidence)
+    try:
+        created = store.record_domain_promotion_decision(
+            version_id,
+            decision_evidence,
+            decision_hash=decision_hash,
+        )
+    except ValueError as exc:
+        raise RpcError(AUTORESEARCH_ERROR, str(exc)) from exc
+    store.append_log(
+        version_id,
+        "kept" if decision == "keep" else "reverted",
+        f"promotion_decision={decision_hash}; approved_by={approved_by}",
+    )
+    return {
+        "version_id": version_id,
+        "status": "kept" if decision == "keep" else "reverted",
+        "decision_hash": decision_hash,
+        "decision": decision_evidence,
+        "created": created,
+    }
 
 
 # ---------------------------------------------------------------------------

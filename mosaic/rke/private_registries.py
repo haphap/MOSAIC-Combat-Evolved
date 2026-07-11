@@ -49,6 +49,9 @@ def _repo_path_for_registry_dir(
         repo_path = Path(repo).expanduser()
         return (repo_path if repo_path.is_absolute() else root_path / repo_path).resolve()
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
+    for candidate in (registry_path, *registry_path.parents):
+        if (candidate / PRIVATE_REGISTRY_MANIFEST_NAME).is_file():
+            return candidate
     if registry_path.name == "report_intelligence" and registry_path.parent.name == "registry":
         return registry_path.parent.parent
     return root_path
@@ -498,6 +501,72 @@ def _duplicate_count(rows: Sequence[Mapping[str, Any]], key: str) -> int:
     return sum(count - 1 for count in counts.values() if count > 1)
 
 
+def _private_registry_manifest_blockers(
+    repo_path: Path,
+    manifest_path: Path,
+    *,
+    required_paths: Sequence[str] = (),
+) -> list[str]:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"registry_manifest.json unreadable: {exc}"]
+    if not isinstance(manifest, Mapping):
+        return ["registry_manifest.json must be an object"]
+    blockers: list[str] = []
+    if manifest.get("schema_version") != "mosaic_private_registries_manifest_v1":
+        blockers.append("registry_manifest.json schema_version invalid")
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        blockers.append("registry_manifest.json files missing")
+        return blockers
+    seen_paths: set[str] = set()
+    vintage_input: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(files, 1):
+        if not isinstance(raw_row, Mapping):
+            blockers.append(f"registry_manifest.json files[{index}] must be an object")
+            continue
+        relative = str(raw_row.get("path") or "").strip()
+        relative_path = Path(relative)
+        if (
+            not relative
+            or relative_path.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative_path.parts)
+        ):
+            blockers.append(f"registry_manifest.json files[{index}].path invalid")
+            continue
+        if relative in seen_paths:
+            blockers.append(f"registry_manifest.json duplicate path: {relative}")
+            continue
+        seen_paths.add(relative)
+        path = repo_path / relative_path
+        if not path.is_file():
+            blockers.append(f"registry manifest file missing: {relative}")
+            continue
+        actual_hash = _sha256_file(path)
+        if raw_row.get("sha256") != actual_hash:
+            blockers.append(f"registry manifest hash mismatch: {relative}")
+        if raw_row.get("bytes") != path.stat().st_size:
+            blockers.append(f"registry manifest byte count mismatch: {relative}")
+        vintage_input.append(
+            {
+                "path": relative,
+                "sha256": actual_hash,
+                "row_count": int(raw_row.get("row_count") or 0),
+            }
+        )
+    if manifest.get("file_count") != len(files):
+        blockers.append("registry_manifest.json file_count mismatch")
+    for required_path in required_paths:
+        if required_path not in seen_paths:
+            blockers.append(
+                f"registry manifest required path missing: {required_path}"
+            )
+    if manifest.get("data_vintage_hash") != _stable_hash(vintage_input):
+        blockers.append("registry_manifest.json data_vintage_hash mismatch")
+    return blockers
+
+
 def registries_preflight(
     *,
     root: str | Path = ".",
@@ -524,19 +593,59 @@ def registries_preflight(
     ):
         if not (registry_path / relative).exists():
             missing_files.append(relative)
-    rows = _read_jsonl(fingerprint_path)
+    blockers.extend(f"required registry file missing: {path}" for path in missing_files)
+    if manifest_path.exists():
+        try:
+            registry_relative = registry_path.relative_to(repo_path)
+        except ValueError:
+            registry_relative = Path(DEFAULT_REPORT_INTELLIGENCE_REGISTRY_DIR)
+        blockers.extend(
+            _private_registry_manifest_blockers(
+                repo_path,
+                manifest_path,
+                required_paths=tuple(
+                    (registry_relative / path).as_posix()
+                    for path in (
+                        "report_metadata.jsonl",
+                        "forecast_claims.jsonl",
+                        "analytical_footprints.jsonl",
+                        "processing_status.jsonl",
+                        FINGERPRINT_MANIFEST_NAME,
+                    )
+                ),
+            )
+        )
+    try:
+        rows = _read_jsonl(fingerprint_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        rows = []
+        blockers.append(f"report fingerprint manifest unreadable: {exc}")
     duplicate_count = (
         _duplicate_count(rows, "source_id")
         + _duplicate_count(rows, "report_id")
         + _duplicate_count(rows, "source_hash")
     )
+    if duplicate_count:
+        blockers.append(
+            f"duplicate report fingerprints detected: {duplicate_count}"
+        )
+    git_revision = (
+        _git_output(repo_path, "rev-parse", "HEAD") if repo_path.exists() else ""
+    )
+    dirty = bool(
+        _git_output(repo_path, "status", "--porcelain")
+    ) if repo_path.exists() else False
+    if repo_path.exists() and not git_revision:
+        blockers.append("registries repo git revision missing")
+    if dirty:
+        blockers.append("registries repo dirty")
     return {
-        "accepted": not any("missing" in blocker for blocker in blockers),
+        "accepted": not blockers,
         "repo_path": str(repo_path),
         "registry_dir": str(registry_path),
-        "git_revision": _git_output(repo_path, "rev-parse", "HEAD") if repo_path.exists() else "",
-        "dirty": bool(_git_output(repo_path, "status", "--porcelain")) if repo_path.exists() else False,
-        "dirty_blocker": "registries repo dirty" if repo_path.exists() and _git_output(repo_path, "status", "--porcelain") else "",
+        "git_revision": git_revision,
+        "dirty": dirty,
+        "dirty_blocker": "registries repo dirty" if dirty else "",
         "manifest_path": str(manifest_path),
         "manifest_hash": _sha256_file(manifest_path) if manifest_path.exists() else "",
         "fingerprint_manifest_path": str(fingerprint_path),

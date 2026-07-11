@@ -21,11 +21,15 @@
  */
 
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
+import { buildPositionAuditToolStatusSummary } from "./helpers/position_audit.js";
 import type {
+  CurrentPositionsSnapshot,
   Layer4Outputs,
   LlmCallRecord,
   MacroAgentOutput,
   PortfolioAction,
+  PositionAudit,
+  PositionReview,
   RegimeSignal,
   SectorAgentOutput,
   SectorConsensus,
@@ -69,6 +73,45 @@ export function emptyLayer4(): Layer4Outputs {
     autonomous_execution: null,
     cio: null,
   };
+}
+
+export function emptyCurrentPositions(): CurrentPositionsSnapshot {
+  return {
+    snapshot_status: "empty_confirmed",
+    position_source: "empty_confirmed",
+    source_error_code: null,
+    position_snapshot_hash: nullHash("empty_positions"),
+    positions: [],
+  };
+}
+
+export function emptyPositionAudit(): PositionAudit {
+  const snapshot = emptyCurrentPositions();
+  return {
+    position_snapshot_hash: snapshot.position_snapshot_hash ?? null,
+    snapshot_status: snapshot.snapshot_status,
+    position_source: snapshot.position_source,
+    source_error_code: snapshot.source_error_code,
+    tool_status_summary: buildPositionAuditToolStatusSummary(snapshot),
+    positions_loaded: 0,
+    positions_reviewed: 0,
+    positions_unreviewed: 0,
+    runtime_safety_hold_count: 0,
+    cash_weight: 1,
+    gross_exposure: 0,
+    net_exposure: 0,
+    hold_count: 0,
+    add_count: 0,
+    reduce_count: 0,
+    exit_count: 0,
+    stale_thesis_count: 0,
+    stop_loss_override_count: 0,
+    target_current_drift_count: 0,
+  };
+}
+
+function nullHash(label: string): string {
+  return `sha256:${label}`;
 }
 
 // ============================================================ Annotation root
@@ -143,22 +186,31 @@ export const DailyCycleState = Annotation.Root({
     default: emptyLayer4,
   }),
 
-  // ----- Final action surface (CIO output, mirrored for downstream readers). -----
-  // ``replaceReducer`` is intentional: when the CRO veto loop fires (Plan §11.2
-  // sub-step 2E), the layer4_replay subgraph's CIO writes a *new*
-  // portfolio_actions array which fully supersedes the first-pass CIO output.
-  // The replace semantics also match the single-writer invariant — only CIO
-  // ever populates this channel; no concurrent appenders exist.
+  // ----- Position-aware daily loop state (Plan §12). -----
+  current_positions: Annotation<CurrentPositionsSnapshot>({
+    reducer: replaceReducer,
+    default: emptyCurrentPositions,
+  }),
+  position_reviews: Annotation<PositionReview[]>({
+    reducer: replaceReducer,
+    default: () => [],
+  }),
+  position_audit: Annotation<PositionAudit>({
+    reducer: replaceReducer,
+    default: emptyPositionAudit,
+  }),
+
+  // ----- Final action surface (published only by shared validation). -----
+  // ``replaceReducer`` matches the single-writer invariant: a validated final
+  // target fully supersedes the previous channel value.
   portfolio_actions: Annotation<PortfolioAction[]>({
     reducer: replaceReducer,
     default: () => [],
   }),
 
-  // ----- Replay provenance (Plan §14 R-A1). -----
-  // True once the CRO veto loop has re-run Layer 4 (set by the layer4_replay
-  // node). Lets downstream consumers (scorecard / autoresearch) distinguish a
-  // first-pass cycle from a replayed one. replaceReducer + default false; only
-  // the replay node ever writes it, so single-writer holds.
+  // ----- Deprecated replay provenance compatibility channel. -----
+  // The canonical Layer-4 DAG has no asymmetric veto replay, so new runs leave
+  // this false. Keep the field while stored run readers still expect it.
   replay_triggered: Annotation<boolean>({
     reducer: replaceReducer,
     default: () => false,

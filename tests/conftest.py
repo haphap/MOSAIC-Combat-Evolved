@@ -19,6 +19,10 @@ from pathlib import Path
 
 import pytest
 
+if os.environ.get("MOSAIC_TEST_LIVE_FRED") != "1":
+    # Prevent project .env loading from turning the default suite into a live test.
+    os.environ["FRED_API_KEY"] = ""
+
 _RKE_DEFAULT_TMPDIR = Path(
     os.environ.get("MOSAIC_RKE_TMPDIR") or "~/tmp/mosaic-rke"
 ).expanduser()
@@ -129,6 +133,20 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _copy_file_cow(src: str | os.PathLike, dst: str | os.PathLike) -> str:
+    """Clone fixture files copy-on-write when the local filesystem supports it."""
+
+    destination = Path(dst)
+    try:
+        with Path(src).open("rb") as source_handle, destination.open("wb") as destination_handle:
+            fcntl.ioctl(destination_handle.fileno(), 0x40049409, source_handle.fileno())
+        shutil.copystat(src, dst)
+        return os.fspath(dst)
+    except OSError:
+        destination.unlink(missing_ok=True)
+        return os.fspath(shutil.copy2(src, dst))
 
 
 def _git_status_porcelain(root_path: Path) -> set[str]:
@@ -809,12 +827,31 @@ def _isolate_external_env(monkeypatch):
     monkeypatch.setenv("MOSAIC_CHINA_POLICY_DB_AUTO_SYNC", "0")
 
 
-@pytest.fixture(autouse=True)
-def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
-    """Keep pytest registry copies free of reviewer scratch and huge private rows."""
+@pytest.fixture(scope="session", autouse=True)
+def _ignore_rke_manual_review_scratch_in_registry_copies():
+    """Keep pytest registry copies free of local/private artifacts."""
+
+    from mosaic.rke.registry_manifest import (
+        PRIVATE_LOCAL_REGISTRY_FILES,
+        PRIVATE_LOCAL_REGISTRY_PREFIXES,
+    )
 
     original_copytree = shutil.copytree
     project_registry_path = (Path.cwd() / "registry").resolve()
+    private_registry_paths = frozenset(
+        Path(relative).relative_to("registry").as_posix()
+        for relative in PRIVATE_LOCAL_REGISTRY_FILES
+    )
+    private_registry_prefixes = tuple(
+        Path(prefix.rstrip("/")).relative_to("registry").as_posix()
+        for prefix in PRIVATE_LOCAL_REGISTRY_PREFIXES
+    )
+
+    def is_private_registry_path(relative: str) -> bool:
+        return relative in private_registry_paths or any(
+            relative == prefix or relative.startswith(f"{prefix}/")
+            for prefix in private_registry_prefixes
+        )
 
     def load_jsonl_objects(path: Path, *, strict: bool = True) -> list[dict]:
         rows: list[dict] = []
@@ -1002,18 +1039,29 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
                 ignored = set(original_ignore(dirname, names)) if original_ignore else set()
                 ignored.update(name for name in names if name in _RKE_MANUAL_REVIEW_SCRATCH)
                 dirname_path = Path(dirname).resolve()
-                if dirname_path == project_registry_path / "sources":
-                    ignored.add(_RKE_TUSHARE_SOURCE_PATH.name)
+                try:
+                    directory_relative = dirname_path.relative_to(project_registry_path)
+                except ValueError:
+                    directory_relative = None
+                if directory_relative is not None:
+                    ignored.update(
+                        name
+                        for name in names
+                        if is_private_registry_path(
+                            (directory_relative / name).as_posix()
+                        )
+                    )
                 return ignored
 
             effective_ignore = ignore_review_scratch
 
+        effective_copy_function = _copy_file_cow if should_trim_registry_copy else copy_function
         copied_path = original_copytree(
             src,
             dst,
             symlinks=symlinks,
             ignore=effective_ignore,
-            copy_function=copy_function,
+            copy_function=effective_copy_function,
             ignore_dangling_symlinks=ignore_dangling_symlinks,
             dirs_exist_ok=dirs_exist_ok,
         )
@@ -1025,4 +1073,8 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
             )
         return copied_path
 
-    monkeypatch.setattr("shutil.copytree", copytree_without_review_scratch)
+    shutil.copytree = copytree_without_review_scratch
+    try:
+        yield
+    finally:
+        shutil.copytree = original_copytree

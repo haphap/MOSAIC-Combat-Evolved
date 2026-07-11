@@ -20,6 +20,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
+
+disableManifestResearchKnobsForLegacyFixtures();
+
 import {
   buildCommoditiesNode,
   commoditiesSpec,
@@ -99,13 +103,13 @@ describe("AGENTS_BY_LAYER.macro", () => {
 
 describe("each macro agent spec wires the right factory inputs", () => {
   const cases = [
-    { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 4 },
+    { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 3 },
     { name: "dollar", spec: dollarSpec, expected_tools: 4 },
     { name: "yield_curve", spec: yieldCurveSpec, expected_tools: 4 },
     { name: "commodities", spec: commoditiesSpec, expected_tools: 3 },
     { name: "volatility", spec: volatilitySpec, expected_tools: 5 },
     { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 7 },
-    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 5 },
+    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 4 },
     { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 4 },
   ] as const;
 
@@ -282,7 +286,6 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
     const FAKE_TOOL_METADATAS: ToolMetadata[] = [
       { name: "get_rke_research_context", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_us_china_relations", description: "x", args_schema: TOOL_SCHEMA },
-      { name: "get_xueqiu_heat", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_industry_policy", description: "x", args_schema: TOOL_SCHEMA },
     ];
     const canned: GeopoliticalOutput = {
@@ -290,7 +293,7 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
       escalation_level: 3,
       hot_zones: ["US-China semi exports"],
       trade_impact: "半导体设备 -2% 风险溢价上升",
-      key_drivers: ["6/24 US BIS 新增 5 家中国实体清单", "半导体设备相关股关注度+35%"],
+      key_drivers: ["6/24 US BIS 新增 5 家中国实体清单", "半导体设备相关新闻强度+35%"],
       confidence: 0.6,
     };
     const llm = new ScriptedLlm(
@@ -300,7 +303,7 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
           tool_calls: [
             {
               id: "c1",
-              name: "get_xueqiu_heat",
+              name: "get_us_china_relations",
               args: { curr_date: "2024-06-24" },
               type: "tool_call",
             },
@@ -312,7 +315,7 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
             },
           ],
         }),
-        new AIMessage("BIS list expansion + Xueqiu heat spike — escalation 3."),
+        new AIMessage("BIS list expansion + relations index stress — escalation 3."),
       ],
       canned,
     );
@@ -366,6 +369,30 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
       layer2_consensus: null,
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
+      current_positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty_positions",
+        positions: [],
+      },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+        positions_unreviewed: 0,
+        hold_count: 0,
+        add_count: 0,
+        reduce_count: 0,
+        exit_count: 0,
+        stale_thesis_count: 0,
+        stop_loss_override_count: 0,
+        target_current_drift_count: 0,
+      },
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],

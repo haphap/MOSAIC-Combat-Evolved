@@ -1,12 +1,14 @@
 # 智能体
 
 MOSAIC 跑 **4 层共 25 个智能体**,由 LangGraph.js(`mosaic-ts/src/graph/daily_cycle.ts`)装配成单次 daily cycle。各 agent 在 `mosaic-ts/src/agents/<layer>/`;每层工厂(`_factory.ts`)与 schema(`_schemas.ts`)共享。
+Canonical roster 为 `AGENTS_BY_LAYER`，其跨语言 committed form 是
+`registry/prompt_checks/runtime_agent_manifest_v1.json`。
 
 状态按层经 `mosaic-ts/src/agents/state.ts` 的逐层 map 流转(`layer1_outputs` … `layer4_outputs`,加顶层 `portfolio_actions` 镜像)。
 
 ## 第 1 层 —— 宏观 (10)
 
-`central_bank`、`china`、`commodities`、`dollar`、`emerging_markets`、`geopolitical`、`institutional_flow`、`news_sentiment`、`volatility`、`yield_curve`。(`_aggregator.ts` 汇总 Layer-1 输出。)
+`central_bank`、`geopolitical`、`china`、`dollar`、`yield_curve`、`commodities`、`volatility`、`emerging_markets`、`news_sentiment`、`institutional_flow`。(`_aggregator.ts` 汇总 Layer-1 输出。)
 
 Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `volatility` 用 `get_ivx` + `get_realized_volatility` + `get_etf_indicator(510050.SH)`;`emerging_markets` 用 `get_etf_price_data`;`china` 用 `get_property_data`(国房景气指数) + `get_policy_uncertainty`(EPU)。macro 层共 20 个工具。
 
@@ -33,7 +35,14 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 
 ### MiroFish 上下文注入(opt-in)
 
-当 `config.mirofish.inject_context` 为真时,**CIO** 提示词会被追加一段 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明 + `as_of_date` 防前视边界)。默认关闭。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext`。
+当 `config.mirofish.inject_context` 为真时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。默认关闭。context 必须带 `scenario_count`、`horizon_days`、`as_of_date`、`context_hash` 和 `generator_version`;字段不完整或 lookahead 的 context 会在 prompt injection 前禁用。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。autonomous_execution 节点还会在输出进入 CIO 前,对已激活的最小交易 delta、滑点上限和流动性下限 execution cards 做运行时校验。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext` 和 L4 validators。
+
+RKE report context 仍是 shadow-only research prior。若 portfolio action 声明的
+影响来源只有 RKE prior 和/或 MiroFish simulation context,CIO 校验会拒绝。
+当 CIO action 覆盖已激活的 `max_single_name_weight` guard 时,L4 position
+validator 还要求同时提供 `override_reason` 和 `cro_risk_override` risk flag。
+若 stop-loss 已触发但仍 `HOLD`,还必须在 decision reason 或 dissent notes
+中给出明确反证。
 
 ## 提示词
 

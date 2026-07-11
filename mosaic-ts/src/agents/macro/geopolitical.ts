@@ -1,10 +1,9 @@
 /**
  * geopolitical Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 tools: `get_us_china_relations` (now available — Tsinghua sino-US
- * relations index, macro-tools gap closed §14 #8) + `get_xueqiu_heat` (retail
- * attention captures geopolitical events fast) + `get_industry_policy`
- * (gov.cn policy documents incl. trade-war / export-control language).
+ * Plan §5.1 tools: `get_us_china_relations` (Tsinghua sino-US relations index)
+ * + `get_industry_policy` (gov.cn policy documents incl. trade-war /
+ * export-control language).
  */
 
 import type { GeopoliticalOutput } from "../types.js";
@@ -19,7 +18,6 @@ import { GEOPOLITICAL_FIELD_NAMES, GeopoliticalSchema } from "./_schemas.js";
 export const REQUIRED_TOOLS = [
   "get_rke_research_context",
   "get_us_china_relations",
-  "get_xueqiu_heat",
   "get_industry_policy",
 ] as const;
 

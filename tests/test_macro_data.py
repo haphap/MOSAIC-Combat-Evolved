@@ -56,7 +56,7 @@ class TestSharedHelpers:
         assert macro_data._validate_iso_date("2024-06-30", "x") == "2024-06-30"
 
     @pytest.mark.parametrize(
-        "bad_date", ["2024/06/30", "20240630", "Jan 1 2024", "", None]
+        "bad_date", ["2024/06/30", "Jan 1 2024", "", None]
     )
     def test_validate_iso_date_rejects_others(self, bad_date):
         with pytest.raises(DataVendorUnavailable):
@@ -65,10 +65,18 @@ class TestSharedHelpers:
     def test_to_tushare_date_strips_dashes(self):
         assert macro_data._to_tushare_date("2024-06-30") == "20240630"
 
+    def test_to_tushare_date_accepts_compact_dates(self):
+        assert macro_data._to_tushare_date("20240630") == "20240630"
+
     def test_date_range_from_lookback(self):
         start, end = macro_data._date_range_from_lookback("2024-06-30", 7)
         assert start == "2024-06-23"
         assert end == "2024-06-30"
+
+    def test_date_range_accepts_compact_date(self):
+        start, end = macro_data._date_range_from_lookback("20090316", 7)
+        assert start == "2009-03-09"
+        assert end == "2009-03-16"
 
     def test_date_range_zero_lookback(self):
         start, end = macro_data._date_range_from_lookback("2024-06-30", 0)
@@ -174,6 +182,16 @@ def test_get_yield_curve_cn_emits_csv(mock_query_pro):
     assert "2.43" in out
 
 
+def test_get_yield_curve_cn_handles_unavailable_yc_cb(mock_query_pro):
+    mock_query_pro(None, side_effect=DataVendorUnavailable("yc_cb unavailable"))
+
+    out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
+
+    assert "CN Treasury Yield Curve" in out
+    assert "yc_cb unavailable" in out
+    assert "No yc_cb rows returned" in out
+
+
 # --------------------------------------------------------------------- 5. US-CN spread
 
 
@@ -266,6 +284,21 @@ def test_us_china_spread_falls_back_to_fred_when_us_tycr_unavailable(monkeypatch
 
     assert "FRED DGS10 fallback" in out
     assert "190.0" in out
+
+
+def test_us_china_spread_handles_missing_cn_leg_without_tool_error(mock_query_pro):
+    def fake_query(api_name, **_kwargs):
+        if api_name == "yc_cb":
+            raise DataVendorUnavailable("yc_cb unavailable")
+        raise AssertionError(api_name)
+
+    mock_query_pro(None, side_effect=fake_query)
+
+    out = macro_data.get_us_china_spread("2024-06-30", look_back_days=10)
+
+    assert "US-CN 10Y Yield Spread" in out
+    assert "CN leg unavailable" in out
+    assert "No US-CN spread observations" in out
 
 
 def test_us_china_spread_handles_missing_us_leg_without_tool_error(monkeypatch, mock_query_pro):
@@ -758,6 +791,24 @@ def test_get_stock_moneyflow_emits_net_mf(mock_query_pro):
     assert "Stock Money Flow" in out
     assert "net_mf_amount" in out
     assert "12345.6" in out
+
+
+def test_get_stock_moneyflow_accepts_compact_dates(mock_query_pro):
+    mock = mock_query_pro(
+        _df_with_rows(
+            [
+                {
+                    "ts_code": "600519.SH",
+                    "trade_date": "20240205",
+                    "net_mf_amount": 1.0,
+                }
+            ]
+        )
+    )
+    out = macro_data.get_stock_moneyflow("600519.SH", "20240201", "20240205")
+    assert "Stock Money Flow" in out
+    assert mock.call_args.kwargs["start_date"] == "20240201"
+    assert mock.call_args.kwargs["end_date"] == "20240205"
 
 
 def test_get_stock_moneyflow_rejects_inverted_range():

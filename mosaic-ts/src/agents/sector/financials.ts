@@ -11,9 +11,7 @@ import { FinancialsSchema, STANDARD_SECTOR_FIELD_NAMES } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
   "get_rke_research_context",
-  "get_industry_policy",
-  "get_xueqiu_heat",
-  "get_lhb_ranking",
+  "get_industry_policy_digest",
   "get_yield_curve_cn",
   "get_broker_research",
   "get_etf_holdings",

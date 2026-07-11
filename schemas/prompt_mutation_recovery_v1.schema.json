@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt Mutation Recovery Descriptor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "transaction_id",
+    "mutation_id",
+    "version_id",
+    "agent",
+    "cohort",
+    "summary",
+    "prompt_sha256",
+    "code_commit_hash",
+    "metadata_log_path",
+    "mutation_metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "prompt_mutation_recovery_v1"
+    },
+    "transaction_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mutation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "agent": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cohort": {
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "components": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repo_id", "target", "branch"],
+        "properties": {
+          "repo_id": {
+            "enum": ["MOSAIC-Prompts", "MOSAIC-RKE"]
+          },
+          "target": {
+            "enum": ["private_git", "project_git"]
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "repo_id": { "const": "MOSAIC-Prompts" } },
+              "required": ["repo_id"]
+            },
+            "then": {
+              "properties": { "target": { "const": "private_git" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "repo_id": { "const": "MOSAIC-RKE" } },
+              "required": ["repo_id"]
+            },
+            "then": {
+              "properties": { "target": { "const": "project_git" } }
+            }
+          }
+        ]
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": { "repo_id": { "const": "MOSAIC-Prompts" } },
+            "required": ["repo_id"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": { "repo_id": { "const": "MOSAIC-RKE" } },
+            "required": ["repo_id"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "prompt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "code_commit_hash": {
+      "type": "string",
+      "minLength": 7
+    },
+    "metadata_log_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mutation_metadata": {
+      "type": "object",
+      "required": ["schema_version", "mutation_id", "transaction_id", "experiment_id"],
+      "properties": {
+        "schema_version": {
+          "const": "knob_mutation_metadata_v1"
+        },
+        "mutation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transaction_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "experiment_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["branch"],
+      "not": { "required": ["components"] }
+    },
+    {
+      "required": ["components"],
+      "not": { "required": ["branch"] }
+    }
+  ]
+}

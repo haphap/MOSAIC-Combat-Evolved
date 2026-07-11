@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt Evolution Performance Budget v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "runner_class",
+    "timing_budgets",
+    "fixture_budget",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "prompt_evolution_performance_budget_v1"
+    },
+    "runner_class": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "image", "node_version", "pnpm_version", "cache_state", "required_environment"],
+      "properties": {
+        "id": {"const": "github-hosted-linux-x64"},
+        "image": {"const": "ubuntu-latest"},
+        "node_version": {"const": "22"},
+        "pnpm_version": {"const": "11"},
+        "cache_state": {"const": "dependency-cache-allowed; application-cache-empty"},
+        "required_environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["RUNNER_OS", "RUNNER_ARCH"],
+          "properties": {
+            "RUNNER_OS": {"const": "Linux"},
+            "RUNNER_ARCH": {"const": "X64"}
+          }
+        }
+      }
+    },
+    "timing_budgets": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "check_id",
+          "baseline_duration_ms",
+          "regression_multiplier",
+          "absolute_cap_ms",
+          "effective_cap_ms"
+        ],
+        "properties": {
+          "check_id": {
+            "enum": [
+              "focused_schema_contract",
+              "schema_artifact_tests",
+              "bundled_prompt_contract"
+            ]
+          },
+          "baseline_duration_ms": {"type": "integer", "minimum": 1},
+          "regression_multiplier": {"const": 1.5},
+          "absolute_cap_ms": {"type": "integer", "minimum": 1},
+          "effective_cap_ms": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "fixture_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id",
+        "max_copied_bytes",
+        "max_copied_files",
+        "forbidden_private_prefixes",
+        "private_fixture_opt_in_env"
+      ],
+      "properties": {
+        "test_id": {"type": "string", "minLength": 1},
+        "max_copied_bytes": {"type": "integer", "minimum": 1},
+        "max_copied_files": {"type": "integer", "minimum": 1},
+        "forbidden_private_prefixes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "private_fixture_opt_in_env": {
+          "const": "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES"
+        }
+      }
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from hashlib import sha256
 from pathlib import Path
@@ -16,6 +17,7 @@ from mosaic.rke.cli import _schema_status_next_actions, main
 from mosaic.rke.schema_validation import (
     REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS,
     SchemaValidationRecord,
+    SchemaValidationReport,
     SUPPORTED_JSON_SCHEMA_KEYWORDS,
     iter_json_schema_keywords,
     validate_report_intelligence_semantics,
@@ -40,6 +42,30 @@ REQUIRED_SCHEMA_FILES = {
     "parameter_prior.schema.json",
     "validation_experiment_v2.schema.json",
     "production_patch.schema.json",
+    "research_knobs_v1.schema.json",
+    "prompt_ir_runtime_contract_v1.schema.json",
+    "domain_knob_catalog_v1.schema.json",
+    "runtime_agent_manifest_v1.schema.json",
+    "domain_knob_evaluation_contract_v1.schema.json",
+    "evidence_claim_graph_v1.schema.json",
+    "prompt_mutation_transaction_v1.schema.json",
+    "prompt_mutation_recovery_v1.schema.json",
+    "active_prompt_release_manifest_v1.schema.json",
+    "domain_evaluation_preregistration_v1.schema.json",
+    "domain_evaluation_sample_manifest_v1.schema.json",
+    "domain_evaluation_result_v1.schema.json",
+    "domain_promotion_decision_v1.schema.json",
+    "l4_run_snapshot_bundle_v1.schema.json",
+    "domain_knob_values_v1.schema.json",
+    "prompt_governance_values_v1.schema.json",
+    "prompt_release_canary_event_v1.schema.json",
+    "prompt_release_canary_slo_v1.schema.json",
+    "prompt_release_canary_assignment_event_v1.schema.json",
+    "prompt_release_canary_event_v2.schema.json",
+    "prompt_release_canary_slo_v2.schema.json",
+    "prompt_evolution_delivery_status_v1.schema.json",
+    "prompt_evolution_performance_budget_v1.schema.json",
+    "prompt_token_budget_manifest_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",
     "report_intelligence_feature_flags.schema.json",
@@ -161,7 +187,14 @@ PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES = (
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
         "registry/report_intelligence/audit_refresh_history.jsonl",
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/gap_distribution_history.jsonl",
+        "registry/report_intelligence/macro_agent_research_priors.jsonl",
+        "registry/report_intelligence/method_patterns.jsonl",
+        "registry/report_intelligence/metric_candidates.jsonl",
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/tool_gaps.jsonl",
     }
 )
 PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_COUNT_FIELDS = {
@@ -260,6 +293,11 @@ def _stale_private_generated_report_intelligence_fixtures() -> list[str]:
 def _skip_private_generated_report_intelligence_contracts(request) -> None:
     if request.node.name not in PRIVATE_GENERATED_REPORT_INTELLIGENCE_TEST_NAMES:
         return
+    if os.getenv("MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES") != "1":
+        pytest.skip(
+            "private/generated report-intelligence fixtures are opt-in; set "
+            "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES=1"
+        )
     missing = _missing_private_generated_report_intelligence_fixtures()
     if missing:
         pytest.skip(
@@ -282,6 +320,11 @@ def _expected_schema_failure_count() -> int:
 
 
 def _require_local_report_intelligence_artifacts(*names: str) -> Path:
+    if os.getenv("MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES") != "1":
+        pytest.skip(
+            "local report-intelligence artifacts are opt-in; set "
+            "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES=1"
+        )
     registry = Path("registry/report_intelligence")
     if not registry.exists():
         pytest.skip("local report-intelligence artifacts are absent")
@@ -333,11 +376,10 @@ def _copy_report_intelligence_registry(tmp_path: Path) -> Path:
         )
     )
     registry = tmp_path / "registry/report_intelligence"
-    shutil.copytree(
-        source,
-        registry,
-        ignore=shutil.ignore_patterns("markdown", "mineru", "pdfs"),
-    )
+    registry.mkdir(parents=True)
+    for fixture_path in sorted(PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES):
+        name = Path(fixture_path).name
+        shutil.copy2(source / name, registry / name)
     return registry
 
 
@@ -5014,7 +5056,49 @@ def test_prompt_mutation_candidate_contract_rejects_data_acquisition_evidence_dr
 
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
-    shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
+    shutil.copytree(
+        Path("registry"),
+        registry,
+        dirs_exist_ok=True,
+        ignore=_ignore_private_registry_inputs,
+    )
+    report_intelligence = registry / "report_intelligence"
+    report_intelligence.mkdir()
+    (report_intelligence / "feature_flags.json").write_text(
+        json.dumps(
+            {
+                "allowed_rollout_modes": [
+                    "off",
+                    "extraction_only",
+                    "shadow_retrieval",
+                    "shadow_tooling",
+                    "paper_trading",
+                    "limited_production",
+                    "production",
+                ],
+                "flags": {
+                    "analytical_footprint_enabled": True,
+                    "method_pattern_registry_enabled": True,
+                    "production_use_of_weighted_reports": False,
+                    "report_weighting_enabled": True,
+                    "shadow_tool_runtime_enabled": True,
+                    "tool_design_loop_enabled": True,
+                    "weighted_research_retriever_enabled": True,
+                },
+                "rollout_mode": "shadow_tooling",
+                "runtime_behavior": (
+                    "shadow retrieval and shadow tooling only; no agent decision impact; "
+                    "no trade without current data confirmation, validated recipes, "
+                    "paper trading gates, and production promotion approval"
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return registry
 
 
@@ -6613,6 +6697,972 @@ def test_schema_validation_enforces_numeric_minimum(tmp_path: Path):
     assert any("below minimum" in failure for failure in record.failures)
 
 
+def test_schema_validation_enforces_local_refs_min_properties_and_one_of(
+    tmp_path: Path,
+):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/report_intelligence"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    (schema_dir / "composed.schema.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "title": "Composed fixture",
+                "type": "object",
+                "required": ["digest", "registry", "variant"],
+                "properties": {
+                    "digest": {"$ref": "#/$defs/sha256"},
+                    "registry": {
+                        "type": "object",
+                        "minProperties": 1,
+                    },
+                    "variant": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                },
+                "$defs": {
+                    "sha256": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                    }
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (artifact_dir / "composed.json").write_text(
+        json.dumps(
+            {"digest": "not-a-sha256", "registry": {}, "variant": []},
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/composed.schema.json",
+        artifact_path="registry/report_intelligence/composed.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(".digest: pattern mismatch" in failure for failure in record.failures)
+    assert any(".registry: below minProperties" in failure for failure in record.failures)
+    assert any(".variant: expected exactly one oneOf" in failure for failure in record.failures)
+
+
+def test_prompt_ir_runtime_contract_schema_accepts_runtime_contract(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_ir"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_ir_runtime_contract_v1.schema.json",
+        schema_dir / "prompt_ir_runtime_contract_v1.schema.json",
+    )
+    (artifact_dir / "macro.central_bank.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_ir_runtime_contract_v1",
+                "agent_id": "macro.central_bank",
+                "layer": "macro",
+                "cohort_scope": "*",
+                "prompt_version": "0.4.0-research-knobs",
+                "role_contract": {
+                    "responsibility": "Generate central-bank research output.",
+                    "may_decide": ["stance"],
+                    "must_not_decide": ["final_portfolio_sizing"],
+                },
+                "required_tools": [
+                    {
+                        "name": "get_pboc_ops",
+                        "freshness_max_days": 1,
+                        "required": True,
+                        "metric_ids": ["pboc_ops_current"],
+                        "metric_candidate_ids": [],
+                        "analysis_recipe_ids": [],
+                        "pit_required_for_backtest": True,
+                        "fallback_confidence_cap": 0.6,
+                        "lineage": {},
+                    }
+                ],
+                "fallback_tools": [
+                    {
+                        "name": "get_pboc_ops:fallback",
+                        "confidence_cap": 0.6,
+                    }
+                ],
+                "research_rule_pack_refs": ["macro.central_bank.runtime.v1"],
+                "confidence_policy_ref": "confidence_policy.v1",
+                "rule_aggregation_policy_ref": "rule_aggregation_policy.v1",
+                "output_schema_ref": "agent_output_schema.macro.central_bank.v1",
+                "output_schema_fields": ["stance", "confidence"],
+                "progress_event_schema_ref": "progress_event.v1",
+                "handoff_schema_ref": "downstream_handoff.v1",
+                "evolution_targets": {
+                    "allowed_paths": ["/rule_packs/*/rules/*/learnable_parameters/*/value"],
+                    "forbidden_paths": ["/output_schema_ref"],
+                },
+                "guardrails": ["research_reports_are_prior_not_signal"],
+                "shared_contract_refs": ["research_knobs_v1"],
+                "status": {
+                    "promotion_state": "paper_trading",
+                    "production_allowed": False,
+                    "manual_gold_set_required": True,
+                    "source_license_review_required": True,
+                    "lockbox_required": True,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_ir_runtime_contract_v1.schema.json",
+        artifact_path="registry/prompt_ir/macro.central_bank.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_prompt_ir_runtime_contract_schema_requires_output_fields(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_ir"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_ir_runtime_contract_v1.schema.json",
+        schema_dir / "prompt_ir_runtime_contract_v1.schema.json",
+    )
+    (artifact_dir / "macro.central_bank.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_ir_runtime_contract_v1",
+                "agent_id": "macro.central_bank",
+                "layer": "macro",
+                "cohort_scope": "*",
+                "prompt_version": "0.4.0-research-knobs",
+                "role_contract": {
+                    "responsibility": "Generate central-bank research output.",
+                    "may_decide": ["stance"],
+                    "must_not_decide": ["final_portfolio_sizing"],
+                },
+                "required_tools": [],
+                "fallback_tools": [],
+                "research_rule_pack_refs": ["macro.central_bank.runtime.v1"],
+                "confidence_policy_ref": "confidence_policy.v1",
+                "rule_aggregation_policy_ref": "rule_aggregation_policy.v1",
+                "output_schema_ref": "agent_output_schema.macro.central_bank.v1",
+                "progress_event_schema_ref": "progress_event.v1",
+                "handoff_schema_ref": "downstream_handoff.v1",
+                "evolution_targets": {
+                    "allowed_paths": ["/rule_packs/*/rules/*/learnable_parameters/*/value"],
+                    "forbidden_paths": ["/output_schema_ref"],
+                },
+                "guardrails": ["research_reports_are_prior_not_signal"],
+                "shared_contract_refs": ["research_knobs_v1"],
+                "status": {
+                    "promotion_state": "paper_trading",
+                    "production_allowed": False,
+                    "manual_gold_set_required": True,
+                    "source_license_review_required": True,
+                    "lockbox_required": True,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_ir_runtime_contract_v1.schema.json",
+        artifact_path="registry/prompt_ir/macro.central_bank.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(".output_schema_fields: required" in failure for failure in record.failures)
+
+
+def test_prompt_governance_values_schema_accepts_physical_write_back_registry(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_governance/cohort_default"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_governance_values_v1.schema.json",
+        schema_dir / "prompt_governance_values_v1.schema.json",
+    )
+    weight_path = (
+        "/rule_packs/macro.central_bank.runtime.v1/rules/"
+        "macro.central_bank.soft.001/learnable_parameters/pboc_ops_weight/value"
+    )
+    (artifact_dir / "central_bank.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_governance_values_v1",
+                "agent": "macro.central_bank",
+                "cohort": "cohort_default",
+                "prompt_ir_scope": "*",
+                "prompt_ir_hash": f"sha256:{'1' * 64}",
+                "generator_version": "prompt_governance_projection_v1",
+                "values_by_path": {weight_path: 1.0},
+                "weight_groups": {
+                    "evidence_weights": {
+                        "normalization": "sum_to_one",
+                        "members": [weight_path],
+                    }
+                },
+                "last_mutation_id": None,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_governance_values_v1.schema.json",
+        artifact_path="registry/prompt_governance/cohort_default/central_bank.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def _runtime_agent_manifest_fixture() -> dict:
+    return {
+        "schema_version": "runtime_agent_manifest_v1",
+        "runtime_agent_count": 1,
+        "runtime_stage_count": 2,
+        "default_cohort": "cohort_default",
+        "research_knobs_cohort_enablement": [
+            {
+                "cohort": "cohort_default",
+                "enabled_agent_stages": ["cio:cio_proposal"],
+                "legacy_agent_stages": ["cio:cio_final"],
+            }
+        ],
+        "canonical_l4_sequence": [
+            "alpha_discovery",
+            "cio_proposal",
+            "cro_review",
+            "execution_feasibility",
+            "cio_final",
+        ],
+        "agents": [
+            {
+                "agent": "cio",
+                "layer": "decision",
+                "prompt_ir_agent_id": "decision.cio",
+                "required_tools": ["get_rke_research_context"],
+                "output_schema_fields": ["portfolio_actions", "confidence"],
+                "stages": [
+                    {
+                        "stage": "cio_proposal",
+                        "enablement": "declared",
+                        "output_schema_ref": "decision.cio.proposal.v1",
+                        "fallback_factory_id": "decision.cio.cio_proposal.fallback",
+                        "fallback_factory_version": "1",
+                        "required_source_ids": ["current_position_snapshot"],
+                        "produced_source_ids": [
+                            "candidate_target_state",
+                            "position_review_state",
+                        ],
+                    },
+                    {
+                        "stage": "cio_final",
+                        "enablement": "legacy",
+                        "output_schema_ref": "decision.cio.final.v1",
+                        "fallback_factory_id": "decision.cio.cio_final.fallback",
+                        "fallback_factory_version": "1",
+                        "required_source_ids": [
+                            "candidate_target_state",
+                            "cro_review_state",
+                            "execution_feasibility_state",
+                        ],
+                        "produced_source_ids": [],
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _write_runtime_agent_manifest_fixture(tmp_path: Path, manifest: dict) -> SchemaValidationRecord:
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/runtime_agent_manifest_v1.schema.json",
+        schema_dir / "runtime_agent_manifest_v1.schema.json",
+    )
+    (artifact_dir / "runtime_agent_manifest_v1.json").write_text(
+        json.dumps(manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/runtime_agent_manifest_v1.schema.json",
+        artifact_path="registry/prompt_checks/runtime_agent_manifest_v1.json",
+        artifact_kind="json",
+    )
+
+
+def test_runtime_agent_manifest_schema_accepts_stage_contract(tmp_path: Path):
+    record = _write_runtime_agent_manifest_fixture(tmp_path, _runtime_agent_manifest_fixture())
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_runtime_agent_manifest_schema_requires_fallback_factory(tmp_path: Path):
+    manifest = _runtime_agent_manifest_fixture()
+    del manifest["agents"][0]["stages"][0]["fallback_factory_id"]
+
+    record = _write_runtime_agent_manifest_fixture(tmp_path, manifest)
+
+    assert not record.accepted
+    assert any("fallback_factory_id: required" in failure for failure in record.failures)
+
+
+def test_evidence_claim_graph_schema_accepts_contract_shape(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/evidence_claim_graph_v1.schema.json",
+        schema_dir / "evidence_claim_graph_v1.schema.json",
+    )
+    snapshot_hash = f"sha256:{'1' * 64}"
+    source_hash = f"sha256:{'2' * 64}"
+    (artifact_dir / "evidence_claim_graph_v1.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "evidence_claim_graph_v1",
+                "run_id": "run-1",
+                "snapshot_hash": snapshot_hash,
+                "evidence_ledger": [
+                    {
+                        "evidence_id": "ev-1",
+                        "run_id": "run-1",
+                        "snapshot_hash": snapshot_hash,
+                        "source_kind": "tool",
+                        "tool_or_source": "get_stock_data",
+                        "metric": "close_return_20d",
+                        "value": 0.08,
+                        "unit": "ratio",
+                        "as_of": "2026-07-10",
+                        "lookback": "20d",
+                        "freshness": "current",
+                        "fallback": False,
+                        "source_fingerprint": source_hash,
+                        "direction": "positive",
+                        "privacy_class": "public_structured",
+                    }
+                ],
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "claim_type": "inference",
+                        "statement": "Current price evidence supports a positive signal.",
+                        "structured_conclusion": {"signal": "positive"},
+                        "evidence_refs": ["ev-1"],
+                        "research_rule_refs": ["sector.semiconductor.soft.001"],
+                        "snapshot_hash": snapshot_hash,
+                    }
+                ],
+                "recommendation_claim_refs": [
+                    {
+                        "output_id": "action-1",
+                        "output_type": "portfolio_action",
+                        "claim_refs": ["claim-1"],
+                    }
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/evidence_claim_graph_v1.schema.json",
+        artifact_path="registry/prompt_checks/evidence_claim_graph_v1.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_prompt_transaction_and_release_schemas_accept_staged_contracts(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    for schema_name in (
+        "prompt_mutation_transaction_v1.schema.json",
+        "prompt_mutation_recovery_v1.schema.json",
+        "active_prompt_release_manifest_v1.schema.json",
+    ):
+        shutil.copyfile(f"schemas/{schema_name}", schema_dir / schema_name)
+    digest = f"sha256:{'1' * 64}"
+    transaction = {
+        "schema_version": "prompt_mutation_transaction_v1",
+        "mutation_id": "mutation-1",
+        "transaction_id": "transaction-1",
+        "experiment_id": "experiment-1",
+        "state": "created",
+        "recovery_state": "not_needed",
+        "base_release_id": "release-0",
+        "catalog_hash": digest,
+        "schema_hash": digest,
+        "evaluation_contract_hash": digest,
+        "recovery_descriptor_hash": digest,
+        "target_paths": ["/rule_packs/test/value"],
+        "components": [
+            {
+                "repo_id": "MOSAIC-Prompts",
+                "base_commit": "1234567",
+                "new_commit": None,
+                "candidate_ref": "refs/mosaic-candidates/mutation-1",
+                "prepare_status": "pending",
+                "files": [
+                    {
+                        "path": "registry/domain_knobs/cohort_default/cio.json",
+                        "old_hash": digest,
+                        "new_hash": digest,
+                        "staging_path_hash": digest,
+                    }
+                ],
+            }
+        ],
+        "metadata_log": {
+            "path": "mutation_patches/knob_mutations.jsonl",
+            "entry_hash": digest,
+            "appended": False,
+        },
+        "created_at": "2026-07-10T00:00:00Z",
+        "prepared_at": None,
+        "committed_at": None,
+        "aborted_at": None,
+        "recovery_decision": None,
+    }
+    recovery = {
+        "schema_version": "prompt_mutation_recovery_v1",
+        "transaction_id": "transaction-1",
+        "mutation_id": "mutation-1",
+        "version_id": 1,
+        "agent": "central_bank",
+        "cohort": "cohort_default",
+        "components": [
+            {
+                "repo_id": "MOSAIC-Prompts",
+                "target": "private_git",
+                "branch": "cohort/cohort_default/auto/central_bank/2026-07-10",
+            },
+            {
+                "repo_id": "MOSAIC-RKE",
+                "target": "project_git",
+                "branch": "cohort/cohort_default/auto/central_bank/2026-07-10",
+            },
+        ],
+        "summary": "test mutation",
+        "prompt_sha256": "1" * 64,
+        "code_commit_hash": "c" * 40,
+        "metadata_log_path": "mutation_patches/knob_mutations.jsonl",
+        "mutation_metadata": {
+            "schema_version": "knob_mutation_metadata_v1",
+            "mutation_id": "mutation-1",
+            "transaction_id": "transaction-1",
+            "experiment_id": "experiment-1",
+        },
+    }
+    release = {
+        "schema_version": "active_prompt_release_manifest_v1",
+        "release_id": "release-1",
+        "base_release_id": "release-0",
+        "lifecycle_state": "staged",
+        "prompt_commit": "1234567",
+        "code_commit": "7654321",
+        "prompt_hash": digest,
+        "prompt_pairs": [
+            {
+                "agent": "central_bank",
+                "layer": "macro",
+                "cohort": "cohort_default",
+                "stages": ["agent_run"],
+                "zh": {
+                    "path": "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
+                    "sha256": digest,
+                },
+                "en": {
+                    "path": "prompts/mosaic/cohort_default/macro/central_bank.en.md",
+                    "sha256": digest,
+                },
+                "pair_hash": digest,
+            }
+        ],
+        "stage_snapshot_hashes": {"central_bank:agent_run": digest},
+        "catalog_hash": digest,
+        "schema_hash": digest,
+        "evaluation_contract_hash": digest,
+        "keep_decision_hash": digest,
+        "keep_decision_state": "kept",
+        "release_evidence": {
+            "version_id": 1,
+            "mutation_id": "mutation-1",
+            "experiment_id": "experiment-1",
+            "mutated_agent": "central_bank",
+            "evaluation_result_hash": digest,
+            "transaction_manifest_hash": digest,
+            "prompt_pair_sha256": "1" * 64,
+        },
+        "activation_scope": {
+            "cohort": "cohort_default",
+            "account_mode": "paper",
+            "traffic_percent": 0,
+        },
+        "approval_policy_id": "decision_release_manual_v1",
+        "approved_by": None,
+        "canary_started_at": None,
+        "canary_ended_at": None,
+        "runtime_slo_summary": None,
+        "runtime_slo_evidence": None,
+        "rollback_triggers": ["schema_failure_rate_gt_0"],
+        "previous_approved_release_id": "release-0",
+        "bundled_fallback": None,
+        "created_at": "2026-07-10T00:00:00Z",
+        "activated_at": None,
+        "rolled_back_at": None,
+    }
+    artifacts = {
+        "prompt_mutation_transaction_v1.json": transaction,
+        "prompt_mutation_recovery_v1.json": recovery,
+        "active_prompt_release_manifest_v1.json": release,
+    }
+    for filename, payload in artifacts.items():
+        (artifact_dir / filename).write_text(
+            json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+    transaction_record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_mutation_transaction_v1.schema.json",
+        artifact_path="registry/prompt_checks/prompt_mutation_transaction_v1.json",
+        artifact_kind="json",
+    )
+    recovery_record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_mutation_recovery_v1.schema.json",
+        artifact_path="registry/prompt_checks/prompt_mutation_recovery_v1.json",
+        artifact_kind="json",
+    )
+    release_record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/active_prompt_release_manifest_v1.schema.json",
+        artifact_path="registry/prompt_checks/active_prompt_release_manifest_v1.json",
+        artifact_kind="json",
+    )
+
+    assert transaction_record.accepted
+    assert recovery_record.accepted
+    assert release_record.accepted
+
+
+def test_prompt_token_budget_manifest_schema_accepts_machine_budget(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/prompt_token_budget_manifest_v1.schema.json",
+        schema_dir / "prompt_token_budget_manifest_v1.schema.json",
+    )
+    digest = f"sha256:{'1' * 64}"
+    artifact = {
+        "schema_version": "prompt_token_budget_manifest_v1",
+        "generator_id": "prompt_token_budget",
+        "generator_version": "1",
+        "generated_at": "2026-07-10T00:00:00Z",
+        "cohort": "cohort_default",
+        "tokenizer": {
+            "id": "cl100k_base",
+            "package": "js-tiktoken",
+            "version": "1.0.21",
+        },
+        "context_window_tokens": 131072,
+        "visible_contract_cap_tokens": 8192,
+        "system_prompt_cap_tokens": 32768,
+        "min_reserved_context_ratio": 0.5,
+        "max_baseline_growth_ratio": 1.25,
+        "runtime_manifest_hash": digest,
+        "source_commits": {"private": "a" * 40, "bundled": "b" * 40},
+        "baseline_manifest_hash": None,
+        "rows": [
+            {
+                "source": "private",
+                "agent": "central_bank",
+                "stage": "agent_run",
+                "language": "zh",
+                "source_path": "cohort_default/macro/central_bank.zh.md",
+                "source_sha256": digest,
+                "source_bytes": 1000,
+                "parsed_projection_bytes": 500,
+                "visible_contract_tokens": 100,
+                "final_system_prompt_tokens": 200,
+                "reserved_context_tokens": 130872,
+                "baseline_final_system_prompt_tokens": None,
+                "baseline_growth_ratio": None,
+                "checks": {
+                    "visible_contract_within_cap": True,
+                    "system_prompt_within_cap": True,
+                    "reserved_context_within_floor": True,
+                    "baseline_growth_within_limit": True,
+                },
+                "passed": True,
+            }
+        ],
+        "summary": {
+            "expected_row_count": 104,
+            "row_count": 1,
+            "passed_row_count": 1,
+            "failed_row_count": 0,
+            "semantic_parity_passed": True,
+            "ready": False,
+        },
+        "manifest_hash": digest,
+    }
+    (artifact_dir / "prompt_token_budget_manifest_v1.json").write_text(
+        json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/prompt_token_budget_manifest_v1.schema.json",
+        artifact_path="registry/prompt_checks/prompt_token_budget_manifest_v1.json",
+        artifact_kind="json",
+    )
+
+    assert record.accepted
+
+
+def _domain_knob_catalog_fixture() -> dict:
+    dependency_id = "sector.semiconductor.inventory_cycle_quarters.primary"
+    return {
+        "schema_version": "domain_knob_catalog_v1",
+        "catalog_version": "domain_knob_catalog_v1",
+        "runtime_agent_count": 1,
+        "runtime_sources": {},
+        "evaluation_metrics": {
+            "sector_rank_correlation_20d": {
+                "id": "sector_rank_correlation_20d",
+                "unit": "ratio",
+                "value_convention": "signed_return",
+                "direction": "higher_is_better",
+                "aggregation": "mean",
+                "window": "20d",
+                "baseline": "previous_knob_snapshot",
+                "calculator_id": "pit.rank_correlation",
+                "calculator_version": "1",
+                "valid_range": {"minimum": -1, "maximum": 1},
+                "null_policy": "exclude_sample",
+                "non_finite_policy": "reject_evaluation",
+                "normalization_version": "1",
+                "uncertainty_method": "fisher_z",
+                "overlapping_sample_policy": "inverse_overlap_weight",
+                "min_sample_size": 30,
+                "pit_required": True,
+                "exclusion_rules": ["missing_required_evidence_dependency"],
+            }
+        },
+        "evaluation_calculators": {
+            "pit.rank_correlation": {
+                "id": "pit.rank_correlation",
+                "version": "1",
+                "implementation_language": "python",
+                "implementation_ref": (
+                    "mosaic.autoresearch.domain_metrics:calculate_rank_correlation"
+                ),
+                "input_schema_ref": "autoresearch.domain_metric_sample.v1",
+                "output_schema_ref": "autoresearch.domain_metric_result.v1",
+                "deterministic": True,
+                "pit_enforced": True,
+                "supported_value_conventions": ["score"],
+            }
+        },
+        "agents": [
+            {
+                "layer": "sector",
+                "agent": "semiconductor",
+                "prompt_ir_agent": "sector.semiconductor",
+                "min_mutable_domain_knobs": 1,
+                "card_count": 1,
+                "cards": [
+                    {
+                        "id": "inventory_cycle_quarters",
+                        "owner_agent": "sector.semiconductor",
+                        "consumer_agents": ["sector.semiconductor"],
+                        "owner_stage": "agent_run",
+                        "consumer_stages": ["agent_run"],
+                        "projection_bucket": "lookbacks",
+                        "path": (
+                            "/rule_packs/sector.semiconductor.runtime.v1/rules/"
+                            "sector.semiconductor.soft.001/learnable_parameters/"
+                            "inventory_cycle_quarters/value"
+                        ),
+                        "type": "integer",
+                        "default": 4,
+                        "min": 2,
+                        "max": 8,
+                        "step": 1,
+                        "coverage_level": "direct_tool",
+                        "activation_state": "active",
+                        "runtime_input_sources": [],
+                        "runtime_input_source_policies": {},
+                        "evidence_dependencies": [
+                            {
+                                "dependency_id": dependency_id,
+                                "evidence_key": "balance_sheet",
+                                "tool": "get_balance_sheet",
+                                "metric_ids": ["inventory_to_revenue"],
+                                "freshness": "latest_reported_quarter_pit",
+                                "required_for_prediction": True,
+                                "dependency_type": "direct_tool",
+                                "scope_resolution": "pre_run",
+                                "scope_schema": {"ticker": "required"},
+                                "min_scope_coverage": 0.8,
+                            }
+                        ],
+                        "evidence_dependency_policies": {
+                            dependency_id: {
+                                "missing": "exclude_sample_and_cap_if_required",
+                                "stale": "exclude_sample_and_cap_if_required",
+                                "fallback": "exclude_sample_and_cap_if_required",
+                                "tool_failed": "exclude_sample_and_cap_if_required",
+                                "partial_loaded": "exclude_sample_only",
+                                "loaded": "allow",
+                            }
+                        },
+                        "learning_objective": "calibrate inventory cycle lookback",
+                        "prediction_target": "sector.semiconductor.inventory_cycle_quarters.20d",
+                        "evaluation_metric": "sector_rank_correlation_20d",
+                        "secondary_metrics": [],
+                        "horizon": "20d",
+                        "rollback_condition": {
+                            "metric": "sector_rank_correlation_20d",
+                            "worse_by": 0.02,
+                            "unit": "ratio",
+                        },
+                        "enforcement": "advisory",
+                        "category": "domain",
+                        "cross_field_group": None,
+                        "weight_group": None,
+                        "atomic_mutation_group": None,
+                        "normalization": "none",
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _write_domain_knob_catalog_fixture(tmp_path: Path, catalog: dict) -> SchemaValidationRecord:
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/domain_knob_catalog_v1.schema.json",
+        schema_dir / "domain_knob_catalog_v1.schema.json",
+    )
+    (artifact_dir / "domain_knob_catalog_v1.json").write_text(
+        json.dumps(catalog, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/domain_knob_catalog_v1.schema.json",
+        artifact_path="registry/prompt_checks/domain_knob_catalog_v1.json",
+        artifact_kind="json",
+    )
+
+
+def test_domain_knob_catalog_schema_accepts_valid_catalog(tmp_path: Path):
+    record = _write_domain_knob_catalog_fixture(tmp_path, _domain_knob_catalog_fixture())
+
+    assert record.accepted
+    assert record.item_count == 1
+
+
+def test_domain_knob_catalog_schema_requires_in_run_scope_fields(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    dependency = catalog["agents"][0]["cards"][0]["evidence_dependencies"][0]
+    dependency["scope_resolution"] = "in_run_tool_derived"
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any("scope_source_tool: required" in failure for failure in record.failures)
+    assert any("empty_scope_behavior: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_catalog_schema_requires_code_enforcement_fields(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    card = catalog["agents"][0]["cards"][0]
+    card["enforcement"] = "code"
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any("runtime_validator: required" in failure for failure in record.failures)
+    assert any("audit_field: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_catalog_schema_requires_numeric_bounds(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    del catalog["agents"][0]["cards"][0]["step"]
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any(".step: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_catalog_schema_requires_secondary_metrics(tmp_path: Path):
+    catalog = _domain_knob_catalog_fixture()
+    del catalog["agents"][0]["cards"][0]["secondary_metrics"]
+
+    record = _write_domain_knob_catalog_fixture(tmp_path, catalog)
+
+    assert not record.accepted
+    assert any(".secondary_metrics: required" in failure for failure in record.failures)
+
+
+def _write_domain_knob_evaluation_contract_fixture(
+    tmp_path: Path, contract: dict
+) -> SchemaValidationRecord:
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/prompt_checks"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    shutil.copyfile(
+        "schemas/domain_knob_evaluation_contract_v1.schema.json",
+        schema_dir / "domain_knob_evaluation_contract_v1.schema.json",
+    )
+    (artifact_dir / "domain_knob_evaluation_contract_v1.json").write_text(
+        json.dumps(contract, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/domain_knob_evaluation_contract_v1.schema.json",
+        artifact_path="registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+        artifact_kind="json",
+    )
+
+
+def test_domain_knob_evaluation_contract_schema_accepts_generated_contract(tmp_path: Path):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected_schema_hash = "sha256:" + sha256(
+        Path("schemas/domain_knob_evaluation_contract_v1.schema.json").read_bytes()
+    ).hexdigest()
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert record.accepted
+    assert record.item_count == 1
+    assert contract["schema_hash"] == expected_schema_hash
+
+
+def test_domain_knob_evaluation_contract_schema_requires_contract_hash(tmp_path: Path):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    del contract["contract_hash"]
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".contract_hash: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_evaluation_contract_schema_enforces_refs_and_min_properties(
+    tmp_path: Path,
+):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    contract["catalog_hash"] = "not-a-sha256"
+    contract["evaluation_metrics"] = {}
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".catalog_hash: pattern mismatch" in failure for failure in record.failures)
+    assert any(".evaluation_metrics: below minProperties" in failure for failure in record.failures)
+
+
+def test_domain_knob_evaluation_contract_schema_requires_binding_activation_state(
+    tmp_path: Path,
+):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    del contract["card_bindings"][0]["activation_state"]
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".activation_state: required" in failure for failure in record.failures)
+
+
+def test_domain_knob_evaluation_contract_schema_requires_generic_write_back(
+    tmp_path: Path,
+):
+    contract = json.loads(
+        Path("registry/prompt_checks/domain_knob_evaluation_contract_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    del contract["generic_bindings"][0]["write_back_json_pointer"]
+
+    record = _write_domain_knob_evaluation_contract_fixture(tmp_path, contract)
+
+    assert not record.accepted
+    assert any(".write_back_json_pointer: required" in failure for failure in record.failures)
+
+
 def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):
     schema_dir = tmp_path / "schemas"
     artifact_dir = tmp_path / "registry/sources"
@@ -7005,20 +8055,36 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
     ] == 15
 
 
-def test_schema_status_cli_reports_malformed_artifact(tmp_path: Path, capsys):
-    schema_dir = tmp_path / "schemas"
-    registry_dir = tmp_path / "registry"
-    schema_dir.mkdir()
-    for path in Path("schemas").iterdir():
-        if path.is_file():
-            (schema_dir / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+def test_schema_status_cli_reports_malformed_artifact(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    record = SchemaValidationRecord(
+        schema_path="schemas/source_metadata.schema.json",
+        artifact_path="registry/sources/central_bank_sources.jsonl",
+        item_count=0,
+        accepted=False,
+        failures=("line 1: invalid JSON",),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "build_schema_validation_report",
+        lambda root: SchemaValidationReport(
+            report_id="schema-validation-test",
+            records=(record,),
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_schema_status_next_actions",
+        lambda records, *, root: [],
+    )
 
-    shutil.copytree(Path("registry"), registry_dir, dirs_exist_ok=True)
-    (tmp_path / "registry/sources/central_bank_sources.jsonl").write_text("{\n", encoding="utf-8")
-
-    code = main(("schema-status", "--root", str(tmp_path)))
+    code = main(("schema-status", "--root", str(tmp_path), "--no-write"))
     output = json.loads(capsys.readouterr().out)
 
     assert code == 2
     assert output["accepted"] is False
-    assert output["failure_count"] >= 1
+    assert output["failure_count"] == 1
+    assert output["records"][0]["failures"] == ["line 1: invalid JSON"]

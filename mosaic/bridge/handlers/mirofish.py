@@ -13,6 +13,7 @@ agent-recommendation step. Scenarios cross the bridge as JSON dicts (no numpy).
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -44,6 +45,114 @@ def _opt_seed(params: dict) -> Any:
     return seed
 
 
+def _optional_number(position: dict[str, Any], key: str, row_label: str) -> float | None:
+    value = position.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise RpcError(INVALID_PARAMS, f"'{row_label}.{key}' must be a number when provided")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise RpcError(INVALID_PARAMS, f"'{row_label}.{key}' must be finite")
+    return parsed
+
+
+def _optional_nonnegative_int(position: dict[str, Any], key: str, row_label: str) -> int | None:
+    value = position.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise RpcError(INVALID_PARAMS, f"'{row_label}.{key}' must be a non-negative integer")
+    return int(value)
+
+
+def _current_positions_context(
+    params: dict[str, Any],
+) -> tuple[dict[str, float], dict[str, Any] | None]:
+    positions = params.get("current_positions")
+    if positions is None:
+        return {}, None
+    if not isinstance(positions, list):
+        raise RpcError(INVALID_PARAMS, "'current_positions' must be a list")
+    prices: dict[str, float] = {}
+    rows: list[dict[str, Any]] = []
+    for i, position in enumerate(positions):
+        row_label = f"current_positions[{i}]"
+        if not isinstance(position, dict):
+            raise RpcError(INVALID_PARAMS, f"'{row_label}' must be an object")
+        ticker = position.get("ticker")
+        if not isinstance(ticker, str) or not ticker.strip():
+            raise RpcError(INVALID_PARAMS, f"'{row_label}.ticker' must be a string")
+        raw_price = (
+            position.get("market_price")
+            if position.get("market_price") is not None
+            else position.get("current_price")
+        )
+        if (
+            not isinstance(raw_price, (int, float))
+            or isinstance(raw_price, bool)
+            or raw_price <= 0
+            or not math.isfinite(float(raw_price))
+        ):
+            raise RpcError(
+                INVALID_PARAMS,
+                f"'{row_label}.market_price' must be a positive number",
+            )
+        normalized: dict[str, Any] = {
+            "ticker": ticker.strip(),
+            "market_price": float(raw_price),
+        }
+        for key in ("current_weight", "cost_basis", "unrealized_pnl_pct"):
+            value = _optional_number(position, key, row_label)
+            if value is not None:
+                normalized[key] = value
+        holding_days = _optional_nonnegative_int(position, "holding_days", row_label)
+        if holding_days is not None:
+            normalized["holding_days"] = holding_days
+        entry_thesis = position.get("entry_thesis")
+        if entry_thesis is not None:
+            if not isinstance(entry_thesis, str):
+                raise RpcError(INVALID_PARAMS, f"'{row_label}.entry_thesis' must be a string")
+            normalized["entry_thesis"] = entry_thesis
+        prices[normalized["ticker"]] = normalized["market_price"]
+        rows.append(normalized)
+    return prices, {
+        "current_position_tickers": sorted(prices),
+        "position_count": len(prices),
+        "current_positions": rows,
+    }
+
+
+def _exposure_map(params: dict[str, Any], key: str) -> dict[str, float] | None:
+    raw = params.get(key)
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be an object")
+    out: dict[str, float] = {}
+    for label, value in raw.items():
+        if not isinstance(label, str) or not label.strip():
+            raise RpcError(INVALID_PARAMS, f"'{key}' keys must be non-empty strings")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise RpcError(INVALID_PARAMS, f"'{key}.{label}' must be a number")
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise RpcError(INVALID_PARAMS, f"'{key}.{label}' must be finite")
+        out[label.strip()] = parsed
+    return dict(sorted(out.items()))
+
+
+def _portfolio_exposure_context(params: dict[str, Any]) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+    sector_exposure = _exposure_map(params, "sector_exposure")
+    theme_exposure = _exposure_map(params, "theme_exposure")
+    if sector_exposure is not None:
+        context["sector_exposure"] = sector_exposure
+    if theme_exposure is not None:
+        context["theme_exposure"] = theme_exposure
+    return context
+
+
 @method("mirofish.generate_scenarios")
 def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     """Generate the scenario set (base/bull/bear/tail_up/tail_down).
@@ -63,6 +172,10 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     start_prices = params.get("start_prices")
     if start_prices is not None and not isinstance(start_prices, dict):
         raise RpcError(INVALID_PARAMS, "'start_prices' must be an object")
+    position_start_prices, position_context = _current_positions_context(params)
+    exposure_context = _portfolio_exposure_context(params)
+    if position_start_prices:
+        start_prices = {**position_start_prices, **(start_prices or {})}
     reflexivity = bool(params.get("reflexivity", False))
 
     max_rounds = params.get("max_rounds")
@@ -106,6 +219,10 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
             )
     except ValueError as exc:
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    portfolio_context = {**(position_context or {}), **exposure_context}
+    if portfolio_context:
+        for scenario in out:
+            scenario["portfolio_context"] = dict(portfolio_context)
     return {"scenarios": out, "engine": engine}
 
 
@@ -192,6 +309,7 @@ def mirofish_save_context(params: dict[str, Any]) -> dict[str, Any]:
     from mosaic.mirofish.context import derive_context  # deps-light: no numpy
 
     context = derive_context(scenarios)
+    context["as_of_date"] = date
     _store().save_mirofish_context(date=date, context=context)
     return {"date": date, "context": context}
 

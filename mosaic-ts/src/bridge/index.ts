@@ -1,5 +1,5 @@
 export type { BridgeClientOptions } from "./client.js";
-export { BridgeClient } from "./client.js";
+export { BridgeClient, parseBridgeTimeoutMs } from "./client.js";
 export {
   AUTORESEARCH_ERROR,
   BACKTEST_ERROR,
@@ -55,13 +55,16 @@ export type {
   JanusWeights,
   JsonSchemaObject,
   JsonSchemaProperty,
+  MirofishContext,
   MirofishHistoryEntry,
   MirofishPricePath,
   MirofishRecommendation,
   MirofishScenario,
   MosaicConfig,
   PaperAccount,
+  PaperOrderResult,
   PaperPosition,
+  PaperSuggestion,
   PaperTrade,
   ScorecardScoreOutcome,
   SkillRow,

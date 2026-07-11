@@ -21,6 +21,7 @@ columns once they're populated).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -39,6 +40,23 @@ DEFAULT_DB_PATH = (
     Path(os.getenv("MOSAIC_DATA_DIR", str(_REPO_ROOT / "data"))) / "scorecard.db"
 )
 
+_DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS: dict[str | None, set[str]] = {
+    None: {"proposed"},
+    "proposed": {"validated", "invalid"},
+    "validated": {"shadow_evaluating", "invalid"},
+    "shadow_evaluating": {
+        "needs_fill",
+        "eligible_for_promotion",
+        "reverted",
+        "invalid",
+    },
+    "needs_fill": {"shadow_evaluating", "invalid"},
+    "eligible_for_promotion": {"kept", "reverted"},
+    "kept": set(),
+    "reverted": set(),
+    "invalid": set(),
+}
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS recommendations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,6 +67,18 @@ CREATE TABLE IF NOT EXISTS recommendations (
     action TEXT NOT NULL,                       -- BUY/SELL/HOLD/REDUCE/LONG/SHORT
     conviction REAL,                            -- [0, 1]
     target_weight_pct REAL,                     -- [0, 100]
+    current_weight_pct REAL,                    -- CIO only: current portfolio weight [0, 100]
+    delta_weight_pct REAL,                      -- CIO only: target-current [percentage points]
+    position_decision TEXT,                     -- CIO only: HOLD/ADD/REDUCE/EXIT
+    position_decision_reason TEXT,
+    override_reason TEXT,
+    thesis_status TEXT,                         -- CIO only: intact/weakened/broken/expired
+    risk_flags_json TEXT,                       -- JSON array of CIO position risk flags
+    declared_knob_influence_ids_json TEXT,      -- JSON array from LLM declaration
+    declared_influence_rationale TEXT,
+    verified_knob_audit_json TEXT,              -- runtime-owned cap/dependency audit
+    decision_agent_audits_json TEXT,            -- compact CRO/execution/CIO audit summary
+    dissent_notes TEXT,
     rationale_snapshot TEXT,
     replay_triggered INTEGER NOT NULL DEFAULT 0,  -- 1 = produced by a CRO-veto replay cycle (R-A1)
     forward_return_5d REAL,                     -- NULL until scored
@@ -151,6 +181,16 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
     prompt_sha256 TEXT,                         -- deterministic digest of the committed prompt files
     code_commit_hash TEXT,                      -- project code commit paired with this prompt mutation
     modification_summary TEXT,                  -- LLM-authored one-line "what changed"
+    mutation_id TEXT,                           -- stable parameter-mutation identifier
+    transaction_id TEXT,                        -- candidate artifact transaction identifier
+    experiment_id TEXT,                         -- preregistered evaluation episode identifier
+    mutation_metadata_json TEXT,                -- hash-bound knob/card/evaluation policy
+    mutation_lifecycle TEXT,                    -- proposed/validated/shadow_evaluating/...
+    evaluation_result_json TEXT,                -- card-bound PIT EvaluationResult
+    promotion_decision_json TEXT,               -- authorized keep/revert evidence
+    promotion_decision_hash TEXT,
+    promotion_approved_by TEXT,
+    promotion_approval_policy_id TEXT,
     created_at TEXT NOT NULL,                   -- ISO-8601
     status TEXT NOT NULL,                       -- pending / keep / revert
     decided_at TEXT,                            -- ISO-8601, set when status leaves pending
@@ -165,6 +205,15 @@ CREATE INDEX IF NOT EXISTS idx_pv_pending
 
 CREATE INDEX IF NOT EXISTS idx_pv_cohort_agent
     ON prompt_versions(cohort, agent, created_at);
+
+CREATE TABLE IF NOT EXISTS domain_holdout_consumptions (
+    holdout_id TEXT PRIMARY KEY,                -- preregistered untouched holdout hash
+    mutation_id TEXT NOT NULL,
+    prompt_version_id INTEGER NOT NULL,
+    result_hash TEXT NOT NULL,
+    consumed_at TEXT NOT NULL,
+    UNIQUE(mutation_id, holdout_id)
+);
 
 CREATE TABLE IF NOT EXISTS autoresearch_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -435,6 +484,9 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     # ── Layer 4 cio only (other L4 agents don't carry tickers per se) ────
     layer4 = state.get("layer4_outputs") or {}
     cio = layer4.get("cio") if isinstance(layer4, dict) else None
+    decision_agent_audits_json = (
+        _decision_agent_audits_json(layer4) if isinstance(layer4, dict) else None
+    )
     if isinstance(cio, dict):
         for action_obj in cio.get("portfolio_actions", []) or []:
             ticker = action_obj.get("ticker")
@@ -458,6 +510,22 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
                     # §11.5 decision #10.)
                     "conviction": None,
                     "target_weight_pct": target_weight * 100.0,
+                    "current_weight_pct": _maybe_pct(action_obj.get("current_weight")),
+                    "delta_weight_pct": _maybe_pct(action_obj.get("delta_weight")),
+                    "position_decision": action_obj.get("position_decision"),
+                    "position_decision_reason": action_obj.get("position_decision_reason"),
+                    "override_reason": action_obj.get("override_reason"),
+                    "thesis_status": action_obj.get("thesis_status"),
+                    "risk_flags_json": _json_list_or_none(action_obj.get("risk_flags")),
+                    "declared_knob_influence_ids_json": _json_list_or_none(
+                        cio.get("declared_knob_influence_ids")
+                    ),
+                    "declared_influence_rationale": cio.get("declared_influence_rationale"),
+                    "verified_knob_audit_json": _json_object_or_none(
+                        cio.get("verified_knob_audit")
+                    ),
+                    "decision_agent_audits_json": decision_agent_audits_json,
+                    "dissent_notes": action_obj.get("dissent_notes"),
                     "rationale_snapshot": _truncate(
                         action_obj.get("dissent_notes") or action_obj.get("thesis"),
                         200,
@@ -467,8 +535,71 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
 
     for row in rows:
         row["replay_triggered"] = replay_flag
+        for key in (
+            "current_weight_pct",
+            "delta_weight_pct",
+            "position_decision",
+            "position_decision_reason",
+            "override_reason",
+            "thesis_status",
+            "risk_flags_json",
+            "declared_knob_influence_ids_json",
+            "declared_influence_rationale",
+            "verified_knob_audit_json",
+            "decision_agent_audits_json",
+            "dissent_notes",
+        ):
+            row.setdefault(key, None)
 
     return rows
+
+
+def _maybe_pct(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value) * 100.0
+
+
+def _json_list_or_none(value: Any) -> str | None:
+    if not isinstance(value, list):
+        return None
+    return json.dumps([str(item) for item in value], ensure_ascii=False)
+
+
+def _json_object_or_none(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _decision_agent_audits_json(layer4: dict[str, Any]) -> str | None:
+    rows: dict[str, dict[str, Any]] = {}
+    for agent in ("cro", "autonomous_execution", "cio"):
+        output = layer4.get(agent)
+        if not isinstance(output, dict):
+            continue
+        row: dict[str, Any] = {}
+        declared = output.get("declared_knob_influence_ids")
+        if isinstance(declared, list):
+            row["declared_knob_influence_ids"] = [str(item) for item in declared]
+        rationale = output.get("declared_influence_rationale")
+        if isinstance(rationale, str) and rationale:
+            row["declared_influence_rationale"] = rationale
+        audit = output.get("verified_knob_audit")
+        if isinstance(audit, dict):
+            for key in (
+                "knob_snapshot_hash",
+                "fired_cap_ids",
+                "unsupported_knob_influence_ids",
+                "sample_exclusion_reason",
+            ):
+                if key in audit:
+                    row[key] = audit[key]
+        if row:
+            rows[agent] = row
+    if not rows:
+        return None
+    return json.dumps(rows, ensure_ascii=False, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -671,10 +802,37 @@ class ScorecardStore:
                     "ALTER TABLE recommendations "
                     "ADD COLUMN replay_triggered INTEGER NOT NULL DEFAULT 0"
                 )
+            for column, ddl in (
+                ("current_weight_pct", "REAL"),
+                ("delta_weight_pct", "REAL"),
+                ("position_decision", "TEXT"),
+                ("position_decision_reason", "TEXT"),
+                ("override_reason", "TEXT"),
+                ("thesis_status", "TEXT"),
+                ("risk_flags_json", "TEXT"),
+                ("declared_knob_influence_ids_json", "TEXT"),
+                ("declared_influence_rationale", "TEXT"),
+                ("verified_knob_audit_json", "TEXT"),
+                ("decision_agent_audits_json", "TEXT"),
+                ("dissent_notes", "TEXT"),
+            ):
+                self._ensure_column(conn, "recommendations", column, ddl)
             self._ensure_column(conn, "prompt_versions", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_base_commit_hash", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_sha256", "TEXT")
             self._ensure_column(conn, "prompt_versions", "code_commit_hash", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "mutation_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "transaction_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "experiment_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "mutation_metadata_json", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "mutation_lifecycle", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "evaluation_result_json", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "promotion_decision_json", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "promotion_decision_hash", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "promotion_approved_by", "TEXT")
+            self._ensure_column(
+                conn, "prompt_versions", "promotion_approval_policy_id", "TEXT"
+            )
             self._ensure_column(conn, "backtest_runs", "prompt_commit_ref", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_sha256", "TEXT")
@@ -730,15 +888,37 @@ class ScorecardStore:
                 """
                 INSERT INTO recommendations (
                     cohort, agent, ticker, date, action, conviction,
-                    target_weight_pct, rationale_snapshot, replay_triggered
+                    target_weight_pct, current_weight_pct, delta_weight_pct,
+                    position_decision, position_decision_reason, override_reason,
+                    thesis_status, risk_flags_json, declared_knob_influence_ids_json,
+                    declared_influence_rationale, verified_knob_audit_json,
+                    decision_agent_audits_json, dissent_notes, rationale_snapshot,
+                    replay_triggered
                 ) VALUES (
                     :cohort, :agent, :ticker, :date, :action, :conviction,
-                    :target_weight_pct, :rationale_snapshot, :replay_triggered
+                    :target_weight_pct, :current_weight_pct, :delta_weight_pct,
+                    :position_decision, :position_decision_reason, :override_reason,
+                    :thesis_status, :risk_flags_json, :declared_knob_influence_ids_json,
+                    :declared_influence_rationale, :verified_knob_audit_json,
+                    :decision_agent_audits_json, :dissent_notes, :rationale_snapshot,
+                    :replay_triggered
                 )
                 ON CONFLICT(cohort, agent, ticker, date) DO UPDATE SET
                     action = excluded.action,
                     conviction = excluded.conviction,
                     target_weight_pct = excluded.target_weight_pct,
+                    current_weight_pct = excluded.current_weight_pct,
+                    delta_weight_pct = excluded.delta_weight_pct,
+                    position_decision = excluded.position_decision,
+                    position_decision_reason = excluded.position_decision_reason,
+                    override_reason = excluded.override_reason,
+                    thesis_status = excluded.thesis_status,
+                    risk_flags_json = excluded.risk_flags_json,
+                    declared_knob_influence_ids_json = excluded.declared_knob_influence_ids_json,
+                    declared_influence_rationale = excluded.declared_influence_rationale,
+                    verified_knob_audit_json = excluded.verified_knob_audit_json,
+                    decision_agent_audits_json = excluded.decision_agent_audits_json,
+                    dissent_notes = excluded.dissent_notes,
                     rationale_snapshot = excluded.rationale_snapshot,
                     replay_triggered = excluded.replay_triggered
                 """,
@@ -1314,7 +1494,11 @@ class ScorecardStore:
                 return {"cohort": cohort, "date": None, "actions": []}
             cur = conn.execute(
                 "SELECT ticker, action, target_weight_pct, rationale_snapshot, "
-                "       forward_return_5d, scored_at "
+                "       forward_return_5d, scored_at, current_weight_pct, delta_weight_pct, "
+                "       position_decision, position_decision_reason, override_reason, "
+                "       thesis_status, risk_flags_json, declared_knob_influence_ids_json, "
+                "       declared_influence_rationale, verified_knob_audit_json, "
+                "       decision_agent_audits_json, dissent_notes "
                 "FROM recommendations WHERE cohort = ? AND agent = 'cio' AND date = ? "
                 "ORDER BY target_weight_pct DESC, ticker",
                 (cohort, latest),
@@ -1658,6 +1842,62 @@ class ScorecardStore:
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
+    def summarize_backtest_actions(self, run_id: int) -> dict[str, Any]:
+        """Aggregate cached stage-1 backtest actions without invoking qlib.
+
+        This powers operator/TUI carry-over diagnostics. Performance metrics
+        that require stage-2 market replay are reported as unavailable rather
+        than inferred from cached target weights.
+        """
+        actions = self.get_backtest_actions(run_id)
+        dates = sorted({row["trade_date"] for row in actions})
+        action_counts: dict[str, int] = {}
+        holding_period_counts: dict[str, int] = {}
+        by_ticker: dict[str, list[dict[str, Any]]] = {}
+        for row in actions:
+            action = str(row["action"])
+            action_counts[action] = action_counts.get(action, 0) + 1
+            holding_period = row.get("holding_period") or "unspecified"
+            holding_period_counts[holding_period] = holding_period_counts.get(holding_period, 0) + 1
+            by_ticker.setdefault(str(row["ticker"]), []).append(row)
+
+        turnover_proxy = 0.0
+        max_observed_holding_days = 0
+        stale_thesis_proxy_count = 0
+        for rows in by_ticker.values():
+            rows.sort(key=lambda row: row["trade_date"])
+            previous = 0.0
+            seen_dates: set[str] = set()
+            for row in rows:
+                target = float(row["target_weight"])
+                turnover_proxy += abs(target - previous)
+                previous = target
+                seen_dates.add(str(row["trade_date"]))
+            max_observed_holding_days = max(max_observed_holding_days, max(len(seen_dates) - 1, 0))
+            if max(len(seen_dates) - 1, 0) >= 20:
+                stale_thesis_proxy_count += 1
+
+        return {
+            "run_id": run_id,
+            "action_count": len(actions),
+            "trade_day_count": len(dates),
+            "first_trade_date": dates[0] if dates else None,
+            "last_trade_date": dates[-1] if dates else None,
+            "ticker_count": len(by_ticker),
+            "turnover_proxy": round(turnover_proxy, 6),
+            "max_observed_holding_days": max_observed_holding_days,
+            "stale_thesis_proxy_count": stale_thesis_proxy_count,
+            "action_counts": action_counts,
+            "holding_period_counts": holding_period_counts,
+            "metric_availability": {
+                "turnover": "stage1_proxy_from_target_weight_changes",
+                "holding_days": "stage1_observed_trade_day_count",
+                "exit_after_hold_alpha": "requires_stage2_scored_positions",
+                "reduce_opportunity_cost": "requires_stage2_scored_positions",
+                "stop_loss_avoided_drawdown": "requires_stage2_scored_positions",
+            },
+        }
+
     # ── backtest_failed_days (R-A3) ──────────────────────────────────────
 
     def record_backtest_failed_days(
@@ -1768,9 +2008,27 @@ class ScorecardStore:
         prompt_base_commit_hash: Optional[str] = None,
         prompt_sha256: Optional[str] = None,
         code_commit_hash: Optional[str] = None,
+        mutation_metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Back-fill the mutation commit + summary once the TS mutator has
         written and committed the rewrite (``autoresearch.record_mutation``)."""
+        metadata_json = _json_object_or_none(mutation_metadata)
+        mutation_id = None
+        transaction_id = None
+        experiment_id = None
+        mutation_lifecycle = None
+        if mutation_metadata is not None:
+            mutation_id = mutation_metadata.get("mutation_id")
+            transaction_id = mutation_metadata.get("transaction_id")
+            experiment_id = mutation_metadata.get("experiment_id")
+            for field, value in (
+                ("mutation_id", mutation_id),
+                ("transaction_id", transaction_id),
+                ("experiment_id", experiment_id),
+            ):
+                if not isinstance(value, str) or not value:
+                    raise ValueError(f"mutation metadata {field} must be a non-empty string")
+            mutation_lifecycle = "proposed"
         with self._connect() as conn:
             cur = conn.execute(
                 """
@@ -1780,7 +2038,12 @@ class ScorecardStore:
                     prompt_repo_id = COALESCE(:prompt_repo_id, prompt_repo_id),
                     prompt_base_commit_hash = COALESCE(:prompt_base_commit_hash, prompt_base_commit_hash),
                     prompt_sha256 = COALESCE(:prompt_sha256, prompt_sha256),
-                    code_commit_hash = COALESCE(:code_commit_hash, code_commit_hash)
+                    code_commit_hash = COALESCE(:code_commit_hash, code_commit_hash),
+                    mutation_id = COALESCE(:mutation_id, mutation_id),
+                    transaction_id = COALESCE(:transaction_id, transaction_id),
+                    experiment_id = COALESCE(:experiment_id, experiment_id),
+                    mutation_metadata_json = COALESCE(:mutation_metadata_json, mutation_metadata_json),
+                    mutation_lifecycle = COALESCE(:mutation_lifecycle, mutation_lifecycle)
                 WHERE id = :id
                 """,
                 {
@@ -1791,6 +2054,11 @@ class ScorecardStore:
                     "prompt_base_commit_hash": prompt_base_commit_hash,
                     "prompt_sha256": prompt_sha256,
                     "code_commit_hash": code_commit_hash,
+                    "mutation_id": mutation_id,
+                    "transaction_id": transaction_id,
+                    "experiment_id": experiment_id,
+                    "mutation_metadata_json": metadata_json,
+                    "mutation_lifecycle": mutation_lifecycle,
                 },
             )
             if cur.rowcount == 0:
@@ -1822,6 +2090,236 @@ class ScorecardStore:
             )
             if cur.rowcount == 0:
                 logger.warning("set_version_eval: no prompt_version id=%s", version_id)
+
+    def set_version_mutation_lifecycle(
+        self,
+        version_id: int,
+        lifecycle: str,
+        *,
+        decided_at: Optional[str] = None,
+    ) -> None:
+        """Apply one legal domain mutation lifecycle transition."""
+        if lifecycle not in _DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS:
+            raise ValueError(f"unknown domain mutation lifecycle: {lifecycle!r}")
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT mutation_lifecycle FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"prompt_version {version_id} not found")
+            current = row["mutation_lifecycle"]
+            if current == lifecycle:
+                return
+            allowed = _DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS.get(current, set())
+            if lifecycle not in allowed:
+                raise ValueError(
+                    f"illegal domain mutation lifecycle transition: {current!r} -> {lifecycle!r}"
+                )
+            status = None
+            if lifecycle == "kept":
+                status = "keep"
+            elif lifecycle == "reverted":
+                status = "revert"
+            elif lifecycle == "invalid":
+                status = "invalid"
+            terminal_at = decided_at or (_utcnow_iso() if status else None)
+            conn.execute(
+                """
+                UPDATE prompt_versions
+                SET mutation_lifecycle = ?,
+                    status = COALESCE(?, status),
+                    decided_at = COALESCE(?, decided_at)
+                WHERE id = ?
+                """,
+                (lifecycle, status, terminal_at, version_id),
+            )
+
+    def set_domain_evaluation_result(
+        self, version_id: int, result: dict[str, Any]
+    ) -> None:
+        """Persist the language-neutral EvaluationResult for one mutation."""
+        encoded = _json_object_or_none(result)
+        if encoded is None:
+            raise ValueError("domain evaluation result must be an object")
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE prompt_versions SET evaluation_result_json = ? WHERE id = ?",
+                (encoded, version_id),
+            )
+            if cur.rowcount == 0:
+                raise ValueError(f"prompt_version {version_id} not found")
+
+    def consume_domain_holdout(
+        self,
+        version_id: int,
+        *,
+        holdout_id: str,
+        mutation_id: str,
+        result_hash: str,
+    ) -> bool:
+        """Consume an untouched holdout once; exact retries are idempotent."""
+        for value, field in (
+            (holdout_id, "holdout_id"),
+            (result_hash, "result_hash"),
+        ):
+            if (
+                not isinstance(value, str)
+                or not value.startswith("sha256:")
+                or len(value) != 71
+                or any(character not in "0123456789abcdef" for character in value[7:])
+            ):
+                raise ValueError(f"{field} must be a sha256 digest")
+        if not isinstance(mutation_id, str) or not mutation_id:
+            raise ValueError("mutation_id must be a non-empty string")
+        with self._connect() as conn:
+            version = conn.execute(
+                "SELECT mutation_id FROM prompt_versions WHERE id = ?", (version_id,)
+            ).fetchone()
+            if version is None:
+                raise ValueError(f"prompt_version {version_id} not found")
+            if version["mutation_id"] != mutation_id:
+                raise ValueError("holdout mutation_id does not match prompt version")
+            existing = conn.execute(
+                "SELECT mutation_id, prompt_version_id, result_hash "
+                "FROM domain_holdout_consumptions WHERE holdout_id = ?",
+                (holdout_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["mutation_id"] == mutation_id
+                    and existing["prompt_version_id"] == version_id
+                    and existing["result_hash"] == result_hash
+                ):
+                    return False
+                raise ValueError("untouched holdout has already been consumed")
+            conn.execute(
+                "INSERT INTO domain_holdout_consumptions "
+                "(holdout_id, mutation_id, prompt_version_id, result_hash, consumed_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (holdout_id, mutation_id, version_id, result_hash, _utcnow_iso()),
+            )
+        return True
+
+    def get_domain_holdout_consumption(self, holdout_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT holdout_id, mutation_id, prompt_version_id, result_hash, consumed_at "
+                "FROM domain_holdout_consumptions WHERE holdout_id = ?",
+                (holdout_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_version_mutation_metadata(self, version_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT mutation_metadata_json FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+        if row is None or row["mutation_metadata_json"] is None:
+            return None
+        value = json.loads(row["mutation_metadata_json"])
+        return value if isinstance(value, dict) else None
+
+    def get_domain_evaluation_result(self, version_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT evaluation_result_json FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+        if row is None or row["evaluation_result_json"] is None:
+            return None
+        value = json.loads(row["evaluation_result_json"])
+        return value if isinstance(value, dict) else None
+
+    def record_domain_promotion_decision(
+        self,
+        version_id: int,
+        decision: dict[str, Any],
+        *,
+        decision_hash: str,
+    ) -> bool:
+        """Atomically persist one authorized promotion decision."""
+        encoded = _json_object_or_none(decision)
+        if encoded is None:
+            raise ValueError("domain promotion decision must be an object")
+        if (
+            not isinstance(decision_hash, str)
+            or len(decision_hash) != 71
+            or not decision_hash.startswith("sha256:")
+            or any(
+                character not in "0123456789abcdef" for character in decision_hash[7:]
+            )
+        ):
+            raise ValueError("domain promotion decision_hash must be a sha256 digest")
+        action = decision.get("decision")
+        if action not in ("keep", "revert"):
+            raise ValueError("domain promotion decision must be keep or revert")
+        approved_by = decision.get("approved_by")
+        approval_policy_id = decision.get("approval_policy_id")
+        if not isinstance(approved_by, str) or not approved_by:
+            raise ValueError("domain promotion approved_by is required")
+        if not isinstance(approval_policy_id, str) or not approval_policy_id:
+            raise ValueError("domain promotion approval_policy_id is required")
+        canonical = json.dumps(
+            decision,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        expected_hash = f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+        if decision_hash != expected_hash:
+            raise ValueError("domain promotion decision_hash does not match decision")
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT mutation_lifecycle, promotion_decision_json, "
+                "promotion_decision_hash FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"prompt_version {version_id} not found")
+            if row["promotion_decision_json"] is not None:
+                if (
+                    row["promotion_decision_json"] == encoded
+                    and row["promotion_decision_hash"] == decision_hash
+                ):
+                    return False
+                raise ValueError("domain promotion decision already exists")
+            if row["mutation_lifecycle"] != "eligible_for_promotion":
+                raise ValueError("domain mutation is not eligible for promotion review")
+            conn.execute(
+                """
+                UPDATE prompt_versions
+                SET mutation_lifecycle = ?, status = ?, decided_at = ?,
+                    promotion_decision_json = ?, promotion_decision_hash = ?,
+                    promotion_approved_by = ?, promotion_approval_policy_id = ?
+                WHERE id = ?
+                """,
+                (
+                    "kept" if action == "keep" else "reverted",
+                    action,
+                    decision.get("decided_at") or _utcnow_iso(),
+                    encoded,
+                    decision_hash,
+                    approved_by,
+                    approval_policy_id,
+                    version_id,
+                ),
+            )
+        return True
+
+    def get_domain_promotion_decision(self, version_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT promotion_decision_json FROM prompt_versions WHERE id = ?",
+                (version_id,),
+            ).fetchone()
+        if row is None or row["promotion_decision_json"] is None:
+            return None
+        value = json.loads(row["promotion_decision_json"])
+        return value if isinstance(value, dict) else None
 
     def decide_version(
         self,

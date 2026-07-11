@@ -55,6 +55,8 @@ _DATE_FMT = "%Y-%m-%d"
 def _validate_iso_date(value: str | None, label: str) -> str:
     if not value:
         raise DataVendorUnavailable(f"{label} is required (YYYY-MM-DD).")
+    if re.fullmatch(r"\d{8}", value):
+        value = f"{value[:4]}-{value[4:6]}-{value[6:]}"
     try:
         datetime.strptime(value, _DATE_FMT)
     except ValueError as exc:
@@ -74,7 +76,7 @@ def _shift_date(value: str, days: int) -> str:
 
 
 def _date_range_from_lookback(curr_date: str, look_back_days: int) -> tuple[str, str]:
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if look_back_days < 0:
         raise DataVendorUnavailable("look_back_days must be >= 0.")
     return _shift_date(curr_date, -look_back_days), curr_date
@@ -220,16 +222,26 @@ def get_yield_curve_cn(curr_date: str, look_back_days: int = 30) -> str:
     ``yield_curve`` (slope / inversion detection).
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-    df = _query_tushare(
-        "yc_cb",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-        curve_type="0",   # 0 = Treasury (国债); 1 = Corporate (信用债)
-    )
+    try:
+        df = _query_tushare(
+            "yc_cb",
+            start_date=_to_tushare_date(start_date),
+            end_date=_to_tushare_date(end_date),
+            curve_type="0",   # 0 = Treasury (国债); 1 = Corporate (信用债)
+        )
+    except DataVendorUnavailable as exc:
+        df = None
+        unavailable = str(exc)
+    else:
+        unavailable = ""
     return _df_to_markdown_csv(
         df,
         title=f"中国国债收益率曲线 / CN Treasury Yield Curve ({start_date} → {end_date})",
-        subtitle="Source: Tushare yc_cb. Yields in percent. Tenors: 1y/2y/3y/5y/7y/10y/30y benchmarks.",
+        subtitle=(
+            "Source: Tushare yc_cb. Yields in percent. Tenors: "
+            "1y/2y/3y/5y/7y/10y/30y benchmarks."
+            + (f" yc_cb unavailable: {unavailable}" if unavailable else "")
+        ),
         empty_note=f"No yc_cb rows returned between {start_date} and {end_date}.",
     )
 
@@ -352,12 +364,24 @@ def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
             "pandas is required for the US-CN spread calculation."
         ) from exc
 
-    cn_df = _query_tushare(
-        "yc_cb",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-        curve_type="0",
-    )
+    try:
+        cn_df = _query_tushare(
+            "yc_cb",
+            start_date=_to_tushare_date(start_date),
+            end_date=_to_tushare_date(end_date),
+            curve_type="0",
+        )
+    except DataVendorUnavailable as exc:
+        empty = pd.DataFrame(columns=["date", "us_10y_pct", "cn_10y_pct", "spread_bps"])
+        return _df_to_markdown_csv(
+            empty,
+            title=f"US-CN 10Y Yield Spread ({start_date} → {end_date})",
+            subtitle=(
+                "spread_bps = (us_10y_pct - cn_10y_pct) * 100. "
+                f"CN leg unavailable: Tushare yc_cb ({exc})."
+            ),
+            empty_note=f"No US-CN spread observations between {start_date} and {end_date}.",
+        )
 
     # Reduce CN frame to (date, cn_10y_pct). Tushare yc_cb columns expected:
     # ts_code, trade_date, curve_type, curve_term, curve_yield (or `value`).
@@ -568,7 +592,7 @@ def get_policy_uncertainty(curr_date: str, symbol: str = "China", top_n: int = 2
 
     Used by ``china`` as a country-level policy-uncertainty regime input.
     """
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if not str(symbol).strip():
         raise DataVendorUnavailable("symbol must be a non-empty country/region name.")
     if top_n < 1:
@@ -807,7 +831,7 @@ def get_realized_volatility(
     when a vendor's public realized-volatility feed stops updating before the
     analysis date.
     """
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if top_n < 1:
         raise DataVendorUnavailable("top_n must be >= 1.")
     try:
@@ -970,7 +994,7 @@ def get_property_data(curr_date: str, top_n: int = 24) -> str:
     Used by ``china`` (property + its supply chain is a large share of GDP and a
     key policy lever — a primary A-share macro driver).
     """
-    _validate_iso_date(curr_date, "curr_date")
+    curr_date = _validate_iso_date(curr_date, "curr_date")
     if top_n < 1:
         raise DataVendorUnavailable("top_n must be >= 1.")
     try:
@@ -1024,8 +1048,8 @@ def get_stock_moneyflow(ticker: str, start_date: str, end_date: str) -> str:
     (主力) signal. Used by ``institutional_flow`` to see whether big money is
     accumulating or distributing a name.
     """
-    _validate_iso_date(start_date, "start_date")
-    _validate_iso_date(end_date, "end_date")
+    start_date = _validate_iso_date(start_date, "start_date")
+    end_date = _validate_iso_date(end_date, "end_date")
     if start_date > end_date:
         raise DataVendorUnavailable(
             f"start_date {start_date!r} is after end_date {end_date!r}."

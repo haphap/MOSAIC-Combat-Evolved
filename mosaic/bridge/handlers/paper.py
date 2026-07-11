@@ -11,6 +11,7 @@ maps a missing ``.[trading]`` extra (bcrypt) to ``PAPER_ERROR``.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,13 @@ def _opt_str(params: dict[str, Any], key: str) -> str | None:
         return None
     if not isinstance(value, str):
         raise RpcError(INVALID_PARAMS, f"'{key}' must be a string when provided")
+    return value
+
+
+def _opt_sha256(params: dict[str, Any], key: str) -> str | None:
+    value = _opt_str(params, key)
+    if value is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be a sha256 digest")
     return value
 
 
@@ -115,6 +123,14 @@ def paper_get_account(params: dict[str, Any]) -> dict[str, Any]:
     return _wrap(_engine(params).get_account, user_id=_opt_str(params, "user_id"))
 
 
+@method("paper.get_portfolio_snapshot")
+def paper_get_portfolio_snapshot(params: dict[str, Any]) -> dict[str, Any]:
+    return _wrap(
+        _engine(params).get_portfolio_snapshot,
+        user_id=_opt_str(params, "user_id"),
+    )
+
+
 @method("paper.reset_account")
 def paper_reset_account(params: dict[str, Any]) -> dict[str, Any]:
     initial_cash = params.get("initial_cash", 1_000_000.0)
@@ -137,12 +153,18 @@ def paper_buy(params: dict[str, Any]) -> dict[str, Any]:
     quantity = _require_int(params, "quantity")
     user_id = _opt_str(params, "user_id")
     analysis_id = _opt_str(params, "analysis_id")
+    order_intent_key = _opt_sha256(params, "order_intent_key")
     return _wrap(
         _engine(params).buy,
         ticker=ticker,
         quantity=quantity,
         user_id=user_id,
         analysis_id=analysis_id,
+        order_intent_key=order_intent_key,
+        expected_account_snapshot_hash=_opt_sha256(
+            params, "expected_account_snapshot_hash"
+        ),
+        final_target_hash=_opt_sha256(params, "final_target_hash"),
     )
 
 
@@ -152,12 +174,18 @@ def paper_sell(params: dict[str, Any]) -> dict[str, Any]:
     quantity = _require_int(params, "quantity")
     user_id = _opt_str(params, "user_id")
     analysis_id = _opt_str(params, "analysis_id")
+    order_intent_key = _opt_sha256(params, "order_intent_key")
     return _wrap(
         _engine(params).sell,
         ticker=ticker,
         quantity=quantity,
         user_id=user_id,
         analysis_id=analysis_id,
+        order_intent_key=order_intent_key,
+        expected_account_snapshot_hash=_opt_sha256(
+            params, "expected_account_snapshot_hash"
+        ),
+        final_target_hash=_opt_sha256(params, "final_target_hash"),
     )
 
 

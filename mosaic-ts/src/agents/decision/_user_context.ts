@@ -136,6 +136,81 @@ export function renderLayer4PeerContext(
   return lines.join("\n");
 }
 
+export function renderCurrentPositionsContext(state: DailyCycleStateType): string {
+  const snapshot = state.current_positions ?? {
+    snapshot_status: "missing" as const,
+    position_snapshot_hash: undefined,
+    positions: [],
+  };
+  const lines = [
+    "## Current portfolio",
+    `* snapshot_status: ${snapshot.snapshot_status}`,
+    `* snapshot_hash: ${snapshot.position_snapshot_hash ?? "(missing)"}`,
+  ];
+  if (snapshot.positions.length === 0) {
+    lines.push("* positions: (none)");
+    return lines.join("\n");
+  }
+  for (const position of snapshot.positions) {
+    lines.push(
+      `* ${position.ticker}: weight=${position.current_weight.toFixed(4)}, ` +
+        `price=${position.market_price}, pnl=${position.unrealized_pnl_pct.toFixed(4)}, ` +
+        `holding_days=${position.holding_days}, thesis=${position.entry_thesis_id}, ` +
+        `last_review=${position.last_review_date}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+export function renderPreviousTargetContext(state: DailyCycleStateType): string {
+  const previous = state.layer4_outputs?.previous_target_state;
+  const lines = ["## Previous final target"];
+  if (!previous) {
+    lines.push("* snapshot_status: missing", "* source_error: previous_target_state_not_supplied");
+    return lines.join("\n");
+  }
+  lines.push(
+    `* snapshot_status: ${previous.snapshot_status}`,
+    `* final_target_hash: ${previous.final_target_hash ?? "(missing)"}`,
+    `* as_of_date: ${previous.as_of_date ?? "(missing)"}`,
+  );
+  for (const action of previous.portfolio_actions) {
+    lines.push(`* ${action.ticker}: ${action.action}, target=${action.target_weight.toFixed(4)}`);
+  }
+  return lines.join("\n");
+}
+
+export function renderLayer4RuntimeContext(state: DailyCycleStateType): string {
+  const runtime = state.layer4_outputs.runtime;
+  const lines = ["## Frozen Layer-4 runtime state"];
+  if (!runtime?.candidate_target_state) {
+    lines.push("* candidate_target_state: (missing)");
+  } else {
+    lines.push(`* candidate_target_hash: ${runtime.candidate_target_state.candidate_target_hash}`);
+    lines.push(
+      `* market_data_vintage_hash: ${runtime.candidate_target_state.market_data_vintage_hash}`,
+    );
+    for (const action of runtime.candidate_target_state.portfolio_actions) {
+      lines.push(
+        `  - candidate ${action.ticker}: ${action.action}, target=${action.target_weight.toFixed(4)}, ` +
+          `review_source=${action.review_source ?? "llm"}`,
+      );
+    }
+  }
+  if (runtime?.cro_review_state) {
+    lines.push(`* cro_review_hash: ${runtime.cro_review_state.review_hash}`);
+  }
+  if (runtime?.execution_feasibility_state) {
+    lines.push(
+      `* execution_feasibility_hash: ${runtime.execution_feasibility_state.feasibility_hash}`,
+    );
+    lines.push(
+      `* liquidity_vintage_hash: ${runtime.execution_feasibility_state.liquidity_vintage_hash}`,
+    );
+  }
+  return lines.join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Stub helpers for Phase 3+ / Phase 6+ data.
 // ---------------------------------------------------------------------------

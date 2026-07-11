@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { LlmResearchClaimSchema } from "../evidence_contract.js";
 import type {
   CentralBankOutput,
   ChinaOutput,
@@ -43,6 +44,26 @@ const CONFIDENCE = z
       "conclusive data; drop to ≤ 0.5 if any tool failed or returned thin data.",
   );
 
+const KNOB_INFLUENCE_FIELDS = {
+  declared_knob_influence_ids: z
+    .array(z.string().min(1))
+    .optional()
+    .describe("Visible domain knob card ids explicitly used in this conclusion."),
+  declared_influence_rationale: z
+    .string()
+    .optional()
+    .describe("Optional short rationale for declared knob influence ids."),
+  claims: z
+    .array(LlmResearchClaimSchema)
+    .optional()
+    .describe("Claim declarations referencing only runtime-provided evidence ids."),
+  claim_refs: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .describe("Claim ids supporting the top-level macro recommendation."),
+};
+
 const STRING_LIST_1_8 = (label: string) => z.array(z.string().min(1)).min(1).max(8).describe(label);
 
 // ---------------------------------------------------------------------------
@@ -76,6 +97,7 @@ export const CentralBankSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Central-bank stance read for one daily-cycle date. Required: dual-bank (PBOC + Fed) " +
@@ -89,6 +111,8 @@ export const CENTRAL_BANK_FIELD_NAMES = [
   "next_window",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -115,6 +139,7 @@ export const ChinaSchema = z
     ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "China-domestic policy stance read for one daily-cycle date. Required: " +
@@ -128,6 +153,8 @@ export const CHINA_FIELD_NAMES = [
   "risk_drivers",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -157,6 +184,7 @@ export const GeopoliticalSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Geopolitical risk read with focus on Sino-US frictions + adjacent zones. " +
@@ -169,6 +197,8 @@ export const GEOPOLITICAL_FIELD_NAMES = [
   "trade_impact",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -198,6 +228,7 @@ export const DollarSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Dollar / RMB triangulation read. Required: cite DXY level change in BPS + " +
@@ -210,6 +241,8 @@ export const DOLLAR_FIELD_NAMES = [
   "dxy_cny_correlation",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -239,6 +272,7 @@ export const YieldCurveSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "CN yield-curve regime + CN-US 10Y spread read. Required: cite specific BPS values " +
@@ -251,6 +285,8 @@ export const YIELD_CURVE_FIELD_NAMES = [
   "cn_us_spread_bps",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -284,6 +320,7 @@ export const CommoditiesSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Commodities regime read split into oil / metals / ag / China-demand axes. " +
@@ -297,6 +334,8 @@ export const COMMODITIES_FIELD_NAMES = [
   "china_demand_signal",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -324,6 +363,7 @@ export const VolatilitySchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Volatility regime classifier. Required: cite VIX absolute level + week-over-week change.",
@@ -335,6 +375,8 @@ export const VOLATILITY_FIELD_NAMES = [
   "regime_filter",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -364,6 +406,7 @@ export const EmergingMarketsSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Emerging-markets / HK-A read. Triangulate via cross-market ETF prices + " +
@@ -376,6 +419,8 @@ export const EMERGING_MARKETS_FIELD_NAMES = [
   "capital_flow",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -390,11 +435,11 @@ export const NewsSentimentSchema = z
       .min(-1)
       .max(1)
       .describe(
-        "Retail sentiment from Xueqiu hot-follow + recent policy documents, scaled to [-1, 1]. " +
+        "Retail sentiment from news, Caixin sentiment, and policy documents, scaled to [-1, 1]. " +
           "+1 = euphoria; -1 = capitulation.",
       ),
     hot_topics: STRING_LIST_1_8(
-      "Top 5-8 hot topics on Xueqiu / news today (concrete tickers or themes, e.g. " +
+      "Top 5-8 hot topics from news/Caixin/policy flow today (concrete tickers or themes, e.g. " +
         "'600519.SH 茅台', '半导体设备国产替代').",
     ),
     contrarian_flag: z
@@ -405,9 +450,10 @@ export const NewsSentimentSchema = z
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
-    "Retail-sentiment read built from Xueqiu hot-follow + gov.cn policy documents. The " +
+    "Retail-sentiment read built from news, Caixin sentiment, and gov.cn policy documents. The " +
       "contrarian_flag is the most actionable downstream signal.",
   );
 
@@ -417,6 +463,8 @@ export const NEWS_SENTIMENT_FIELD_NAMES = [
   "contrarian_flag",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -448,6 +496,7 @@ export const InstitutionalFlowSchema = z
       .describe("Sectors net bought (positive) or sold (negative) over the window, in CNY mil."),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Institutional flow read from main-funds money-flow + 龙虎榜. Required: surface concrete " +
@@ -460,6 +509,8 @@ export const INSTITUTIONAL_FLOW_FIELD_NAMES = [
   "sectors_in_out",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------

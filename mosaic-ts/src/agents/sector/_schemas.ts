@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { LlmResearchClaimSchema } from "../evidence_contract.js";
 import type {
   BiotechOutput,
   ConsumerOutput,
@@ -38,6 +39,11 @@ const SECTOR_PICK = z.object({
       "Short rationale (≤ 50 chars) tying the pick to a concrete macro / policy / flow signal.",
     ),
   conviction: z.number().min(0).max(1).describe("[0, 1] strength of conviction."),
+  claim_refs: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .describe("Claim ids supporting this candidate."),
 });
 
 const KEY_DRIVERS = z
@@ -53,6 +59,26 @@ const CONFIDENCE = z
   .describe(
     "Self-rated certainty. Phase 0/1 sector tools incomplete — cap ≤ 0.5 until Phase 4 ETF tools land.",
   );
+
+const KNOB_INFLUENCE_FIELDS = {
+  declared_knob_influence_ids: z
+    .array(z.string().min(1))
+    .optional()
+    .describe("Visible domain knob card ids explicitly used in this conclusion."),
+  declared_influence_rationale: z
+    .string()
+    .optional()
+    .describe("Optional short rationale for declared knob influence ids."),
+  claims: z
+    .array(LlmResearchClaimSchema)
+    .optional()
+    .describe("Claim declarations referencing only runtime-provided evidence ids."),
+  claim_refs: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .describe("Claim ids supporting the top-level sector recommendation."),
+};
 
 /** Common shape factory for the 6 standard sector agents. */
 function buildStandardSectorSchema<L extends string>(literal: L) {
@@ -71,6 +97,7 @@ function buildStandardSectorSchema<L extends string>(literal: L) {
         .describe("[-1, 1] aggregate sector tilt; +1 = max bullish."),
       key_drivers: KEY_DRIVERS,
       confidence: CONFIDENCE,
+      ...KNOB_INFLUENCE_FIELDS,
     })
     .describe(
       `Layer-2 sector pick output for ${literal}. Picks must reference tickers from ` +
@@ -95,6 +122,8 @@ export const STANDARD_SECTOR_FIELD_NAMES = [
   "sector_score",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -135,6 +164,7 @@ export const RelationshipMapperSchema = z
       .describe("Cross-sector contagion concerns inferred from shared exposures."),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
+    ...KNOB_INFLUENCE_FIELDS,
   })
   .describe(
     "Layer-2 cross-sector relationship mapper. Supply-chain + ownership data is " +
@@ -148,6 +178,8 @@ export const RELATIONSHIP_MAPPER_FIELD_NAMES = [
   "contagion_risks",
   "key_drivers",
   "confidence",
+  "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------

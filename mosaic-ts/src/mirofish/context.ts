@@ -18,6 +18,8 @@ interface Labels {
   base: string;
   hct: string;
   tail: string;
+  stress: string;
+  meta: string;
   disclaimer: string;
 }
 
@@ -27,6 +29,8 @@ const ZH: Labels = {
   base: "基准情景",
   hct: "最高信念方向",
   tail: "尾部风险",
+  stress: "持仓压力",
+  meta: "情景元数据",
   disclaimer: "*以上为模拟情景,仅供参考,请结合你自己的分析判断,不构成确定性预测。*",
 };
 
@@ -36,6 +40,8 @@ const EN: Labels = {
   base: "Base scenario",
   hct: "Highest-conviction direction",
   tail: "Tail risk",
+  stress: "Position stress",
+  meta: "Scenario metadata",
   disclaimer: "*Simulations, not certainties — weight alongside your own analysis.*",
 };
 
@@ -61,6 +67,30 @@ export function formatMirofishContext(
   }
   if (ctx.tail_summary != null) {
     lines.push(`${L.tail}: ${ctx.tail_summary}`);
+  }
+  if (ctx.position_stress && ctx.position_stress.length > 0) {
+    const stress = ctx.position_stress
+      .slice(0, 6)
+      .map(
+        (item) =>
+          `${item.ticker} tail=${pct(item.tail_loss)} agree=${pct(item.scenario_agreement)} action=${item.suggested_action ?? "?"}`,
+      )
+      .join("; ");
+    lines.push(`${L.stress}: ${stress}`);
+  }
+  const scenarioCount = ctx.scenario_count ?? ctx.n_scenarios;
+  const horizon = ctx.horizon_days;
+  const contextHash = ctx.context_hash;
+  const asOfDate = ctx.as_of_date;
+  const generatorVersion = ctx.generator_version;
+  if (scenarioCount || horizon || contextHash || asOfDate || generatorVersion) {
+    lines.push(
+      `${L.meta}: scenarios=${scenarioCount ?? "?"}` +
+        `${horizon ? ` horizon_days=${horizon}` : ""}` +
+        `${asOfDate ? ` as_of_date=${asOfDate}` : ""}` +
+        `${contextHash ? ` context_hash=${contextHash}` : ""}` +
+        `${generatorVersion ? ` generator_version=${generatorVersion}` : ""}`,
+    );
   }
   lines.push("", L.disclaimer, "");
   return lines.join("\n");

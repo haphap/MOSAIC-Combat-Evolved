@@ -121,6 +121,30 @@ only when the registry directory is not under the standard repo layout. Explicit
 CLI/RPC `--registry-dir` or `registry_dir` still wins over both environment
 variables.
 
+### Governance Closure
+
+`registries-preflight` validates the exported `registry_manifest.json`, not just
+the presence of a directory. The manifest schema, clean source revision, file
+set, per-file SHA-256/byte count, aggregate file count, required private paths,
+and vintage hash must all close. A malformed fingerprint, missing file,
+duplicate entry, dirty private checkout, or unavailable git revision is a
+blocker. Re-export and commit the private registry; do not hand-edit the
+fingerprint manifest.
+
+Human approval drafts are not review imports. Before either analytical-footprint
+import, every row must explicitly set `approval_status=approved`, clear
+`human_approval_required`, clear the relevant `not_apply_*` flag, bind the CLI
+reviewer/date, and carry matching valid target-row hashes. The target hash covers
+the review focus, priority, counts, and quality-gap fields as well as row
+identity, so editing a target after approval invalidates the draft.
+
+Industry ETF proxy resolution uses normalized exact matches first, then only
+unambiguous longest containment matches of at least three characters. Ambiguous
+labels fail closed instead of taking the first substring match. Historical agent
+research context also filters outcome rows, source/viewpoint profiles, weighted
+contexts, and revalidation vintages at the requested `as_of`; future profiles
+must never enter a replay.
+
 Last source build:
 
 - Command:
@@ -337,16 +361,293 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
 - Auth header: `Authorization: Bearer genesis-local`.
 - HF snapshot:
   `/models/models--nvidia--Qwen3.6-27B-NVFP4/snapshots/0893e1606ff3d5f97a441f405d5fc541a6bdf404`.
-- Runtime envelope from `sndr launch --dry-run`: `--tensor-parallel-size 1`,
-  `--gpu-memory-utilization 0.9`, `--max-model-len 120000`,
-  `--max-num-seqs 1`, `--max-num-batched-tokens 4096`, `--dtype bfloat16`,
-  `--kv-cache-dtype auto`,
+- Current runtime envelope from `sndr launch --dry-run --skip-autodetect`
+  after the 2026-07-08 benchmark update: `--tensor-parallel-size 1`,
+  `--gpu-memory-utilization 0.85`, `--max-model-len 130000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 2048`, `--dtype bfloat16`,
+  `--kv-cache-dtype turboquant_4bit_nc`,
   `--speculative-config '{"method": "mtp", "num_speculative_tokens": 3}'`,
   `--enable-chunked-prefill`, `--disable-custom-all-reduce`,
   `--language-model-only`, `--trust-remote-code`, and
   `--enable-auto-tool-choice`.
 - This service shares port `8000` with the 35B NVFP4 sndr service. Run only one
   of them at a time.
+
+Current 2026-07-08 sndr direct-launch presets:
+
+- `nvidia-qwen3.6-35b-a3b-nvfp4-5090`: keep at `max_model_len=140000`,
+  `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
+  MTP K=3. The 140K fixed benchmark completed; 150K was not promoted because
+  the observed headroom was thin.
+- `nvidia-qwen3.6-27b-nvfp4-5090`: use `max_model_len=130000`,
+  `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
+  MTP K=3. The 140K run completed, but 130K was materially faster and left more
+  VRAM headroom.
+- `local-qwen3.6-27b-heretic-int4-5090`: use `max_model_len=140000`,
+  `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
+  MTP K=3. The 130K run did not materially improve speed over 140K, so the
+  larger validated context is preferred.
+- These are local sndr preset/profile updates under `/home/hap/.sndr`. Do not
+  commit sndr files into this repository. Benchmark evidence files under
+  `.mosaic/rke/all_agent_evolution/fixed_episode_benchmark/` are private
+  generated evidence and must not be committed.
+
+2026-07-06 27B fixed-benchmark k8v4/MTP probe:
+
+- User constraint: keep MTP enabled, run only one vLLM at a time, and use local
+  model snapshots only.
+- Direct `sndr launch nvidia-qwen3.6-27b-nvfp4-5090` renders the normal 27B
+  envelope with `--kv-cache-dtype auto`. For this probe the container was
+  manually recreated from the same local snapshot/image so the only benchmark
+  variable was the long-context KV path: `--kv-cache-dtype turboquant_k8v4`.
+- Working 110K envelope on the 5090 host:
+  `--max-model-len 110000`, `--max-num-seqs 1`,
+  `--max-num-batched-tokens 2048`, `--gpu-memory-utilization 0.77`,
+  `--kv-cache-dtype turboquant_k8v4`,
+  `--speculative-config.method mtp`,
+  `--speculative-config.num_speculative_tokens 3`,
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.85`,
+  `GENESIS_ENABLE_PN119=1`, `GENESIS_ENABLE_PN8_MTP_DRAFT_ONLINE_QUANT=1`,
+  and `GENESIS_ENABLE_P40=1`.
+- Failed envelopes:
+  `120000` + k8v4 failed on the fixed-benchmark `china` long prompt with
+  Genesis P38 TQ continuation workspace OOM; `110000` + k8v4 at
+  `gpu-memory-utilization` `0.85` failed the same way; `0.80` avoided that
+  P38 OOM but still killed EngineCore on a compiled `marlin_gemm` /
+  `aten::empty` allocation during the same long prompt; `0.75` did not start
+  because only about `3.1 GiB` KV cache was available versus `3.37 GiB`
+  required for `110000`.
+- Passing probe:
+  `rke-fixed-benchmark --benchmark-run-id goal-probe-110k-real-20260618-512
+  --model-config local_qwen_27b --as-of-date 2025-09-01 --max-tokens 1024`
+  completed all 25 agents with the `0.77` k8v4/MTP envelope. The paired output
+  count moved from `50` to `75`, adding `25` `local_qwen_27b` rows for
+  `2025-09-01`.
+- Evidence caveat: this was a stability/ctx probe, not a formal delivery gate
+  pass. The full fixed-benchmark gate still requires the manifest's full
+  episode/date/model matrix, independent review, and downstream evidence.
+
+2026-07-06 27B AutoRound INT4 sndr preset smoke:
+
+- Preset used exactly as configured: `local-qwen3.6-27b-heretic-int4-5090`.
+  It renders `--kv-cache-dtype fp8_e5m2`, MTP K=3, `--max-model-len 120000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 4096`, and served model
+  `qwen3.6-27b-heretic-int4`.
+- Startup result: `sndr launch local-qwen3.6-27b-heretic-int4-5090
+  --skip-autodetect` reached `/v1/models` on `http://127.0.0.1:8000/v1` with
+  the local Heretic v2 AutoRound snapshot.
+- Smoke result: `/v1/completions` returned a normal completion containing
+  `OK`; `/v1/chat/completions` returned tokens in the `reasoning` field first,
+  so short chat smokes can show `content: null` unless thinking is disabled or
+  the token budget is large enough.
+- Runtime note: loaded service used about `31.3 GiB` of the 5090 D's `32 GiB`
+  VRAM. Keep only one vLLM service running on this host.
+
+2026-07-06 27B AutoRound INT4 k8v4 130K agent-loop probe:
+
+- Follow-up probe used the same local Heretic v2 AutoRound snapshot and kept
+  MTP enabled at K=3. The tested runtime changed the KV/cache envelope to
+  `--kv-cache-dtype turboquant_k8v4`, `--max-model-len 130000`,
+  `--max-num-seqs 1`, `--max-num-batched-tokens 2048`, and
+  `--gpu-memory-utilization 0.85`.
+- Startup and smoke: `/v1/models` reported served model
+  `qwen3.6-27b-heretic-int4` with `max_model_len=130000`, and
+  `/v1/completions` returned `OK`.
+- Agent-loop run:
+  `rke-fixed-benchmark --benchmark-run-id goal-probe-27b-heretic-k8v4-130k-agent-loop-20260706
+  --model-config local_qwen_27b --as-of-date 2025-09-01 --max-runs 1
+  --max-tokens 512` completed all agent stages and then stopped at the fixed
+  benchmark preflight gates: incomplete covered dates/episodes/model outputs,
+  manual review not approved, and paired output count below the manifest
+  requirement. This is not a vLLM, CUDA, or k8v4 failure.
+- Observed runtime: the k8v4 service used about `27.6 GiB` for
+  `VLLM::EngineCore` and about `29.1 GiB` total GPU memory during the agent
+  loop, lower than the fp8 120K preset smoke. Logs showed successful
+  `/v1/chat/completions` traffic; the notable warnings were PN59 short-sequence
+  bypasses, grammar matcher warnings, external data-source disconnects, and
+  expected structured-output fallback when `--max-tokens 512` truncated output.
+- Preset update: `local-qwen3.6-27b-heretic-int4-5090` now points at a local
+  profile that renders the validated k8v4 130K envelope above while preserving
+  MTP K=3. The shared RTX 5090 D hardware defaults were left unchanged so
+  sibling 35B/NVFP4 presets do not inherit this 27B-specific sizing.
+
+2026-07-06 fixed-benchmark metrics retest:
+
+- Benchmark runner metrics are written locally under
+  `.mosaic/rke/all_agent_evolution/fixed_episode_benchmark/<run>.metrics.jsonl`.
+  These files are private generated evidence and must not be committed. They
+  record no prompt or response bodies.
+- Metrics fields include actual LLM provider/model/base URL, expected and
+  emitted agent-output counts, content-generation success rate, per-agent
+  status, structured/fallback counts, tool call counts by name, tool failure
+  count, full agent elapsed time, observed prompt/completion tokens, observed
+  LLM wait time, and observed completion tokens/second. Success rate is
+  `agent_done_count / expected_agent_count`; `output_agent_count` remains the
+  separate output coverage counter. Token speed covers LLM calls that expose
+  usage metadata; full content-generation wall time is tracked separately with
+  `agent_elapsed_ms_total`.
+- `bench-27b-heretic-k8v4-130k-metrics-20260706`: local Heretic AutoRound INT4
+  27B, k8v4, MTP K=3, `max_model_len=130000`, `--max-tokens 1024`. Result:
+  output coverage `25/25`, content success `25/25`, structured `25`, fallback
+  `0`, timeouts `0`, tool calls `191`, tool failures `9`, prompt tokens
+  `1472920`, completion tokens `35945`, observed LLM wait `744574 ms`, observed
+  completion speed `48.28 tok/s`, full agent elapsed `1047900 ms`. Top tools were
+  `get_rke_research_context=49`, `get_indicators=24`, `get_fred_series=20`,
+  `get_stock_data=18`, and `get_fundamentals=15`.
+- `bench-27b-nvfp4-k8v4-110k-metrics-20260706`: NVIDIA 27B NVFP4, k8v4, MTP
+  K=3, `max_model_len=110000`, `--max-tokens 1024`. Minimal turboquant env
+  failed startup with about `1.47 GiB` available KV cache versus `3.37 GiB`
+  required; the fuller Genesis TQ env started and `/v1/models` confirmed
+  `max_model_len=110000`. Result: output coverage `25/25`, content success
+  `21/25`, structured `21`, fallback `0`, timeouts `4`
+  (`L2:biotech`, `L2:industrials`, `L2:semiconductor`, `L3:burry`), tool calls
+  `133`, tool failures `2`, prompt tokens `1092261`, completion tokens `25420`,
+  observed LLM wait `701239 ms`, observed completion speed `36.25 tok/s`, full
+  agent elapsed `2102500 ms`. Top tools were `get_rke_research_context=41`,
+  `get_indicators=39`,
+  `get_stock_data=26`, `get_fundamentals=19`, and `get_fred_series=9`.
+- `bench-35b-nvfp4-120k-metrics-512-20260706`: NVIDIA 35B A3B NVFP4, auto KV,
+  MTP K=3, `max_model_len=120000`, `--max-tokens 512`. The first `--max-tokens
+  1024` attempt failed before generation on the long `geopolitical` prompt:
+  the request needed at least `118977 + 1024 = 120001` tokens, above the
+  declared `120000` context. The 512-token rerun completed. Result: output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  timeouts `0`, tool calls `228`, tool failures `5`, prompt tokens `2232353`,
+  completion tokens `30957`, observed LLM wait `337074 ms`, observed completion
+  speed `91.84 tok/s`, full agent elapsed `667500 ms`. Top tools were
+  `get_rke_research_context=83`,
+  `get_indicators=38`, `get_fred_series=22`, `get_fundamentals=21`, and
+  `get_stock_data=17`.
+- Current read: Heretic AutoRound INT4 27B + k8v4 is the only 27B variant that
+  completed all 25 agents at a context above 120K in this benchmark. NVIDIA 27B
+  NVFP4 + k8v4 can start and run at 110K with the fuller TQ env, but the
+  observed agent-loop success rate and generation speed were worse. NVIDIA 35B
+  A3B NVFP4 + auto KV remains the strongest of the three on this workload when
+  the per-call output cap is kept below the 120K boundary.
+
+2026-07-06 replay-pruned 130K fixed-benchmark retest:
+
+- Code change under test: the agent loop no longer replays every prior
+  `ToolMessage` on every subsequent LLM call. After a tool-call turn has been
+  consumed by the next model call, the replay window drops the old assistant
+  tool-call message and its tool replies. The full local transcript is still
+  retained for debugging. This addresses the earlier prompt-token growth where
+  each call replayed all prior tool outputs.
+- Tool-output length cap: disabled by default. The default
+  `MOSAIC_AGENT_TOOL_OUTPUT_MAX_CHARS` behavior is now unlimited; setting the
+  env var to a positive integer explicitly enables truncation, and
+  `off`/`none`/`false` also means unlimited. The previous 4K default cap is not
+  used for benchmark comparison because it changes the content seen by the
+  model.
+- Timeout controls used for these runs:
+  `MOSAIC_BRIDGE_TIMEOUT_MS=300000`,
+  `MOSAIC_AGENT_TIMEOUT_SECONDS=600`, and benchmark `--max-tokens 2048`.
+  The bridge default remains 60 seconds when the env var is unset.
+- `bench-27b-nvfp4-k8v4-130k-mt1536-bt300-t600-replayprune-20260706`:
+  NVIDIA 27B NVFP4, k8v4, MTP K=3, `max_model_len=130000`,
+  `--max-num-batched-tokens 1536`. The same model at batched tokens `2048`
+  hit a Genesis P38 TQ continuation workspace OOM on the first benchmark
+  request. At `1536`, result was output coverage `25/25`, content success
+  `25/25`, structured `25`, fallback `0`, timeouts `0`, tool calls `270`,
+  tool failures `1`, prompt tokens `858593`, completion tokens `39461`,
+  observed LLM wait `543444 ms`, observed completion speed `72.61 tok/s`, and
+  full agent elapsed `789800 ms`. Top tools were
+  `get_rke_research_context=47`, `get_fundamentals=37`,
+  `get_stock_data=22`, `get_industry_policy=13`, and
+  `get_industry_moneyflow=11`.
+- `bench-35b-nvfp4-k8v4-130k-mt1536-bt300-t600-replayprune-agg-20260706`:
+  NVIDIA 35B A3B NVFP4, k8v4, MTP K=3, `max_model_len=130000`,
+  `--max-num-batched-tokens 1536`. Result was output coverage `25/25`,
+  content success `25/25`, structured `24`, fallback `1`, timeouts `0`, tool
+  calls `231`, tool failures `3`, prompt tokens `856571`, completion tokens
+  `40003`, observed LLM wait `184435 ms`, observed completion speed
+  `216.89 tok/s`, and full agent elapsed `527300 ms`. Top tools were
+  `get_rke_research_context=77`, `get_fundamentals=39`,
+  `get_fred_series=20`, `get_industry_moneyflow=16`, and
+  `get_stock_data=13`.
+- `bench-27b-heretic-k8v4-130k-mt2048-bt300-t600-replayprune-agg-20260706`:
+  local Heretic AutoRound INT4 27B, k8v4, MTP K=3,
+  `max_model_len=130000`, `--max-num-batched-tokens 2048`. Result was output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  timeouts `0`, tool calls `214`, tool failures `7`, prompt tokens `813810`,
+  completion tokens `38881`, observed LLM wait `510002 ms`, observed
+  completion speed `76.24 tok/s`, and full agent elapsed `698100 ms`. Top
+  tools were `get_rke_research_context=63`, `get_fred_series=24`,
+  `get_industry_moneyflow=17`, `get_broker_research=12`, and
+  `get_stock_data=12`. Repeated graph executions were observed and are now
+  accumulated in metrics: `L4:alpha_discovery`, `L4:autonomous_execution`, and
+  `L4:cio` each ran twice.
+- Current read after replay pruning: all three local models can complete this
+  one-date, 25-agent fixed benchmark at 130K with k8v4 when batch sizing is
+  adjusted. The 35B A3B NVFP4 model is still the fastest by a wide margin. The
+  27B NVIDIA NVFP4 model no longer fails from replay-driven prompt growth, but
+  needs a smaller batched-token envelope than the 27B Heretic INT4 model. The
+  35B result is plausible despite larger weights because its MoE/GQA runtime
+  KV profile is more favorable than the dense 27B NVFP4 path on this workload.
+  Remaining failures are mostly external tool/data-source issues, especially
+  AkShare/stdout pollution and realized-volatility fetch errors, not vLLM
+  context failures.
+
+2026-07-08 TurboQuant 4bit NC fixed-benchmark retest:
+
+- Common test envelope: one vLLM at a time, local model snapshots only,
+  MTP enabled at K=3, `--kv-cache-dtype turboquant_4bit_nc`,
+  `--max-num-batched-tokens 2048`, benchmark `--max-tokens 2048`,
+  `MOSAIC_AGENT_TIMEOUT_SECONDS=600`, `MOSAIC_BRIDGE_TIMEOUT_MS=300000`, and
+  no tool-output truncation (`MOSAIC_AGENT_TOOL_OUTPUT_MAX_CHARS=off`).
+- The benchmark used a temporary clean prompt repo snapshot derived from the
+  current private prompt working tree so prompt provenance preflight could run
+  without committing private prompt changes. Do not treat that temporary repo as
+  a public artifact.
+- `bench-35b-nvfp4-tq4nc-140k-bt2048-mt2048-mosaic-20260708-r1`: NVIDIA 35B
+  A3B NVFP4, `max_model_len=140000`, MTP K=3. Result: output coverage `25/25`,
+  content success `25/25`, structured `25`, fallback `0`, tool calls `192`,
+  tool cache hits `22`, tool failures `3`, prompt tokens `1407160`,
+  completion tokens `39096`, observed completion speed `156.8451 tok/s`, and
+  full agent elapsed `344600 ms`.
+- `bench-27b-nvfp4-tq4nc-140k-bt2048-mt2048-mosaic-20260708-r1`: NVIDIA 27B
+  NVFP4, `max_model_len=140000`, MTP K=3. Result: output coverage `25/25`,
+  content success `25/25`, structured `25`, fallback `0`, tool calls `193`,
+  tool cache hits `14`, tool failures `2`, prompt tokens `1365993`,
+  completion tokens `31700`, observed completion speed `32.1618 tok/s`, and
+  full agent elapsed `1160700 ms`. The run completed but was tight: the service
+  reached about `31.7 GiB` used on a `32 GiB` 5090 D, and `L2:biotech` took
+  `308000 ms` with `215841` prompt tokens.
+- `bench-27b-nvfp4-tq4nc-130k-bt2048-mt2048-mosaic-20260708-r1`: NVIDIA 27B
+  NVFP4, `max_model_len=130000`, MTP K=3. Result: output coverage `25/25`,
+  content success `25/25`, structured `25`, fallback `0`, tool calls `170`,
+  tool cache hits `9`, tool failures `1`, prompt tokens `1263304`,
+  completion tokens `31887`, observed completion speed `38.6253 tok/s`, and
+  full agent elapsed `944400 ms`. This is the promoted direct-launch envelope
+  for the NVIDIA 27B preset because it is faster and has more headroom than the
+  140K run.
+- `bench-27b-heretic-int4-tq4nc-140k-bt2048-mt2048-mosaic-20260708-r1`: local
+  Heretic AutoRound INT4 27B, `max_model_len=140000`, MTP K=3. Result: output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  tool calls `160`, tool cache hits `23`, tool failures `2`, prompt tokens
+  `998019`, completion tokens `44156`, observed completion speed
+  `66.8837 tok/s`, and full agent elapsed `793500 ms`.
+- `bench-27b-heretic-int4-tq4nc-130k-bt2048-mt2048-mosaic-20260708-r1`: local
+  Heretic AutoRound INT4 27B, `max_model_len=130000`, MTP K=3. Result: output
+  coverage `25/25`, content success `25/25`, structured `25`, fallback `0`,
+  tool calls `159`, tool cache hits `27`, tool failures `2`, prompt tokens
+  `1041317`, completion tokens `42981`, observed completion speed
+  `65.2116 tok/s`, and full agent elapsed `773400 ms`. Since the 130K run did
+  not materially improve throughput over 140K, keep Heretic at 140K.
+- Current read after TurboQuant 4bit NC retest: 35B NVFP4 remains fastest and
+  should stay at 140K; NVIDIA 27B NVFP4 should use the conservative 130K
+  profile; Heretic INT4 should use the 140K profile. NVIDIA 27B is slower than
+  Heretic on this workload because the NVFP4 path on the current 5090 D/vLLM
+  pin uses a weight-only Marlin FP4 path and because the NVIDIA 27B run took
+  heavier L2/L3 evidence paths. Heretic is faster but still has a quality risk:
+  some `munger`, `burry`, and `ackman` superinvestor outputs were very short,
+  so do not infer quality superiority from throughput alone.
+- MTP was not disabled in these runs. Launches preserved
+  `--speculative-config '{"method": "mtp", "num_speculative_tokens": 3}'`, and
+  vLLM logs included the expected speculative-decoding warnings.
+- Observed failures in these runs were external tool/data-source failures
+  (`AkShare` SSL/remote disconnects and occasional `Tushare` remote disconnects)
+  rather than vLLM CUDA/OOM failures.
 
 Single-owner startup flow:
 

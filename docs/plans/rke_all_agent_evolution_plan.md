@@ -29,6 +29,58 @@ consumption, private prompt repo evolution, benchmark, replay, and rollback.
 - Complete prompt content, prompt mutation candidates, prompt hashes, prompt
   drift review, and prompt evolution live in the private prompt repo.
 
+## Execution Wiring Required To Satisfy Purpose
+
+Readiness gates are consumers, not producers. This plan satisfies its purpose
+only when actual benchmark/replay/prompt-evolution runs produce the evidence
+below and `rke_benchmark.delivery_readiness` returns `ready` for the same
+`benchmark_run_id`.
+
+Required producers:
+
+- Prompt provenance producer: `prompts.preflight`, `prompts.audit_versions`,
+  `prompts.verify_release`, and leak/drift checks produce private prompt pins,
+  release refs, and no-body release evidence.
+- Prompt content producer: rewrites the formal private prompt corpus for all
+  canonical MOSAIC agents, validates the role/task contract, schema contract,
+  RKE-prior contract, audit/footprint contract, and autoresearch evolution
+  contract through the prompt contract checker, then emits no-body
+  `prompt_contract_check_ref` evidence. Prompt bodies stay in the private prompt
+  repo.
+- Fixed-episode benchmark producer: runs the E2 episodes for every as-of date,
+  all 25 agents, and required model configs using private prompt pins. It writes
+  paired output refs, schema validation, deterministic score tables, investment
+  outcome tables, quality-gate summary, and manual-review refs.
+- Runtime RKE context producer: injects Part 1 ranked context into every agent
+  path that can use report priors, preserving `retrieval_rank`,
+  `priority_bucket`, `ranking_policy_id`, context hash, truncation audit, and
+  current-data confirmation. Decision agents may consume direct RKE context or
+  upstream redacted RKE context summaries, but their footprint rows must still
+  identify which context hashes affected portfolio/risk/action claims.
+- Agent footprint producer: converts each agent output into redacted
+  claim/footprint rows and calls
+  `rke_benchmark.capture_agent_claim_footprints`. Rows must contain no prompt
+  body, report prose, source spans, URLs, or local paths.
+- Prompt mutation producer: consumes Part 1 candidate/refusal rows through
+  `rke_benchmark.candidate_consumption_manifest` and
+  `rke_benchmark.prompt_mutation_lifecycle_manifest`, writes accepted prompt
+  mutations only through `prompts.write(target=private_git)`, and records branch,
+  prompt hash, release, leak/drift, benchmark, and review evidence.
+- Autoresearch/Darwinian producer: consumes footprint summaries, RKE usage
+  quality, downstream outcomes, prompt provenance, and rollback readiness, then
+  writes update refs plus
+  `rke_benchmark.darwinian_autoresearch_consumption_readiness` evidence. Input
+  manifest readiness alone is not consumption.
+- Replay, paper-trading, promotion, and rollback producer: runs shadow replay
+  with pinned prompts/context/mutations, records paper-trading plan/result and
+  monitor refs when allowed, and proves rollback trigger/procedure/monitor output
+  before anything leaves shadow mode.
+
+No E7 proof object may be hand-authored to bypass these producers. Staged runs
+append their no-body refs through `rke_benchmark.record_delivery_evidence`; the
+final audit is `rke_benchmark.delivery_evidence_audit` plus
+`rke_benchmark.delivery_readiness`.
+
 ## Current Status
 
 As of 2026-07-03:
@@ -38,10 +90,25 @@ As of 2026-07-03:
   direct series labels, macro agent priors, and RI-MACRO readiness gates.
 - Layer-3 public runtime has been migrated to the canonical roster:
   `druckenmiller`, `munger`, `burry`, `ackman`.
-- Public fallback prompts exist for `munger` and `burry`, but complete
-  role-specific prompt upgrades are still pending in the private prompt repo.
+- Public smoke/fallback prompts exist for all four superinvestors, but complete
+  role-specific prompt upgrades for all 25 agents are still pending in the
+  private prompt repo.
 - The Python prompt bridge has to stay in sync with the TS canonical roster;
   this is part of the roster preflight, not an optional cleanup.
+
+## Material Blockers To Actual Evolution
+
+These are hard blockers, not documentation cleanup. Gates and manifests do not
+close them; only producer runs and no-body evidence close them.
+
+| Gap | Severity | Required closure |
+| --- | --- | --- |
+| Fixed-episode benchmark runner | Critical | A runnable E2 producer must execute the 8-episode / 17-date / 25-agent / required-model matrix, write paired output refs, capture footprints, record benchmark evidence, and pass `rke_benchmark.fixed_episode_benchmark_evidence` for the same `benchmark_run_id`. A manifest or evidence gate alone is not enough. Internal design is E2.1. |
+| Replay execution engine | Critical | A shadow replay producer must replay pinned prompts, RKE context, mutations, Darwinian weights, and downstream outcome windows, then record replay refs consumed by `shadow_replay_readiness`, `paper_trading_readiness`, promotion, and rollback gates. Readiness gates alone are not runnable replay. Internal design is E7.1. |
+| Darwinian/autoresearch compute | High | A compute producer must turn footprint summaries, RKE usage quality, current-data confirmation, downstream outcomes, schema/privacy reliability, and prompt provenance into weight/update refs consumed by `darwinian_autoresearch_consumption_readiness`. Uniform or stub weights do not close E5. Internal design is E5.1. |
+| Prompt contract checker | High | A no-body checker must validate formal private prompt content and emit `prompt_contract_check_ref` rows before E0.5, E2, E4, or E7 can consume prompt contracts. Referencing `prompt_contract_check_ref` without this producer is invalid. |
+| TS RKE context path | Medium | Tool-based consumption through `get_rke_research_context` is the canonical TS path. A direct TS bridge RPC is optional, but the plan must document that choice and the benchmark/replay producers must still record consumed context hashes, ranking metadata, truncation audit, and current-data confirmation. |
+| Formal private prompt corpus | Medium | E0/E0.5 remain open until the private prompt repo contains rewritten, contract-checked, bilingual prompts for every formal canonical agent prompt file, with provenance, release, leak/drift, and `prompt_contract_check_ref` evidence. Fallback prompts do not count. |
 
 ## Critical Path And Execution Owner
 
@@ -113,11 +180,13 @@ Before any benchmark or replay:
   `MOSAIC_PROMPTS_REPO` or `MOSAIC_PRIVATE_PROMPT_REPO` pointing at a local clone
   of `https://github.com/haphap/MOSAIC-Prompts`.
 - `MOSAIC_PROMPTS_ROOT` is allowed for formal runs only if the direct
-  `prompts/mosaic` path is inside a git worktree and the runner records the
-  discovered git top-level as `prompt_repo_id`, the HEAD commit as repo revision,
-  the prompt file path relative to that worktree, and the prompt hash. If those
-  fields cannot be recovered, the row is blocked with `private_prompt_unavailable`
-  or `prompt_provenance_unavailable`.
+  `prompts/mosaic` path is inside a git worktree. The discovered git top-level
+  is used only to prove worktree provenance and derive prompt-relative paths;
+  formal rows still record the canonical/env private prompt repo identity as
+  `prompt_repo_id`, the HEAD commit as repo revision, the prompt file path
+  relative to that worktree, and the prompt hash. If those fields cannot be
+  recovered, the row is blocked with `private_prompt_unavailable` or
+  `prompt_provenance_unavailable`.
 - Formal benchmark/replay must use private prompt repo prompts. Bundled prompts
   are smoke/fallback only.
 - Each resolved prompt must record:
@@ -164,6 +233,273 @@ Status 2026-07-03:
   until the private prompt repo has ready rows for all benchmark/replay agents
   and leak/drift/release checks have passed.
 
+## E0.5: Formal All-Agent Prompt Design Contract
+
+This section owns the prompt content work. Public MOSAIC-RKE must not commit the
+formal prompt bodies. The private prompt repo is the source of truth for the
+rewritten prompt corpus; public proof is limited to prompt hashes and no-body
+check refs.
+
+Rewrite scope:
+
+- Rewrite every formal Markdown prompt under
+  `https://github.com/haphap/MOSAIC-Prompts` for the canonical 25-agent roster:
+  all `cohort_default` prompts and every formal `cohort_*` prompt used by
+  benchmark, replay, autoresearch, or paper trading.
+- Each canonical agent must have synchronized `zh` and `en` prompts. The two
+  language files must preserve the same role, workflow, schema, RKE-prior rule,
+  audit rule, confidence policy, and evolution boundaries.
+- Legacy/non-canonical prompt files, such as old superinvestor roster files, do
+  not count as formal prompt coverage unless the TS/Python canonical roster is
+  explicitly changed. They may remain historical, but formal benchmark/replay
+  must ignore them.
+- Shared private prompt contracts, overlays, rendered prompt outputs, and prompt
+  IR may be regenerated as needed, but no prompt body or private prompt path is
+  committed to MOSAIC-RKE.
+
+Every formal agent prompt must contain these sections:
+
+- Role boundary: exact agent id, layer, downstream consumer, and decisions the
+  agent is not allowed to make.
+- Required inputs and tools: required current-data tools, upstream state
+  dependencies, fallback behavior when a required tool is unavailable, and the
+  rule that missing current data caps confidence.
+- RKE prior policy: `get_rke_research_context` or injected RKE context is a
+  redacted research prior only. It may guide questions, ranking, and hypothesis
+  formation; it cannot replace current PIT data or directly create a trade.
+- Workflow: ordered steps for evidence collection, contradiction handling,
+  current-data confirmation, role-specific reasoning, and final structured
+  output.
+- Output schema: exact JSON shape and field names expected by the runtime Zod
+  schema. Autoresearch must not rename, remove, or add schema fields.
+- Audit and footprint contract: fields such as `key_drivers`, `thesis`,
+  `philosophy_note`, `reason`, or `dissent_notes` must carry enough redacted
+  evidence to map the output to claim type, target, confidence, current-data
+  confirmation, stale/contradictory prior handling, RKE context hash, ranking
+  policy id, retrieval rank, priority bucket, and truncation audit.
+- Privacy boundary: never quote report prose, source spans, prompt body, local
+  paths, URLs, reviewer text, or licensed source metadata in agent output.
+- Confidence policy: high confidence requires fresh current data plus at least
+  two independent evidence families; stale priors, missing tools, fallback data,
+  or conflicting evidence impose explicit caps.
+- Refusal and no-action behavior: if required data is unavailable or RKE prior
+  cannot be confirmed, emit conservative/no-action output inside the existing
+  schema instead of inventing evidence.
+- Autoresearch evolution contract: list mutable prompt parameters and immutable
+  guardrails.
+
+Layer-specific prompt obligations:
+
+- Macro agents must emit macro regime, macro series, policy, flow, or asset
+  claims only within their own domain. They must distinguish research priors
+  from current macro data and expose missing-data/fallback caps in
+  `key_drivers`.
+- Sector agents must connect macro regime, policy, flow, sector ETF/holdings,
+  broker/RKE priors, price, and indicator evidence before selecting longs,
+  shorts, or relationship risks. A sector prior alone cannot create a pick.
+- Superinvestor agents must apply their philosophy filters to the L2 candidate
+  universe and current stock evidence. RKE priors may expand or annotate the
+  candidate set, but every pick needs current confirmation and a style-fit
+  reason.
+- Decision agents must synthesize upstream outputs and any direct redacted RKE
+  context into risk, alpha, execution, and CIO actions. They must cite upstream
+  or direct RKE context hashes that materially affected risk/action/dissent
+  notes, and no trade may be created from RKE prior alone.
+
+Agent-specific prompt task targets:
+
+- `central_bank`: PBOC/Fed stance, liquidity operation changes, rate-change
+  direction, policy-window timing, and dual-bank divergence.
+- `geopolitical`: escalation level, hot zones, sanctions/export-control/trade
+  channels, and sector transmission.
+- `china`: domestic policy direction, industrial-policy focus, property/credit
+  stress, and policy-supported/risk sectors.
+- `dollar`: DXY trend, USD/CNY pressure, CN-US yield-spread linkage, and FX
+  pressure handoff to EM/sector agents.
+- `yield_curve`: China curve shape, CN-US 10Y spread, recession/stress signal,
+  and tenor-specific BPS evidence.
+- `commodities`: oil, metals, agriculture, and China-demand signals with current
+  commodity and curve evidence.
+- `volatility`: VIX/iVX/realized-vol regime, risk-on/off filter, and volatility
+  confidence caps when China vol data is fallback.
+- `emerging_markets`: HK/A-share relative strength, EM capital-flow proxy,
+  dollar/spread sensitivity, and cross-market ETF evidence.
+- `news_sentiment`: retail/news topic heat, sentiment score, topic/ticker
+  clusters, and contrarian flag versus institutional flow.
+- `institutional_flow`: main-fund/LHB flow, top buyers, sector in/out map, and
+  flow concentration risk.
+- `semiconductor`: semiconductor policy, supply chain, ETF/holdings, equipment,
+  design, foundry, and export-control evidence.
+- `energy`: oil/coal/power/new-energy links, commodity regime, policy pressure,
+  flow, and sector longs/shorts.
+- `biotech`: healthcare policy, volume-procurement risk, pipeline/approval
+  signals, flow, and valuation discipline.
+- `consumer`: demand, brand pricing power, channel/retail heat, policy support,
+  and discretionary/staple split.
+- `industrials`: capex cycle, automation, export exposure, infrastructure
+  policy, and order/flow evidence.
+- `financials`: bank/broker/insurer sensitivity to curve, liquidity, credit
+  risk, policy, and market activity.
+- `relationship_mapper`: supply chains, ownership/common-shareholder clusters,
+  contagion paths, and cross-sector risk handoff.
+- `druckenmiller`: macro-asymmetry, liquidity/regime fit, momentum with risk
+  control, and tactical holding period.
+- `munger`: quality moat, predictable compounding, balance-sheet strength,
+  fair-price discipline, and long holding period.
+- `burry`: deep value, downside protection, balance-sheet stress, catalyst, and
+  crowding/contrarian evidence.
+- `ackman`: concentrated quality, simple business, catalyst/control angle,
+  pricing power, and medium/long holding period.
+- `cro`: reject/flag upstream picks with correlation, liquidity, regulatory,
+  leverage, valuation, or tail-risk problems.
+- `alpha_discovery`: find cross-layer candidates missed by the four
+  superinvestor filters and explain why they were missed.
+- `autonomous_execution`: convert accepted picks into BUY/SELL/HOLD/REDUCE and
+  `size_pct`, applying CRO rejects, alpha additions, and Darwinian weights.
+- `cio`: produce final portfolio actions, target weights, holding periods,
+  dissent notes, cash decision, and final confidence.
+
+Autoresearch mutation constraints:
+
+- Mutable: thresholds, weights, lookback windows, evidence ordering, tie-breaks,
+  sector/topic filters, confidence caps within stricter safety bounds, and
+  wording that improves extraction reliability.
+- Immutable: agent id, role boundary, required output schema, required tools,
+  current-data gate, RKE-prior-as-prior rule, privacy boundary, audit/footprint
+  contract, and shadow/promotion safety policy.
+- A mutation must be bilingual and semantically synchronized. It may rewrite a
+  prompt file, but it must preserve required section headers, schema field names,
+  no-source-prose rules, and all immutable guardrails.
+- The autoresearch loop invariant must protect all E0.5 required sections and
+  immutable guardrails, not only output schema/workflow headings. Any TS
+  `assertPromptInvariants`-style fast check must use the same required-section
+  list as E0.5 and must reject mutation text that weakens the RKE-prior policy,
+  removes the privacy boundary, removes refusal/no-action behavior, or merges
+  mutable and immutable boundaries.
+- Prompt mutation release evidence must include a no-body contract check ref in
+  addition to `prompts.verify_release` and leak/drift refs.
+
+Acceptance:
+
+- A formal benchmark/replay row cannot count a prompt unless it has private git
+  provenance, audit-version evidence, verify-release evidence, leak/drift
+  evidence, and `prompt_contract_check_ref` for the same prompt hash.
+- The prompt contract checker must validate section coverage, exact schema field
+  names, required tool policy, RKE-prior/current-data separation,
+  audit/footprint language, privacy/no-source-prose rules, and mutable/immutable
+  autoresearch boundaries without returning the prompt body.
+- `rke_benchmark.all_agent_prompt_provenance_readiness` is not sufficient to
+  close prompt readiness by itself until it also consumes prompt contract check
+  refs, or a separate prompt-content readiness gate is added and bound into E7.
+- Until the rewritten private prompt corpus and its no-body contract evidence
+  exist for all formal canonical prompt files, E0.5 remains open and E7 cannot
+  be marked complete.
+
+## E0.6: Prompt Contract Checker Producer
+
+`prompt_contract_check_ref` must come from a real checker, not from hand-authored
+release metadata. This component is currently unimplemented and blocks E0.5,
+E2, E4, and E7 until built.
+
+Required public bridge surface:
+
+- Add `prompts.contract_check` as a no-body Python bridge RPC.
+- Inputs:
+  - `cohort`
+  - optional `agents` and `langs`, defaulting to all canonical agents and
+    `zh`/`en`
+  - `prompt_repo_id`, `prompt_repo_revision`, `prompt_file_path`, and
+    `prompt_sha256` from `prompts.preflight` or release evidence
+  - optional `benchmark_run_id`
+- The handler may read prompt files from the private prompt repo or private
+  prompt root, but it must never return prompt body, prompt excerpts, dirty file
+  paths, local paths, report prose, source spans, URLs, or reviewer text.
+
+Required checks per prompt row:
+
+- Section coverage: role boundary, required inputs/tools, RKE prior policy,
+  workflow, output schema, audit/footprint contract, privacy boundary,
+  confidence policy, refusal/no-action behavior, and autoresearch evolution
+  contract.
+- Exact runtime schema field names for that agent and language.
+- Required tool policy: every runtime-required tool is named, and missing-tool
+  fallback plus confidence cap are present.
+- RKE separation: prompt states that RKE context is a redacted research prior,
+  not current data, and cannot directly create trades.
+- Audit/footprint language: existing output fields can carry claim type, target,
+  confidence, current-data confirmation, stale/contradictory prior handling,
+  RKE context hash, `ranking_policy_id`, `retrieval_rank`, `priority_bucket`,
+  and truncation audit.
+- Privacy/no-source-prose: prompt forbids report prose, source spans, prompt
+  body, local paths, URLs, reviewer text, and licensed metadata in outputs.
+- Autoresearch boundary: mutable and immutable prompt elements are explicitly
+  separated, and immutable guardrails include role boundary, schema, required
+  tools, current-data gate, RKE-prior policy, privacy boundary, audit/footprint
+  contract, and shadow/promotion safety policy.
+- Bilingual sync: for `zh`/`en` pairs, the checker reports whether both language
+  rows have the same required contract categories for the same prompt hash set.
+
+Output contract:
+
+- Return one row per checked prompt with:
+  `agent`, `layer`, `lang`, `prompt_repo_id`, `prompt_repo_revision`,
+  `prompt_file_path`, `prompt_sha256`, `prompt_contract_check_ref`,
+  `benchmark_run_id`, `ready`, and redacted blocker codes.
+- Return aggregate counts by layer, language, blocker code, and ready status.
+- `prompt_contract_check_ref` must be deterministic for the checked prompt hash
+  and contract version, for example:
+  `prompt-contract:<contract_version>:<prompt_sha256>`.
+- The checker must fail closed: missing prompt provenance, dirty private prompt
+  repo, missing prompt file, schema-field drift, privacy leak risk, or missing
+  immutable guardrail blocks the row.
+
+Required tests before closing E0.6:
+
+- Accepts a minimal valid private prompt row for each layer without returning
+  prompt body.
+- Blocks missing required section.
+- Blocks missing runtime schema field.
+- Blocks missing required tool/fallback/confidence-cap language.
+- Blocks RKE prior treated as current data or trade trigger.
+- Blocks private/prose/path/url leakage in returned rows.
+- Blocks cross-run `benchmark_run_id` mismatch when supplied.
+- Blocks bilingual drift where `zh` and `en` rows for the same agent do not have
+  the same required contract categories, schema fields, tool policy, RKE/current
+  data separation, privacy rule, and autoresearch boundary.
+- Verifies the TS autoresearch loop fast invariant and the Python
+  `prompts.contract_check` contract share the same required section categories
+  and immutable guardrail names, so mutation acceptance and release gating cannot
+  drift silently.
+- Verifies `all_agent_prompt_provenance_readiness`,
+  `prompt_mutation_release_readiness`, E2 benchmark evidence, and E7 delivery
+  readiness consume contract-check refs rather than trusting raw release rows.
+
+Required gate and delivery wiring before closing E0.6:
+
+- `rke_benchmark.all_agent_prompt_provenance_readiness` must require
+  `prompt_contract_check_ref` on every all-agent prompt release row and bind it
+  to the same prompt hash, prompt repo id, prompt repo revision, prompt file
+  path, and `benchmark_run_id`.
+- `rke_benchmark.prompt_mutation_release_readiness` must require
+  `prompt_contract_check_ref` on every prompt mutation release row before it can
+  feed benchmark/replay.
+- `rke_benchmark.fixed_episode_benchmark_evidence`, shadow replay, paper
+  trading, promotion, rollback, and `delivery_readiness` must treat missing
+  contract-check evidence as a hard blocker.
+- Delivery evidence storage must be updated so contract-check refs are not lost.
+  Chosen design: add top-level `prompt_contract_checks` evidence rows to the
+  private delivery evidence store, and require all prompt release rows to point
+  to one of those refs. This means updating the delivery evidence key list,
+  value type map, list item identity fields, TS bridge types, and record/audit
+  tests.
+
+Status:
+
+- Not implemented: no `prompts.contract_check` RPC, no Python checker, no TS type
+  binding, and no tests exist yet.
+- Until this producer exists, any `prompt_contract_check_ref` requirement in
+  E0.5/E2/E4/E7 is an explicit blocker, not satisfiable evidence.
+
 ## E1: Runtime Consumption Of Part 1 Ranked RKE Context
 
 Ownership split:
@@ -174,6 +510,11 @@ Ownership split:
   plumbing, runtime preflight, benchmark wiring, and replay evidence.
 - The Python bridge / agent tools should consume already-ranked RKE context.
   TS should not re-rank except for display-only sorting.
+- TS runtime consumption is intentionally tool-based:
+  `get_rke_research_context` is exposed through the bridge tool path used by
+  agent loops. A separate direct TS RPC is not required for agent correctness,
+  but benchmark/replay producers still must record the same context hashes and
+  ranking metadata as proof of consumption.
 
 Required Part 1 inputs consumed by Part 2:
 
@@ -274,6 +615,7 @@ Initial regime coverage:
 Inputs are fixed:
 
 - private prompt hash and repo revision
+- prompt contract check ref
 - PIT tool data
 - redacted RKE priors
 - tool summaries
@@ -305,7 +647,7 @@ Compare at least:
 - one current baseline model/config
 - local Qwen 27B
 - local Qwen3.6 35B
-- one API model, if available
+- one API model slot, optional if unavailable
 
 Deterministic scoring:
 
@@ -338,22 +680,91 @@ Manual review gate:
 - If investment outcomes are inconclusive, expand the episode set instead of
   advancing.
 
+## E2.1: Fixed-Episode Benchmark Runner Internal Design
+
+This producer is the first critical execution engine. It turns E0/E0.5/E0.6
+prompt proof and the E2 manifest into real paired outputs and benchmark evidence.
+
+Runner command shape:
+
+- Add a TS CLI command such as `rke-fixed-benchmark`.
+- Inputs:
+  - `benchmark_run_id`
+  - `cohort`
+  - optional `episode_id`, `as_of_date`, `model_config_id`, and `max_runs` for
+    smoke/debug runs
+  - private prompt repo/root configuration
+  - required model config map
+  - optional `paper_trading_allowed=false` hard default
+- Formal runs must reject bundled/fallback prompts, missing prompt contract
+  checks, dirty private prompt repo, fake LLM, and missing required model config.
+
+Execution stages:
+
+1. Load `rke_benchmark.fixed_episode_manifest` and expand it into run rows:
+   episode × as-of date × agent × required model config.
+2. Resolve prompt provenance with `prompts.preflight`.
+3. Resolve prompt content contract proof with `prompts.contract_check`.
+4. For each model config, construct the daily-cycle graph with the selected LLM
+   provider, prompt source override, cohort, and as-of date.
+5. Execute the full 25-agent graph for the date. Do not substitute
+   representative agents or skip downstream agents after upstream failures; emit
+   blocked paired-output rows when a required upstream artifact is unavailable.
+6. Write no-body paired-output refs under private local storage. Each row records
+   `benchmark_run_id`, episode, as-of date, model config id, agent, layer,
+   prompt hash, prompt contract ref, RKE context hashes, output schema hash,
+   output hash, status, and blocker codes. It must not store prompt bodies,
+   report prose, raw source spans, URLs, or local paths in public artifacts.
+7. Call `rke_benchmark.capture_agent_claim_footprints` for every completed
+   agent output and same `benchmark_run_id`.
+8. Produce schema validation, deterministic score table, investment outcome
+   table, quality-gate summary, and manual-review payload refs.
+9. Call `rke_benchmark.fixed_episode_benchmark_evidence`.
+10. Persist no-body delivery refs with `rke_benchmark.record_delivery_evidence`.
+
+Model config policy:
+
+- Required configs are `baseline_current_config`, `local_qwen_27b`, and
+  `local_qwen3_6_35b`.
+- `api_model_if_available` is optional and cannot block readiness if absent.
+- Every required model config must cover all 8 episodes, 17 as-of dates, and 25
+  agents before formal E2 readiness can pass.
+
+Failure model:
+
+- A row can be `ready`, `blocked_preflight`, `tool_failed`, `timeout`,
+  `schema_invalid`, `empty_output`, or `privacy_blocked`.
+- Severe safety violation, fallback prompt use, current-data confirmation
+  violation, missing prompt contract check, or schema failure over the allowed
+  threshold blocks the benchmark quality gate.
+- Smoke runs may use `max_runs`, but smoke evidence cannot close E2.
+
+Acceptance:
+
+- Formal run creates paired output refs for every required row.
+- Footprints exist for every completed agent/date/model output.
+- E2 evidence binds all refs to one `benchmark_run_id`.
+- `rke_benchmark.fixed_episode_benchmark_evidence` returns ready.
+- No public artifact contains prompt body, report prose, source spans, URLs, or
+  local private paths.
+
 Status 2026-07-03:
 
 - Public bridge now exposes `rke_benchmark.fixed_episode_manifest`, a no-run E2
   manifest/preflight that fixes the 8 regime episodes, 17 as-of dates, all 25
-  agents, four model config slots, input requirements, deterministic scoring
-  fields, and manual-review-required state. It reuses `prompts.preflight`; if
-  private prompt provenance is missing or dirty, the benchmark remains
-  `blocked_preflight`, keeps the prompt source blocker summary, and bundled
-  prompts do not count.
+  agents, four model config slots (three required plus optional API-if-available),
+  input requirements, deterministic scoring fields, and manual-review-required
+  state. It reuses `prompts.preflight`; if private prompt provenance is missing
+  or dirty, the benchmark remains `blocked_preflight`, keeps the prompt source
+  blocker summary, and bundled prompts do not count.
 - Public bridge now also exposes `rke_benchmark.fixed_episode_benchmark_evidence`,
   a no-body gate for formal benchmark evidence refs. It requires total paired
   output count and per-required-model output counts for the three required model
-  configs, fixed episode/as-of-date/model-config manifest refs, schema validation
-  report, deterministic score table, investment outcome table, benchmark quality
-  gate summary, and approved manual review timestamp before marking evidence
-  ready. Evidence refs, quality summary, and manual review must bind to the same
+  configs; the optional API slot is not required for readiness. It also requires
+  fixed episode/as-of-date/model-config manifest refs, schema validation report,
+  deterministic score table, investment outcome table, benchmark quality gate
+  summary, and approved manual review timestamp before marking evidence ready.
+  Evidence refs, quality summary, and manual review must bind to the same
   `benchmark_run_id`. The quality summary blocks severe safety violations,
   fallback prompt runs, current-data confirmation violations, and failed
   schema-failure gate; it never enables promotion by itself.
@@ -421,6 +832,7 @@ Lifecycle:
 candidate
   -> private prompt feature/release branch
   -> overwrite current private prompt file on that branch
+  -> prompt contract check
   -> leak/drift check
   -> fixed-episode benchmark
   -> manual review
@@ -437,6 +849,7 @@ Each mutation must record:
 - overwrite target path in `https://github.com/haphap/MOSAIC-Prompts`
 - private prompt branch name and base revision
 - private prompt repo revision/hash
+- prompt contract check ref
 - affected agents
 - RKE prior usage hypothesis
 - expected improvement metric
@@ -474,14 +887,14 @@ Status 2026-07-03:
   a no-write gate that requires positive integer prompt version id, prompt
   repo/commit/hash, lifecycle private branch, base prompt repo revision,
   overwrite target paths, audit-version ref, `prompts.verify_release` evidence,
-  and leak/drift check evidence before a prompt mutation can feed formal
-  benchmark/replay gates.
+  prompt contract check ref, and leak/drift check evidence before a prompt
+  mutation can feed formal benchmark/replay gates.
   Shadow/delivery aggregate gates also require release evidence to bind to the
   same `benchmark_run_id`.
 - This implements the lifecycle planning proof object. E4 is not complete until
-  actual private prompt branches, leak/drift checks, fixed-episode benchmark
-  evidence, manual review, shadow replay, paper-trading gate, promotion decision,
-  and rollback monitor evidence exist.
+  actual private prompt branches, prompt contract checks, leak/drift checks,
+  fixed-episode benchmark evidence, manual review, shadow replay, paper-trading
+  gate, promotion decision, and rollback monitor evidence exist.
 
 ## E5: Darwinian And Autoresearch Inputs
 
@@ -496,6 +909,123 @@ Autoresearch and Darwinian weights must distinguish:
 - prompt mutation provenance
 
 Darwinian weights must not treat RKE prior as current data.
+
+## E5.0: Autoresearch Loop Prompt Invariants
+
+Autoresearch must reject unsafe prompt mutations inside the mutation loop before
+they waste benchmark/replay cycles. E0.6 remains the authoritative release gate,
+but it cannot be the first time immutable prompt-guardrail drift is detected.
+
+Required loop-level invariant behavior:
+
+- `mosaic-ts/src/autoresearch/mutator.ts::assertPromptInvariants` must enforce
+  the E0.5 required section list:
+  role boundary, required inputs/tools, RKE prior policy, workflow, output
+  schema, audit/footprint contract, privacy boundary, confidence policy,
+  refusal/no-action behavior, and autoresearch evolution contract.
+- The mutator meta-prompt must instruct the mutation LLM to preserve all E0.5
+  immutable guardrails, not just section headings and schema field names.
+- The loop fast check must reject mutations that:
+  - drop any E0.5 required section;
+  - drop or rename any runtime schema field;
+  - remove required tool/fallback/confidence-cap language;
+  - weaken “RKE prior is not current data and cannot directly create trades”;
+  - remove privacy/no-source-prose language;
+  - remove refusal/no-action behavior;
+  - remove or blur mutable versus immutable autoresearch boundaries;
+  - desynchronize `zh` and `en` contract categories.
+- The fast check may remain lexical/structural; it does not need to duplicate
+  the full E0.6 private-repo provenance and no-body release check.
+- A mutation that passes the TS loop invariant must still pass
+  `prompts.contract_check`, leak/drift, benchmark, manual review, replay, and
+  rollback gates before release.
+
+Required tests:
+
+- Mutation that drops any E0.5 section is rejected by `assertPromptInvariants`.
+- Mutation that keeps schema/workflow headings but weakens RKE-prior policy is
+  rejected.
+- Mutation that removes privacy boundary or refusal/no-action behavior is
+  rejected.
+- Mutation that changes schema fields is rejected.
+- Mutation that only changes allowed mutable thresholds/wording and preserves
+  all immutable guardrails is accepted.
+- TS invariant required-section names stay synchronized with E0.6 contract
+  categories.
+
+## E5.1: Darwinian And Autoresearch Compute Internal Design
+
+This producer converts benchmark/replay evidence into agent weights and prompt
+evolution update refs. Uniform `1/N` weights are allowed only as cold-start
+fallback and never close E5.
+
+Inputs:
+
+- `benchmark_run_id`
+- E2 paired-output refs and deterministic score table
+- E3 footprint summary and profile/evolution readiness
+- prompt provenance, prompt contract checks, mutation provenance, and rollback
+  readiness
+- downstream outcome metrics with risk-adjusted return, drawdown, turnover, and
+  cost fields
+- RKE prior usage quality, stale/contradictory-prior handling, and current-data
+  confirmation metrics
+
+Skill decomposition:
+
+- `current_data_skill`: rewards fresh tool confirmation and penalizes fallback
+  or missing current data.
+- `rke_prior_usage_skill`: rewards useful ranked-prior use only when current
+  data confirms it.
+- `stale_prior_rejection_skill`: rewards rejecting stale or contradictory priors.
+- `schema_contract_skill`: rewards valid schema, prompt contract preservation,
+  and no privacy leak.
+- `downstream_outcome_skill`: rewards risk-adjusted downstream outcome after
+  costs.
+- `turnover_cost_skill`: penalizes unnecessary churn and high implementation
+  cost.
+- `mutation_reliability_skill`: rewards prompt mutations that improve evidence
+  quality without increasing safety, schema, or privacy failures.
+
+Compute stages:
+
+1. Load all inputs for one `benchmark_run_id`; fail closed if any required input
+   is missing or cross-run.
+2. Build an agent-level feature table with one row per canonical agent and
+   optional model/config slices.
+3. Normalize metrics within layer to avoid decision agents dominating macro or
+   sector agents by output volume.
+4. Apply safety caps before performance rewards:
+   privacy leak, source-prose leak, current-data violation, schema invalidity,
+   or RKE-as-current-data misuse caps the agent weight at the cold-start floor.
+5. Compute layer-local weights and a global diagnostic table. Weights must sum
+   to 1 within each layer and remain bounded by configured min/max caps.
+6. Emit Darwinian weight refs, autoresearch update refs, rejected-update refs,
+   and rollback-readiness refs.
+7. Call `rke_benchmark.darwinian_autoresearch_consumption_readiness` with
+   explicit consumed flags.
+
+Outputs:
+
+- `darwinian_weight_table_ref`
+- `agent_skill_decomposition_ref`
+- `rke_prior_usage_metrics_ref`
+- `downstream_outcome_metrics_ref`
+- `autoresearch_update_ref`
+- `rejected_update_reasons_ref`
+- `rollback_readiness_ref`
+- `consumption_evidence` bound to `benchmark_run_id`
+
+Acceptance:
+
+- Non-stub weights exist for all 25 canonical agents.
+- Every non-cold-start weight is traceable to footprint, RKE usage, current-data,
+  schema/privacy, and downstream outcome evidence.
+- RKE prior is never counted as current data.
+- Agents with privacy leaks, source-prose leaks, schema failures, or current-data
+  confirmation violations are capped or rejected.
+- Autoresearch update refs are produced only for mutable prompt parameters or
+  approved private prompt mutations.
 
 Outcome source contract:
 
@@ -536,8 +1066,8 @@ Status 2026-07-03:
   consumed flags before E5 can count as consumed by replay. It keeps
   `rke_prior_treated_as_current_data=false`.
 - This implements the E5 input and consumption proof-object contracts. E5 is not
-  complete until actual autoresearch and Darwinian weight updates produce those
-  replay/run refs.
+  complete until actual autoresearch and Darwinian weight compute producers
+  produce non-stub update refs consumed by replay/run refs.
 
 ## E6: Candidate Consumption Boundary
 
@@ -576,14 +1106,100 @@ Status 2026-07-03:
   complete until private prompt mutation, benchmark, replay, and rollback flows
   actually consume this manifest.
 
+## E7.1: Replay Execution Engine Internal Design
+
+The replay engine is the second critical execution engine. It consumes E2/E3/E5
+evidence and prompt mutation refs, then produces shadow replay, paper-trading,
+promotion, monitor, and rollback refs. Readiness gates do not execute replay.
+
+Replay command shape:
+
+- Add a TS CLI command such as `rke-shadow-replay`.
+- Inputs:
+  - `benchmark_run_id`
+  - `replay_run_id`
+  - `cohort`
+  - replay window or fixed episode list
+  - pinned prompt repo revision/hash and prompt contract refs
+  - pinned RKE context export refs
+  - Darwinian weight refs
+  - optional prompt mutation branch/revision refs
+  - paper-trading flag, default false
+- Formal replay must reject bundled prompts, missing prompt contract refs,
+  missing benchmark evidence, missing Darwinian compute refs, missing rollback
+  evidence for shadow-exit candidates, and any private/prose leak.
+
+Execution stages:
+
+1. Load delivery evidence for `benchmark_run_id` and fail if E0/E0.5/E0.6, E2,
+   E3, or E5 is not ready.
+2. Freeze prompt source, RKE context export, mutation refs, Darwinian weights,
+   model config, and replay window.
+3. Re-run the daily-cycle graph over each replay date using only point-in-time
+   data and pinned RKE priors.
+4. Record per-agent replay output hashes, consumed context hashes, ranking
+   metadata, current-data confirmation, prompt hash, prompt contract ref, and
+   Darwinian weight version.
+5. Capture replay footprints with `capture_agent_claim_footprints` using the
+   replay `benchmark_run_id`/`replay_run_id` binding.
+6. Compute downstream outcome windows, after-cost returns, drawdown, turnover,
+   calibration, stale-prior rejection, and safety/privacy metrics.
+7. Write shadow replay refs and call `shadow_replay_readiness`.
+8. If shadow replay is ready and operator explicitly supplies a paper-trading
+   plan, write paper-trading plan/result refs and call
+   `paper_trading_readiness`.
+9. If paper-trading result is ready and a second review exists, write promotion
+   decision refs. The gate may mark operator decision readiness but must keep
+   `production_allowed=false`.
+10. For any prompt/rule/parameter that leaves shadow mode, run rollback rehearsal
+    and record rollback trigger, previous prompt hash, procedure, monitor output,
+    and post-rollback verification.
+11. Persist refs through `record_delivery_evidence`.
+
+Replay outputs:
+
+- `replay_run_ref`
+- `replay_output_manifest_ref`
+- `runtime_context_consumption_ref`
+- `replay_footprint_ref`
+- `downstream_outcome_metrics_ref`
+- `paper_trading_plan_ref`
+- `paper_trading_result_ref`
+- `monitor_summary_ref`
+- `promotion_decision_ref`
+- `rollback_evidence_ref`
+
+Failure model:
+
+- Replay date failure, missing PIT data, missing pinned prompt, missing prompt
+  contract ref, missing RKE context metadata, schema failure, privacy leak,
+  current-data violation, and rollback rehearsal failure each produce blocker
+  codes.
+- A replay can be partially recorded for debugging, but partial replay cannot
+  close E7.
+
+Acceptance:
+
+- Shadow replay refs bind to the same `benchmark_run_id` and one
+  `replay_run_id`.
+- Every replay output is traceable to prompt hash, prompt contract ref, RKE
+  context hash, ranking metadata, Darwinian weight ref, and current-data
+  confirmation.
+- Paper trading and promotion gates only consume replay-produced refs.
+- Rollback evidence exists before any candidate can leave shadow mode.
+- No replay artifact returned through public bridge includes prompt body, report
+  prose, source spans, URLs, or local private paths.
+
 ## E7: Delivery Conditions
 
-This plan is complete only when:
+This plan is complete only when the producers in
+`Execution Wiring Required To Satisfy Purpose` have emitted their no-body refs,
+and all of the following conditions are ready for one formal `benchmark_run_id`:
 
 - All agents have formal private prompt repo hashes for benchmark/replay.
   Proof objects: `prompts.audit_versions` rows, `prompts.verify_release` results,
-  prompt file relative path, prompt repo id, prompt repo revision, prompt sha256,
-  and `fallback_used=false`.
+  leak/drift checks, `prompts.contract_check` refs, prompt file relative path,
+  prompt repo id, prompt repo revision, prompt sha256, and `fallback_used=false`.
 - All-agent runtime consumes Part 1 ranked RKE context without re-ranking it.
   Proof objects: context hash, `ranking_policy_id`, consumed `retrieval_rank`
   distribution, truncation audit, and current-data confirmation audit.
@@ -629,6 +1245,15 @@ Status 2026-07-03:
   release/leak-drift readiness, runtime RKE context hash/current-data
   confirmation, and rollback readiness before marking shadow replay ready. It
   keeps `paper_trading_allowed=false` and `promotion_allowed=false`.
+- TypeScript `rke-shadow-replay` now preflights the existing
+  `delivery_readiness` conditions for prompt provenance, runtime context
+  consumption, fixed benchmark, profile/evolution, Darwinian consumption,
+  prompt release, patch activation, and rollback evidence before starting replay
+  graph execution.
+- TypeScript now exposes `rke-prompt-provenance-evidence`, a private-file
+  recorder for all-agent prompt release checks. It validates no-body release
+  rows through `all_agent_prompt_provenance_readiness` before recording
+  `all_agent_prompt_release_checks` for later delivery audits.
 - Public bridge now exposes `rke_benchmark.paper_trading_readiness`, a no-write
   gate that requires shadow replay readiness plus operator-approved reviewed
   paper-trading plan, risk-limit ref, and stop-loss/rollback ref before allowing
@@ -662,17 +1287,42 @@ Status 2026-07-03:
   the condition-level readiness summaries from `delivery_readiness`, and keeps
   run context keys such as `cohort` and `prompt_source_status` separate from
   proof-object keys.
+- TypeScript now exposes `rke-paper-promotion-evidence`, a thin E7 producer for
+  operator-reviewed paper-trading and promotion refs. It only accepts refs bound
+  to `rke-shadow:<benchmark_run_id>:<replay_run_id>:...`, checks the relevant
+  `delivery_readiness` condition, and records no-body refs through
+  `record_delivery_evidence`; it does not promote to production.
+- TypeScript now exposes `rke-prompt-mutation-release-evidence`, a private-file
+  recorder for prompt mutation release checks. It binds release refs to explicit
+  candidate rows, validates them through `prompt_mutation_release_readiness`, and
+  records `prompt_mutation_release_checks` only after release/leak/contract gates
+  pass.
+- TypeScript now exposes `rke-rollback-rehearsal-evidence`, a private-file
+  evidence recorder for rollback rehearsal refs. It validates each row is bound
+  to the same shadow replay, requires prompt hashes and rollback
+  trigger/procedure/monitor/post-verification refs, checks the
+  `rollback_evidence` delivery condition, and only then records no-body refs.
 - Public bridge now exposes `rke_benchmark.patch_activation_readiness`, a
   no-write shadow activation gate that requires patch artifact, validation,
   shadow apply, runtime activation/proof, rollback refs, and `benchmark_run_id`
   binding before a candidate patch can count as activated. It preserves
   candidate `blocked_by` reasons and keeps production activation forbidden.
+- TypeScript now exposes `rke-patch-activation-evidence`, a private-file
+  recorder for shadow patch activation refs. It can bind explicit candidate rows
+  with activation refs, checks `patch_activation_readiness`, and records
+  `patch_activation_evidence` only after production activation remains forbidden.
 - Delivery readiness now includes the Darwinian/autoresearch consumption gate,
   so input-manifest readiness alone cannot satisfy the E7 consumption condition.
+- Full paper-trading/monitor execution remains producer-blocked until actual run
+  artifacts emit replay refs, monitor refs, downstream outcome refs, and
+  post-rollback verification. Readiness gates alone do not execute replay.
 - Agent footprint summary and profile/evolution readiness now carry redacted
   `report_claim_refs` aggregate counts, and every footprint row that consumed an
   RKE context hash must also carry a redacted report-claim link before
   profile/evolution or Darwinian/autoresearch inputs can be marked ready.
+- TypeScript now exposes `rke-profile-evidence`, a recorder for profile update,
+  evolution input, and no-source-prose audit refs. It calls
+  `agent_profile_evolution_readiness` before recording `profile_evidence`.
 - Prompt mutation release and rollback readiness now retain candidate
   `blocked_by` as hard blockers, preventing shadow-exit proof from overriding
   unresolved PIT/validation/refusal blockers.

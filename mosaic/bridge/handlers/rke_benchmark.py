@@ -19,6 +19,7 @@ from .prompts import _AGENTS_BY_LAYER
 from .prompts import _ALL_AGENTS
 from .prompts import _DEFAULT_COHORT
 from .prompts import _LAYER_BY_AGENT
+from .prompts import _prompt_contract_check_ref
 from .prompts import _repo_root
 from .prompts import prompts_preflight
 
@@ -92,6 +93,7 @@ _MODEL_CONFIGS: tuple[dict[str, Any], ...] = (
 
 _INPUT_REQUIREMENTS = (
     "private_prompt_hash_and_repo_revision",
+    "prompt_contract_check_ref",
     "pit_tool_data",
     "redacted_rke_priors",
     "tool_summaries",
@@ -162,6 +164,7 @@ _TOOLING_GAP_CANDIDATE_TYPES = frozenset(
 _POLICY_GATE_CANDIDATE_TYPES = frozenset({"confidence_gate_rule"})
 _DELIVERY_EVIDENCE_KEYS = (
     "all_agent_prompt_release_checks",
+    "prompt_contract_checks",
     "paired_output_count",
     "model_config_output_counts",
     "benchmark_quality_summary",
@@ -171,6 +174,7 @@ _DELIVERY_EVIDENCE_KEYS = (
     "downstream_outcome_metrics",
     "prompt_mutation_provenance",
     "darwinian_autoresearch_consumption_evidence",
+    "replay_evidence",
     "candidates",
     "patch_activation_evidence",
     "prompt_mutation_release_checks",
@@ -180,6 +184,7 @@ _DELIVERY_EVIDENCE_KEYS = (
 )
 _DELIVERY_EVIDENCE_VALUE_TYPES = {
     "all_agent_prompt_release_checks": list,
+    "prompt_contract_checks": list,
     "paired_output_count": int,
     "model_config_output_counts": dict,
     "benchmark_quality_summary": dict,
@@ -189,6 +194,7 @@ _DELIVERY_EVIDENCE_VALUE_TYPES = {
     "downstream_outcome_metrics": dict,
     "prompt_mutation_provenance": dict,
     "darwinian_autoresearch_consumption_evidence": dict,
+    "replay_evidence": dict,
     "candidates": list,
     "patch_activation_evidence": list,
     "prompt_mutation_release_checks": list,
@@ -209,6 +215,7 @@ _DELIVERY_RUN_BOUND_EVIDENCE_KEYS = frozenset(
 )
 _DELIVERY_LIST_ITEM_ID_FIELDS = {
     "all_agent_prompt_release_checks": ("agent", "lang", "prompt_file_path"),
+    "prompt_contract_checks": ("agent", "lang", "prompt_contract_check_ref"),
     "candidates": ("mutation_candidate_id",),
     "patch_activation_evidence": ("mutation_candidate_id",),
     "prompt_mutation_release_checks": ("mutation_candidate_id",),
@@ -253,6 +260,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
     cohort = params.get("cohort") or _DEFAULT_COHORT
     if not isinstance(cohort, str) or not cohort.strip():
         cohort = _DEFAULT_COHORT
+    allow_recorded_release_only = params.get("_allow_recorded_release_only") is True
     prompt_preflight = prompts_preflight(
         {"cohort": cohort, "agents": list(_ALL_AGENTS), "langs": ["zh", "en"]}
     )
@@ -298,6 +306,19 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
         agent = _clean_str(row.get("agent"))
         lang = _clean_str(row.get("lang"))
         release = release_by_prompt.get((agent, lang), {})
+        use_recorded_release = (
+            allow_recorded_release_only and prompt_preflight["ready"] is not True and bool(release)
+        )
+        if use_recorded_release:
+            row = {
+                **row,
+                "status": "ready",
+                "fallback_used": False,
+                "prompt_repo_id": _clean_str(release.get("prompt_repo_id")),
+                "prompt_repo_revision": _clean_str(release.get("prompt_repo_revision")),
+                "prompt_file_path": _clean_str(release.get("prompt_file_path")),
+                "prompt_sha256": _clean_str(release.get("prompt_sha256")),
+            }
         blockers: list[str] = []
         if row.get("status") != "ready":
             blockers.append(_clean_str(row.get("blocked_reason")) or "prompt_not_ready")
@@ -315,6 +336,8 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
             blockers.append("verify_release_not_passed")
         if release.get("leak_drift_passed") is not True:
             blockers.append("leak_drift_not_passed")
+        if release.get("prompt_contract_check_passed") is not True:
+            blockers.append("prompt_contract_check_not_passed")
         prompt_version_id = _optional_positive_int(release.get("prompt_version_id"))
         if prompt_version_id is None:
             blockers.append("prompt_version_id_missing")
@@ -323,6 +346,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
             "prompt_sha256",
             "verify_release_ref",
             "leak_drift_check_ref",
+            "prompt_contract_check_ref",
         ):
             if not _clean_str(release.get(key)):
                 blockers.append(f"{key}_missing")
@@ -331,10 +355,28 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
                 blockers.append(f"{key}_missing")
             elif _clean_str(release.get(key)) != _clean_str(row.get(key)):
                 blockers.append(f"{key}_mismatch")
+        expected_recorded_path = (
+            f"prompts/mosaic/{cohort}/{_LAYER_BY_AGENT[agent]}/{agent}.{lang}.md"
+            if use_recorded_release and agent in _LAYER_BY_AGENT
+            else ""
+        )
+        if use_recorded_release and _clean_str(
+            release.get("prompt_file_path")
+        ) != expected_recorded_path:
+            blockers.append("prompt_file_path_mismatch")
         if _clean_str(release.get("prompt_sha256")) and _clean_str(
             release.get("prompt_sha256")
         ) != _clean_str(row.get("prompt_sha256")):
             blockers.append("prompt_sha256_mismatch")
+        expected_contract_ref = (
+            _prompt_contract_check_ref(_clean_str(row.get("prompt_sha256")))
+            if _clean_str(row.get("prompt_sha256"))
+            else ""
+        )
+        if _clean_str(release.get("prompt_contract_check_ref")) and _clean_str(
+            release.get("prompt_contract_check_ref")
+        ) != expected_contract_ref:
+            blockers.append("prompt_contract_check_ref_mismatch")
         rows.append(
             {
                 "agent": agent,
@@ -349,6 +391,12 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
                 "audit_version_ref": _clean_str(release.get("audit_version_ref")),
                 "verify_release_ref": _clean_str(release.get("verify_release_ref")),
                 "leak_drift_check_ref": _clean_str(release.get("leak_drift_check_ref")),
+                "prompt_contract_check_ref": _clean_str(
+                    release.get("prompt_contract_check_ref")
+                ),
+                "prompt_contract_check_passed": (
+                    release.get("prompt_contract_check_passed") is True
+                ),
                 "fallback_used": row.get("fallback_used") is True,
                 "ready": not blockers,
                 "blockers": blockers,
@@ -356,10 +404,30 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
         )
 
     blocked_reasons = list(evidence_failures)
-    if not prompt_preflight["ready"]:
+    if not prompt_preflight["ready"] and not allow_recorded_release_only:
         blocked_reasons.append("prompt_preflight_not_ready")
     for row in rows:
         blocked_reasons.extend(row["blockers"])
+    source_status = prompt_preflight.get("source_status", {})
+    if allow_recorded_release_only and not blocked_reasons and release_by_prompt:
+        revisions = {
+            _clean_str(row.get("prompt_repo_revision"))
+            for row in release_by_prompt.values()
+            if _clean_str(row.get("prompt_repo_revision"))
+        }
+        repo_ids = {
+            _clean_str(row.get("prompt_repo_id"))
+            for row in release_by_prompt.values()
+            if _clean_str(row.get("prompt_repo_id"))
+        }
+        source_status = {
+            "ready": True,
+            "blocked_reason": "",
+            "resolved_source": "recorded_release_checks",
+            "prompt_repo_id": sorted(repo_ids)[0] if len(repo_ids) == 1 else "",
+            "prompt_repo_revision": sorted(revisions)[0] if len(revisions) == 1 else "",
+            "prompt_repo_dirty_count": 0,
+        }
 
     return {
         "schema_version": "rke_all_agent_prompt_provenance_readiness_v1",
@@ -371,7 +439,7 @@ def all_agent_prompt_provenance_readiness(params: dict[str, Any]) -> dict[str, A
         "prompt_row_count": len(rows),
         "ready_prompt_row_count": sum(1 for row in rows if row["ready"]),
         "release_check_count": len(release_by_prompt),
-        "prompt_source_status": prompt_preflight.get("source_status", {}),
+        "prompt_source_status": source_status,
         "prompt_rows": rows,
         "all_agent_prompt_provenance_ready": bool(rows) and not blocked_reasons,
         "fallback_used": any(row["fallback_used"] for row in rows),
@@ -468,6 +536,8 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("private_prompt_preflight_not_ready")
     if paired_output_count < required_paired_output_count:
         blocked_reasons.append("paired_output_count_below_required")
+    if not paired_output_count:
+        blocked_reasons.append("benchmark_runner_missing")
     for model_id in model_config_output_counts:
         if model_id not in known_model_ids:
             blocked_reasons.append(f"model_config_output_count_unknown:{model_id}")
@@ -504,6 +574,8 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
     for key in (
         "episode_manifest_ref",
         "as_of_date_manifest_ref",
+        "benchmark_runner_ref",
+        "prompt_contract_check_manifest_ref",
         "model_config_manifest_ref",
         "paired_output_manifest_ref",
         "output_schema_validation_report_ref",
@@ -512,10 +584,14 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
     ):
         if not _clean_str(evidence_refs.get(key)):
             blocked_reasons.append(f"{key}_missing")
+            if key == "benchmark_runner_ref":
+                blocked_reasons.append("benchmark_runner_missing")
     if _clean_str(manual_review.get("decision")) != "approved":
         blocked_reasons.append("manual_review_not_approved")
     if not _clean_str(manual_review.get("reviewer_timestamp")):
         blocked_reasons.append("manual_review_timestamp_missing")
+    if manual_review.get("reviewer_independence_confirmed") is not True:
+        blocked_reasons.append("reviewer_independence_unavailable")
     if (
         _forbidden_paths(evidence_refs)
         or _forbidden_paths(manual_review)
@@ -588,6 +664,12 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
             "as_of_date_manifest_ref": _clean_str(
                 evidence_refs.get("as_of_date_manifest_ref")
             ),
+            "benchmark_runner_ref": _clean_str(
+                evidence_refs.get("benchmark_runner_ref")
+            ),
+            "prompt_contract_check_manifest_ref": _clean_str(
+                evidence_refs.get("prompt_contract_check_manifest_ref")
+            ),
             "model_config_manifest_ref": _clean_str(
                 evidence_refs.get("model_config_manifest_ref")
             ),
@@ -608,6 +690,9 @@ def fixed_episode_benchmark_evidence(params: dict[str, Any]) -> dict[str, Any]:
             "benchmark_run_id": _clean_str(manual_review.get("benchmark_run_id")),
             "decision": _clean_str(manual_review.get("decision")),
             "reviewer_timestamp": _clean_str(manual_review.get("reviewer_timestamp")),
+            "reviewer_independence_confirmed": (
+                manual_review.get("reviewer_independence_confirmed") is True
+            ),
         },
         "promotion_allowed": False,
     }
@@ -875,6 +960,7 @@ def agent_profile_evolution_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("layer_coverage_incomplete")
     if not summary["rke_context_hash_count"]:
         blocked_reasons.append("rke_context_hash_missing")
+        blocked_reasons.append("rke_priors_not_yet_informative")
     if not summary["report_claim_ref_count"]:
         blocked_reasons.append("report_claim_link_missing")
     if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
@@ -966,10 +1052,13 @@ def darwinian_autoresearch_input_manifest(params: dict[str, Any]) -> dict[str, A
         blocked_reasons.append("agent_footprint_summary_missing")
     if not outcome_ready:
         blocked_reasons.append("downstream_outcome_metrics_missing")
+        blocked_reasons.append("downstream_outcome_replay_missing")
     if not provenance_ready:
         blocked_reasons.append("prompt_mutation_provenance_missing")
     if summary["privacy_scan"]["forbidden_field_violation_count"]:
         blocked_reasons.append("agent_footprint_privacy_scan_failed")
+    if not context_hash_count:
+        blocked_reasons.append("rke_priors_not_yet_informative")
     if summary["rke_context_report_claim_linked_count"] < summary["rke_context_hash_count"]:
         blocked_reasons.append("rke_context_report_claim_link_incomplete")
     if ranking_policy_count < context_hash_count:
@@ -1084,11 +1173,21 @@ def darwinian_autoresearch_consumption_readiness(params: dict[str, Any]) -> dict
         "rke_prior_usage_metrics_ref",
         "downstream_outcome_metrics_ref",
         "darwinian_weight_update_ref",
+        "agent_skill_decomposition_ref",
         "autoresearch_update_ref",
+        "rejected_update_reasons_ref",
         "rollback_readiness_ref",
     ):
         if not _clean_str(evidence.get(key)):
             blocked_reasons.append(f"{key}_missing")
+    if _optional_positive_int(evidence.get("agent_weight_count")) != len(_ALL_AGENTS):
+        blocked_reasons.append("agent_weight_count_incomplete")
+    if _optional_positive_int(evidence.get("non_stub_weight_count")) is None:
+        blocked_reasons.append("non_stub_weight_count_missing")
+    elif int(evidence.get("non_stub_weight_count") or 0) <= 0:
+        blocked_reasons.append("darwinian_weights_uniform_stub")
+    if evidence.get("layer_weight_sum_ready") is not True:
+        blocked_reasons.append("layer_weight_normalization_missing")
     if evidence.get("darwinian_consumed") is not True:
         blocked_reasons.append("darwinian_consumption_missing")
     if evidence.get("autoresearch_consumed") is not True:
@@ -1122,12 +1221,25 @@ def darwinian_autoresearch_consumption_readiness(params: dict[str, Any]) -> dict
             "darwinian_weight_update_ref": _clean_str(
                 evidence.get("darwinian_weight_update_ref")
             ),
+            "agent_skill_decomposition_ref": _clean_str(
+                evidence.get("agent_skill_decomposition_ref")
+            ),
             "autoresearch_update_ref": _clean_str(
                 evidence.get("autoresearch_update_ref")
+            ),
+            "rejected_update_reasons_ref": _clean_str(
+                evidence.get("rejected_update_reasons_ref")
             ),
             "rollback_readiness_ref": _clean_str(
                 evidence.get("rollback_readiness_ref")
             ),
+            "agent_weight_count": _optional_positive_int(
+                evidence.get("agent_weight_count")
+            ),
+            "non_stub_weight_count": _optional_positive_int(
+                evidence.get("non_stub_weight_count")
+            ),
+            "layer_weight_sum_ready": evidence.get("layer_weight_sum_ready") is True,
             "darwinian_consumed": evidence.get("darwinian_consumed") is True,
             "autoresearch_consumed": evidence.get("autoresearch_consumed") is True,
         },
@@ -1497,6 +1609,8 @@ def prompt_mutation_lifecycle_manifest(params: dict[str, Any]) -> dict[str, Any]
         blocked_reasons.append("candidate_consumption_manifest_not_ready")
     if branch_items and not affected_agents:
         blocked_reasons.append("affected_agent_resolution_missing")
+    if len(branch_items) > 1:
+        blocked_reasons.append("mutation_track_ambiguous")
     if branch_items and not prompt_preflight.get("ready"):
         blocked_reasons.append("private_prompt_preflight_not_ready")
     if any(pin.get("fallback_used") for record in records for pin in record["prompt_pins"]):
@@ -1608,6 +1722,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_sha256",
             "verify_release_ref",
             "leak_drift_check_ref",
+            "prompt_contract_check_ref",
         ):
             if not _clean_str(evidence.get(key)):
                 blockers.append(f"{key}_missing")
@@ -1640,6 +1755,17 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
             blockers.append("verify_release_not_passed")
         if evidence.get("leak_drift_passed") is not True:
             blockers.append("leak_drift_not_passed")
+        if evidence.get("prompt_contract_check_passed") is not True:
+            blockers.append("prompt_contract_check_not_passed")
+        expected_contract_ref = (
+            _prompt_contract_check_ref(_clean_str(evidence.get("prompt_sha256")))
+            if _clean_str(evidence.get("prompt_sha256"))
+            else ""
+        )
+        if _clean_str(evidence.get("prompt_contract_check_ref")) and _clean_str(
+            evidence.get("prompt_contract_check_ref")
+        ) != expected_contract_ref:
+            blockers.append("prompt_contract_check_ref_mismatch")
         if evidence.get("release_ready") is not True:
             blockers.append("release_not_ready")
         if not evidence:
@@ -1660,6 +1786,12 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_sha256": _clean_str(evidence.get("prompt_sha256")),
                 "verify_release_ref": _clean_str(evidence.get("verify_release_ref")),
                 "leak_drift_check_ref": _clean_str(evidence.get("leak_drift_check_ref")),
+                "prompt_contract_check_ref": _clean_str(
+                    evidence.get("prompt_contract_check_ref")
+                ),
+                "prompt_contract_check_passed": (
+                    evidence.get("prompt_contract_check_passed") is True
+                ),
                 "release_ready": not blockers,
                 "blockers": blockers,
             }
@@ -1701,6 +1833,7 @@ def prompt_mutation_release_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_sha256",
             "verify_release_ref",
             "leak_drift_check_ref",
+            "prompt_contract_check_ref",
         ],
         "prompt_release_ready": bool(records) and not blocked_reasons,
         "direct_prompt_write_allowed": False,
@@ -1838,45 +1971,72 @@ def prompt_mutation_rollback_readiness(params: dict[str, Any]) -> dict[str, Any]
 def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
     """Gate shadow replay on benchmark, footprint, Darwinian, and rollback proof."""
     benchmark_run_id = _require_str(params, "benchmark_run_id")
+    recorded_evidence, _evidence_failures = _read_delivery_evidence(benchmark_run_id)
+    direct_evidence = {
+        key: params[key] for key in _DELIVERY_RECORD_KEYS if key in params
+    }
+    effective_params = dict(recorded_evidence)
+    effective_params.update(direct_evidence)
+    allow_recorded_prompt_release_only = (
+        "all_agent_prompt_release_checks" in recorded_evidence
+        and "all_agent_prompt_release_checks" not in direct_evidence
+    )
     prompt_provenance = all_agent_prompt_provenance_readiness(
         {
             "benchmark_run_id": benchmark_run_id,
-            "cohort": params.get("cohort"),
-            "release_checks": params.get("all_agent_prompt_release_checks"),
+            "cohort": effective_params.get("cohort"),
+            "release_checks": effective_params.get("all_agent_prompt_release_checks"),
+            "_allow_recorded_release_only": (
+                params.get("_allow_recorded_prompt_release_only") is True
+                or allow_recorded_prompt_release_only
+            ),
         }
     )
     benchmark = fixed_episode_benchmark_evidence(
         {
             "benchmark_run_id": benchmark_run_id,
-            "cohort": params.get("cohort"),
-            "paired_output_count": params.get("paired_output_count"),
-            "model_config_output_counts": params.get("model_config_output_counts"),
-            "benchmark_quality_summary": params.get("benchmark_quality_summary"),
-            "evidence_refs": params.get("benchmark_evidence_refs"),
-            "manual_review": params.get("manual_review"),
+            "cohort": effective_params.get("cohort"),
+            "paired_output_count": effective_params.get("paired_output_count"),
+            "model_config_output_counts": effective_params.get("model_config_output_counts"),
+            "benchmark_quality_summary": effective_params.get("benchmark_quality_summary"),
+            "evidence_refs": effective_params.get("benchmark_evidence_refs"),
+            "manual_review": effective_params.get("manual_review"),
         }
     )
     darwinian = darwinian_autoresearch_input_manifest(
         {
             "benchmark_run_id": benchmark_run_id,
-            "downstream_outcome_metrics": params.get("downstream_outcome_metrics"),
-            "prompt_mutation_provenance": params.get("prompt_mutation_provenance"),
+            "downstream_outcome_metrics": effective_params.get("downstream_outcome_metrics"),
+            "prompt_mutation_provenance": effective_params.get("prompt_mutation_provenance"),
+        }
+    )
+    darwinian_consumption = darwinian_autoresearch_consumption_readiness(
+        {
+            "benchmark_run_id": benchmark_run_id,
+            "downstream_outcome_metrics": effective_params.get("downstream_outcome_metrics"),
+            "prompt_mutation_provenance": effective_params.get("prompt_mutation_provenance"),
+            "consumption_evidence": effective_params.get(
+                "darwinian_autoresearch_consumption_evidence"
+            ),
         }
     )
     prompt_release = prompt_mutation_release_readiness(
         {
             "benchmark_run_id": benchmark_run_id,
-            "candidates": params.get("candidates"),
-            "release_checks": params.get("prompt_mutation_release_checks"),
+            "candidates": effective_params.get("candidates"),
+            "release_checks": effective_params.get("prompt_mutation_release_checks"),
         }
     )
     rollback = prompt_mutation_rollback_readiness(
         {
             "benchmark_run_id": benchmark_run_id,
-            "candidates": params.get("candidates"),
-            "rollback_evidence": params.get("rollback_evidence"),
+            "candidates": effective_params.get("candidates"),
+            "rollback_evidence": effective_params.get("rollback_evidence"),
         }
     )
+    replay_evidence = effective_params.get("replay_evidence")
+    if not isinstance(replay_evidence, dict):
+        replay_evidence = {}
     current_data = darwinian["skill_inputs"]["current_data_skill"]
     prior_usage = darwinian["skill_inputs"]["research_prior_usage_skill"]
 
@@ -1887,10 +2047,51 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         blocked_reasons.append("benchmark_evidence_not_ready")
     if darwinian["manifest_status"] != "ready":
         blocked_reasons.append("darwinian_autoresearch_input_not_ready")
+    if darwinian_consumption["readiness_status"] != "ready":
+        blocked_reasons.append("darwinian_autoresearch_consumption_not_ready")
     if prompt_release["readiness_status"] not in {"ready", "not_applicable"}:
         blocked_reasons.append("prompt_mutation_release_not_ready")
     if rollback["readiness_status"] not in {"ready", "not_applicable"}:
         blocked_reasons.append("rollback_readiness_not_ready")
+    for key in (
+        "benchmark_run_id",
+        "replay_run_id",
+        "replay_run_ref",
+        "replay_output_manifest_ref",
+        "runtime_context_consumption_ref",
+        "replay_footprint_ref",
+        "downstream_outcome_metrics_ref",
+    ):
+        if not _clean_str(replay_evidence.get(key)):
+            blocked_reasons.append(f"{key}_missing")
+    replay_benchmark_run_id = _clean_str(replay_evidence.get("benchmark_run_id"))
+    if replay_benchmark_run_id and replay_benchmark_run_id != benchmark_run_id:
+        blocked_reasons.append("replay_evidence_benchmark_run_id_mismatch")
+    replay_run_id = _clean_str(replay_evidence.get("replay_run_id"))
+    if replay_run_id:
+        replay_ref_prefix = f"rke-shadow:{benchmark_run_id}:{replay_run_id}:"
+        for key in (
+            "replay_run_ref",
+            "replay_output_manifest_ref",
+            "runtime_context_consumption_ref",
+            "replay_footprint_ref",
+            "downstream_outcome_metrics_ref",
+        ):
+            ref = _clean_str(replay_evidence.get(key))
+            if ref and not ref.startswith(replay_ref_prefix):
+                blocked_reasons.append(f"{key}_not_bound_to_replay_run")
+    if _optional_positive_int(replay_evidence.get("replay_output_count")) is None:
+        blocked_reasons.append("replay_output_count_missing")
+    if _optional_positive_int(replay_evidence.get("replay_footprint_count")) is None:
+        blocked_reasons.append("replay_footprint_count_missing")
+    if replay_evidence.get("privacy_scan_passed") is not True:
+        blocked_reasons.append("replay_privacy_scan_missing")
+    if replay_evidence.get("current_data_confirmed") is not True:
+        blocked_reasons.append("replay_current_data_confirmation_missing")
+    if _forbidden_paths(replay_evidence):
+        blocked_reasons.append("private_or_source_prose_ref_detected")
+    if not replay_evidence:
+        blocked_reasons.append("shadow_replay_evidence_missing")
     context_hash_count = int(prior_usage["rke_context_hash_count"] or 0)
     ranking_policy_count = sum(prior_usage["ranking_policy_id_counts"].values())
     priority_bucket_count = sum(prior_usage["priority_bucket_counts"].values())
@@ -1915,8 +2116,34 @@ def shadow_replay_readiness(params: dict[str, Any]) -> dict[str, Any]:
         "prompt_provenance_readiness_status": prompt_provenance["readiness_status"],
         "benchmark_evidence_status": benchmark["evidence_status"],
         "darwinian_manifest_status": darwinian["manifest_status"],
+        "darwinian_consumption_status": darwinian_consumption["readiness_status"],
         "prompt_release_readiness_status": prompt_release["readiness_status"],
         "rollback_readiness_status": rollback["readiness_status"],
+        "replay_evidence": {
+            "benchmark_run_id": _clean_str(replay_evidence.get("benchmark_run_id")),
+            "replay_run_id": _clean_str(replay_evidence.get("replay_run_id")),
+            "replay_run_ref": _clean_str(replay_evidence.get("replay_run_ref")),
+            "replay_output_manifest_ref": _clean_str(
+                replay_evidence.get("replay_output_manifest_ref")
+            ),
+            "runtime_context_consumption_ref": _clean_str(
+                replay_evidence.get("runtime_context_consumption_ref")
+            ),
+            "replay_footprint_ref": _clean_str(
+                replay_evidence.get("replay_footprint_ref")
+            ),
+            "downstream_outcome_metrics_ref": _clean_str(
+                replay_evidence.get("downstream_outcome_metrics_ref")
+            ),
+            "replay_output_count": _optional_positive_int(
+                replay_evidence.get("replay_output_count")
+            ),
+            "replay_footprint_count": _optional_positive_int(
+                replay_evidence.get("replay_footprint_count")
+            ),
+            "privacy_scan_passed": replay_evidence.get("privacy_scan_passed") is True,
+            "current_data_confirmed": replay_evidence.get("current_data_confirmed") is True,
+        },
         "rke_context_hash_count": prior_usage["rke_context_hash_count"],
         "ranking_policy_id_counts": prior_usage["ranking_policy_id_counts"],
         "retrieval_rank_count": prior_usage["retrieval_rank_count"],
@@ -2170,6 +2397,10 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
         _delivery_benchmark_run_id_mismatches(direct_evidence, benchmark_run_id)
     )
     direct_input_failures.extend(_invalid_delivery_evidence_values(direct_evidence))
+    allow_recorded_prompt_release_only = (
+        "all_agent_prompt_release_checks" in recorded_evidence
+        and "all_agent_prompt_release_checks" not in direct_evidence
+    )
     effective_params = dict(recorded_evidence)
     for key in _DELIVERY_RECORD_KEYS:
         if key in params:
@@ -2185,6 +2416,7 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "benchmark_run_id": benchmark_run_id,
             "cohort": cohort,
             "release_checks": effective_params.get("all_agent_prompt_release_checks"),
+            "_allow_recorded_release_only": allow_recorded_prompt_release_only,
         }
     )
     benchmark = fixed_episode_benchmark_evidence(
@@ -2256,7 +2488,11 @@ def delivery_readiness(params: dict[str, Any]) -> dict[str, Any]:
             "rollback_evidence": effective_params.get("rollback_evidence"),
         }
     )
-    replay_params = {"benchmark_run_id": benchmark_run_id, **effective_params}
+    replay_params = {
+        "benchmark_run_id": benchmark_run_id,
+        **effective_params,
+        "_allow_recorded_prompt_release_only": allow_recorded_prompt_release_only,
+    }
     shadow = shadow_replay_readiness(replay_params)
     paper = paper_trading_readiness(replay_params)
     promotion = promotion_decision_readiness(replay_params)
@@ -2785,6 +3021,9 @@ def _sanitize_claim_footprint_row(
         "schema_version": "rke_agent_claim_footprint_v1",
         "agent_claim_footprint_id": hashlib.sha256(record_key.encode("utf-8")).hexdigest()[:24],
         "benchmark_run_id": benchmark_run_id,
+        "replay_run_id": _clean_str(row.get("replay_run_id")),
+        "episode_id": _clean_str(row.get("episode_id")),
+        "model_config_id": _clean_str(row.get("model_config_id")),
         "agent": agent,
         "layer": layer,
         "as_of_date": as_of_date,
@@ -2867,6 +3106,10 @@ def _forbidden_paths(value: Any, path: str = "$") -> list[str]:
                 if not _safe_prompt_file_path(child):
                     paths.append(child_path)
                 continue
+            if key_text == "artifact_path":
+                if not _safe_public_artifact_path(child):
+                    paths.append(child_path)
+                continue
             if key_text in _FORBIDDEN_CAPTURE_FIELDS or key_text.endswith("_path"):
                 paths.append(child_path)
                 continue
@@ -2895,6 +3138,21 @@ def _safe_prompt_file_path(value: Any) -> bool:
         and path.endswith(".md")
         and not path.startswith("/")
         and "\\" not in path
+        and all(part not in {"", ".", ".."} for part in parts)
+    )
+
+
+def _safe_public_artifact_path(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    path = value.strip()
+    parts = path.split("/")
+    return (
+        path.startswith("registry/report_intelligence/")
+        and path.endswith((".json", ".jsonl"))
+        and not path.startswith("/")
+        and "\\" not in path
+        and not (len(parts) > 2 and parts[2] == "markdown")
         and all(part not in {"", ".", ".."} for part in parts)
     )
 

@@ -633,6 +633,7 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "证券Ⅱ": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "多元金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "非银金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "非银行金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "券商": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "头部券商": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "保险": {"etf_symbol": "SH512070", "mapping_label": "证券保险ETF"},
@@ -10166,6 +10167,17 @@ def _footprint_negative_example_target_hash(row: Mapping[str, Any]) -> str:
         "report_id": str(row.get("report_id") or ""),
         "review_context_ref": str(row.get("review_context_ref") or ""),
         "sample_kind": str(row.get("sample_kind") or ""),
+        "report_type": str(row.get("report_type") or ""),
+        "sector": str(row.get("sector") or ""),
+        "publish_date": str(row.get("publish_date") or ""),
+        "forecast_claim_count": _negative_example_int(
+            row.get("forecast_claim_count")
+        ),
+        "extracted_footprint_count": _negative_example_int(
+            row.get("extracted_footprint_count")
+        ),
+        "suggested_review_focus": str(row.get("suggested_review_focus") or ""),
+        "priority_score": _negative_example_int(row.get("priority_score")),
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -10513,6 +10525,47 @@ def _negative_example_approval_draft_row(
     }
 
 
+def _approval_draft_row_failures(
+    row: Mapping[str, Any],
+    *,
+    row_index: int,
+    reviewer: str,
+    review_date: str,
+    not_import_field: str,
+) -> list[str]:
+    failures: list[str] = []
+    prefix = f"approval draft row {row_index}"
+    if row.get("approval_status") != "approved":
+        failures.append(f"{prefix}.approval_status must be approved")
+    if row.get("human_approval_required") is not False:
+        failures.append(f"{prefix}.human_approval_required must be false")
+    if row.get(not_import_field) is not False:
+        failures.append(f"{prefix}.{not_import_field} must be false")
+    if str(row.get("reviewer") or "").strip() != reviewer:
+        failures.append(f"{prefix}.reviewer must match approved reviewer")
+    if str(row.get("review_date") or "").strip() != review_date:
+        failures.append(f"{prefix}.review_date must match approved review_date")
+    return failures
+
+
+def _approval_target_hash_failure(
+    draft_row: Mapping[str, Any],
+    target_row: Mapping[str, Any],
+    *,
+    row_index: int,
+) -> str | None:
+    draft_hash = str(draft_row.get("target_row_hash") or "").strip()
+    target_hash = str(target_row.get("target_row_hash") or "").strip()
+    digest_pattern = r"sha256:[0-9a-f]{64}"
+    if not re.fullmatch(digest_pattern, draft_hash):
+        return f"approval draft row {row_index}.target_row_hash must be sha256"
+    if not re.fullmatch(digest_pattern, target_hash):
+        return f"approval target row {row_index}.target_row_hash must be sha256"
+    if draft_hash != target_hash:
+        return f"approval draft row {row_index}.target_row_hash mismatch"
+    return None
+
+
 def _negative_example_decision_counts(
     rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, dict[str, int]]:
@@ -10769,10 +10822,22 @@ def write_analytical_footprint_negative_example_approved_import(
                 f"approval draft row {row_index}.negative_example_id missing from target"
             )
             continue
-        draft_hash = str(draft_row.get("target_row_hash") or "").strip()
-        target_hash = str(target_row.get("target_row_hash") or "").strip()
-        if draft_hash and target_hash and draft_hash != target_hash:
-            blockers.append(f"approval draft row {row_index}.target_row_hash mismatch")
+        blockers.extend(
+            _approval_draft_row_failures(
+                draft_row,
+                row_index=row_index,
+                reviewer=reviewer_value,
+                review_date=review_date_value,
+                not_import_field="not_apply_footprint_negative_examples_input",
+            )
+        )
+        hash_failure = _approval_target_hash_failure(
+            draft_row,
+            target_row,
+            row_index=row_index,
+        )
+        if hash_failure:
+            blockers.append(hash_failure)
         expected = draft_row.get("expected_footprint_present")
         found = draft_row.get("extracted_footprint_found")
         if not isinstance(expected, bool):
@@ -12702,10 +12767,22 @@ def write_analytical_footprint_review_approved_import(
                 f"approval draft row {row_index}.footprint_id missing from target"
             )
             continue
-        draft_hash = str(draft_row.get("target_row_hash") or "").strip()
-        target_hash = str(target_row.get("target_row_hash") or "").strip()
-        if draft_hash and target_hash and draft_hash != target_hash:
-            blockers.append(f"approval draft row {row_index}.target_row_hash mismatch")
+        blockers.extend(
+            _approval_draft_row_failures(
+                draft_row,
+                row_index=row_index,
+                reviewer=reviewer_value,
+                review_date=review_date_value,
+                not_import_field="not_apply_footprint_review_input",
+            )
+        )
+        hash_failure = _approval_target_hash_failure(
+            draft_row,
+            target_row,
+            row_index=row_index,
+        )
+        if hash_failure:
+            blockers.append(hash_failure)
         approved_row = dict(target_row)
         for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
             value = draft_row.get(field)
@@ -15794,6 +15871,7 @@ def _industry_etf_proxy_for_sector(
         if str(row.get("status") or "primary") == "primary"
         and _mapping_effective_for_datetime(row, as_of_datetime)
     ]
+    candidates: list[tuple[Mapping[str, Any], str, str]] = []
     for row in primary_rows:
         names = [
             str(row.get("sector_name") or ""),
@@ -15803,14 +15881,44 @@ def _industry_etf_proxy_for_sector(
             if not name:
                 continue
             name_key = _normalize_industry_sector_key(name)
-            if (
-                normalized == name
-                or name in normalized
-                or (name_key and normalized_key == name_key)
-                or (name_key and name_key in normalized_key)
-            ):
-                return row
-    return None
+            if name_key:
+                candidates.append((row, name, name_key))
+
+    exact_rows = [
+        row
+        for row, name, name_key in candidates
+        if normalized == name or normalized_key == name_key
+    ]
+    exact = _unique_industry_mapping(exact_rows)
+    if exact_rows:
+        return exact
+
+    contained = [
+        (row, name_key)
+        for row, _name, name_key in candidates
+        if len(name_key) >= 3 and name_key in normalized_key
+    ]
+    if not contained:
+        return None
+    longest = max(len(name_key) for _row, name_key in contained)
+    return _unique_industry_mapping(
+        [row for row, name_key in contained if len(name_key) == longest]
+    )
+
+
+def _unique_industry_mapping(
+    rows: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    unique: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for row in rows:
+        identity = (
+            str(row.get("mapping_id") or row.get("sector_name") or ""),
+            str(row.get("etf_symbol") or ""),
+        )
+        unique.setdefault(identity, row)
+    if len(unique) != 1:
+        return None
+    return next(iter(unique.values()))
 
 
 def _mapping_effective_for_datetime(

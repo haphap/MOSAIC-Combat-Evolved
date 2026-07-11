@@ -645,15 +645,23 @@ def _write_lockbox_review_import_template_or_error(root_path: Path) -> dict[str,
         )
 
 
-def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
+def build_operator_handoff(
+    root: str | Path = ".",
+    *,
+    batch_status: Any | None = None,
+    progress_report: Any | None = None,
+    promotion: Any | None = None,
+) -> OperatorHandoff:
     root_path = Path(root)
-    batch_status, _, _ = build_manual_review_batch_status(root_path)
+    if batch_status is None:
+        batch_status, _, _ = build_manual_review_batch_status(root_path)
     from .review_progress import (
         build_manual_review_progress,
         manual_review_gate_batch_overview,
     )
 
-    progress_report = build_manual_review_progress(root_path)
+    if progress_report is None:
+        progress_report = build_manual_review_progress(root_path)
     progress_by_kind = {gate.review_kind: gate for gate in progress_report.gates}
     gold_progress = progress_by_kind.get("gold_set")
     footprint_progress = progress_by_kind.get("footprint_review")
@@ -665,7 +673,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         if footprint_progress
         else {}
     )
-    promotion = build_production_promotion_gate_report(root_path)
+    if promotion is None:
+        promotion = build_production_promotion_gate_report(root_path)
     criteria = tuple(promotion.criteria)
     pg02 = _criterion_by_id(criteria, "PG02")
     pg03 = _criterion_by_id(criteria, "PG03")
@@ -1026,18 +1035,39 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
 
 
 def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
-    from .review_progress import write_manual_review_progress_report, write_manual_review_runbook
+    from .review_progress import (
+        _manual_review_progress_report_payload,
+        build_manual_review_progress,
+        render_manual_review_runbook_markdown,
+    )
 
     root_path = Path(root)
     review_batches = write_manual_review_batches(root_path)
+    batch_status, _, _ = build_manual_review_batch_status(root_path)
+    progress_report = build_manual_review_progress(root_path)
     policy_template = write_source_license_policy_template(root_path)
     license_workbook = write_source_license_review_workbook(root_path)
-    progress = write_manual_review_progress_report(root_path)
-    runbook = write_manual_review_runbook(root_path)
+    progress = _write_json(
+        root_path / MANUAL_REVIEW_PROGRESS_REPORT_PATH,
+        _manual_review_progress_report_payload(progress_report),
+    )
+    runbook_path = root_path / MANUAL_REVIEW_RUNBOOK_MD_PATH
+    runbook_path.parent.mkdir(parents=True, exist_ok=True)
+    runbook_path.write_text(
+        render_manual_review_runbook_markdown(progress_report) + "\n",
+        encoding="utf-8",
+    )
+    runbook = {"path": str(runbook_path)}
     lockbox_template = _write_lockbox_review_import_template_or_error(root_path)
     lockbox_checklist = write_lockbox_review_checklist(root_path)
     write_production_promotion_gate_report(root_path)
-    handoff = build_operator_handoff(root_path)
+    promotion = build_production_promotion_gate_report(root_path)
+    handoff = build_operator_handoff(
+        root_path,
+        batch_status=batch_status,
+        progress_report=progress_report,
+        promotion=promotion,
+    )
     json_result = _write_json(root_path / OPERATOR_HANDOFF_JSON_PATH, asdict(handoff))
     md_path = root_path / OPERATOR_HANDOFF_MD_PATH
     md_path.parent.mkdir(parents=True, exist_ok=True)

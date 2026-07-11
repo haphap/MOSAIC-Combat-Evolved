@@ -348,9 +348,74 @@ class TestBacktestHandlers:
         assert result["first_trade_date"] == "2024-02-15"
         assert result["last_trade_date"] == "2024-02-22"
 
+    def test_action_summary_reports_stage1_carry_over_diagnostics(
+        self, patched_store: ScorecardStore
+    ):
+        run_id = patched_store.create_backtest_run(
+            cohort="cohort_default",
+            start_date="2024-01-01",
+            end_date="2024-03-31",
+            prompt_commit_hash="abc",
+        )
+        patched_store.append_backtest_actions(
+            run_id,
+            "2024-02-15",
+            [
+                {
+                    "ticker": "510300.SH",
+                    "action": "BUY",
+                    "target_weight": 0.10,
+                    "holding_period": "3M",
+                    "dissent_notes": "",
+                },
+                {
+                    "ticker": "512880.SH",
+                    "action": "REDUCE",
+                    "target_weight": 0.05,
+                    "holding_period": "1M",
+                    "dissent_notes": "",
+                },
+            ],
+        )
+        patched_store.append_backtest_actions(
+            run_id,
+            "2024-02-22",
+            [
+                {
+                    "ticker": "510300.SH",
+                    "action": "HOLD",
+                    "target_weight": 0.12,
+                    "holding_period": "3M",
+                    "dissent_notes": "",
+                },
+                {
+                    "ticker": "512880.SH",
+                    "action": "SELL",
+                    "target_weight": 0.0,
+                    "holding_period": "1M",
+                    "dissent_notes": "",
+                },
+            ],
+        )
+        result = dispatch("backtest.action_summary", {"run_id": run_id})
+        assert result["action_count"] == 4
+        assert result["trade_day_count"] == 2
+        assert result["ticker_count"] == 2
+        assert result["turnover_proxy"] == pytest.approx(0.22)
+        assert result["max_observed_holding_days"] == 1
+        assert result["action_counts"] == {"BUY": 1, "REDUCE": 1, "HOLD": 1, "SELL": 1}
+        assert result["holding_period_counts"] == {"3M": 2, "1M": 2}
+        assert result["metric_availability"]["exit_after_hold_alpha"] == (
+            "requires_stage2_scored_positions"
+        )
+
     def test_get_run_not_found(self, patched_store: ScorecardStore):
         with pytest.raises(RpcError, match="not found"):
             dispatch("backtest.get_run", {"run_id": 99999})
+
+    def test_action_summary_not_found(self, patched_store: ScorecardStore):
+        with pytest.raises(RpcError, match="not found"):
+            dispatch("backtest.action_summary", {"run_id": 99999})
 
     def test_list_runs_handler(self, patched_store: ScorecardStore):
         for cohort in ("a", "b"):
@@ -375,6 +440,7 @@ def test_all_5_methods_registered():
         "backtest.complete_run",
         "backtest.get_run",
         "backtest.list_runs",
+        "backtest.action_summary",
         "backtest.run_historical",
     }
     assert expected.issubset(set(all_methods()))

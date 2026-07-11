@@ -6,8 +6,75 @@
  * them under the project `prompts/mosaic/**` tree.
  */
 
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { parseResearchKnobsPrompt } from "../../agents/helpers/research_knobs.js";
+import {
+  findBundledPromptsRoot,
+  findPrivatePromptsRoot,
+  promptPath,
+} from "../../agents/prompts/cohorts.js";
+import {
+  buildDomainKnobCatalogArtifact,
+  buildDomainKnobEvaluationContractArtifact,
+  renderDomainKnobCatalogArtifact,
+  renderDomainKnobEvaluationContractArtifact,
+  validateDomainKnobCatalogArtifact,
+  validateDomainKnobEvaluationContractArtifact,
+} from "../../agents/prompts/domain_knob_catalog.js";
+import {
+  buildDomainKnobValueRegistry,
+  type DomainKnobValueRegistry,
+  domainKnobValueRegistryPath,
+  readDomainKnobValueRegistryFile,
+  renderDomainKnobValueRegistry,
+  validateDomainKnobValueRegistry,
+  writeDomainKnobValueRegistryFile,
+} from "../../agents/prompts/domain_knob_registry.js";
+import {
+  buildPromptGovernanceValueRegistry,
+  type PromptGovernanceValueRegistry,
+  promptGovernanceValueRegistryPath,
+  readPromptGovernanceValueRegistryFile,
+  renderPromptGovernanceValueRegistry,
+  updatePromptGovernanceRegistryFromProjection,
+  validatePromptGovernanceValueRegistry,
+  writePromptGovernanceValueRegistryFile,
+} from "../../agents/prompts/prompt_governance_registry.js";
+import {
+  buildPromptIrContract,
+  promptIrPathForSpec,
+  readPromptIrContractFile,
+  renderPromptIrContract,
+  validatePromptIrContractForSpec,
+  writePromptIrContractFile,
+} from "../../agents/prompts/prompt_ir_registry.js";
+import {
+  buildPromptTokenBudgetManifest,
+  PromptTokenBudgetManifestSchema,
+  renderPromptTokenBudgetManifest,
+} from "../../agents/prompts/prompt_token_budget.js";
+import { checkResearchKnobsPrompts } from "../../agents/prompts/research_knobs_checker.js";
+import {
+  buildRuntimeResearchKnobs,
+  upsertResearchKnobsFence,
+  upsertRuntimeEvidenceContract,
+} from "../../agents/prompts/research_knobs_projection.js";
+import {
+  buildRuntimeAgentManifestArtifact,
+  RUNTIME_AGENT_SPECS,
+  renderRuntimeAgentManifestArtifact,
+  validateRuntimeAgentManifestArtifact,
+} from "../../agents/prompts/runtime_agent_spec.js";
+import {
+  appendKnobMutationMetadataLog,
+  applyKnobPatchesToPromptPair,
+  buildKnobMutationMetadata,
+  type KnobMutation,
+} from "../../autoresearch/mutator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 
@@ -30,6 +97,55 @@ interface VerifyReleaseOpts {
 interface GcWorktreesOpts {
   repoTarget?: "project_git" | "private_git" | "all";
   maxAgeHours?: string;
+}
+
+interface CheckResearchKnobsOpts {
+  cohort?: string;
+  promptsRoot?: string;
+  privatePromptsRoot?: string;
+  enabledAgents?: string;
+  enabledStages?: string;
+  json?: boolean;
+}
+
+interface SyncResearchKnobsOpts {
+  cohort?: string;
+  privatePromptsRoot?: string;
+  promptsRoot?: string;
+  agents?: string;
+  write?: boolean;
+}
+
+interface SyncPromptIrOpts {
+  cohortScope?: string;
+  privatePromptsRoot: string;
+  agents?: string;
+  write?: boolean;
+}
+
+interface DryRunKnobPatchOpts {
+  cohort?: string;
+  privatePromptsRoot: string;
+  agent: string;
+  metadataLog?: string;
+  writeMetadata?: boolean;
+}
+
+interface ExportDomainKnobCatalogOpts {
+  out?: string;
+  json?: boolean;
+}
+
+interface PromptTokenBudgetOpts {
+  cohort?: string;
+  privatePromptsRoot?: string;
+  privateCommit?: string;
+  bundledCommit?: string;
+  contextWindow?: string;
+  baseline?: string;
+  generatedAt?: string;
+  out?: string;
+  json?: boolean;
 }
 
 export function registerPrompts(program: Command): void {
@@ -149,6 +265,471 @@ export function registerPrompts(program: Command): void {
     });
 
   prompts
+    .command("export-domain-knob-catalog")
+    .description("Render the machine-readable domain knob catalog and runtime registries.")
+    .option("--out <path>", "Write catalog JSON to a file")
+    .option("--json", "Print catalog JSON to stdout")
+    .action(async (opts: ExportDomainKnobCatalogOpts) => {
+      const artifact = buildDomainKnobCatalogArtifact();
+      const reasons = validateDomainKnobCatalogArtifact(artifact);
+      if (reasons.length > 0) {
+        throw new Error(`domain knob catalog failed self-check: ${reasons.join("; ")}`);
+      }
+      const rendered = renderDomainKnobCatalogArtifact(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        console.log(`domain_knob_catalog: ${redactSensitiveText(opts.out).slice(0, 220)}`);
+      }
+    });
+
+  prompts
+    .command("export-runtime-agent-manifest")
+    .description("Render the stage-aware runtime agent manifest.")
+    .option("--out <path>", "Write manifest JSON to a file")
+    .option("--json", "Print manifest JSON to stdout")
+    .action(async (opts: ExportDomainKnobCatalogOpts) => {
+      const artifact = buildRuntimeAgentManifestArtifact();
+      const reasons = validateRuntimeAgentManifestArtifact(artifact);
+      if (reasons.length > 0) {
+        throw new Error(`runtime agent manifest failed self-check: ${reasons.join("; ")}`);
+      }
+      const rendered = renderRuntimeAgentManifestArtifact(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        console.log(`runtime_agent_manifest: ${redactSensitiveText(opts.out).slice(0, 220)}`);
+      }
+    });
+
+  prompts
+    .command("export-domain-knob-evaluation-contract")
+    .description("Render the language-neutral domain knob evaluation contract.")
+    .option("--out <path>", "Write evaluation contract JSON to a file")
+    .option("--json", "Print evaluation contract JSON to stdout")
+    .action(async (opts: ExportDomainKnobCatalogOpts) => {
+      const catalog = buildDomainKnobCatalogArtifact();
+      const artifact = buildDomainKnobEvaluationContractArtifact(catalog);
+      const reasons = validateDomainKnobEvaluationContractArtifact(artifact, catalog);
+      if (reasons.length > 0) {
+        throw new Error(`domain knob evaluation contract failed self-check: ${reasons.join("; ")}`);
+      }
+      const rendered = renderDomainKnobEvaluationContractArtifact(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        console.log(
+          `domain_knob_evaluation_contract: ${redactSensitiveText(opts.out).slice(0, 220)}`,
+        );
+      }
+    });
+
+  prompts
+    .command("prompt-token-budget")
+    .description("Measure private and bundled runtime prompts against the token budget.")
+    .option("--cohort <name>", "Cohort to measure (default cohort_default)")
+    .option("--private-prompts-root <path>", "Private prompts/mosaic root")
+    .option("--private-commit <ref>", "Exact private prompt commit (default private HEAD)")
+    .option("--bundled-commit <ref>", "Exact project code commit (default project HEAD)")
+    .option("--context-window <tokens>", "Configured model context window (default 131072)")
+    .option("--baseline <path>", "Committed budget manifest used for the 1.25x growth gate")
+    .option("--generated-at <iso>", "Deterministic generation timestamp")
+    .option("--out <path>", "Write the measured manifest")
+    .option("--json", "Print the full manifest")
+    .action(async (opts: PromptTokenBudgetOpts) => {
+      const privatePromptsRoot = opts.privatePromptsRoot ?? findPrivatePromptsRoot();
+      if (!privatePromptsRoot) {
+        throw new Error(
+          "prompt-token-budget requires --private-prompts-root or MOSAIC_PROMPTS_REPO",
+        );
+      }
+      const bundledPromptsRoot = findBundledPromptsRoot();
+      const baseline = opts.baseline
+        ? PromptTokenBudgetManifestSchema.parse(JSON.parse(await readFile(opts.baseline, "utf-8")))
+        : null;
+      const artifact = await buildPromptTokenBudgetManifest({
+        cohort: opts.cohort ?? "cohort_default",
+        privatePromptsRoot,
+        bundledPromptsRoot,
+        privateCommit: opts.privateCommit ?? gitHead(privatePromptsRoot),
+        bundledCommit: opts.bundledCommit ?? gitHead(bundledPromptsRoot),
+        generatedAt: opts.generatedAt ?? new Date().toISOString(),
+        ...(opts.contextWindow
+          ? { contextWindowTokens: Number.parseInt(opts.contextWindow, 10) }
+          : {}),
+        baseline,
+      });
+      const rendered = renderPromptTokenBudgetManifest(artifact);
+      if (opts.out) {
+        await mkdir(dirname(opts.out), { recursive: true });
+        await writeFile(opts.out, rendered, "utf-8");
+      }
+      if (opts.json || !opts.out) {
+        console.log(rendered.trimEnd());
+      } else {
+        const summary = artifact.summary;
+        const color = summary.ready ? pc.green : pc.red;
+        console.log(
+          color(
+            `prompt token budget ${summary.ready ? "ready" : "blocked"} ` +
+              `rows=${summary.passed_row_count}/${summary.expected_row_count} ` +
+              `parity=${summary.semantic_parity_passed ? "ok" : "failed"}`,
+          ),
+        );
+        console.log(`manifest: ${redactSensitiveText(opts.out).slice(0, 220)}`);
+      }
+      if (!artifact.summary.ready) process.exitCode = 1;
+    });
+
+  prompts
+    .command("check-research-knobs")
+    .description("Validate research-knobs fences for enabled runtime agents.")
+    .option("--cohort <name>", "Cohort to check (default cohort_default)")
+    .option("--prompts-root <path>", "Bundled/baseline prompts root override")
+    .option("--private-prompts-root <path>", "Private prompts root override")
+    .option(
+      "--enabled-agents <list>",
+      "Comma-separated agent ids to fail-closed check; '*' checks all 25. Defaults to the cohort rollout manifest.",
+    )
+    .option(
+      "--enabled-stages <list>",
+      "Comma-separated agent:stage ids; '*' checks all declared runtime stages.",
+    )
+    .option("--json", "Print the full machine-readable report")
+    .action(async (opts: CheckResearchKnobsOpts) => {
+      const enabledAgents =
+        opts.enabledAgents !== undefined
+          ? new Set(
+              opts.enabledAgents
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          : undefined;
+      const enabledAgentStages =
+        opts.enabledStages !== undefined
+          ? new Set(
+              opts.enabledStages
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            )
+          : undefined;
+      try {
+        const result = await checkResearchKnobsPrompts({
+          cohort: opts.cohort ?? "cohort_default",
+          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+          ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
+          ...(enabledAgents ? { enabledAgents } : {}),
+          ...(enabledAgentStages ? { enabledAgentStages } : {}),
+        });
+        if (opts.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          const color = result.ready ? pc.green : pc.red;
+          console.log(
+            color(
+              `research-knobs ${result.ready ? "ready" : "blocked"} ` +
+                `enabled_stages=${result.enabled_agent_stages.length} ` +
+                `legacy_stages=${result.legacy_agent_stages.length}`,
+            ),
+          );
+          for (const row of result.rows.filter(
+            (item) => item.enabled || item.status === "failed",
+          )) {
+            const marker = row.ready ? pc.green("ok") : row.enabled ? pc.red("no") : pc.dim("--");
+            console.log(
+              `  ${marker} ${row.layer}/${row.agent}:${row.stage} ${row.status}` +
+                (row.snapshot_hash ? ` ${row.snapshot_hash.slice(0, 19)}` : ""),
+            );
+            for (const reason of row.reasons) {
+              console.log(pc.dim(`     ${redactSensitiveText(reason).slice(0, 220)}`));
+            }
+          }
+        }
+        if (!result.ready) process.exitCode = 1;
+      } catch (err) {
+        console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
+        process.exitCode = 1;
+      }
+    });
+
+  prompts
+    .command("sync-research-knobs")
+    .description("Generate/update research-knobs fences and runtime evidence contracts.")
+    .option("--private-prompts-root <path>", "Private prompts root and value registries to update")
+    .option("--prompts-root <path>", "Bundled prompts root to update from code defaults")
+    .option("--cohort <name>", "Cohort to update (default cohort_default)")
+    .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
+    .option("--write", "Write changes. Without this, only reports pending updates.", false)
+    .action(async (opts: SyncResearchKnobsOpts) => {
+      const cohort = opts.cohort ?? "cohort_default";
+      if (Boolean(opts.privatePromptsRoot) === Boolean(opts.promptsRoot)) {
+        throw new Error("exactly one of --private-prompts-root or --prompts-root is required");
+      }
+      const promptsRoot = opts.privatePromptsRoot ?? opts.promptsRoot;
+      if (!promptsRoot) throw new Error("prompt root is required");
+      const selected = opts.agents
+        ? new Set(
+            opts.agents
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          )
+        : null;
+      const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
+      const changed: string[] = [];
+      for (const spec of specs) {
+        let registry: DomainKnobValueRegistry | null = null;
+        let governanceRegistry: PromptGovernanceValueRegistry | null = null;
+        if (opts.privatePromptsRoot) {
+          const registryPath = domainKnobValueRegistryPath({
+            privatePromptsRoot: opts.privatePromptsRoot,
+            cohort,
+            agent: spec.agent,
+          });
+          const existingRegistry = await readDomainKnobValueRegistryFile(registryPath);
+          registry = buildDomainKnobValueRegistry(spec, cohort, { existing: existingRegistry });
+          const registryReasons = validateDomainKnobValueRegistry(spec, registry, cohort);
+          if (registryReasons.length > 0) {
+            throw new Error(`${spec.agent}: ${registryReasons.join("; ")}`);
+          }
+          const renderedRegistry = renderDomainKnobValueRegistry(registry);
+          const currentRegistry = existingRegistry
+            ? renderDomainKnobValueRegistry(existingRegistry)
+            : "";
+          if (renderedRegistry !== currentRegistry) {
+            changed.push(registryPath);
+            if (opts.write) {
+              await writeDomainKnobValueRegistryFile(registryPath, registry);
+            }
+          }
+          const governancePath = promptGovernanceValueRegistryPath({
+            privatePromptsRoot: opts.privatePromptsRoot,
+            cohort,
+            agent: spec.agent,
+          });
+          const existingGovernance = await readPromptGovernanceValueRegistryFile(governancePath);
+          governanceRegistry = buildPromptGovernanceValueRegistry(spec, cohort, {
+            existing: existingGovernance,
+          });
+          const governanceReasons = validatePromptGovernanceValueRegistry(
+            spec,
+            governanceRegistry,
+            cohort,
+          );
+          if (governanceReasons.length > 0) {
+            throw new Error(`${spec.agent}: ${governanceReasons.join("; ")}`);
+          }
+          const renderedGovernance = renderPromptGovernanceValueRegistry(governanceRegistry);
+          const currentGovernance = existingGovernance
+            ? renderPromptGovernanceValueRegistry(existingGovernance)
+            : "";
+          if (renderedGovernance !== currentGovernance) {
+            changed.push(governancePath);
+            if (opts.write) {
+              await writePromptGovernanceValueRegistryFile(governancePath, governanceRegistry);
+            }
+          }
+        }
+        const knobs = buildRuntimeResearchKnobs(spec, {
+          domainRegistry: registry,
+          governanceRegistry,
+        });
+        for (const language of ["zh", "en"] as const) {
+          const path = promptPath({
+            agent: spec.agent,
+            layer: spec.layer,
+            cohort,
+            language,
+            promptsRoot,
+          });
+          const current = await readFile(path, "utf-8");
+          const next = upsertRuntimeEvidenceContract(
+            upsertResearchKnobsFence(current, knobs),
+            spec,
+            language,
+          );
+          if (next === current) continue;
+          changed.push(path);
+          if (opts.write) {
+            await mkdir(dirname(path), { recursive: true });
+            await writeFile(path, next, "utf-8");
+          }
+        }
+      }
+      const label = opts.write ? "updated" : "pending";
+      console.log(`${label} research-knobs files: ${changed.length}`);
+      for (const path of changed.slice(0, 50)) {
+        console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
+      }
+      if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
+    });
+
+  prompts
+    .command("sync-prompt-ir")
+    .description("Generate/update Prompt IR contracts from runtime agent specs.")
+    .requiredOption("--private-prompts-root <path>", "Private prompts root to update")
+    .option("--cohort-scope <scope>", "Prompt IR cohort scope; v1 requires *", "*")
+    .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
+    .option("--write", "Write changes. Without this, only reports pending updates.", false)
+    .action(async (opts: SyncPromptIrOpts) => {
+      if (opts.cohortScope !== "*") {
+        throw new Error("prompt IR v1 only supports --cohort-scope '*'");
+      }
+      const selected = opts.agents
+        ? new Set(
+            opts.agents
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          )
+        : null;
+      const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
+      const changed: string[] = [];
+      for (const spec of specs) {
+        const path = promptIrPathForSpec({ privatePromptsRoot: opts.privatePromptsRoot, spec });
+        const existing = await readPromptIrContractFile(path).catch(() => null);
+        const contract = buildPromptIrContract(spec);
+        const reasons = validatePromptIrContractForSpec(contract, spec);
+        if (reasons.length > 0) {
+          throw new Error(`${spec.agent}: ${reasons.join("; ")}`);
+        }
+        const rendered = renderPromptIrContract(contract);
+        const current = existing ? renderPromptIrContract(existing) : "";
+        if (rendered !== current) {
+          changed.push(path);
+          if (opts.write) {
+            await writePromptIrContractFile(path, contract);
+          }
+        }
+      }
+      const label = opts.write ? "updated" : "pending";
+      console.log(`${label} prompt-ir files: ${changed.length}`);
+      for (const path of changed.slice(0, 50)) {
+        console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
+      }
+      if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
+    });
+
+  prompts
+    .command("dry-run-knob-patch")
+    .description("Generate a legal parameter-level knob patch and assemble prompt projections.")
+    .requiredOption("--private-prompts-root <path>", "Private prompts root")
+    .requiredOption("--agent <name>", "Agent id to mutate")
+    .option("--cohort <name>", "Cohort to read (default cohort_default)")
+    .option("--metadata-log <path>", "JSONL mutation metadata log path")
+    .option("--write-metadata", "Append dry-run metadata to the mutation log", false)
+    .action(async (opts: DryRunKnobPatchOpts) => {
+      const cohort = opts.cohort ?? "cohort_default";
+      const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === opts.agent);
+      if (!spec) throw new Error(`unknown runtime agent: ${opts.agent}`);
+      const zhPath = promptPath({
+        agent: spec.agent,
+        layer: spec.layer,
+        cohort,
+        language: "zh",
+        promptsRoot: opts.privatePromptsRoot,
+      });
+      const enPath = promptPath({
+        agent: spec.agent,
+        layer: spec.layer,
+        cohort,
+        language: "en",
+        promptsRoot: opts.privatePromptsRoot,
+      });
+      const [zhPrompt, enPrompt] = await Promise.all([
+        readFile(zhPath, "utf-8"),
+        readFile(enPath, "utf-8"),
+      ]);
+      const baseKnobs = parseResearchKnobsPrompt(zhPrompt).knobs;
+      const target = baseKnobs.mutation_targets.find((item) =>
+        item.path.includes("/confidence_policy/missing_current_data/cap"),
+      );
+      if (!target) throw new Error(`${opts.agent}: missing confidence cap mutation target`);
+      const oldValue = baseKnobs.confidence_caps.missing_current_data?.cap;
+      if (typeof oldValue !== "number") {
+        throw new Error(`${opts.agent}: missing_current_data cap is not numeric`);
+      }
+      const step = target.step ?? 0.05;
+      const min = target.min ?? 0;
+      const newValue = Math.max(min, Number((oldValue - step).toFixed(10)));
+      const mutation: KnobMutation = {
+        prediction_target: baseKnobs.prediction_targets[0]?.id ?? "primary",
+        evaluation_metric: "confidence_calibration_error",
+        horizon: "5d",
+        rollback_condition: {
+          metric: "confidence_calibration_error",
+          worse_by: 0.03,
+          unit: "ratio",
+        },
+        knob_patches: [
+          {
+            path: target.path,
+            old_value: oldValue,
+            new_value: newValue,
+            rationale: "Dry-run cap tightening to test parameter-level mutation plumbing.",
+            expected_effect: "Reduce overconfident outputs when required current data is missing.",
+          },
+        ],
+        renormalization: [],
+        risk: "May understate confidence when missing-data flags are noisy.",
+      };
+      const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, mutation);
+      const mutationId = `KM-${Date.now()}`;
+      const governancePath = promptGovernanceValueRegistryPath({
+        privatePromptsRoot: opts.privatePromptsRoot,
+        cohort,
+        agent: spec.agent,
+      });
+      const governanceRegistry = await readPromptGovernanceValueRegistryFile(governancePath);
+      if (!governanceRegistry) {
+        throw new Error(`${opts.agent}: prompt governance registry is missing`);
+      }
+      updatePromptGovernanceRegistryFromProjection({
+        registry: governanceRegistry,
+        spec,
+        baseKnobs,
+        newKnobs: assembled.knobs,
+        mutation,
+        mutationId,
+      });
+      const metadata = buildKnobMutationMetadata({
+        mutationId,
+        agent: opts.agent,
+        cohort,
+        baseKnobs,
+        newKnobs: assembled.knobs,
+        mutation,
+        decision: "dry_run",
+      });
+      if (opts.writeMetadata) {
+        const logPath =
+          opts.metadataLog ??
+          `${dirname(dirname(opts.privatePromptsRoot))}/mutation_patches/knob_mutations.jsonl`;
+        await appendKnobMutationMetadataLog({ logPath, metadata });
+        console.log(`metadata_log: ${redactSensitiveText(logPath).slice(0, 220)}`);
+      }
+      console.log(
+        `dry-run knob patch ${opts.agent}: ${oldValue.toFixed(2)} -> ${newValue.toFixed(2)} ` +
+          `prompt_chars=${assembled.zh_prompt.length + assembled.en_prompt.length} ` +
+          `metadata=${metadata.mutation_id}`,
+      );
+    });
+
+  prompts
     .command("gc-worktrees")
     .description("Remove stale managed project/private prompt worktrees.")
     .option("--repo-target <target>", "project_git | private_git | all (default all)")
@@ -190,4 +771,10 @@ function reportError(err: unknown, client: BridgeClient): void {
   const tail = client.stderrTail?.trim();
   if (tail) console.error(pc.dim(redactSensitiveText(tail).slice(-1500)));
   process.exitCode = 1;
+}
+
+function gitHead(path: string): string {
+  return execFileSync("git", ["-C", path, "rev-parse", "HEAD"], {
+    encoding: "utf-8",
+  }).trim();
 }

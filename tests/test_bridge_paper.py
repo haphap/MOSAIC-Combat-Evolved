@@ -51,6 +51,14 @@ class TestPaperParamValidation(unittest.TestCase):
             ph.paper_buy({"ticker": "510300.SH", "quantity": "100"})
         with self.assertRaises(RpcError):
             ph.paper_buy({"ticker": "510300.SH", "quantity": True})  # bool ≠ int
+        with self.assertRaises(RpcError):
+            ph.paper_buy(
+                {
+                    "ticker": "510300.SH",
+                    "quantity": 100,
+                    "order_intent_key": "not-a-hash",
+                }
+            )
 
     def test_reset_requires_numeric_cash(self):
         with self.assertRaises(RpcError):
@@ -107,6 +115,33 @@ class TestPaperHandlerRouting(unittest.TestCase):
         out = ph.paper_suggest_order_from_signal(
             {"db_path": self.db, "ticker": "159915.SZ", "state": state, "user_id": "bob"})
         self.assertEqual((out["side"], out["quantity"]), ("buy", 40000))
+
+    def test_snapshot_bound_order_intent_replays_without_duplicate_trade(self):
+        ph.paper_register({"username": "bob", "password": "pw", "db_path": self.db})
+        ph.paper_login({"username": "bob", "password": "pw", "db_path": self.db})
+        ph.paper_reset_account(
+            {"db_path": self.db, "user_id": "bob", "initial_cash": 1_000_000.0}
+        )
+        snapshot = ph.paper_get_portfolio_snapshot(
+            {"db_path": self.db, "user_id": "bob"}
+        )
+        params = {
+            "db_path": self.db,
+            "ticker": "159915.SZ",
+            "quantity": 100,
+            "user_id": "bob",
+            "order_intent_key": f"sha256:{'1' * 64}",
+            "expected_account_snapshot_hash": snapshot["snapshot_hash"],
+            "final_target_hash": f"sha256:{'2' * 64}",
+        }
+        first = ph.paper_buy(params)
+        repeated = ph.paper_buy(params)
+
+        self.assertFalse(first["idempotent_replay"])
+        self.assertTrue(repeated["idempotent_replay"])
+        trades = ph.paper_get_trades({"db_path": self.db, "user_id": "bob"})
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0]["order_intent_key"], params["order_intent_key"])
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -13,9 +13,19 @@
  * can return it without any ``as any`` casts (review #5).
  */
 
+import { createHash } from "node:crypto";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { AIMessage } from "@langchain/core/messages";
-import type { DailyCycleStateType } from "../agents/state.js";
+import {
+  missingPreviousTargetState,
+  previousTargetStateFromFinal,
+} from "../agents/decision/layer4_runtime.js";
+import {
+  type DailyCycleStateType,
+  emptyCurrentPositions,
+  emptyPositionAudit,
+} from "../agents/state.js";
+import type { ClosedPosition, CurrentPositionsSnapshot, PortfolioAction } from "../agents/types.js";
 import type { BridgeApi } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 
@@ -84,11 +94,138 @@ export function makeInitialState(cohort: string, asOfDate: string): DailyCycleSt
       alpha_discovery: null,
       autonomous_execution: null,
       cio: null,
+      previous_target_state: missingPreviousTargetState(),
     },
+    current_positions: emptyCurrentPositions(),
+    position_reviews: [],
+    position_audit: emptyPositionAudit(),
     portfolio_actions: [],
     replay_triggered: false,
     llm_calls: [],
   };
+}
+
+export function carryPreviousTargetState(final: DailyCycleStateType) {
+  return previousTargetStateFromFinal(final.layer4_outputs.runtime?.final_target_state);
+}
+
+export function applyBacktestPortfolioActionsToPositions(
+  previous: CurrentPositionsSnapshot,
+  actions: ReadonlyArray<PortfolioAction>,
+  asOfDate: string,
+  opts: {
+    executionByTicker?: Readonly<
+      Record<
+        string,
+        {
+          status: "filled" | "partial" | "rejected";
+          fill_ratio: number;
+          slippage_bps?: number;
+          price_return?: number;
+        }
+      >
+    >;
+    commissionBps?: number;
+  } = {},
+): CurrentPositionsSnapshot {
+  const previousByTicker = new Map(
+    previous.positions.map((position) => [position.ticker, position]),
+  );
+  const closedPositions: ClosedPosition[] = [...(previous.closed_positions ?? [])];
+  const positions: CurrentPositionsSnapshot["positions"] = [];
+  for (const action of actions) {
+    const prior = previousByTicker.get(action.ticker);
+    const priorWeight = prior?.current_weight ?? action.current_weight ?? 0;
+    const execution = opts.executionByTicker?.[action.ticker];
+    const fillRatio = execution?.status === "rejected" ? 0 : (execution?.fill_ratio ?? 1);
+    if (!Number.isFinite(fillRatio) || fillRatio < 0 || fillRatio > 1) {
+      throw new Error(`${action.ticker}: backtest fill_ratio must be in [0, 1]`);
+    }
+    const requestedDelta = action.target_weight - priorWeight;
+    const costRate = ((execution?.slippage_bps ?? 0) + (opts.commissionBps ?? 0)) / 10_000;
+    const executedDelta = requestedDelta * fillRatio;
+    const costAdjustedDelta =
+      executedDelta > 0 ? executedDelta * Math.max(0, 1 - costRate) : executedDelta;
+    const preReturnWeight = Math.max(0, priorWeight + costAdjustedDelta);
+    const priceReturn = execution?.price_return ?? 0;
+    if (!Number.isFinite(priceReturn) || priceReturn <= -1) {
+      throw new Error(`${action.ticker}: backtest price_return must be finite and above -1`);
+    }
+    const actualWeight = Math.max(0, preReturnWeight * (1 + priceReturn));
+    const residualDrift = action.target_weight - actualWeight;
+    if (actualWeight <= 1e-12) {
+      if (prior) {
+        closedPositions.push({
+          ticker: action.ticker,
+          exit_date: asOfDate,
+          exit_reason:
+            action.position_decision_reason || action.dissent_notes || `${action.action} target`,
+          realized_pnl_pct: prior.unrealized_pnl_pct,
+          residual_drift_pct: residualDrift,
+          entry_thesis_id: prior.entry_thesis_id,
+          holding_days: prior.holding_days,
+        });
+      }
+      continue;
+    }
+    const priorMarketPrice = prior?.market_price ?? 1;
+    const marketPrice = priorMarketPrice * (1 + priceReturn);
+    positions.push({
+      ticker: action.ticker,
+      current_weight: actualWeight,
+      cost_basis:
+        prior?.cost_basis ?? priorMarketPrice * (1 + (execution?.slippage_bps ?? 0) / 10_000),
+      market_price: marketPrice,
+      unrealized_pnl_pct:
+        prior?.cost_basis && prior.cost_basis > 0
+          ? marketPrice / prior.cost_basis - 1
+          : (prior?.unrealized_pnl_pct ?? priceReturn),
+      realized_pnl_pct: prior?.realized_pnl_pct ?? 0,
+      residual_drift_pct: residualDrift,
+      holding_days: prior ? prior.holding_days + 1 : 0,
+      entry_date: prior?.entry_date ?? asOfDate,
+      source_agent: prior?.source_agent ?? "cio",
+      entry_thesis_id: prior?.entry_thesis_id ?? `backtest:${action.ticker}:${asOfDate}`,
+      last_review_date: asOfDate,
+    });
+  }
+  if (positions.length === 0) {
+    return {
+      ...emptyCurrentPositions(),
+      position_source: "backtest_replay",
+      position_snapshot_hash: backtestPositionHash(asOfDate, [], closedPositions),
+      ...(closedPositions.length > 0 ? { closed_positions: closedPositions } : {}),
+    };
+  }
+  return {
+    snapshot_status: "loaded",
+    position_source: "backtest_replay",
+    source_error_code: null,
+    position_snapshot_hash: backtestPositionHash(asOfDate, positions, closedPositions),
+    positions,
+    ...(closedPositions.length > 0 ? { closed_positions: closedPositions } : {}),
+  };
+}
+
+function backtestPositionHash(
+  asOfDate: string,
+  positions: ReadonlyArray<CurrentPositionsSnapshot["positions"][number]>,
+  closedPositions: ReadonlyArray<ClosedPosition> = [],
+): string {
+  const payload = JSON.stringify({
+    closed_positions: closedPositions.map((position) => ({
+      ticker: position.ticker,
+      exit_date: position.exit_date,
+      realized_pnl_pct: position.realized_pnl_pct,
+    })),
+    positions: positions.map((position) => ({
+      ticker: position.ticker,
+      current_weight: position.current_weight,
+      holding_days: position.holding_days,
+      residual_drift_pct: position.residual_drift_pct ?? 0,
+    })),
+  });
+  return `sha256:${createHash("sha256").update(`${asOfDate}:${payload}`).digest("hex")}`;
 }
 
 /**

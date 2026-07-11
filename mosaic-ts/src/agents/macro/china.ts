@@ -39,6 +39,7 @@ export const chinaSpec: LayerOneAgentSpec<ChinaOutput> = {
   schema: ChinaSchema,
   fieldNames: CHINA_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
+  maxLoops: 3,
   render: renderChina,
   fallback: fallbackChinaOutput,
 };

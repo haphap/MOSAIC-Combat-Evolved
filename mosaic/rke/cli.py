@@ -58,7 +58,6 @@ from .manual_review_batches import (
 )
 from .operator_handoff import (
     LOCKBOX_REVIEWED_IMPORT_PATH,
-    build_operator_handoff,
     lockbox_upstream_review_blockers,
     write_lockbox_review_starter,
     write_operator_handoff,
@@ -2864,9 +2863,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if status.ready_for_manual_review else 2
     if args.command == "operator-handoff":
         paths = write_operator_handoff(root)
-        handoff = build_operator_handoff(root)
-        _print_json({"paths": paths, "handoff": asdict(handoff)})
-        return 0 if handoff.ready_for_operator_review else 2
+        handoff = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
+        _print_json({"paths": paths, "handoff": handoff})
+        return 0 if bool(handoff.get("ready_for_operator_review")) else 2
     if args.command == "operator-readiness":
         if args.no_write:
             result = {

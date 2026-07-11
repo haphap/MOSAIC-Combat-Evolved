@@ -392,13 +392,15 @@ def _is_chinese_ticker(ticker: str) -> bool:
 
 
 def _parse_iso_date(date_str: str) -> datetime:
+    if len(date_str) == 8 and date_str.isdigit():
+        return datetime.strptime(date_str, "%Y%m%d")
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
 def _clamp_iso_date(date_str: str | None, as_of_date: str) -> str:
     if not date_str:
-        return as_of_date
-    return min(date_str, as_of_date, key=_parse_iso_date)
+        return _parse_iso_date(as_of_date).strftime("%Y-%m-%d")
+    return min(_parse_iso_date(date_str), _parse_iso_date(as_of_date)).strftime("%Y-%m-%d")
 
 
 def _replace_arg(args: tuple, index: int, value):

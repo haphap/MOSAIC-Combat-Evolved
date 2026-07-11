@@ -18,13 +18,14 @@ import { SemiconductorSchema, STANDARD_SECTOR_FIELD_NAMES } from "./_schemas.js"
 
 export const REQUIRED_TOOLS = [
   "get_rke_research_context",
-  "get_industry_policy",
-  "get_xueqiu_heat",
-  "get_lhb_ranking",
+  "get_industry_policy_digest",
   "get_broker_research",
   "get_etf_holdings",
   "get_stock_data",
   "get_indicators",
+  "get_income_statement",
+  "get_balance_sheet",
+  "get_cashflow",
   "get_industry_moneyflow",
 ] as const;
 

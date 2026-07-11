@@ -153,6 +153,10 @@ def test_export_private_registries_copies_json_not_cache(tmp_path):
         [{"source_id": "SRC-1", "report_id": "RPT-1", "forecast_claim_id": "FC-1"}],
     )
     _write_jsonl(registry / "analytical_footprints.jsonl", [])
+    _write_jsonl(
+        registry / "processing_status.jsonl",
+        [{"source_id": "SRC-1", "llm_status": "processed"}],
+    )
     cache_file = tmp_path / ".mosaic/rke/report_intelligence/pdfs/SRC-1.pdf"
     cache_file.parent.mkdir(parents=True)
     cache_file.write_bytes(b"%PDF")
@@ -169,11 +173,36 @@ def test_export_private_registries_copies_json_not_cache(tmp_path):
     assert manifest["cache_manifest"]["included"] is False
     assert manifest["forecast_claim_count"] == 1
 
+    subprocess.run(["git", "init", "-q"], cwd=out, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.invalid"],
+        cwd=out,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "MOSAIC Tests"],
+        cwd=out,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "add", "."], cwd=out, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "fixture"],
+        cwd=out,
+        check=True,
+        capture_output=True,
+    )
+    preflight = registries_preflight(root=tmp_path, registry_dir=out / "registry/report_intelligence")
+    assert preflight["accepted"] is True
+    assert preflight["blockers"] == []
+
 
 def test_registries_preflight_reports_missing_dirty_and_duplicates(tmp_path, monkeypatch):
     missing = tmp_path / "missing"
     monkeypatch.setenv("MOSAIC_REGISTRIES_REPO", str(missing))
     missing_result = registries_preflight(root=tmp_path)
+    assert missing_result["accepted"] is False
     assert "registries repo missing" in missing_result["blockers"]
     assert "registry_manifest.json missing" in missing_result["blockers"]
 
@@ -193,10 +222,13 @@ def test_registries_preflight_reports_missing_dirty_and_duplicates(tmp_path, mon
 
     result = registries_preflight(root=tmp_path)
 
+    assert result["accepted"] is False
     assert result["dirty"] is True
     assert result["dirty_blocker"] == "registries repo dirty"
     assert result["duplicate_fingerprint_count"] == 2
     assert result["manifest_hash"].startswith("sha256:")
+    assert "registries repo dirty" in result["blockers"]
+    assert any("required registry file missing" in item for item in result["blockers"])
 
 
 def test_export_rke_agent_context_reads_env_registry(tmp_path, monkeypatch, capsys):

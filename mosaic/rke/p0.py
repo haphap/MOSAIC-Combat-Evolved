@@ -310,6 +310,7 @@ class LearnableParameter:
     unit: str | None = None
     min: float | None = None
     max: float | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def validate_value(self, value: Any | None = None) -> tuple[str, ...]:
         candidate = self.value if value is None else value
@@ -977,7 +978,25 @@ def build_central_bank_p0_mvp() -> dict[str, Any]:
                 unit="trading_day",
                 min=3,
                 max=20,
-            )
+            ),
+            "pboc_liquidity_weight": LearnableParameter(
+                value=1.0,
+                type="float",
+                unit="evidence_channel_weight_raw",
+                min=0.0,
+                max=1.0,
+                metadata={
+                    "research_knob": {
+                        "kind": "evidence_channel_weight",
+                        "evidence_key": "pboc_liquidity",
+                        "weight_group": "evidence_weights",
+                        "tool": "get_pboc_ops",
+                        "metric": "pboc_net_injection_7d",
+                        "current_data": True,
+                        "primary": True,
+                    }
+                },
+            ),
         },
     )
     rule_pack = RulePack(

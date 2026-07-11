@@ -338,6 +338,116 @@ def _path_metric(prices: list[float], sign: float) -> float:
     return terminal - _DRAWDOWN_PENALTY * max_dd
 
 
+def _as_float(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if np.isfinite(parsed) else default
+
+
+def _portfolio_decision_rows(recommendation: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("position_reviews", "portfolio_actions", "new_entries"):
+        value = recommendation.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, Mapping) and isinstance(item.get("ticker"), str):
+                rows.append(dict(item))
+    return rows
+
+
+def _row_action(row: Mapping[str, Any]) -> str:
+    raw = str(row.get("decision") or row.get("action") or "HOLD").upper()
+    if raw == "ADD":
+        return "BUY"
+    if raw == "EXIT":
+        return "SELL"
+    return raw
+
+
+def _row_target_weight(row: Mapping[str, Any]) -> float:
+    if "target_weight" in row:
+        return max(0.0, _as_float(row.get("target_weight")))
+    if "target_weight_pct" in row:
+        return max(0.0, _as_float(row.get("target_weight_pct")) / 100.0)
+    action = _row_action(row)
+    if action in _SHORT:
+        return 0.0
+    return max(0.0, _as_float(row.get("current_weight")))
+
+
+def _portfolio_equity_metric(
+    rows: list[dict[str, Any]],
+    paths: Mapping[str, Any],
+    *,
+    path_aware: bool,
+) -> float:
+    weighted_signal = 0.0
+    weight_total = 0.0
+    target_weights: dict[str, float] = {}
+    turnover = 0.0
+    for row in rows:
+        ticker = str(row["ticker"])
+        path = paths.get(ticker)
+        if not isinstance(path, Mapping):
+            continue
+        action = _row_action(row)
+        sign = 1.0 if action in _LONG or action == "HOLD" else (-1.0 if action in _SHORT else 0.0)
+        current_weight = max(0.0, _as_float(row.get("current_weight")))
+        target_weight = _row_target_weight(row)
+        delta = abs(_as_float(row.get("delta_weight"), target_weight - current_weight))
+        row_weight = max(delta, target_weight, current_weight, 1e-6)
+        if path_aware and sign != 0.0:
+            metric = _path_metric(path.get("prices") or [], sign)
+        else:
+            metric = sign * float(path.get("cumulative_return", 0.0))
+        weighted_signal += metric * row_weight
+        weight_total += row_weight
+        target_weights[ticker] = target_weight
+        turnover += abs(target_weight - current_weight)
+
+    if weight_total <= 0:
+        return 0.0
+    decision_metric = weighted_signal / weight_total
+
+    path_lengths = [
+        len(path.get("prices") or [])
+        for ticker, path in paths.items()
+        if ticker in target_weights and isinstance(path, Mapping)
+    ]
+    portfolio_metric = 0.0
+    if path_lengths:
+        length = min(path_lengths)
+        if length >= 2:
+            equity = np.zeros(length, dtype=float)
+            invested = min(1.0, sum(target_weights.values()))
+            equity += max(0.0, 1.0 - invested)
+            for ticker, target_weight in target_weights.items():
+                path = paths.get(ticker)
+                prices = path.get("prices") if isinstance(path, Mapping) else None
+                if not prices or len(prices) < length or target_weight <= 0:
+                    continue
+                p = np.asarray(prices[:length], dtype=float)
+                if p[0] > 0:
+                    equity += target_weight * (p / p[0])
+            terminal = float(equity[-1] - 1.0)
+            running_peak = np.maximum.accumulate(equity)
+            max_dd = float(np.max(1.0 - equity / running_peak))
+            portfolio_metric = terminal - (_DRAWDOWN_PENALTY * max_dd if path_aware else 0.0)
+
+    concentration_penalty = max(0.0, max(target_weights.values(), default=0.0) - 0.20)
+    return (
+        0.65 * decision_metric
+        + 0.35 * portfolio_metric
+        - 0.10 * min(turnover, 1.0)
+        - 0.20 * concentration_penalty
+    )
+
+
 def score_recommendation(
     recommendation: Mapping[str, Any],
     scenario: Mapping[str, Any],
@@ -360,6 +470,14 @@ def score_recommendation(
     tickers = recommendation.get("tickers") or []
     conviction = float(recommendation.get("conviction", 0.5))
     paths = scenario.get("price_paths", {})
+    if isinstance(paths, Mapping):
+        portfolio_rows = _portfolio_decision_rows(recommendation)
+        if portfolio_rows:
+            avg = _portfolio_equity_metric(portfolio_rows, paths, path_aware=path_aware)
+            score = max(0.0, min(1.0, 0.5 + (avg / 0.40)))
+            if avg < 0:
+                return score * (1 - conviction * 0.3)
+            return min(1.0, score * (1 + conviction * 0.2))
     sign = 1.0 if direction in _LONG else (-1.0 if direction in _SHORT else 0.0)
 
     total, count = 0.0, 0

@@ -61,7 +61,7 @@ const API_KEY_ENV: Record<string, string[]> = {
   xai: ["XAI_API_KEY", "OPENAI_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
   ollama: [], // local, no key
-  vllm: [], // local, no key
+  vllm: ["MOSAIC_VLLM_API_KEY", "OPENAI_API_KEY"], // optional for local, needed by hosted vLLM
   // Local lemonade-server-dev binaries don't use auth (same as ollama / vllm).
   // Hosted Lemonade with auth is not currently supported by this factory; if
   // needed, point a custom base URL through a proxy that injects the key.
@@ -175,7 +175,7 @@ function createOpenAiCompatible(
   const baseUrl = options.baseUrl ?? envBaseUrl ?? config.backend_url ?? DEFAULT_BASE_URL[provider];
 
   const apiKey = pickApiKey(provider);
-  const requiresKey = (API_KEY_ENV[provider] ?? []).length > 0;
+  const requiresKey = (API_KEY_ENV[provider] ?? []).length > 0 && provider !== "vllm";
   if (requiresKey && !apiKey) {
     const names = API_KEY_ENV[provider]?.join(" or ");
     throw new Error(`Missing API key for provider '${provider}'. Set ${names} in the environment.`);
@@ -185,6 +185,9 @@ function createOpenAiCompatible(
     model,
     temperature: options.temperature ?? 0.2,
     ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
+    ...(provider === "vllm"
+      ? { modelKwargs: { chat_template_kwargs: { enable_thinking: false } } }
+      : {}),
     // Some OpenAI-compatible servers (Lemonade, Ollama, vLLM) reject empty
     // Authorization headers, so pass a placeholder when no key is configured.
     ...(apiKey ? { apiKey } : { apiKey: "not-needed" }),
@@ -196,16 +199,17 @@ function createOpenAiCompatible(
 
 /** Per-provider base-URL env hooks. Empty string treated as unset. */
 function pickProviderEnvBaseUrl(provider: string): string | undefined {
-  const envName = BASE_URL_ENV[provider];
-  if (!envName) return undefined;
-  const value = process.env[envName];
-  return value && value.trim() !== "" ? value : undefined;
+  for (const envName of BASE_URL_ENV[provider] ?? []) {
+    const value = process.env[envName];
+    if (value && value.trim() !== "") return value;
+  }
+  return undefined;
 }
 
-const BASE_URL_ENV: Record<string, string | undefined> = {
-  lemonade: "LEMONADE_BASE_URL",
-  ollama: "OLLAMA_BASE_URL",
-  vllm: "VLLM_BASE_URL",
+const BASE_URL_ENV: Record<string, string[]> = {
+  lemonade: ["LEMONADE_BASE_URL"],
+  ollama: ["OLLAMA_BASE_URL"],
+  vllm: ["VLLM_BASE_URL", "MOSAIC_RKE_VLLM_BASE_URL"],
 };
 
 export function createLlmFromConfig(config: MosaicConfig, options: LlmOptions = {}): LlmHandle {
