@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type ActivePromptReleaseManifest,
+  ActivePromptReleaseManifestSchema,
   assertReleasePromptStageClosure,
   promptReleaseRuntimeSloPasses,
   releasePromptSetHash,
@@ -19,6 +20,8 @@ import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import { findRepoRoot } from "../bridge/python.js";
 import type { PromptReleaseCheckResult } from "../bridge/types.js";
 import {
+  buildPromptReleaseCanarySloArtifact,
+  PromptReleaseCanaryEventJournal,
   type PromptReleaseCanarySloArtifact,
   PromptReleaseCanarySloArtifactSchema,
   stageSnapshotHashesHash,
@@ -388,6 +391,96 @@ export async function stagePromptRelease(
   return manifest;
 }
 
+export async function provisionPromptReleaseBaseline(opts: {
+  registryRoot: string;
+  manifest: ActivePromptReleaseManifest;
+  privatePromptRepo: string;
+  approvedBy: string;
+  reason: string;
+  codeRepo?: string;
+  deps?: PromptReleaseManagerDependencies;
+}): Promise<ActivePromptReleaseManifest> {
+  assertAuthorizedOperator(opts.approvedBy);
+  if (!opts.reason.trim()) throw new Error("prompt_release_baseline_reason_required");
+  const manifest = ActivePromptReleaseManifestSchema.parse(opts.manifest);
+  if (manifest.lifecycle_state !== "active") {
+    throw new Error("prompt_release_baseline_must_be_active");
+  }
+  if (manifest.approved_by !== opts.approvedBy) {
+    throw new Error("prompt_release_baseline_operator_mismatch");
+  }
+  const codeRepo = opts.codeRepo ?? findRepoRoot();
+  const [promptCommit, codeCommit] = await Promise.all([
+    fullCommit(opts.privatePromptRepo, manifest.prompt_commit),
+    fullCommit(codeRepo, manifest.code_commit),
+  ]);
+  if (promptCommit !== manifest.prompt_commit || codeCommit !== manifest.code_commit) {
+    throw new Error("prompt_release_requires_full_commit_ids");
+  }
+  await assertCleanCodeCheckout(codeRepo, codeCommit);
+  const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
+  if (
+    closure.catalog_hash !== manifest.catalog_hash ||
+    closure.schema_hash !== manifest.schema_hash ||
+    closure.contract_hash !== manifest.evaluation_contract_hash
+  ) {
+    throw new Error("prompt_release_local_contract_closure_drift");
+  }
+  const fallback = manifest.bundled_fallback;
+  if (!fallback) throw new Error("prompt_release_baseline_bundled_fallback_required");
+  if (
+    fallback.prompt_commit !== codeCommit ||
+    fallback.catalog_hash !== closure.catalog_hash ||
+    fallback.schema_hash !== closure.schema_hash
+  ) {
+    throw new Error("prompt_release_baseline_bundled_fallback_closure_mismatch");
+  }
+  const specs = opts.deps?.specs ?? RUNTIME_AGENT_SPECS;
+  const candidateCheck = opts.deps?.checkCandidate ?? checkCandidateAtCommit;
+  const [privatePairs, fallbackPairs, privateCheck, fallbackCheck] = await Promise.all([
+    buildReleasePromptPairsAtCommit({
+      repo: opts.privatePromptRepo,
+      commit: promptCommit,
+      cohort: manifest.activation_scope.cohort,
+      specs,
+    }),
+    buildReleasePromptPairsAtCommit({
+      repo: codeRepo,
+      commit: fallback.prompt_commit,
+      cohort: manifest.activation_scope.cohort,
+      specs,
+    }),
+    candidateCheck({
+      repo: opts.privatePromptRepo,
+      commit: promptCommit,
+      cohort: manifest.activation_scope.cohort,
+      source: "private",
+    }),
+    candidateCheck({
+      repo: codeRepo,
+      commit: fallback.prompt_commit,
+      cohort: manifest.activation_scope.cohort,
+      source: "bundled",
+    }),
+  ]);
+  if (
+    sortedObjectJson(privatePairs) !== sortedObjectJson(manifest.prompt_pairs) ||
+    sortedObjectJson(fallbackPairs) !== sortedObjectJson(fallback.prompt_pairs) ||
+    sortedObjectJson(privateCheck.snapshotHashes) !==
+      sortedObjectJson(manifest.stage_snapshot_hashes) ||
+    sortedObjectJson(fallbackCheck.snapshotHashes) !==
+      sortedObjectJson(manifest.stage_snapshot_hashes)
+  ) {
+    throw new Error("prompt_release_baseline_prompt_closure_mismatch");
+  }
+  const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
+  await registry.provisionBaseline(manifest, {
+    operator: opts.approvedBy,
+    reason: opts.reason.trim(),
+  });
+  return manifest;
+}
+
 export async function startPromptReleaseCanary(opts: {
   registryRoot: string;
   releaseId: string;
@@ -404,6 +497,11 @@ export async function startPromptReleaseCanary(opts: {
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const previous = await registry.load(opts.releaseId);
   if (!previous) throw new Error("prompt_release_not_found");
+  if (!previous.base_release_id) throw new Error("prompt_release_canary_baseline_required");
+  const baseline = await registry.resolveActive();
+  if (!baseline || baseline.release_id !== previous.base_release_id) {
+    throw new Error("prompt_release_canary_baseline_mismatch");
+  }
   if (previous.lifecycle_state === "canary") {
     if (
       previous.approved_by !== opts.approvedBy ||
@@ -438,6 +536,7 @@ export async function activatePromptRelease(opts: {
   approvedBy: string;
   reason: string;
   sloArtifact: PromptReleaseCanarySloArtifact;
+  eventJournalPath?: string;
   codeRepo?: string;
   deps?: PromptReleaseManagerDependencies;
 }): Promise<ActivePromptReleaseManifest> {
@@ -476,13 +575,28 @@ export async function activatePromptRelease(opts: {
   ) {
     throw new Error("prompt_release_canary_slo_evidence_mismatch");
   }
+  const eventJournalPath =
+    opts.eventJournalPath?.trim() || process.env.MOSAIC_PROMPT_CANARY_EVENT_LOG?.trim();
+  if (!eventJournalPath) throw new Error("prompt_release_canary_event_log_required");
+  const rebuiltSloArtifact = buildPromptReleaseCanarySloArtifact({
+    releaseId: previous.release_id,
+    accountMode: previous.activation_scope.account_mode,
+    trafficPercent: expectedCanaryTraffic as number,
+    canaryStartedAt: previous.canary_started_at as string,
+    observationEndedAt: sloArtifact.observation_ended_at,
+    stageSnapshotHashes: previous.stage_snapshot_hashes,
+    records: await new PromptReleaseCanaryEventJournal(eventJournalPath).read(),
+  });
+  if (sortedObjectJson(rebuiltSloArtifact) !== sortedObjectJson(sloArtifact)) {
+    throw new Error("prompt_release_canary_slo_journal_closure_mismatch");
+  }
   const runtimeSloSummary: RuntimeSloSummary = {
     ...sloArtifact.measurements,
     passed: promptReleaseRuntimeSloPasses({ ...sloArtifact.measurements, passed: false }),
   };
   if (!runtimeSloSummary.passed) throw new Error("prompt_release_runtime_slo_failed");
   const runtimeSloEvidence: NonNullable<ActivePromptReleaseManifest["runtime_slo_evidence"]> = {
-    schema_version: "prompt_release_canary_slo_evidence_v1",
+    schema_version: "prompt_release_canary_slo_evidence_v2",
     release_id: sloArtifact.release_id,
     account_mode: sloArtifact.account_mode,
     traffic_percent: sloArtifact.traffic_percent,
@@ -492,6 +606,8 @@ export async function activatePromptRelease(opts: {
     excluded_event_count: sloArtifact.excluded_event_count,
     excluded_count_by_reason: sloArtifact.excluded_count_by_reason,
     event_set_hash: sloArtifact.event_set_hash,
+    journal_closure_hash: sloArtifact.journal_closure_hash,
+    journal_record_count: sloArtifact.journal_record_count,
     stage_snapshot_hashes_hash: sloArtifact.stage_snapshot_hashes_hash,
     aggregator_id: sloArtifact.aggregator_id,
     aggregator_version: sloArtifact.aggregator_version,

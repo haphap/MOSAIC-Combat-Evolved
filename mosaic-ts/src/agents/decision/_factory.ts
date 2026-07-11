@@ -44,6 +44,7 @@ import {
 import {
   type AgentCanaryEventContext,
   agentCanaryEventContext,
+  beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
 import {
@@ -182,6 +183,15 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               stage: spec.runtimeStage,
               trafficAssignmentKey: state.trace_id || state.as_of_date,
               runtimeSourceStatuses,
+              onReleaseAssigned: async (release) => {
+                canaryContext = await beginAgentPromptCanaryInvocation({
+                  release,
+                  state,
+                  agent: spec.agentId,
+                  stage: spec.runtimeStage,
+                  cohort,
+                });
+              },
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
             knobSnapshot = loaded.snapshot;
@@ -191,14 +201,16 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             canaryContext = agentCanaryEventContext({
               release: loaded.release,
               state,
-              agentInvocationId: buildAgentInvocationId({
-                runId: state.trace_id || state.as_of_date || "current_run",
-                agent: spec.agentId,
-                stage: spec.runtimeStage,
-                cohort,
-                asOf: state.as_of_date || "live",
-                snapshotHash: loaded.snapshot.hash,
-              }),
+              agentInvocationId:
+                canaryContext?.agentInvocationId ??
+                buildAgentInvocationId({
+                  runId: state.trace_id || state.as_of_date || "current_run",
+                  agent: spec.agentId,
+                  stage: spec.runtimeStage,
+                  cohort,
+                  asOf: state.as_of_date || "live",
+                  snapshotHash: loaded.snapshot.hash,
+                }),
               systemPrompt,
             });
           } else {
@@ -380,6 +392,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 : []),
             ],
           });
+          if (canaryEvent) await persistPromptReleaseCanaryEvents([canaryEvent]);
           onLog(
             formatAgentEvent("done", "L4", spec.agentId, [
               `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -450,6 +463,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           ],
           forceFallback: true,
         });
+        if (canaryEvent) await persistPromptReleaseCanaryEvents([canaryEvent]);
         onLog(
           formatAgentEvent("timeout", "L4", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,

@@ -1,10 +1,13 @@
 import {
+  buildPromptReleaseCanaryAssignmentEvent,
   buildPromptReleaseCanaryEvent,
   type PromptReleaseCanaryBinding,
   type PromptReleaseCanaryEvent,
+  persistPromptReleaseCanaryAssignments,
 } from "../../autoresearch/prompt_release_canary_slo.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
+import { buildAgentInvocationId } from "./evidence_runtime.js";
 import type { ResearchKnobCapAudit, ResearchKnobsSnapshot, ToolStatus } from "./research_knobs.js";
 
 export interface AgentCanaryEventContext {
@@ -12,6 +15,43 @@ export interface AgentCanaryEventContext {
   runId: string;
   agentInvocationId: string;
   systemPrompt: string;
+}
+
+export async function beginAgentPromptCanaryInvocation(opts: {
+  release: Omit<PromptReleaseCanaryBinding, "source">;
+  state: DailyCycleStateType;
+  agent: string;
+  stage: RuntimeAgentStageId;
+  cohort: string;
+  observedAt?: string;
+}): Promise<AgentCanaryEventContext | null> {
+  if (opts.release.lifecycle_state !== "canary") return null;
+  const runId = opts.state.trace_id || opts.state.as_of_date;
+  if (!runId) throw new Error("prompt_release_canary_runtime_identity_missing");
+  const agentInvocationId = buildAgentInvocationId({
+    runId,
+    agent: opts.agent,
+    stage: opts.stage,
+    cohort: opts.cohort,
+    asOf: opts.state.as_of_date || "live",
+    snapshotHash: opts.release.stage_snapshot_hash,
+  });
+  const assignment = buildPromptReleaseCanaryAssignmentEvent({
+    release: opts.release,
+    runId,
+    agentInvocationId,
+    agent: opts.agent,
+    stage: opts.stage,
+    observedAt: opts.observedAt ?? new Date().toISOString(),
+  });
+  if (!assignment) return null;
+  await persistPromptReleaseCanaryAssignments([assignment]);
+  return {
+    release: { ...opts.release, source: "unavailable" },
+    runId,
+    agentInvocationId,
+    systemPrompt: "",
+  };
 }
 
 export function agentCanaryEventContext(opts: {
@@ -51,12 +91,15 @@ export function buildAgentPromptCanaryEvent(opts: {
 }): PromptReleaseCanaryEvent | null {
   if (!opts.context) return null;
   const runtimeSources = opts.knobSnapshot?.consumptionSnapshot.runtimeSourceStatuses ?? [];
+  const promptSourceUnavailable = opts.context.release.source !== "private";
   const sourceFailed =
     Boolean(opts.forceSourceFailure) ||
+    promptSourceUnavailable ||
     opts.toolStatuses.some((status) => status.failed || status.missing) ||
     runtimeSources.some((status) => ["missing", "stale", "source_error"].includes(status.status));
   const fallback =
     Boolean(opts.forceFallback) ||
+    promptSourceUnavailable ||
     !opts.structuredAccepted ||
     !opts.claimGraphAccepted ||
     opts.knobAudit?.output_selection === "deterministic_fallback" ||
@@ -79,6 +122,7 @@ export function buildAgentPromptCanaryEvent(opts: {
     validatorIds: opts.validatorIds,
     duplicateOrderIntentCount,
     exposureBreachCount: opts.exposureBreachCount ?? 0,
+    promptLoadFailed: opts.context.systemPrompt.length === 0,
   });
 }
 

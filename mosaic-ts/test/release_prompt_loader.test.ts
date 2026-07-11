@@ -33,14 +33,14 @@ function sha256(text: string): string {
   return `sha256:${createHash("sha256").update(text).digest("hex")}`;
 }
 
-function canaryAssignmentKey(releaseId: string, trafficPercent: number, selected: boolean): string {
+function selectedCanaryAssignmentKey(releaseId: string, trafficPercent: number): string {
   for (let index = 0; index < 10_000; index += 1) {
     const key = `assignment-${index}`;
     const bucket = Number.parseInt(
       createHash("sha256").update(`${releaseId}\0${key}`).digest("hex").slice(0, 8),
       16,
     );
-    if ((bucket / 0x1_0000_0000) * 100 < trafficPercent === selected) return key;
+    if ((bucket / 0x1_0000_0000) * 100 < trafficPercent) return key;
   }
   throw new Error("canary assignment fixture unavailable");
 }
@@ -345,7 +345,7 @@ describe("release-pinned prompt loading", () => {
     expect(second.release).toMatchObject({ lifecycle_state: "active", traffic_percent: 100 });
   });
 
-  it("fails closed for first-canary control traffic instead of reading unpinned prompts", async () => {
+  it("rejects a first canary without a pinned active baseline", async () => {
     const contents = { zh: prompt("canary candidate zh"), en: prompt("canary candidate en") };
     const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-first-canary-"));
     roots.push(registryRoot);
@@ -373,21 +373,95 @@ describe("release-pinned prompt loading", () => {
     };
     const registry = new ActivePromptReleaseRegistry(registryRoot);
     await registry.stage(staged);
+    await expect(
+      registry.transition(canary, {
+        audit: { operator: "operator:test", reason: "start first canary" },
+      }),
+    ).rejects.toThrow("prompt_release_canary_baseline_required");
+  });
+
+  it("keeps code identity pinned while canary traffic is assigned", async () => {
+    const contents = { zh: prompt("canary candidate zh"), en: prompt("canary candidate en") };
+    const repo = gitRepo(contents);
+    const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-code-pin-canary-"));
+    roots.push(registryRoot);
+    const localClosure = JSON.parse(
+      readFileSync(
+        join(
+          process.cwd(),
+          "..",
+          "registry",
+          "prompt_checks",
+          "domain_knob_evaluation_contract_v1.json",
+        ),
+        "utf-8",
+      ),
+    ) as { catalog_hash: string; schema_hash: string; contract_hash: string };
+    const baseline = release({
+      promptCommit: repo.commit,
+      promptPair: pair(contents),
+      closure: {
+        catalogHash: localClosure.catalog_hash,
+        schemaHash: localClosure.schema_hash,
+        evaluationContractHash: localClosure.contract_hash,
+      },
+    });
+    const staged: ActivePromptReleaseManifest = {
+      ...baseline,
+      release_id: "release-canary",
+      base_release_id: baseline.release_id,
+      lifecycle_state: "staged",
+      activation_scope: { ...baseline.activation_scope, traffic_percent: 0 },
+      approved_by: null,
+      canary_started_at: null,
+      canary_ended_at: null,
+      runtime_slo_summary: null,
+      runtime_slo_evidence: null,
+      previous_approved_release_id: baseline.release_id,
+      activated_at: null,
+    };
+    const canary: ActivePromptReleaseManifest = {
+      ...staged,
+      lifecycle_state: "canary",
+      activation_scope: { ...staged.activation_scope, traffic_percent: 10 },
+      approved_by: "operator:test",
+      canary_started_at: "2026-07-10T02:00:00Z",
+    };
+    const registry = new ActivePromptReleaseRegistry(registryRoot);
+    await registry.provisionBaseline(baseline, {
+      operator: "operator:test",
+      reason: "import approved baseline",
+    });
+    await registry.stage(staged);
     await registry.transition(canary, {
-      audit: { operator: "operator:test", reason: "start first canary" },
+      audit: { operator: "operator:test", reason: "start canary" },
     });
 
     const previousRegistry = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT;
+    const previousMode = process.env.MOSAIC_PROMPT_ACCOUNT_MODE;
+    const previousCodeCommit = process.env.MOSAIC_CODE_COMMIT;
     try {
       process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = registryRoot;
-      await expect(
-        resolveConfiguredPromptReleaseContext(canaryAssignmentKey("release-1", 10, false)),
-      ).rejects.toThrow("active_prompt_release_missing");
+      process.env.MOSAIC_PROMPT_ACCOUNT_MODE = "paper";
+      delete process.env.MOSAIC_CODE_COMMIT;
+      const context = await resolveConfiguredPromptReleaseContext(
+        selectedCanaryAssignmentKey(canary.release_id, 10),
+      );
+      const head = execFileSync("git", ["-C", join(process.cwd(), ".."), "rev-parse", "HEAD"], {
+        encoding: "utf-8",
+      }).trim();
+      expect(context).toMatchObject({
+        manifest: { release_id: "release-canary", lifecycle_state: "canary" },
+        expectedCodeCommit: head,
+      });
     } finally {
-      if (previousRegistry === undefined) {
-        delete process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT;
-      } else {
-        process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = previousRegistry;
+      for (const [key, value] of [
+        ["MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT", previousRegistry],
+        ["MOSAIC_PROMPT_ACCOUNT_MODE", previousMode],
+        ["MOSAIC_CODE_COMMIT", previousCodeCommit],
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
       }
     }
   });
@@ -472,34 +546,10 @@ describe("release-pinned prompt loading", () => {
         evaluationContractHash: localClosure.contract_hash,
       },
     });
-    const staged: ActivePromptReleaseManifest = {
-      ...active,
-      lifecycle_state: "staged",
-      activation_scope: { ...active.activation_scope, traffic_percent: 0 },
-      approved_by: null,
-      canary_started_at: null,
-      canary_ended_at: null,
-      runtime_slo_summary: null,
-      runtime_slo_evidence: null,
-      activated_at: null,
-    };
-    const canary: ActivePromptReleaseManifest = {
-      ...active,
-      lifecycle_state: "canary",
-      activation_scope: { ...active.activation_scope, traffic_percent: 10 },
-      canary_ended_at: null,
-      runtime_slo_summary: null,
-      runtime_slo_evidence: null,
-      activated_at: null,
-    };
     const registry = new ActivePromptReleaseRegistry(registryRoot);
-    await registry.stage(staged);
-    await registry.transition(canary, {
-      audit: { operator: "operator:test", reason: "start canary" },
-    });
-    await registry.transition(active, {
-      expectedBaseReleaseId: null,
-      audit: { operator: "operator:test", reason: "activate" },
+    await registry.provisionBaseline(active, {
+      operator: "operator:test",
+      reason: "import approved baseline",
     });
 
     const previous = {

@@ -512,13 +512,9 @@ function release(
 describe("aggregate active prompt release registry", () => {
   it("activates only through staged/canary with pointer CAS and supports audited rollback", async () => {
     const registry = new ActivePromptReleaseRegistry(tempRoot("release-registry"));
-    await registry.stage(release("release-0", null, "staged"));
-    await registry.transition(release("release-0", null, "canary"), {
-      audit: { operator: "operator:test", reason: "start canary" },
-    });
-    await registry.transition(release("release-0", null, "active"), {
-      expectedBaseReleaseId: null,
-      audit: { operator: "operator:test", reason: "activate" },
+    await registry.provisionBaseline(release("release-0", null, "active"), {
+      operator: "operator:test",
+      reason: "import approved baseline",
     });
     expect((await registry.resolveActive())?.release_id).toBe("release-0");
 
@@ -546,13 +542,9 @@ describe("aggregate active prompt release registry", () => {
 
   it("rejects a stale canary base pointer and immutable component drift", async () => {
     const registry = new ActivePromptReleaseRegistry(tempRoot("release-stale"));
-    await registry.stage(release("release-0", null, "staged"));
-    await registry.transition(release("release-0", null, "canary"), {
-      audit: { operator: "operator:test", reason: "start canary" },
-    });
-    await registry.transition(release("release-0", null, "active"), {
-      expectedBaseReleaseId: null,
-      audit: { operator: "operator:test", reason: "activate" },
+    await registry.provisionBaseline(release("release-0", null, "active"), {
+      operator: "operator:test",
+      reason: "import approved baseline",
     });
     await registry.stage(release("release-1", "release-0", "staged"));
     const drifted = release("release-1", "release-0", "canary");
@@ -581,9 +573,13 @@ describe("aggregate active prompt release registry", () => {
   it("reconciles manifest-first activation and rollback after a process crash", async () => {
     const root = tempRoot("release-recovery");
     const registry = new ActivePromptReleaseRegistry(root);
-    const staged = release("release-0", null, "staged");
-    const canary = release("release-0", null, "canary");
-    const active = release("release-0", null, "active");
+    await registry.provisionBaseline(release("release-0", null, "active"), {
+      operator: "operator:test",
+      reason: "import approved baseline",
+    });
+    const staged = release("release-1", "release-0", "staged");
+    const canary = release("release-1", "release-0", "canary");
+    const active = release("release-1", "release-0", "active");
     await registry.stage(staged);
     await registry.transition(canary, {
       audit: { operator: "operator:test", reason: "start canary" },
@@ -591,15 +587,15 @@ describe("aggregate active prompt release registry", () => {
     const manifestPath = join(
       root,
       "releases",
-      `${createHash("sha256").update("release-0").digest("hex")}.json`,
+      `${createHash("sha256").update("release-1").digest("hex")}.json`,
     );
     writeFileSync(manifestPath, `${JSON.stringify(active, null, 2)}\n`, "utf-8");
 
     await registry.transition(active, {
-      expectedBaseReleaseId: null,
+      expectedBaseReleaseId: "release-0",
       audit: { operator: "operator:test", reason: "activate" },
     });
-    expect((await registry.pointer()).current_release_id).toBe("release-0");
+    expect((await registry.pointer()).current_release_id).toBe("release-1");
 
     const rolledBack: ActivePromptReleaseManifest = {
       ...active,
@@ -610,6 +606,6 @@ describe("aggregate active prompt release registry", () => {
     await registry.transition(rolledBack, {
       audit: { operator: "operator:test", reason: "rollback" },
     });
-    expect((await registry.pointer()).current_release_id).toBeNull();
+    expect((await registry.pointer()).current_release_id).toBe("release-0");
   });
 });

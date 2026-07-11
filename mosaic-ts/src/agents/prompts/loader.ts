@@ -68,6 +68,15 @@ interface LoadOptions {
   stage?: RuntimeAgentStageId;
   releaseContext?: PromptReleaseLoadContext | null;
   trafficAssignmentKey?: string;
+  onReleaseAssigned?: (assignment: PromptReleaseRuntimeAssignment) => Promise<void> | void;
+}
+
+export interface PromptReleaseRuntimeAssignment {
+  release_id: string;
+  account_mode: "paper" | "backtest" | "live";
+  traffic_percent: number;
+  stage_snapshot_hash: string;
+  lifecycle_state: "staged" | "canary" | "active" | "rolled_back";
 }
 
 const cache = new Map<string, string>();
@@ -116,20 +125,37 @@ async function releasePinnedPair(
     | "promptsRoot"
     | "privatePromptsRoot"
     | "trafficAssignmentKey"
+    | "onReleaseAssigned"
   >,
 ): Promise<ReleasePinnedPromptPair | null> {
+  const notifyAssignment = async (manifest: PromptReleaseLoadContext["manifest"]) => {
+    const stage = inferReleaseStage(opts.agent, opts.stage);
+    const stageSnapshotHash = manifest.stage_snapshot_hashes[`${opts.agent}:${stage}`];
+    if (!stageSnapshotHash) {
+      throw new Error(`prompt_release_stage_snapshot_missing:${opts.agent}:${stage}`);
+    }
+    await opts.onReleaseAssigned?.({
+      release_id: manifest.release_id,
+      account_mode: manifest.activation_scope.account_mode,
+      traffic_percent: manifest.activation_scope.traffic_percent,
+      stage_snapshot_hash: stageSnapshotHash,
+      lifecycle_state: manifest.lifecycle_state,
+    });
+  };
   const context =
     opts.releaseContext === undefined
       ? opts.promptsRoot || opts.privatePromptsRoot
         ? null
-        : await resolveConfiguredPromptReleaseContext(opts.trafficAssignmentKey)
+        : await resolveConfiguredPromptReleaseContext(opts.trafficAssignmentKey, notifyAssignment)
       : opts.releaseContext;
   if (!context) return null;
+  if (opts.releaseContext !== undefined) await notifyAssignment(context.manifest);
+  const stage = inferReleaseStage(opts.agent, opts.stage);
   return loadReleasePinnedPromptPair({
     context,
     agent: opts.agent,
     cohort: opts.cohort,
-    stage: inferReleaseStage(opts.agent, opts.stage),
+    stage,
     ...(opts.noCache ? { noCache: true } : {}),
   });
 }

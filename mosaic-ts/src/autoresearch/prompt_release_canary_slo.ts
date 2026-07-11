@@ -10,10 +10,10 @@ import {
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 
-export const PromptReleaseCanaryEventSchema = z
+export const PromptReleaseCanaryAssignmentEventSchema = z
   .object({
-    schema_version: z.literal("prompt_release_canary_event_v1"),
-    event_id: z.string().min(1),
+    schema_version: z.literal("prompt_release_canary_assignment_event_v1"),
+    event_id: Sha256Schema,
     run_id: z.string().min(1),
     agent_invocation_id: z.string().min(1),
     release_id: z.string().min(1),
@@ -23,6 +23,24 @@ export const PromptReleaseCanaryEventSchema = z
     stage: ReleasePromptStageSchema,
     stage_snapshot_hash: Sha256Schema,
     observed_at: z.string().datetime(),
+  })
+  .strict();
+
+export const PromptReleaseCanaryEventSchema = z
+  .object({
+    schema_version: z.literal("prompt_release_canary_event_v2"),
+    event_id: Sha256Schema,
+    run_id: z.string().min(1),
+    agent_invocation_id: z.string().min(1),
+    release_id: z.string().min(1),
+    account_mode: z.enum(["paper", "backtest", "live"]),
+    traffic_percent: z.number().gt(0).lt(100),
+    agent: z.string().min(1),
+    stage: ReleasePromptStageSchema,
+    stage_snapshot_hash: Sha256Schema,
+    observed_at: z.string().datetime(),
+    prompt_source: z.enum(["private", "bundled_fallback", "unavailable"]),
+    prompt_load_failed: z.boolean(),
     schema_failed: z.boolean(),
     fallback: z.boolean(),
     source_failed: z.boolean(),
@@ -32,7 +50,7 @@ export const PromptReleaseCanaryEventSchema = z
     tokenizer_id: z.literal("cl100k_base"),
     tokenizer_version: z.literal("1.0.21"),
     context_window_tokens: z.number().int().positive(),
-    system_prompt_tokens: z.number().int().min(1),
+    system_prompt_tokens: z.number().int().min(0),
     system_prompt_cap_tokens: z.number().int().positive(),
     token_budget_breached: z.boolean(),
     validator_ids: z.array(z.string().min(1)).min(1),
@@ -53,9 +71,44 @@ export const PromptReleaseCanaryEventSchema = z
         message: "token budget result does not match measured prompt tokens",
       });
     }
+    if (event.prompt_load_failed) {
+      if (event.prompt_source !== "unavailable" || event.system_prompt_tokens !== 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["prompt_load_failed"],
+          message: "prompt-load failures require unavailable source and zero measured tokens",
+        });
+      }
+      if (!event.schema_failed || !event.fallback || !event.source_failed) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["prompt_load_failed"],
+          message: "prompt-load failures must fail every prompt availability guardrail",
+        });
+      }
+    } else if (event.prompt_source === "unavailable" || event.system_prompt_tokens < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["prompt_source"],
+        message: "completed prompt loads require an available source and measured prompt tokens",
+      });
+    }
+    if (event.prompt_source === "bundled_fallback" && (!event.fallback || !event.source_failed)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["prompt_source"],
+        message: "bundled fallback must count as fallback and primary-source failure",
+      });
+    }
   });
 
 export type PromptReleaseCanaryEvent = z.infer<typeof PromptReleaseCanaryEventSchema>;
+export type PromptReleaseCanaryAssignmentEvent = z.infer<
+  typeof PromptReleaseCanaryAssignmentEventSchema
+>;
+export type PromptReleaseCanaryJournalRecord =
+  | PromptReleaseCanaryAssignmentEvent
+  | PromptReleaseCanaryEvent;
 
 export interface PromptReleaseCanaryBinding {
   release_id: string;
@@ -63,6 +116,43 @@ export interface PromptReleaseCanaryBinding {
   traffic_percent: number;
   stage_snapshot_hash: string;
   lifecycle_state: "staged" | "canary" | "active" | "rolled_back";
+  source: "private" | "bundled_fallback" | "unavailable";
+}
+
+export function buildPromptReleaseCanaryAssignmentEvent(opts: {
+  release: Omit<PromptReleaseCanaryBinding, "source"> | undefined;
+  runId: string;
+  agentInvocationId: string;
+  agent: string;
+  stage: z.infer<typeof ReleasePromptStageSchema>;
+  observedAt: string;
+}): PromptReleaseCanaryAssignmentEvent | null {
+  if (opts.release?.lifecycle_state !== "canary") return null;
+  if (!opts.runId.trim() || !opts.agentInvocationId.trim()) {
+    throw new Error("prompt_release_canary_runtime_identity_missing");
+  }
+  const identity = {
+    record_type: "assignment",
+    release_id: opts.release.release_id,
+    run_id: opts.runId,
+    agent_invocation_id: opts.agentInvocationId,
+    agent: opts.agent,
+    stage: opts.stage,
+    stage_snapshot_hash: opts.release.stage_snapshot_hash,
+  };
+  return PromptReleaseCanaryAssignmentEventSchema.parse({
+    schema_version: "prompt_release_canary_assignment_event_v1",
+    event_id: canonicalHash(identity),
+    run_id: opts.runId,
+    agent_invocation_id: opts.agentInvocationId,
+    release_id: opts.release.release_id,
+    account_mode: opts.release.account_mode,
+    traffic_percent: opts.release.traffic_percent,
+    agent: opts.agent,
+    stage: opts.stage,
+    stage_snapshot_hash: opts.release.stage_snapshot_hash,
+    observed_at: new Date(opts.observedAt).toISOString(),
+  });
 }
 
 export function buildPromptReleaseCanaryEvent(opts: {
@@ -82,6 +172,7 @@ export function buildPromptReleaseCanaryEvent(opts: {
   validatorIds: ReadonlyArray<string>;
   duplicateOrderIntentCount?: number;
   exposureBreachCount?: number;
+  promptLoadFailed?: boolean;
 }): PromptReleaseCanaryEvent | null {
   if (opts.release?.lifecycle_state !== "canary") return null;
   if (!opts.runId.trim() || !opts.agentInvocationId.trim()) {
@@ -89,6 +180,7 @@ export function buildPromptReleaseCanaryEvent(opts: {
   }
   const tokenMeasurement = measureRuntimeSystemPromptTokens(opts.systemPrompt);
   const identity = {
+    record_type: "terminal",
     release_id: opts.release.release_id,
     run_id: opts.runId,
     agent_invocation_id: opts.agentInvocationId,
@@ -97,7 +189,7 @@ export function buildPromptReleaseCanaryEvent(opts: {
     stage_snapshot_hash: opts.release.stage_snapshot_hash,
   };
   return PromptReleaseCanaryEventSchema.parse({
-    schema_version: "prompt_release_canary_event_v1",
+    schema_version: "prompt_release_canary_event_v2",
     event_id: canonicalHash(identity),
     run_id: opts.runId,
     agent_invocation_id: opts.agentInvocationId,
@@ -108,6 +200,8 @@ export function buildPromptReleaseCanaryEvent(opts: {
     stage: opts.stage,
     stage_snapshot_hash: opts.release.stage_snapshot_hash,
     observed_at: new Date(opts.observedAt).toISOString(),
+    prompt_source: opts.release.source,
+    prompt_load_failed: opts.promptLoadFailed ?? false,
     schema_failed: opts.schemaFailed,
     fallback: opts.fallback,
     source_failed: opts.sourceFailed,
@@ -124,13 +218,13 @@ export function buildPromptReleaseCanaryEvent(opts: {
 export class PromptReleaseCanaryEventJournal {
   constructor(private readonly path: string) {}
 
-  async appendOnce(events: ReadonlyArray<PromptReleaseCanaryEvent>): Promise<void> {
+  async appendOnce(events: ReadonlyArray<PromptReleaseCanaryJournalRecord>): Promise<void> {
     if (events.length === 0) return;
-    const parsed = events.map((event) => PromptReleaseCanaryEventSchema.parse(event));
+    const parsed = events.map(parseJournalRecord);
     await withFileLock(`${this.path}.lock`, async () => {
       const existing = await this.read();
       const byId = new Map(existing.map((event) => [event.event_id, event] as const));
-      const pending: PromptReleaseCanaryEvent[] = [];
+      const pending: PromptReleaseCanaryJournalRecord[] = [];
       for (const event of parsed) {
         const prior = byId.get(event.event_id);
         if (prior) {
@@ -160,7 +254,7 @@ export class PromptReleaseCanaryEventJournal {
     });
   }
 
-  async read(): Promise<PromptReleaseCanaryEvent[]> {
+  async read(): Promise<PromptReleaseCanaryJournalRecord[]> {
     const content = await readFile(this.path, "utf-8").catch((error) => {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
       throw error;
@@ -168,12 +262,21 @@ export class PromptReleaseCanaryEventJournal {
     return content
       .split("\n")
       .filter(Boolean)
-      .map((line) => PromptReleaseCanaryEventSchema.parse(JSON.parse(line)));
+      .map((line) => parseJournalRecord(JSON.parse(line)));
   }
 }
 
 export async function persistPromptReleaseCanaryEvents(
   events: ReadonlyArray<PromptReleaseCanaryEvent>,
+): Promise<void> {
+  if (events.length === 0) return;
+  const path = process.env.MOSAIC_PROMPT_CANARY_EVENT_LOG?.trim();
+  if (!path) throw new Error("prompt_release_canary_event_log_required");
+  await new PromptReleaseCanaryEventJournal(path).appendOnce(events);
+}
+
+export async function persistPromptReleaseCanaryAssignments(
+  events: ReadonlyArray<PromptReleaseCanaryAssignmentEvent>,
 ): Promise<void> {
   if (events.length === 0) return;
   const path = process.env.MOSAIC_PROMPT_CANARY_EVENT_LOG?.trim();
@@ -208,19 +311,21 @@ const RuntimeSloMeasurementsSchema = z
 
 export const PromptReleaseCanarySloArtifactSchema = z
   .object({
-    schema_version: z.literal("prompt_release_canary_slo_v1"),
+    schema_version: z.literal("prompt_release_canary_slo_v2"),
     release_id: z.string().min(1),
     account_mode: z.enum(["paper", "backtest", "live"]),
     traffic_percent: z.number().gt(0).lt(100),
     canary_started_at: z.string().datetime(),
     observation_ended_at: z.string().datetime(),
     eligible_event_count: z.number().int().min(1),
-    excluded_event_count: z.literal(0),
+    excluded_event_count: z.number().int().min(0),
     excluded_count_by_reason: z.record(z.string(), z.number().int().min(0)),
     event_set_hash: Sha256Schema,
+    journal_closure_hash: Sha256Schema,
+    journal_record_count: z.number().int().min(1),
     stage_snapshot_hashes_hash: Sha256Schema,
     aggregator_id: z.literal("prompt_release_canary_slo"),
-    aggregator_version: z.literal("1"),
+    aggregator_version: z.literal("2"),
     numerators: CountByMetricSchema,
     denominators: CountByMetricSchema,
     measurements: RuntimeSloMeasurementsSchema,
@@ -233,6 +338,27 @@ export const PromptReleaseCanarySloArtifactSchema = z
         code: "custom",
         path: ["eligible_event_count"],
         message: "eligible event count must equal measurement sample count",
+      });
+    }
+    const excludedTotal = Object.values(artifact.excluded_count_by_reason).reduce(
+      (total, value) => total + value,
+      0,
+    );
+    if (artifact.excluded_event_count !== excludedTotal) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["excluded_event_count"],
+        message: "excluded record count must equal the reason-count total",
+      });
+    }
+    if (
+      artifact.journal_record_count !==
+      artifact.eligible_event_count * 2 + artifact.excluded_event_count
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["journal_record_count"],
+        message: "journal snapshot must contain one assignment and terminal per eligible event",
       });
     }
     for (const value of Object.values(artifact.denominators)) {
@@ -261,10 +387,10 @@ export function buildPromptReleaseCanarySloArtifact(opts: {
   canaryStartedAt: string;
   observationEndedAt: string;
   stageSnapshotHashes: Readonly<Record<string, string>>;
-  events: ReadonlyArray<unknown>;
+  records: ReadonlyArray<unknown>;
 }): PromptReleaseCanarySloArtifact {
-  const events = opts.events.map((event) => PromptReleaseCanaryEventSchema.parse(event));
-  if (events.length === 0) throw new Error("prompt_release_canary_slo_events_empty");
+  const records = opts.records.map(parseJournalRecord);
+  if (records.length === 0) throw new Error("prompt_release_canary_slo_events_empty");
   const eventIds = new Set<string>();
   const canaryStart = Date.parse(opts.canaryStartedAt);
   const observationEnd = Date.parse(opts.observationEndedAt);
@@ -275,28 +401,48 @@ export function buildPromptReleaseCanarySloArtifact(opts: {
   ) {
     throw new Error("prompt_release_canary_slo_observation_window_invalid");
   }
-  for (const event of events) {
-    if (eventIds.has(event.event_id)) throw new Error("prompt_release_canary_slo_duplicate_event");
-    eventIds.add(event.event_id);
-    if (event.release_id !== opts.releaseId) {
-      throw new Error("prompt_release_canary_slo_release_mismatch");
+  for (const record of records) {
+    if (eventIds.has(record.event_id)) throw new Error("prompt_release_canary_slo_duplicate_event");
+    eventIds.add(record.event_id);
+  }
+  const closedRecords = records.filter(
+    (record) => Date.parse(record.observed_at) <= observationEnd,
+  );
+  const excludedCountByReason: Record<string, number> = {};
+  const eligibleRecords = closedRecords.filter((record) => {
+    if (record.release_id !== opts.releaseId) {
+      increment(excludedCountByReason, "other_release");
+      return false;
     }
+    if (Date.parse(record.observed_at) < canaryStart) {
+      increment(excludedCountByReason, "before_canary_start");
+      return false;
+    }
+    return true;
+  });
+  for (const event of eligibleRecords) {
     if (event.account_mode !== opts.accountMode) {
       throw new Error("prompt_release_canary_slo_account_mode_mismatch");
     }
     if (event.traffic_percent !== opts.trafficPercent) {
       throw new Error("prompt_release_canary_slo_traffic_mismatch");
     }
-    const observedAt = Date.parse(event.observed_at);
-    if (observedAt < canaryStart || observedAt > observationEnd) {
-      throw new Error("prompt_release_canary_slo_event_outside_window");
-    }
     const stageKey = `${event.agent}:${event.stage}`;
     if (opts.stageSnapshotHashes[stageKey] !== event.stage_snapshot_hash) {
       throw new Error(`prompt_release_canary_slo_stage_snapshot_mismatch:${stageKey}`);
     }
   }
+  const assignments = eligibleRecords.filter(
+    (record): record is PromptReleaseCanaryAssignmentEvent =>
+      record.schema_version === "prompt_release_canary_assignment_event_v1",
+  );
+  const events = eligibleRecords.filter(
+    (record): record is PromptReleaseCanaryEvent =>
+      record.schema_version === "prompt_release_canary_event_v2",
+  );
+  assertInvocationClosure(assignments, events);
   const sampleCount = events.length;
+  if (sampleCount === 0) throw new Error("prompt_release_canary_slo_events_empty");
   const numerators = {
     schema_failure: count(events, (event) => event.schema_failed),
     fallback: count(events, (event) => event.fallback),
@@ -327,21 +473,28 @@ export function buildPromptReleaseCanarySloArtifact(opts: {
     exposure_breach_count: events.reduce((sum, event) => sum + event.exposure_breach_count, 0),
   };
   const withoutHash = {
-    schema_version: "prompt_release_canary_slo_v1" as const,
+    schema_version: "prompt_release_canary_slo_v2" as const,
     release_id: opts.releaseId,
     account_mode: opts.accountMode,
     traffic_percent: opts.trafficPercent,
     canary_started_at: new Date(canaryStart).toISOString(),
     observation_ended_at: new Date(observationEnd).toISOString(),
     eligible_event_count: sampleCount,
-    excluded_event_count: 0 as const,
-    excluded_count_by_reason: {},
+    excluded_event_count: Object.values(excludedCountByReason).reduce(
+      (total, value) => total + value,
+      0,
+    ),
+    excluded_count_by_reason: excludedCountByReason,
     event_set_hash: canonicalHash(
       [...events].sort((left, right) => left.event_id.localeCompare(right.event_id)),
     ),
+    journal_closure_hash: canonicalHash(
+      [...closedRecords].sort((left, right) => left.event_id.localeCompare(right.event_id)),
+    ),
+    journal_record_count: closedRecords.length,
     stage_snapshot_hashes_hash: canonicalHash(opts.stageSnapshotHashes),
     aggregator_id: "prompt_release_canary_slo" as const,
-    aggregator_version: "1" as const,
+    aggregator_version: "2" as const,
     numerators,
     denominators,
     measurements,
@@ -361,6 +514,68 @@ export function promptReleaseCanarySloArtifactHash(
 
 export function stageSnapshotHashesHash(hashes: Readonly<Record<string, string>>): string {
   return canonicalHash(hashes);
+}
+
+function parseJournalRecord(value: unknown): PromptReleaseCanaryJournalRecord {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).schema_version ===
+      "prompt_release_canary_assignment_event_v1"
+  ) {
+    return PromptReleaseCanaryAssignmentEventSchema.parse(value);
+  }
+  return PromptReleaseCanaryEventSchema.parse(value);
+}
+
+function increment(counts: Record<string, number>, key: string): void {
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function assertInvocationClosure(
+  assignments: ReadonlyArray<PromptReleaseCanaryAssignmentEvent>,
+  events: ReadonlyArray<PromptReleaseCanaryEvent>,
+): void {
+  const assignmentByInvocation = new Map<string, PromptReleaseCanaryAssignmentEvent>();
+  for (const assignment of assignments) {
+    if (assignmentByInvocation.has(assignment.agent_invocation_id)) {
+      throw new Error("prompt_release_canary_slo_duplicate_assignment");
+    }
+    assignmentByInvocation.set(assignment.agent_invocation_id, assignment);
+  }
+  const eventByInvocation = new Map<string, PromptReleaseCanaryEvent>();
+  for (const event of events) {
+    if (eventByInvocation.has(event.agent_invocation_id)) {
+      throw new Error("prompt_release_canary_slo_duplicate_terminal_event");
+    }
+    eventByInvocation.set(event.agent_invocation_id, event);
+  }
+  if (assignmentByInvocation.size !== eventByInvocation.size) {
+    throw new Error("prompt_release_canary_slo_incomplete_invocations");
+  }
+  for (const [invocationId, assignment] of assignmentByInvocation) {
+    const event = eventByInvocation.get(invocationId);
+    if (!event) throw new Error("prompt_release_canary_slo_incomplete_invocations");
+    for (const field of [
+      "run_id",
+      "release_id",
+      "account_mode",
+      "traffic_percent",
+      "agent",
+      "stage",
+      "stage_snapshot_hash",
+    ] as const) {
+      if (assignment[field] !== event[field]) {
+        throw new Error(`prompt_release_canary_slo_invocation_identity_mismatch:${field}`);
+      }
+    }
+  }
+  for (const invocationId of eventByInvocation.keys()) {
+    if (!assignmentByInvocation.has(invocationId)) {
+      throw new Error("prompt_release_canary_slo_orphan_terminal_event");
+    }
+  }
 }
 
 function count(

@@ -265,7 +265,10 @@
           ],
           "properties": {
             "schema_version": {
-              "const": "prompt_release_canary_slo_evidence_v1"
+              "enum": [
+                "prompt_release_canary_slo_evidence_v1",
+                "prompt_release_canary_slo_evidence_v2"
+              ]
             },
             "release_id": {
               "type": "string",
@@ -305,6 +308,13 @@
             "event_set_hash": {
               "$ref": "#/$defs/sha256"
             },
+            "journal_closure_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "journal_record_count": {
+              "type": "integer",
+              "minimum": 1
+            },
             "stage_snapshot_hashes_hash": {
               "$ref": "#/$defs/sha256"
             },
@@ -319,7 +329,38 @@
             "artifact_hash": {
               "$ref": "#/$defs/sha256"
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "schema_version": {
+                    "const": "prompt_release_canary_slo_evidence_v2"
+                  }
+                }
+              },
+              "then": {
+                "required": ["journal_closure_hash", "journal_record_count"]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "schema_version": {
+                    "const": "prompt_release_canary_slo_evidence_v1"
+                  }
+                }
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    { "required": ["journal_closure_hash"] },
+                    { "required": ["journal_record_count"] }
+                  ]
+                }
+              }
+            }
+          ]
         }
       ]
     },

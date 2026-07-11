@@ -194,6 +194,57 @@ export class ActivePromptReleaseRegistry {
     });
   }
 
+  async provisionBaseline(
+    manifest: ActivePromptReleaseManifest,
+    audit: PromptReleaseAuditContext,
+  ): Promise<void> {
+    ActivePromptReleaseManifestSchema.parse(manifest);
+    if (manifest.lifecycle_state !== "active") {
+      throw new Error("prompt_release_baseline_must_be_active");
+    }
+    if (manifest.base_release_id !== null || manifest.previous_approved_release_id !== null) {
+      throw new Error("prompt_release_baseline_lineage_invalid");
+    }
+    if (!audit.operator.trim() || !audit.reason.trim()) {
+      throw new Error("prompt_release_transition_audit_required");
+    }
+    if (audit.operator !== manifest.approved_by) {
+      throw new Error("prompt_release_transition_operator_mismatch");
+    }
+    await lock(this.lockPath(), async () => {
+      const pointer = await this.pointer();
+      const canaryPointer = await this.canaryPointer();
+      if (
+        (pointer.current_release_id !== null &&
+          pointer.current_release_id !== manifest.release_id) ||
+        canaryPointer.current_release_id !== null
+      ) {
+        throw new Error("prompt_release_baseline_registry_not_empty");
+      }
+      const existing = await this.load(manifest.release_id);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(manifest)) {
+        throw new Error("prompt_release_baseline_retry_conflict");
+      }
+      if (!existing) await atomicWrite(this.manifestPath(manifest.release_id), manifest);
+      if (pointer.current_release_id !== manifest.release_id) {
+        await atomicWrite(this.pointerPath(), {
+          schema_version: "active_prompt_release_pointer_v1",
+          current_release_id: manifest.release_id,
+          pointer_version: pointer.pointer_version + 1,
+          updated_at: manifest.activated_at as string,
+        } satisfies ActivePromptReleasePointer);
+      }
+      await this.appendAudit({
+        event_id: `${manifest.release_id}:baseline_provisioned`,
+        event: "baseline_provisioned",
+        release_id: manifest.release_id,
+        pointer_version: (await this.pointer()).pointer_version,
+        operator: audit.operator,
+        reason: audit.reason,
+      });
+    });
+  }
+
   async transition(
     next: ActivePromptReleaseManifest,
     opts: {
@@ -240,6 +291,15 @@ export class ActivePromptReleaseRegistry {
         canaryPointer.current_release_id !== next.release_id
       ) {
         throw new Error("prompt_release_canary_pointer_conflict");
+      }
+      if (next.lifecycle_state === "canary" && next.base_release_id === null) {
+        throw new Error("prompt_release_canary_baseline_required");
+      }
+      if (next.lifecycle_state === "canary" && next.base_release_id !== null) {
+        const baseline = await this.load(next.base_release_id);
+        if (baseline?.lifecycle_state !== "active") {
+          throw new Error("prompt_release_canary_baseline_not_active");
+        }
       }
       if (
         next.lifecycle_state === "canary" &&

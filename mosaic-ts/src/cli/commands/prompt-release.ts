@@ -2,12 +2,18 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Command } from "commander";
 import {
+  type ActivePromptReleaseManifest,
+  ActivePromptReleaseManifestSchema,
+} from "../../agents/prompts/prompt_release_contract.js";
+import {
   buildPromptReleaseCanarySloArtifact,
+  PromptReleaseCanaryEventJournal,
   type PromptReleaseCanarySloArtifact,
   PromptReleaseCanarySloArtifactSchema,
 } from "../../autoresearch/prompt_release_canary_slo.js";
 import {
   activatePromptRelease,
+  provisionPromptReleaseBaseline,
   rollbackPromptRelease,
   stagePromptRelease,
   startPromptReleaseCanary,
@@ -48,14 +54,6 @@ function parsePolicy(value: string): "domain_release_manual_v1" | "decision_rele
 
 async function parseSloArtifact(path: string): Promise<PromptReleaseCanarySloArtifact> {
   return PromptReleaseCanarySloArtifactSchema.parse(JSON.parse(await readFile(path, "utf-8")));
-}
-
-async function parseCanaryEvents(path: string): Promise<unknown[]> {
-  return (await readFile(path, "utf-8"))
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as unknown);
 }
 
 function reportError(error: unknown): void {
@@ -128,6 +126,43 @@ export function registerPromptRelease(program: Command): void {
     );
 
   command
+    .command("provision-baseline")
+    .requiredOption("--manifest <path>", "Previously approved active baseline manifest")
+    .requiredOption("--approved-by <operator>", "Authorized operator id")
+    .requiredOption("--reason <text>", "Provisioning reason")
+    .option("--registry-root <path>", "Release registry root")
+    .option("--private-prompts-repo <path>", "Private prompt repository")
+    .action(
+      async (opts: {
+        manifest: string;
+        approvedBy: string;
+        reason: string;
+        registryRoot?: string;
+        privatePromptsRepo?: string;
+      }) => {
+        try {
+          const manifest = ActivePromptReleaseManifestSchema.parse(
+            JSON.parse(await readFile(opts.manifest, "utf-8")),
+          ) as ActivePromptReleaseManifest;
+          await provisionPromptReleaseBaseline({
+            registryRoot: registryRoot(opts),
+            manifest,
+            privatePromptRepo: required(
+              opts.privatePromptsRepo,
+              "MOSAIC_PROMPTS_REPO",
+              "--private-prompts-repo",
+            ),
+            approvedBy: opts.approvedBy,
+            reason: opts.reason,
+          });
+          console.log(`baseline release=${manifest.release_id} at=${manifest.activated_at}`);
+        } catch (error) {
+          reportError(error);
+        }
+      },
+    );
+
+  command
     .command("canary")
     .requiredOption("--release-id <id>", "Release id")
     .requiredOption("--approved-by <operator>", "Authorized operator id")
@@ -162,14 +197,12 @@ export function registerPromptRelease(program: Command): void {
   command
     .command("summarize-slo")
     .requiredOption("--release-id <id>", "Canary release id")
-    .requiredOption("--events <path>", "Canary runtime event JSONL")
     .requiredOption("--observation-ended-at <timestamp>", "Closed observation end timestamp")
     .requiredOption("--out <path>", "Output SLO artifact JSON")
     .option("--registry-root <path>", "Release registry root")
     .action(
       async (opts: {
         releaseId: string;
-        events: string;
         observationEndedAt: string;
         out: string;
         registryRoot?: string;
@@ -181,6 +214,11 @@ export function registerPromptRelease(program: Command): void {
           if (manifest.lifecycle_state !== "canary" || !manifest.canary_started_at) {
             throw new Error("prompt_release_slo_summary_requires_canary");
           }
+          const eventLog = required(
+            undefined,
+            "MOSAIC_PROMPT_CANARY_EVENT_LOG",
+            "MOSAIC_PROMPT_CANARY_EVENT_LOG",
+          );
           const artifact = buildPromptReleaseCanarySloArtifact({
             releaseId: manifest.release_id,
             accountMode: manifest.activation_scope.account_mode,
@@ -188,7 +226,7 @@ export function registerPromptRelease(program: Command): void {
             canaryStartedAt: manifest.canary_started_at,
             observationEndedAt: opts.observationEndedAt,
             stageSnapshotHashes: manifest.stage_snapshot_hashes,
-            events: await parseCanaryEvents(opts.events),
+            records: await new PromptReleaseCanaryEventJournal(eventLog).read(),
           });
           await mkdir(dirname(opts.out), { recursive: true });
           await writeFile(opts.out, `${JSON.stringify(artifact, null, 2)}\n`, "utf-8");

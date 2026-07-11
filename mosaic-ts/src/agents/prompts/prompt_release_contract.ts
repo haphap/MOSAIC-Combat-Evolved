@@ -342,7 +342,10 @@ export const ActivePromptReleaseManifestSchema = z
       .nullable(),
     runtime_slo_evidence: z
       .object({
-        schema_version: z.literal("prompt_release_canary_slo_evidence_v1"),
+        schema_version: z.enum([
+          "prompt_release_canary_slo_evidence_v1",
+          "prompt_release_canary_slo_evidence_v2",
+        ]),
         release_id: z.string().min(1),
         account_mode: z.enum(["paper", "backtest", "live"]),
         traffic_percent: z.number().gt(0).lt(100),
@@ -352,12 +355,29 @@ export const ActivePromptReleaseManifestSchema = z
         excluded_event_count: z.number().int().min(0),
         excluded_count_by_reason: z.record(z.string(), z.number().int().min(0)),
         event_set_hash: Sha256Schema,
+        journal_closure_hash: Sha256Schema.optional(),
+        journal_record_count: z.number().int().min(1).optional(),
         stage_snapshot_hashes_hash: Sha256Schema,
         aggregator_id: z.string().min(1),
         aggregator_version: z.string().min(1),
         artifact_hash: Sha256Schema,
       })
       .strict()
+      .superRefine((evidence, ctx) => {
+        const hasJournalClosure =
+          evidence.journal_closure_hash !== undefined &&
+          evidence.journal_record_count !== undefined;
+        if (
+          (evidence.schema_version === "prompt_release_canary_slo_evidence_v2") !==
+          hasJournalClosure
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["journal_closure_hash"],
+            message: "v2 SLO evidence requires a closed journal snapshot",
+          });
+        }
+      })
       .nullable(),
     rollback_triggers: z.array(z.string().min(1)).min(1),
     previous_approved_release_id: z.string().min(1).nullable(),

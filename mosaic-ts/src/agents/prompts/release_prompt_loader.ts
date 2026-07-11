@@ -341,13 +341,14 @@ export async function loadPromptReleaseClosureAtCommit(opts: {
 
 export async function resolveConfiguredPromptReleaseContext(
   trafficAssignmentKey?: string,
+  onReleaseAssigned?: (manifest: ActivePromptReleaseManifest) => Promise<void> | void,
 ): Promise<PromptReleaseLoadContext | null> {
   const registryRoot = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT?.trim();
   if (!registryRoot) return null;
   const registry = new ActivePromptReleaseRegistry(registryRoot);
   const manifest = await registry.resolveForRuntime(trafficAssignmentKey);
-  const canaryPointer = await registry.canaryPointer();
   if (!manifest) throw new Error("active_prompt_release_missing");
+  await onReleaseAssigned?.(manifest);
   const source = getConfiguredPromptSource();
   const accountModeValue = process.env.MOSAIC_PROMPT_ACCOUNT_MODE?.trim();
   if (!accountModeValue) throw new Error("prompt_release_account_mode_required");
@@ -356,9 +357,7 @@ export async function resolveConfiguredPromptReleaseContext(
   }
   const closure = await loadLocalPromptReleaseClosure();
   const explicitCodeCommit = process.env.MOSAIC_CODE_COMMIT?.trim();
-  const expectedCodeCommit =
-    explicitCodeCommit ??
-    (canaryPointer.current_release_id ? undefined : await gitHead(findRepoRoot()));
+  const expectedCodeCommit = explicitCodeCommit ?? (await gitHead(findRepoRoot()));
   return {
     manifest,
     ...(source?.kind === "private-repo" ? { privatePromptRepo: source.repo } : {}),

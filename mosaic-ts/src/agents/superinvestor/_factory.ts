@@ -31,6 +31,7 @@ import {
 import {
   type AgentCanaryEventContext,
   agentCanaryEventContext,
+  beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
@@ -125,6 +126,15 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               stage: "agent_run",
               trafficAssignmentKey: state.trace_id || state.as_of_date,
               runtimeSourceStatuses,
+              onReleaseAssigned: async (assignedRelease) => {
+                canaryContext = await beginAgentPromptCanaryInvocation({
+                  release: assignedRelease,
+                  state,
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                });
+              },
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
             knobSnapshot = loaded.snapshot;
@@ -144,14 +154,16 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             canaryContext = agentCanaryEventContext({
               release,
               state,
-              agentInvocationId: buildAgentInvocationId({
-                runId: state.trace_id || state.as_of_date || "current_run",
-                agent: spec.agentId,
-                stage: "agent_run",
-                cohort,
-                asOf: state.as_of_date || "live",
-                snapshotHash: knobSnapshot.hash,
-              }),
+              agentInvocationId:
+                canaryContext?.agentInvocationId ??
+                buildAgentInvocationId({
+                  runId: state.trace_id || state.as_of_date || "current_run",
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                  asOf: state.as_of_date || "live",
+                  snapshotHash: knobSnapshot.hash,
+                }),
               systemPrompt,
             });
           }
@@ -283,7 +295,10 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               "research_knobs_runtime_v1",
             ],
           });
-          if (canaryEvent) llmCall.prompt_canary_event = canaryEvent;
+          if (canaryEvent) {
+            llmCall.prompt_canary_event = canaryEvent;
+            await persistPromptReleaseCanaryEvents([canaryEvent]);
+          }
 
           onLog(
             formatAgentEvent("done", "L3", spec.agentId, [
@@ -359,7 +374,10 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           forceFallback: true,
         });
         const llmCall = buildLlmCall(spec.agentId, structuredHandle);
-        if (canaryEvent) llmCall.prompt_canary_event = canaryEvent;
+        if (canaryEvent) {
+          llmCall.prompt_canary_event = canaryEvent;
+          await persistPromptReleaseCanaryEvents([canaryEvent]);
+        }
         onLog(
           formatAgentEvent("timeout", "L3", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,

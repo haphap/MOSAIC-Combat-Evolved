@@ -43,6 +43,7 @@ import {
 import {
   type AgentCanaryEventContext,
   agentCanaryEventContext,
+  beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
 import {
@@ -172,6 +173,15 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
               stage: "agent_run",
               trafficAssignmentKey: state.trace_id || state.as_of_date,
               runtimeSourceStatuses,
+              onReleaseAssigned: async (release) => {
+                canaryContext = await beginAgentPromptCanaryInvocation({
+                  release,
+                  state,
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                });
+              },
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
             knobSnapshot = loaded.snapshot;
@@ -180,14 +190,16 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
             canaryContext = agentCanaryEventContext({
               release: loaded.release,
               state,
-              agentInvocationId: buildAgentInvocationId({
-                runId: state.trace_id || state.as_of_date || "current_run",
-                agent: spec.agentId,
-                stage: "agent_run",
-                cohort,
-                asOf: state.as_of_date || "live",
-                snapshotHash: loaded.snapshot.hash,
-              }),
+              agentInvocationId:
+                canaryContext?.agentInvocationId ??
+                buildAgentInvocationId({
+                  runId: state.trace_id || state.as_of_date || "current_run",
+                  agent: spec.agentId,
+                  stage: "agent_run",
+                  cohort,
+                  asOf: state.as_of_date || "live",
+                  snapshotHash: loaded.snapshot.hash,
+                }),
               systemPrompt,
             });
           } else {
@@ -316,7 +328,10 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
               "research_knobs_runtime_v1",
             ],
           });
-          if (canaryEvent) llmCall.prompt_canary_event = canaryEvent;
+          if (canaryEvent) {
+            llmCall.prompt_canary_event = canaryEvent;
+            await persistPromptReleaseCanaryEvents([canaryEvent]);
+          }
 
           onLog(
             formatAgentEvent("done", "L1", spec.agentId, [
@@ -392,7 +407,10 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           forceFallback: true,
         });
         const llmCall = buildLlmCall(spec.agentId, structuredHandle);
-        if (canaryEvent) llmCall.prompt_canary_event = canaryEvent;
+        if (canaryEvent) {
+          llmCall.prompt_canary_event = canaryEvent;
+          await persistPromptReleaseCanaryEvents([canaryEvent]);
+        }
         onLog(
           formatAgentEvent("timeout", "L1", spec.agentId, [
             `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
