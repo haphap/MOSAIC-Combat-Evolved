@@ -383,9 +383,14 @@ def build_rke_agent_research_context_from_rows(
     normalized_agent = normalize_agent_id(agent_id, layer=layer)
     max_count = max(0, int(max_items or 0))
     metadata_by_report = _index_metadata(metadata)
-    outcomes_by_claim = _group_by(outcomes, "forecast_claim_id")
+    outcomes_by_claim = _group_by(
+        [row for row in outcomes if _outcome_available_as_of(row, as_of_date)],
+        "forecast_claim_id",
+    )
     weighted_by_claim = _weighted_claims_by_forecast_id(
-        weighted_research_contexts, normalized_agent
+        weighted_research_contexts,
+        normalized_agent,
+        as_of_date=as_of_date,
     )
     metric_family_keys = _cached_known_metric_family_keys(forecasts)
     recipe_id_index = _cached_recipe_id_index(recipes, metric_family_keys)
@@ -573,8 +578,17 @@ def _public_claim_item(
     domain = _claim_domain(claim, report_meta)
     metric_families = _claim_metric_families(claim)
     regime_types = _claim_regime_types(claim, agent_id)
-    source_profile = _best_source_profile(report_meta, source_profiles)
-    viewpoint_profile = _best_viewpoint_profile(metric_families, viewpoint_profiles)
+    source_profile = _best_source_profile(
+        report_meta,
+        source_profiles,
+        as_of_date=as_of_date,
+    )
+    viewpoint_profile = _best_viewpoint_profile(
+        metric_families,
+        viewpoint_profiles,
+        as_of_date=as_of_date,
+        horizon_bucket=_horizon_bucket(claim.get("horizon")),
+    )
     matched_gaps = _matching_tool_gap_ids(metric_families, agent_id, tool_gap_id_index)
     matched_recipes = _matching_recipe_ids(metric_families, recipe_id_index)
     outcome_summary = _outcome_summary(outcomes)
@@ -948,24 +962,40 @@ def _claim_metric_families(claim: Mapping[str, Any]) -> list[str]:
 def _best_source_profile(
     report_meta: Mapping[str, Any],
     source_profiles: Sequence[Mapping[str, Any]],
+    *,
+    as_of_date: str,
 ) -> Mapping[str, Any]:
     ids = {
         str(report_meta.get("institution_id") or ""),
         *[str(item) for item in _ensure_list(report_meta.get("author_ids"))],
     }
-    candidates = [row for row in source_profiles if str(row.get("entity_id") or "") in ids]
+    report_sector = str(
+        report_meta.get("sector") or report_meta.get("industry") or ""
+    ).strip()
+    candidates = [
+        row
+        for row in source_profiles
+        if str(row.get("entity_id") or "") in ids
+        and _profile_available_as_of(row, as_of_date)
+        and _profile_context_matches_sector(row, report_sector)
+    ]
     return _best_by_effective_n(candidates)
 
 
 def _best_viewpoint_profile(
     metric_families: Sequence[str],
     viewpoint_profiles: Sequence[Mapping[str, Any]],
+    *,
+    as_of_date: str,
+    horizon_bucket: str,
 ) -> Mapping[str, Any]:
     wanted = set(metric_families)
     candidates = [
         row
         for row in viewpoint_profiles
         if wanted.intersection(_ensure_str_list(row.get("mechanism_chain")))
+        and _profile_available_as_of(row, as_of_date)
+        and _profile_context_matches_horizon(row, horizon_bucket)
     ]
     return _best_by_effective_n(candidates)
 
@@ -977,10 +1007,19 @@ def _best_by_effective_n(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]
 
 
 def _weighted_claims_by_forecast_id(
-    contexts: Sequence[Mapping[str, Any]], agent_id: str
+    contexts: Sequence[Mapping[str, Any]],
+    agent_id: str,
+    *,
+    as_of_date: str,
 ) -> dict[str, Mapping[str, Any]]:
     rows: dict[str, tuple[int, Mapping[str, Any]]] = {}
     for context in contexts:
+        if not _dated_row_available_before(
+            context,
+            as_of_date,
+            fields=("as_of_datetime", "as_of_date"),
+        ):
+            continue
         context_agent = str(context.get("agent_id") or "")
         priority = 0 if context_agent == agent_id else 1 if context_agent == "research.general" else 2
         for claim in _ensure_list(context.get("retrieved_claims")):
@@ -992,6 +1031,63 @@ def _weighted_claims_by_forecast_id(
             if previous is None or priority < previous[0]:
                 rows[forecast_claim_id] = (priority, claim_map)
     return {claim_id: row for claim_id, (_, row) in rows.items()}
+
+
+def _dated_row_available_before(
+    row: Mapping[str, Any],
+    as_of_date: str,
+    *,
+    fields: Sequence[str],
+) -> bool:
+    if not as_of_date:
+        return True
+    available_date = next(
+        (_date_key(row.get(field)) for field in fields if _date_key(row.get(field))),
+        "",
+    )
+    return bool(available_date) and available_date < as_of_date
+
+
+def _outcome_available_as_of(row: Mapping[str, Any], as_of_date: str) -> bool:
+    return _dated_row_available_before(
+        row,
+        as_of_date,
+        fields=(
+            "label_available_at",
+            "data_as_of_datetime",
+            "exit_datetime",
+            "exit_date",
+            "observed_at",
+        ),
+    )
+
+
+def _profile_available_as_of(row: Mapping[str, Any], as_of_date: str) -> bool:
+    return _dated_row_available_before(
+        row,
+        as_of_date,
+        fields=("as_of_datetime", "last_revalidated_at"),
+    )
+
+
+def _profile_context_matches_sector(
+    row: Mapping[str, Any], report_sector: str
+) -> bool:
+    profile_sector = str(_ensure_mapping(row.get("context")).get("sector") or "").strip()
+    if not profile_sector or profile_sector == "unknown" or not report_sector:
+        return True
+    return _slug(profile_sector) == _slug(report_sector)
+
+
+def _profile_context_matches_horizon(
+    row: Mapping[str, Any], horizon_bucket: str
+) -> bool:
+    profile_horizon = str(
+        _ensure_mapping(row.get("context")).get("horizon_bucket") or ""
+    ).strip()
+    if not profile_horizon or profile_horizon == "unknown" or not horizon_bucket:
+        return True
+    return profile_horizon == horizon_bucket
 
 
 def _rank_context_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
