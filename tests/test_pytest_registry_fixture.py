@@ -41,3 +41,9 @@ def test_registry_copy_excludes_private_cache_and_stays_within_budget(
     assert copied_bytes <= fixture_budget["max_copied_bytes"]
     for prefix in fixture_budget["forbidden_private_prefixes"]:
         assert not (copied_registry / prefix).exists()
+
+    source_manifest = ROOT / "registry/prompt_checks/runtime_agent_manifest_v1.json"
+    copied_manifest = copied_registry / "prompt_checks/runtime_agent_manifest_v1.json"
+    source_bytes = source_manifest.read_bytes()
+    copied_manifest.write_text("{}\n", encoding="utf-8")
+    assert source_manifest.read_bytes() == source_bytes

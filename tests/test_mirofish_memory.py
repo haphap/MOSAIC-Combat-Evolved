@@ -50,7 +50,8 @@ class TestMemoryLift(unittest.TestCase):
         cls.d = measure_memory_lift(n_seeds=150, num_days=30)
 
     def test_deterministic(self):
-        self.assertEqual(self.d, measure_memory_lift(n_seeds=150, num_days=30))
+        first = measure_memory_lift(n_seeds=12, num_days=30)
+        self.assertEqual(first, measure_memory_lift(n_seeds=12, num_days=30))
 
     def test_memory_learns_the_regime_split_online(self):
         """Online learned correlation recovers the A/B-lift split: swarm

@@ -8,6 +8,7 @@ import {
   type ResearchClaim,
   validateClaimEvidenceGraph,
 } from "../evidence_contract.js";
+import { AGENTS_BY_LAYER } from "../prompts/cohorts.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
 import type {
@@ -131,7 +132,7 @@ const SECTOR_PICK_AGENTS = new Set([
   "industrials",
   "financials",
 ]);
-const SUPERINVESTOR_AGENTS = new Set(["druckenmiller", "munger", "burry", "ackman"]);
+const SUPERINVESTOR_AGENTS = new Set<string>(AGENTS_BY_LAYER.superinvestor);
 
 export function buildAgentInvocationId(input: {
   runId: string;

@@ -135,6 +135,20 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     )
 
 
+def _copy_file_cow(src: str | os.PathLike, dst: str | os.PathLike) -> str:
+    """Clone fixture files copy-on-write when the local filesystem supports it."""
+
+    destination = Path(dst)
+    try:
+        with Path(src).open("rb") as source_handle, destination.open("wb") as destination_handle:
+            fcntl.ioctl(destination_handle.fileno(), 0x40049409, source_handle.fileno())
+        shutil.copystat(src, dst)
+        return os.fspath(dst)
+    except OSError:
+        destination.unlink(missing_ok=True)
+        return os.fspath(shutil.copy2(src, dst))
+
+
 def _git_status_porcelain(root_path: Path) -> set[str]:
     if not (root_path / ".git").exists():
         return set()
@@ -813,8 +827,8 @@ def _isolate_external_env(monkeypatch):
     monkeypatch.setenv("MOSAIC_CHINA_POLICY_DB_AUTO_SYNC", "0")
 
 
-@pytest.fixture(autouse=True)
-def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
+@pytest.fixture(scope="session", autouse=True)
+def _ignore_rke_manual_review_scratch_in_registry_copies():
     """Keep pytest registry copies free of local/private artifacts."""
 
     from mosaic.rke.registry_manifest import (
@@ -1041,12 +1055,13 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
 
             effective_ignore = ignore_review_scratch
 
+        effective_copy_function = _copy_file_cow if should_trim_registry_copy else copy_function
         copied_path = original_copytree(
             src,
             dst,
             symlinks=symlinks,
             ignore=effective_ignore,
-            copy_function=copy_function,
+            copy_function=effective_copy_function,
             ignore_dangling_symlinks=ignore_dangling_symlinks,
             dirs_exist_ok=dirs_exist_ok,
         )
@@ -1058,4 +1073,8 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
             )
         return copied_path
 
-    monkeypatch.setattr("shutil.copytree", copytree_without_review_scratch)
+    shutil.copytree = copytree_without_review_scratch
+    try:
+        yield
+    finally:
+        shutil.copytree = original_copytree

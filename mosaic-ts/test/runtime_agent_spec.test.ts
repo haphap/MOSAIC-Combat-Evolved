@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import {
   buildRuntimeAgentManifestArtifact,
   CANONICAL_L4_STAGE_SEQUENCE,
@@ -77,5 +80,24 @@ describe("stage-aware runtime agent manifest", () => {
   it("renders deterministic JSON", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
     expect(JSON.parse(renderRuntimeAgentManifestArtifact(artifact))).toEqual(artifact);
+  });
+
+  it("keeps the committed cross-language roster manifest in sync", () => {
+    const artifact = buildRuntimeAgentManifestArtifact();
+    const committed = JSON.parse(
+      readFileSync(
+        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v1.json"),
+        "utf-8",
+      ),
+    );
+    const grouped = Object.fromEntries(
+      Object.keys(AGENTS_BY_LAYER).map((layer) => [
+        layer,
+        artifact.agents.filter((agent) => agent.layer === layer).map((agent) => agent.agent),
+      ]),
+    );
+
+    expect(committed).toEqual(artifact);
+    expect(grouped).toEqual(AGENTS_BY_LAYER);
   });
 });

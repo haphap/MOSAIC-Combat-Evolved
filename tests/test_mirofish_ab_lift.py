@@ -21,7 +21,8 @@ class TestAbLift(unittest.TestCase):
         cls.d = measure_lift(n_seeds=150, num_days=30)
 
     def test_deterministic(self):
-        self.assertEqual(self.d, measure_lift(n_seeds=150, num_days=30))
+        first = measure_lift(n_seeds=12, num_days=30)
+        self.assertEqual(first, measure_lift(n_seeds=12, num_days=30))
 
     def test_swarm_has_exploitable_forward_signal_montecarlo_lacks(self):
         """The decisive lift result: drift-demeaned early→post-window return

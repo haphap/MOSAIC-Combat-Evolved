@@ -26,7 +26,7 @@ export type Layer = "macro" | "sector" | "superinvestor" | "decision";
 export type Language = "zh" | "en";
 
 /** Agent IDs grouped by their canonical layer (Plan §5). */
-export const AGENTS_BY_LAYER: Record<Layer, ReadonlyArray<string>> = {
+export const AGENTS_BY_LAYER = {
   macro: [
     "central_bank",
     "geopolitical",
@@ -50,7 +50,7 @@ export const AGENTS_BY_LAYER: Record<Layer, ReadonlyArray<string>> = {
   ],
   superinvestor: ["druckenmiller", "munger", "burry", "ackman"],
   decision: ["cro", "alpha_discovery", "autonomous_execution", "cio"],
-};
+} as const satisfies Record<Layer, ReadonlyArray<string>>;
 
 /** Inverse map: agent_id → its canonical layer. */
 export const LAYER_BY_AGENT: Record<string, Layer> = (() => {

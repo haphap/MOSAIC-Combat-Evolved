@@ -22,8 +22,8 @@ Note: this deviates from the literal ``prompts.write(..., lang, content)``
 pseudo-signature in the plan to honour the single-commit invariant; the 4E
 orchestrator calls it once with both languages.
 
-Agent→layer resolution mirrors ``mosaic-ts/src/agents/prompts/cohorts.ts``
-(Plan §5). Kept Python-side so the handler is self-contained and unit-testable.
+Agent→layer resolution is loaded from the committed runtime-agent manifest that
+is generated from ``mosaic-ts/src/agents/prompts/cohorts.ts`` (Plan §5).
 """
 
 from __future__ import annotations
@@ -39,20 +39,40 @@ from typing import Any, Optional
 from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
-# Mirror of cohorts.ts AGENTS_BY_LAYER (Plan §5). Keep in sync with the TS map.
-_AGENTS_BY_LAYER: dict[str, tuple[str, ...]] = {
-    "macro": (
-        "central_bank", "geopolitical", "china", "dollar", "yield_curve",
-        "commodities", "volatility", "emerging_markets", "news_sentiment",
-        "institutional_flow",
-    ),
-    "sector": (
-        "semiconductor", "energy", "biotech", "consumer", "industrials",
-        "financials", "relationship_mapper",
-    ),
-    "superinvestor": ("druckenmiller", "munger", "burry", "ackman"),
-    "decision": ("cro", "alpha_discovery", "autonomous_execution", "cio"),
-}
+
+def _load_agents_by_layer() -> dict[str, tuple[str, ...]]:
+    manifest_path = (
+        Path(__file__).resolve().parents[3]
+        / "registry"
+        / "prompt_checks"
+        / "runtime_agent_manifest_v1.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("runtime agent manifest is invalid")
+    if payload.get("schema_version") != "runtime_agent_manifest_v1":
+        raise RuntimeError("runtime agent manifest schema version is invalid")
+    layers = ("macro", "sector", "superinvestor", "decision")
+    grouped: dict[str, list[str]] = {layer: [] for layer in layers}
+    seen: set[str] = set()
+    for row in payload.get("agents", []):
+        if not isinstance(row, dict):
+            raise RuntimeError("runtime agent manifest row is invalid")
+        layer = row.get("layer")
+        agent = row.get("agent")
+        if layer not in grouped or not isinstance(agent, str) or not agent:
+            raise RuntimeError("runtime agent manifest binding is invalid")
+        if agent in seen:
+            raise RuntimeError(f"runtime agent manifest duplicates agent: {agent}")
+        seen.add(agent)
+        grouped[layer].append(agent)
+    declared_count = payload.get("runtime_agent_count")
+    if declared_count != len(seen) or any(not grouped[layer] for layer in layers):
+        raise RuntimeError("runtime agent manifest roster is incomplete")
+    return {layer: tuple(grouped[layer]) for layer in layers}
+
+
+_AGENTS_BY_LAYER = _load_agents_by_layer()
 _LAYER_BY_AGENT: dict[str, str] = {
     agent: layer for layer, agents in _AGENTS_BY_LAYER.items() for agent in agents
 }

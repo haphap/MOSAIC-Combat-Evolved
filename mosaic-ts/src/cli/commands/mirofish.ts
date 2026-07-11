@@ -10,6 +10,7 @@
 import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { AGENTS_BY_LAYER } from "../../agents/prompts/cohorts.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { type MirofishCurrentPositionInput, runMirofishTraining } from "../../mirofish/trainer.js";
@@ -17,7 +18,7 @@ import { redactSensitiveText } from "../../security/redaction.js";
 import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 import { pad } from "../_format.js";
 
-const DEFAULT_AGENTS = ["druckenmiller", "munger", "burry", "ackman"];
+const DEFAULT_AGENTS = AGENTS_BY_LAYER.superinvestor;
 const MIROFISH_BRIDGE_TIMEOUT_MS = 30 * 60 * 1000;
 
 interface GenerateOpts {
@@ -166,7 +167,9 @@ export function registerMirofish(program: Command): void {
               ...(opts.model ? { model: opts.model } : {}),
               ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
             });
-        const agents = opts.agents ? opts.agents.split(",").map((a) => a.trim()) : DEFAULT_AGENTS;
+        const agents = opts.agents
+          ? opts.agents.split(",").map((a) => a.trim())
+          : [...DEFAULT_AGENTS];
         console.log(
           pc.bold(
             `\nmirofish train -- agents=[${agents.join(", ")}]` +

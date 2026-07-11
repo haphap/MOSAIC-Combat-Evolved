@@ -221,7 +221,7 @@ async function collectOrphanPromptRows(opts: {
       } catch {
         continue;
       }
-      const allowed = new Set(AGENTS_BY_LAYER[layer]);
+      const allowed = new Set<string>(AGENTS_BY_LAYER[layer]);
       for (const entry of entries) {
         if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
         const agent = basename(entry.name).replace(/\.(zh|en)\.md$/, "");
