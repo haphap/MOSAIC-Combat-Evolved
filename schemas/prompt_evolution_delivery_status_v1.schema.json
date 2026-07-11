@@ -24,8 +24,8 @@
       "required": ["id", "version", "command_contract_version"],
       "properties": {
         "id": {"const": "prompt_evolution_delivery"},
-        "version": {"const": "1"},
-        "command_contract_version": {"const": "prompt_evolution_delivery_commands_v1"}
+        "version": {"const": "2"},
+        "command_contract_version": {"const": "prompt_evolution_delivery_commands_v2"}
       }
     },
     "run": {
@@ -54,12 +54,35 @@
     "upstream_ci": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "run_id", "run_url", "head_sha", "python_status", "typescript_status"],
+      "required": [
+        "provider",
+        "repository",
+        "workflow_ref",
+        "job_name",
+        "event_name",
+        "run_id",
+        "run_attempt",
+        "run_url",
+        "tested_sha",
+        "source_head_sha",
+        "base_sha",
+        "context_complete",
+        "python_status",
+        "typescript_status"
+      ],
       "properties": {
         "provider": {"enum": ["github_actions", "local"]},
+        "repository": {"type": "string"},
+        "workflow_ref": {"type": "string"},
+        "job_name": {"type": "string"},
+        "event_name": {"enum": ["local", "pull_request", "push"]},
         "run_id": {"type": "string"},
+        "run_attempt": {"type": "string"},
         "run_url": {"type": "string"},
-        "head_sha": {"type": "string"},
+        "tested_sha": {"type": "string"},
+        "source_head_sha": {"type": "string"},
+        "base_sha": {"type": "string"},
+        "context_complete": {"type": "boolean"},
         "python_status": {"type": "string"},
         "typescript_status": {"type": "string"}
       }
@@ -80,8 +103,8 @@
     },
     "checks": {
       "type": "array",
-      "minItems": 17,
-      "maxItems": 17,
+      "minItems": 23,
+      "maxItems": 23,
       "items": {"$ref": "#/$defs/check"}
     },
     "gates": {
@@ -144,7 +167,8 @@
         "reason_codes",
         "stdout_sha256",
         "stderr_sha256",
-        "evidence_refs"
+        "evidence_refs",
+        "measurements"
       ],
       "properties": {
         "check_id": {"type": "string", "minLength": 1},
@@ -159,7 +183,13 @@
         "reason_codes": {"$ref": "#/$defs/string_array"},
         "stdout_sha256": {"$ref": "#/$defs/sha256"},
         "stderr_sha256": {"$ref": "#/$defs/sha256"},
-        "evidence_refs": {"$ref": "#/$defs/string_array"}
+        "evidence_refs": {"$ref": "#/$defs/string_array"},
+        "measurements": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["integer", "number", "string"]
+          }
+        }
       }
     },
     "gate": {

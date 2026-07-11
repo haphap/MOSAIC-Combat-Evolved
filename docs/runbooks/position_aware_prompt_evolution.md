@@ -81,6 +81,15 @@ rtk proxy env MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES=1 \
 
 This opt-in run never substitutes for the clean public fixture suite.
 
+The default suite also suppresses a `FRED_API_KEY` loaded from project `.env`
+so routine verification cannot make live network calls. Run that diagnostic
+explicitly only when required:
+
+```bash
+rtk proxy env MOSAIC_TEST_LIVE_FRED=1 \
+  uv run python -m pytest tests/test_fred.py -q
+```
+
 ## Prompt IR And Domain Knob Catalog
 
 Position-aware prompt evolution uses Prompt IR, the runtime source registry, and
@@ -511,9 +520,20 @@ rtk uv run python scripts/run_prompt_evolution_delivery.py \
 ```
 
 A local run remains `blocked` at G7 because it has no GitHub upstream job
-receipt. In GitHub Actions, `python_ci` and `typescript_ci` must both bind the
-same head SHA and report success. Any input hash or code commit drift invalidates
-the artifact.
+receipt, and the CLI has no switch that can promote local receipts to GitHub
+receipts. In GitHub Actions, `python_ci` and `typescript_ci` must both report
+success; the artifact also binds the repository, workflow ref, delivery job
+name, run id/attempt, event, source head/base refs, tested checkout commit, and
+tree. For pull requests the tested commit is the merge ref checked out by the
+runner, not the source head shown on the PR page.
+
+The committed
+`registry/prompt_checks/prompt_evolution_performance_budget_v1.json` applies
+the 1.5x regression rule and absolute caps to the focused schema check, full
+schema artifact file, and 25-agent bundled checker. A dedicated pytest fixture
+copy test enforces public-registry bytes/files caps and rejects private PDF,
+Markdown, and MinerU cache prefixes. Any command, performance, input hash,
+commit, tree, or CI context drift invalidates the artifact.
 
 ## Release Boundary
 

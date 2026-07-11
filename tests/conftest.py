@@ -19,6 +19,10 @@ from pathlib import Path
 
 import pytest
 
+if os.environ.get("MOSAIC_TEST_LIVE_FRED") != "1":
+    # Prevent project .env loading from turning the default suite into a live test.
+    os.environ["FRED_API_KEY"] = ""
+
 _RKE_DEFAULT_TMPDIR = Path(
     os.environ.get("MOSAIC_RKE_TMPDIR") or "~/tmp/mosaic-rke"
 ).expanduser()

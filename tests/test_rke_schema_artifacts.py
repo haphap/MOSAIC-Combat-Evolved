@@ -61,6 +61,7 @@ REQUIRED_SCHEMA_FILES = {
     "prompt_release_canary_event_v1.schema.json",
     "prompt_release_canary_slo_v1.schema.json",
     "prompt_evolution_delivery_status_v1.schema.json",
+    "prompt_evolution_performance_budget_v1.schema.json",
     "prompt_token_budget_manifest_v1.schema.json",
     "confidence_policy.schema.yaml",
     "rule_aggregation_policy.schema.yaml",

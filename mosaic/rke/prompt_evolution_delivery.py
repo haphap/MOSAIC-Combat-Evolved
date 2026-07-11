@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,8 +16,8 @@ from typing import Any, Literal, Mapping, Sequence
 
 SCHEMA_VERSION = "prompt_evolution_delivery_status_v1"
 GENERATOR_ID = "prompt_evolution_delivery"
-GENERATOR_VERSION = "1"
-COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v1"
+GENERATOR_VERSION = "2"
+COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v2"
 
 Status = Literal["pass", "fail", "blocked"]
 
@@ -27,6 +28,9 @@ EVALUATION_CONTRACT_PATH = (
     PROMPT_CHECK_DIR / "domain_knob_evaluation_contract_v1.json"
 )
 TOKEN_BUDGET_PATH = PROMPT_CHECK_DIR / "prompt_token_budget_manifest_v1.json"
+PERFORMANCE_BUDGET_PATH = (
+    PROMPT_CHECK_DIR / "prompt_evolution_performance_budget_v1.json"
+)
 
 DELIVERY_INPUT_PATHS = (
     Path(".github/workflows/ci.yml"),
@@ -42,11 +46,13 @@ DELIVERY_INPUT_PATHS = (
     Path("pyproject.toml"),
     DOMAIN_CATALOG_PATH,
     EVALUATION_CONTRACT_PATH,
+    PERFORMANCE_BUDGET_PATH,
     RUNTIME_MANIFEST_PATH,
     TOKEN_BUDGET_PATH,
     Path("schemas/domain_knob_catalog_v1.schema.json"),
     Path("schemas/domain_knob_evaluation_contract_v1.schema.json"),
     Path("schemas/prompt_evolution_delivery_status_v1.schema.json"),
+    Path("schemas/prompt_evolution_performance_budget_v1.schema.json"),
     Path("schemas/prompt_token_budget_manifest_v1.schema.json"),
     Path("schemas/runtime_agent_manifest_v1.schema.json"),
 )
@@ -55,15 +61,21 @@ CHECK_IDS = (
     "git_clean_start",
     "ruff",
     "prompt_leak_guard",
+    "focused_schema_contract",
+    "schema_artifact_tests",
     "python_gate_tests",
+    "representative_evaluation_tests",
+    "python_integration_contract_tests",
     "typescript_typecheck",
     "typescript_lint",
     "typescript_gate_tests",
+    "typescript_integration_contract_tests",
     "bundled_prompt_contract",
     "runtime_manifest_reproducible",
     "domain_catalog_reproducible",
     "evaluation_contract_reproducible",
     "prompt_budget_attestation",
+    "performance_budget",
     "documentation_contract",
     "git_diff_check",
     "git_clean_end",
@@ -76,6 +88,8 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
         "title": "contract foundation",
         "checks": (
             "python_gate_tests",
+            "focused_schema_contract",
+            "schema_artifact_tests",
             "typescript_gate_tests",
             "runtime_manifest_reproducible",
             "domain_catalog_reproducible",
@@ -95,7 +109,11 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
     },
     "G3": {
         "title": "paired PIT evaluation",
-        "checks": ("python_gate_tests", "typescript_gate_tests"),
+        "checks": (
+            "python_gate_tests",
+            "representative_evaluation_tests",
+            "typescript_gate_tests",
+        ),
         "gates": ("G0",),
     },
     "G4": {
@@ -133,6 +151,7 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
             "git_clean_end",
             "python_ci",
             "typescript_ci",
+            "performance_budget",
         ),
         "gates": ("G0", "G1", "G2", "G3", "G4", "G5", "G6"),
     },
@@ -146,11 +165,26 @@ CONDITION_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
     "C05": {"title": "canonical Layer 4 DAG", "checks": (), "gates": ("G1",)},
     "C06": {"title": "portfolio and action validators", "checks": (), "gates": ("G1",)},
     "C07": {"title": "end-to-end mutation release trace", "checks": (), "gates": ("G3", "G4")},
-    "C08": {"title": "representative paired evaluations and rollback", "checks": ("python_gate_tests",), "gates": ("G3",)},
+    "C08": {
+        "title": "representative paired evaluations and rollback",
+        "checks": ("representative_evaluation_tests",),
+        "gates": ("G3",),
+    },
     "C09": {"title": "transaction recovery and idempotency", "checks": (), "gates": ("G4",)},
-    "C10": {"title": "backtest, paper, partial-fill and TUI integration", "checks": (), "gates": ("G6",)},
+    "C10": {
+        "title": "backtest, paper, partial-fill and TUI integration",
+        "checks": (
+            "python_integration_contract_tests",
+            "typescript_integration_contract_tests",
+        ),
+        "gates": ("G6",),
+    },
     "C11": {"title": "privacy, PIT and compatibility boundaries", "checks": ("prompt_leak_guard",), "gates": ("G0", "G1", "G2")},
-    "C12": {"title": "CI, budgets and documentation", "checks": ("prompt_budget_attestation",), "gates": ("G7",)},
+    "C12": {
+        "title": "CI, budgets and documentation",
+        "checks": ("prompt_budget_attestation", "performance_budget"),
+        "gates": ("G7",),
+    },
 }
 
 PYTHON_GATE_TESTS = (
@@ -159,7 +193,32 @@ PYTHON_GATE_TESTS = (
     "tests/test_bridge_prompts.py",
     "tests/test_mirofish.py",
     "tests/test_paper_engine.py",
-    "tests/test_rke_schema_artifacts.py",
+)
+
+REPRESENTATIVE_EVALUATION_TESTS = (
+    "tests/test_autoresearch_domain_evaluator.py::test_generic_confidence_and_weight_targets_use_paired_evaluator",
+    "tests/test_autoresearch_domain_evaluator.py::test_representative_domain_categories_complete_paired_evaluation_and_rollback",
+)
+
+PYTHON_INTEGRATION_CONTRACT_TESTS = (
+    "tests/test_paper_engine.py::TestPaperEngine::test_order_intent_is_idempotent_and_account_hash_is_compare_and_swap",
+    "tests/test_pytest_registry_fixture.py::test_registry_copy_excludes_private_cache_and_stays_within_budget",
+)
+
+TYPESCRIPT_INTEGRATION_PATTERN = (
+    "carries target positions across a 10-day replay loop|"
+    "carries partial fills and residual target drift into the next cycle|"
+    "delegates sizing to paper.suggest_order_from_signal so orders are target-current deltas|"
+    "renders the Today [(]CIO plan[)] tab by default|"
+    "switches to the paper tab on key '4'"
+)
+
+PERFORMANCE_TIMING_CHECK_IDS = frozenset(
+    {
+        "focused_schema_contract",
+        "schema_artifact_tests",
+        "bundled_prompt_contract",
+    }
 )
 
 TYPESCRIPT_GATE_TESTS = (
@@ -192,6 +251,10 @@ class CommandSpec:
     cwd: Path
     evidence_refs: tuple[str, ...]
     compare_output_to: Path | None = None
+    junit_expected_tests: int | None = None
+    junit_path: Path | None = None
+    json_expected_passed_tests: int | None = None
+    json_report_path: Path | None = None
 
 
 def utc_now() -> str:
@@ -250,6 +313,47 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ("scripts/check_prompt_leaks.py",),
         ),
         CommandSpec(
+            "focused_schema_contract",
+            (
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "pytest",
+                "tests/test_rke_schema_artifacts.py::test_domain_knob_evaluation_contract_schema_requires_generic_write_back",
+                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+                "-q",
+                "--junitxml",
+                str(run_dir / "focused-schema.xml"),
+                "--basetemp",
+                str(python_basetemp / "focused-schema"),
+            ),
+            root,
+            (
+                "tests/test_rke_schema_artifacts.py::test_domain_knob_evaluation_contract_schema_requires_generic_write_back",
+                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+            ),
+            junit_expected_tests=2,
+            junit_path=run_dir / "focused-schema.xml",
+        ),
+        CommandSpec(
+            "schema_artifact_tests",
+            (
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "pytest",
+                "tests/test_rke_schema_artifacts.py",
+                "-q",
+                "--durations=20",
+                "--basetemp",
+                str(python_basetemp / "schema-artifacts"),
+            ),
+            root,
+            ("tests/test_rke_schema_artifacts.py",),
+        ),
+        CommandSpec(
             "python_gate_tests",
             (
                 "uv",
@@ -261,10 +365,51 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "-q",
                 "--durations=20",
                 "--basetemp",
-                str(python_basetemp),
+                str(python_basetemp / "gates"),
             ),
             root,
             PYTHON_GATE_TESTS,
+        ),
+        CommandSpec(
+            "representative_evaluation_tests",
+            (
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "pytest",
+                *REPRESENTATIVE_EVALUATION_TESTS,
+                "-q",
+                "--junitxml",
+                str(run_dir / "representative-evaluation.xml"),
+                "--basetemp",
+                str(python_basetemp / "representative-evaluation"),
+            ),
+            root,
+            REPRESENTATIVE_EVALUATION_TESTS,
+            junit_expected_tests=2,
+            junit_path=run_dir / "representative-evaluation.xml",
+        ),
+        CommandSpec(
+            "python_integration_contract_tests",
+            (
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "pytest",
+                *PYTHON_INTEGRATION_CONTRACT_TESTS,
+                "-q",
+                "-s",
+                "--junitxml",
+                str(run_dir / "python-integration.xml"),
+                "--basetemp",
+                str(python_basetemp / "integration"),
+            ),
+            root,
+            PYTHON_INTEGRATION_CONTRACT_TESTS,
+            junit_expected_tests=2,
+            junit_path=run_dir / "python-integration.xml",
         ),
         CommandSpec(
             "typescript_typecheck",
@@ -283,6 +428,29 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ("pnpm", "exec", "vitest", "run", *TYPESCRIPT_GATE_TESTS),
             root / "mosaic-ts",
             tuple(f"mosaic-ts/{path}" for path in TYPESCRIPT_GATE_TESTS),
+        ),
+        CommandSpec(
+            "typescript_integration_contract_tests",
+            (
+                "pnpm",
+                "exec",
+                "vitest",
+                "run",
+                "test/daily_cycle.test.ts",
+                "test/dashboard.test.tsx",
+                "-t",
+                TYPESCRIPT_INTEGRATION_PATTERN,
+                "--reporter=json",
+                "--outputFile",
+                str(run_dir / "typescript-integration.json"),
+            ),
+            root / "mosaic-ts",
+            (
+                "mosaic-ts/test/daily_cycle.test.ts:backtest position carry-over",
+                "mosaic-ts/test/dashboard.test.tsx:Dashboard",
+            ),
+            json_expected_passed_tests=5,
+            json_report_path=run_dir / "typescript-integration.json",
         ),
         CommandSpec(
             "bundled_prompt_contract",
@@ -356,6 +524,12 @@ def run_command(root: Path, run_dir: Path, spec: CommandSpec) -> dict[str, Any]:
     temp_dir.mkdir(parents=True, exist_ok=True)
     env["MOSAIC_RKE_TMPDIR"] = str(temp_dir)
     env["TMPDIR"] = str(temp_dir)
+    if spec.junit_path is not None:
+        spec.junit_path.unlink(missing_ok=True)
+    if spec.json_report_path is not None:
+        spec.json_report_path.unlink(missing_ok=True)
+    if spec.compare_output_to is not None:
+        Path(spec.argv[-1]).unlink(missing_ok=True)
     result = subprocess.run(
         list(spec.argv),
         cwd=spec.cwd,
@@ -374,10 +548,21 @@ def run_command(root: Path, run_dir: Path, spec: CommandSpec) -> dict[str, Any]:
         if not output_path.exists() or output_path.read_bytes() != committed_path.read_bytes():
             status = "fail"
             reasons.append("GENERATED_ARTIFACT_DRIFT")
+    if spec.junit_expected_tests is not None:
+        junit_reasons = _validate_junit_receipt(spec)
+        if junit_reasons:
+            status = "fail"
+            reasons.extend(junit_reasons)
+    if spec.json_expected_passed_tests is not None:
+        json_reasons = _validate_json_test_receipt(spec)
+        if json_reasons:
+            status = "fail"
+            reasons.extend(json_reasons)
     duration_ms = max(0, round((time.monotonic() - started) * 1000))
     completed_at = utc_now()
     stdout = result.stdout or b""
     stderr = result.stderr or b""
+    measurements = _extract_measurements(stdout)
     print(f"[{status}] {spec.check_id} ({duration_ms} ms)")
     if status != "pass":
         if stdout:
@@ -398,7 +583,51 @@ def run_command(root: Path, run_dir: Path, spec: CommandSpec) -> dict[str, Any]:
         "stdout_sha256": f"sha256:{hashlib.sha256(stdout).hexdigest()}",
         "stderr_sha256": f"sha256:{hashlib.sha256(stderr).hexdigest()}",
         "evidence_refs": list(spec.evidence_refs),
+        "measurements": measurements,
     }
+
+
+def _validate_junit_receipt(spec: CommandSpec) -> list[str]:
+    if spec.junit_path is None or not spec.junit_path.is_file():
+        return ["JUNIT_RECEIPT_MISSING"]
+    try:
+        root = ET.parse(spec.junit_path).getroot()
+    except (OSError, ET.ParseError):
+        return ["JUNIT_RECEIPT_INVALID"]
+    suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+    if not suites:
+        return ["JUNIT_RECEIPT_INVALID"]
+
+    def total(field: str) -> int:
+        return sum(int(suite.attrib.get(field, "0")) for suite in suites)
+
+    tests = total("tests")
+    failures = total("failures")
+    errors = total("errors")
+    skipped = total("skipped")
+    reasons: list[str] = []
+    if tests != spec.junit_expected_tests:
+        reasons.append("JUNIT_TEST_COUNT_MISMATCH")
+    if failures or errors:
+        reasons.append("JUNIT_TEST_FAILURE")
+    if skipped:
+        reasons.append("JUNIT_SKIP_NOT_ALLOWED")
+    return reasons
+
+
+def _validate_json_test_receipt(spec: CommandSpec) -> list[str]:
+    if spec.json_report_path is None or not spec.json_report_path.is_file():
+        return ["JSON_TEST_RECEIPT_MISSING"]
+    try:
+        receipt = _load_json(spec.json_report_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return ["JSON_TEST_RECEIPT_INVALID"]
+    reasons: list[str] = []
+    if receipt.get("numPassedTests") != spec.json_expected_passed_tests:
+        reasons.append("JSON_TEST_PASS_COUNT_MISMATCH")
+    if receipt.get("numFailedTests") != 0 or receipt.get("numFailedTestSuites") != 0:
+        reasons.append("JSON_TEST_FAILURE")
+    return reasons
 
 
 def internal_receipt(
@@ -423,7 +652,27 @@ def internal_receipt(
         "stdout_sha256": empty_hash(),
         "stderr_sha256": empty_hash(),
         "evidence_refs": list(evidence_refs),
+        "measurements": {},
     }
+
+
+def _extract_measurements(stdout: bytes) -> dict[str, int | float | str]:
+    prefix = "PROMPT_EVOLUTION_MEASUREMENTS="
+    measurements: dict[str, int | float | str] = {}
+    for line in stdout.decode("utf-8", errors="replace").splitlines():
+        if prefix not in line:
+            continue
+        candidate = line.split(prefix, 1)[1].strip()
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        for key, value in payload.items():
+            if isinstance(key, str) and isinstance(value, (int, float, str)):
+                measurements[key] = value
+    return measurements
 
 
 def verify_prompt_budget_attestation(root: Path) -> tuple[Status, list[str]]:
@@ -473,6 +722,121 @@ def verify_prompt_budget_attestation(root: Path) -> tuple[Status, list[str]]:
     return ("pass" if not reasons else "fail"), sorted(set(reasons))
 
 
+def verify_performance_budget(
+    root: Path,
+    checks: Sequence[Mapping[str, Any]],
+) -> tuple[Status, list[str]]:
+    reasons: list[str] = []
+    try:
+        budget = _load_json(root / PERFORMANCE_BUDGET_PATH)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return "fail", ["PERFORMANCE_BUDGET_UNREADABLE"]
+
+    declared_hash = budget.get("manifest_hash")
+    without_hash = dict(budget)
+    without_hash.pop("manifest_hash", None)
+    if declared_hash != canonical_hash(without_hash):
+        reasons.append("PERFORMANCE_BUDGET_HASH_MISMATCH")
+
+    checks_by_id = {
+        str(check.get("check_id")): check
+        for check in checks
+        if isinstance(check, Mapping)
+    }
+    timing_budgets = budget.get("timing_budgets")
+    if not isinstance(timing_budgets, list) or not timing_budgets:
+        reasons.append("PERFORMANCE_TIMING_BUDGETS_MISSING")
+        timing_budgets = []
+    seen: set[str] = set()
+    for timing_budget in timing_budgets:
+        if not isinstance(timing_budget, Mapping):
+            reasons.append("PERFORMANCE_TIMING_BUDGET_INVALID")
+            continue
+        check_id = str(timing_budget.get("check_id") or "")
+        if not check_id or check_id in seen:
+            reasons.append("PERFORMANCE_CHECK_ID_DUPLICATE_OR_MISSING")
+            continue
+        seen.add(check_id)
+        try:
+            baseline_ms = int(timing_budget["baseline_duration_ms"])
+            multiplier = float(timing_budget["regression_multiplier"])
+            absolute_cap_ms = int(timing_budget["absolute_cap_ms"])
+            effective_cap_ms = int(timing_budget["effective_cap_ms"])
+        except (KeyError, TypeError, ValueError):
+            reasons.append(f"PERFORMANCE_BUDGET_INVALID:{check_id}")
+            continue
+        expected_cap = min(absolute_cap_ms, int(baseline_ms * multiplier))
+        if (
+            baseline_ms <= 0
+            or multiplier != 1.5
+            or absolute_cap_ms <= 0
+            or effective_cap_ms != expected_cap
+        ):
+            reasons.append(f"PERFORMANCE_CAP_DERIVATION_INVALID:{check_id}")
+            continue
+        receipt = checks_by_id.get(check_id)
+        if receipt is None:
+            reasons.append(f"PERFORMANCE_RECEIPT_MISSING:{check_id}")
+            continue
+        if receipt.get("status") != "pass":
+            reasons.append(f"PERFORMANCE_RECEIPT_NOT_PASS:{check_id}")
+            continue
+        duration_ms = receipt.get("duration_ms")
+        if not isinstance(duration_ms, int) or duration_ms > effective_cap_ms:
+            reasons.append(f"PERFORMANCE_DURATION_EXCEEDED:{check_id}")
+    if seen != PERFORMANCE_TIMING_CHECK_IDS:
+        reasons.append("PERFORMANCE_CHECK_SET_MISMATCH")
+
+    fixture_budget = budget.get("fixture_budget")
+    fixture_receipt = checks_by_id.get("python_integration_contract_tests")
+    if not isinstance(fixture_budget, Mapping) or not isinstance(
+        fixture_receipt, Mapping
+    ):
+        reasons.append("PERFORMANCE_FIXTURE_RECEIPT_MISSING")
+    else:
+        if fixture_budget.get("test_id") not in PYTHON_INTEGRATION_CONTRACT_TESTS:
+            reasons.append("PERFORMANCE_FIXTURE_TEST_ID_MISMATCH")
+        forbidden_prefixes = fixture_budget.get("forbidden_private_prefixes")
+        if not isinstance(forbidden_prefixes, list) or not {
+            "report_intelligence/pdfs",
+            "report_intelligence/markdown",
+            "report_intelligence/mineru",
+        }.issubset(forbidden_prefixes):
+            reasons.append("PERFORMANCE_PRIVATE_PREFIX_COVERAGE_MISSING")
+        measurements = fixture_receipt.get("measurements")
+        if not isinstance(measurements, Mapping):
+            reasons.append("PERFORMANCE_FIXTURE_MEASUREMENTS_MISSING")
+        else:
+            for measurement, cap_field in (
+                ("pytest_registry_copy_bytes", "max_copied_bytes"),
+                ("pytest_registry_copy_files", "max_copied_files"),
+            ):
+                measured = measurements.get(measurement)
+                cap = fixture_budget.get(cap_field)
+                if not isinstance(measured, int) or not isinstance(cap, int):
+                    reasons.append(f"PERFORMANCE_FIXTURE_MEASUREMENT_INVALID:{measurement}")
+                elif measured > cap:
+                    reasons.append(f"PERFORMANCE_FIXTURE_BUDGET_EXCEEDED:{measurement}")
+        opt_in_env = str(fixture_budget.get("private_fixture_opt_in_env") or "")
+        if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get(opt_in_env):
+            reasons.append("PRIVATE_FIXTURE_OPT_IN_SET_IN_CI")
+
+    runner = budget.get("runner_class")
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        if not isinstance(runner, Mapping):
+            reasons.append("PERFORMANCE_RUNNER_CLASS_MISSING")
+        else:
+            required_environment = runner.get("required_environment")
+            if not isinstance(required_environment, Mapping):
+                reasons.append("PERFORMANCE_RUNNER_ENVIRONMENT_MISSING")
+            else:
+                for key, expected in required_environment.items():
+                    if os.environ.get(str(key)) != expected:
+                        reasons.append(f"PERFORMANCE_RUNNER_MISMATCH:{key}")
+
+    return ("pass" if not reasons else "fail"), sorted(set(reasons))
+
+
 def verify_documentation_contract(root: Path) -> tuple[Status, list[str]]:
     requirements = {
         Path("docs/runbooks/position_aware_prompt_evolution.md"): (
@@ -480,6 +844,7 @@ def verify_documentation_contract(root: Path) -> tuple[Status, list[str]]:
             "prompt-token-budget",
             "summarize-slo",
             "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES",
+            "prompt_evolution_performance_budget_v1",
             "--durations=20",
         ),
         Path("docs/wiki/CLI-Reference.md"): ("prompt-token-budget", "summarize-slo"),
@@ -502,27 +867,113 @@ def verify_documentation_contract(root: Path) -> tuple[Status, list[str]]:
     return ("pass" if not reasons else "fail"), reasons
 
 
+def ci_context_from_environment(root: Path) -> dict[str, Any]:
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return {
+            "provider": "local",
+            "repository": "",
+            "workflow_ref": "",
+            "job_name": "",
+            "event_name": "local",
+            "run_id": "local",
+            "run_attempt": "",
+            "run_url": "",
+            "tested_sha": git_value(root, "rev-parse", "HEAD"),
+            "source_head_sha": "",
+            "base_sha": "",
+            "context_complete": False,
+            "python_status": "blocked",
+            "typescript_status": "blocked",
+        }
+
+    event_payload: Mapping[str, Any] = {}
+    event_path = Path(os.environ.get("GITHUB_EVENT_PATH", ""))
+    try:
+        loaded_event = _load_json(event_path)
+        event_payload = loaded_event
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    pull_request = event_payload.get("pull_request")
+    if isinstance(pull_request, Mapping):
+        head = pull_request.get("head")
+        base = pull_request.get("base")
+        source_head_sha = str(head.get("sha") or "") if isinstance(head, Mapping) else ""
+        base_sha = str(base.get("sha") or "") if isinstance(base, Mapping) else ""
+    else:
+        source_head_sha = str(event_payload.get("after") or os.environ.get("GITHUB_SHA", ""))
+        base_sha = str(event_payload.get("before") or "")
+
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    run_url = (
+        f"https://github.com/{repository}/actions/runs/{run_id}"
+        if repository and run_id
+        else ""
+    )
+    context = {
+        "provider": "github_actions",
+        "repository": repository,
+        "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF", ""),
+        "job_name": os.environ.get("PROMPT_EVOLUTION_CI_JOB_NAME", ""),
+        "event_name": os.environ.get("GITHUB_EVENT_NAME", ""),
+        "run_id": run_id,
+        "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+        "run_url": run_url,
+        "tested_sha": os.environ.get("GITHUB_SHA", ""),
+        "source_head_sha": source_head_sha,
+        "base_sha": base_sha,
+        "python_status": os.environ.get(
+            "PROMPT_EVOLUTION_PYTHON_CI_STATUS", "blocked"
+        ),
+        "typescript_status": os.environ.get(
+            "PROMPT_EVOLUTION_TYPESCRIPT_CI_STATUS", "blocked"
+        ),
+    }
+    required_values = (
+        context["repository"],
+        context["workflow_ref"],
+        context["run_id"],
+        context["run_attempt"],
+        context["run_url"],
+        context["tested_sha"],
+        context["source_head_sha"],
+    )
+    context["context_complete"] = bool(
+        all(required_values)
+        and event_path.is_file()
+        and context["job_name"] == "Prompt evolution delivery (G0-G7)"
+        and context["event_name"] in {"pull_request", "push"}
+    )
+    return context
+
+
 def ci_receipt(
     check_id: str,
     *,
-    provider: str,
+    context: Mapping[str, Any],
     status: str,
-    head_sha: str,
     code_commit: str,
-    run_url: str,
 ) -> dict[str, Any]:
-    if provider != "github_actions":
+    run_url = str(context.get("run_url") or "")
+    if context.get("provider") != "github_actions":
         return internal_receipt(
             check_id,
             "blocked",
             reason_codes=("UPSTREAM_CI_NOT_GITHUB_ACTIONS",),
             evidence_refs=(run_url,) if run_url else (),
         )
-    if head_sha != code_commit:
+    if context.get("context_complete") is not True:
+        return internal_receipt(
+            check_id,
+            "blocked",
+            reason_codes=("UPSTREAM_CI_CONTEXT_INCOMPLETE",),
+            evidence_refs=(run_url,) if run_url else (),
+        )
+    if context.get("tested_sha") != code_commit:
         return internal_receipt(
             check_id,
             "fail",
-            reason_codes=("UPSTREAM_CI_HEAD_SHA_MISMATCH",),
+            reason_codes=("UPSTREAM_CI_TESTED_SHA_MISMATCH",),
             evidence_refs=(run_url,),
         )
     if status != "success":
@@ -533,6 +984,56 @@ def ci_receipt(
             evidence_refs=(run_url,),
         )
     return internal_receipt(check_id, "pass", evidence_refs=(run_url,))
+
+
+def validate_upstream_ci_binding(
+    upstream_ci: Mapping[str, Any],
+    *,
+    code_commit: str,
+) -> list[str]:
+    provider = upstream_ci.get("provider")
+    if provider == "local":
+        return [] if upstream_ci.get("context_complete") is False else [
+            "local_ci_context_must_be_incomplete"
+        ]
+    if provider != "github_actions":
+        return ["upstream_ci_provider_invalid"]
+
+    reasons: list[str] = []
+    repository = str(upstream_ci.get("repository") or "")
+    run_id = str(upstream_ci.get("run_id") or "")
+    expected_url = (
+        f"https://github.com/{repository}/actions/runs/{run_id}"
+        if repository and run_id
+        else ""
+    )
+    if upstream_ci.get("context_complete") is not True:
+        reasons.append("upstream_ci_context_incomplete")
+    if upstream_ci.get("job_name") != "Prompt evolution delivery (G0-G7)":
+        reasons.append("upstream_ci_job_name_mismatch")
+    if upstream_ci.get("run_url") != expected_url:
+        reasons.append("upstream_ci_run_url_mismatch")
+    if not str(upstream_ci.get("workflow_ref") or "").startswith(
+        f"{repository}/.github/workflows/ci.yml@"
+    ):
+        reasons.append("upstream_ci_workflow_ref_mismatch")
+    if upstream_ci.get("event_name") not in {"pull_request", "push"}:
+        reasons.append("upstream_ci_event_invalid")
+    if upstream_ci.get("tested_sha") != code_commit:
+        reasons.append("upstream_ci_tested_sha_mismatch")
+    for field in ("tested_sha", "source_head_sha"):
+        value = str(upstream_ci.get(field) or "")
+        if len(value) not in {40, 64} or any(char not in "0123456789abcdef" for char in value):
+            reasons.append(f"upstream_ci_{field}_invalid")
+    base_sha = str(upstream_ci.get("base_sha") or "")
+    if upstream_ci.get("event_name") == "pull_request" and (
+        len(base_sha) not in {40, 64}
+        or any(char not in "0123456789abcdef" for char in base_sha)
+    ):
+        reasons.append("upstream_ci_base_sha_invalid")
+    if not str(upstream_ci.get("run_attempt") or "").isdigit():
+        reasons.append("upstream_ci_run_attempt_invalid")
+    return sorted(set(reasons))
 
 
 def build_delivery_status(
@@ -676,6 +1177,17 @@ def validate_delivery_status(
     declared_hash = without_hash.pop("manifest_hash", None)
     if declared_hash != canonical_hash(without_hash):
         reasons.append("manifest_hash_mismatch")
+    run = artifact.get("run")
+    upstream_ci = artifact.get("upstream_ci")
+    if isinstance(run, Mapping) and isinstance(upstream_ci, Mapping):
+        reasons.extend(
+            validate_upstream_ci_binding(
+                upstream_ci,
+                code_commit=str(run.get("code_commit") or ""),
+            )
+        )
+    else:
+        reasons.append("upstream_ci_binding_missing")
     checks = artifact.get("checks")
     if not isinstance(checks, list):
         return [*reasons, "checks_missing"]
@@ -692,6 +1204,15 @@ def validate_delivery_status(
             reasons.append(f"check_status_invalid:{check_id}")
         if status == "pass" and check.get("exit_code") != 0:
             reasons.append(f"pass_without_zero_exit:{check_id}")
+        measurements = check.get("measurements")
+        if check_id == "python_integration_contract_tests":
+            if not isinstance(measurements, Mapping) or set(measurements) != {
+                "pytest_registry_copy_bytes",
+                "pytest_registry_copy_files",
+            }:
+                reasons.append("integration_measurements_invalid")
+        elif measurements != {}:
+            reasons.append(f"unexpected_measurements:{check_id}")
     contract_run_dir = root / ".mosaic/prompt-evolution-command-contract"
     expected_specs = {spec.check_id: spec for spec in command_specs(root, contract_run_dir)}
     for check_id, spec in expected_specs.items():
@@ -709,6 +1230,76 @@ def validate_delivery_status(
         check = checks_by_id.get(check_id, {})
         if check.get("executor") != "internal" or check.get("command") != []:
             reasons.append(f"internal_check_contract_mismatch:{check_id}")
+    recomputed_internal: dict[str, dict[str, Any]] = {}
+    prompt_budget_status, prompt_budget_reasons = verify_prompt_budget_attestation(root)
+    recomputed_internal["prompt_budget_attestation"] = internal_receipt(
+        "prompt_budget_attestation",
+        prompt_budget_status,
+        reason_codes=prompt_budget_reasons,
+        evidence_refs=(str(TOKEN_BUDGET_PATH),),
+    )
+    performance_status, performance_reasons = verify_performance_budget(
+        root, list(checks_by_id.values())
+    )
+    recomputed_internal["performance_budget"] = internal_receipt(
+        "performance_budget",
+        performance_status,
+        reason_codes=performance_reasons,
+        evidence_refs=(str(PERFORMANCE_BUDGET_PATH),),
+    )
+    docs_status, docs_reasons = verify_documentation_contract(root)
+    recomputed_internal["documentation_contract"] = internal_receipt(
+        "documentation_contract",
+        docs_status,
+        reason_codes=docs_reasons,
+        evidence_refs=tuple(
+            path.as_posix()
+            for path in DELIVERY_INPUT_PATHS
+            if path.as_posix().startswith("docs/")
+        ),
+    )
+    for check_id, expected in recomputed_internal.items():
+        actual = checks_by_id.get(check_id, {})
+        for field in (
+            "executor",
+            "command",
+            "working_directory",
+            "exit_code",
+            "status",
+            "reason_codes",
+            "stdout_sha256",
+            "stderr_sha256",
+            "evidence_refs",
+            "measurements",
+        ):
+            if actual.get(field) != expected.get(field):
+                reasons.append(f"internal_receipt_mismatch:{check_id}:{field}")
+    if isinstance(run, Mapping) and isinstance(upstream_ci, Mapping):
+        for check_id, status_field in (
+            ("python_ci", "python_status"),
+            ("typescript_ci", "typescript_status"),
+        ):
+            expected = ci_receipt(
+                check_id,
+                context=upstream_ci,
+                status=str(upstream_ci.get(status_field) or "blocked"),
+                code_commit=str(run.get("code_commit") or ""),
+            )
+            actual = checks_by_id.get(check_id, {})
+            for field in (
+                "executor",
+                "command",
+                "working_directory",
+                "exit_code",
+                "status",
+                "reason_codes",
+                "stdout_sha256",
+                "stderr_sha256",
+                "evidence_refs",
+                "measurements",
+            ):
+                if actual.get(field) != expected.get(field):
+                    reasons.append(f"upstream_ci_receipt_mismatch:{check_id}:{field}")
     try:
         rebuilt = build_delivery_status(
             root,
@@ -722,7 +1313,7 @@ def validate_delivery_status(
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
         reasons.append(f"artifact_rebuild_failed:{type(exc).__name__}")
         return reasons
-    for field in ("prompt_sources", "inputs", "gates", "conditions", "summary"):
+    for field in ("run", "prompt_sources", "inputs", "gates", "conditions", "summary"):
         if artifact.get(field) != rebuilt.get(field):
             reasons.append(f"derived_field_mismatch:{field}")
     if check_current_inputs:
@@ -744,12 +1335,7 @@ def generate_delivery_status(
     *,
     output: Path,
     run_id: str,
-    ci_provider: str,
-    ci_run_id: str,
-    ci_run_url: str,
-    ci_head_sha: str,
-    python_ci_status: str,
-    typescript_ci_status: str,
+    upstream_ci: Mapping[str, Any],
 ) -> dict[str, Any]:
     root = root.resolve()
     output = output.resolve()
@@ -777,6 +1363,15 @@ def generate_delivery_status(
             evidence_refs=(str(TOKEN_BUDGET_PATH),),
         )
     )
+    performance_status, performance_reasons = verify_performance_budget(root, checks)
+    checks.append(
+        internal_receipt(
+            "performance_budget",
+            performance_status,
+            reason_codes=performance_reasons,
+            evidence_refs=(str(PERFORMANCE_BUDGET_PATH),),
+        )
+    )
     docs_status, docs_reasons = verify_documentation_contract(root)
     checks.append(
         internal_receipt(
@@ -802,31 +1397,19 @@ def generate_delivery_status(
     checks.append(
         ci_receipt(
             "python_ci",
-            provider=ci_provider,
-            status=python_ci_status,
-            head_sha=ci_head_sha,
+            context=upstream_ci,
+            status=str(upstream_ci.get("python_status") or "blocked"),
             code_commit=code_commit,
-            run_url=ci_run_url,
         )
     )
     checks.append(
         ci_receipt(
             "typescript_ci",
-            provider=ci_provider,
-            status=typescript_ci_status,
-            head_sha=ci_head_sha,
+            context=upstream_ci,
+            status=str(upstream_ci.get("typescript_status") or "blocked"),
             code_commit=code_commit,
-            run_url=ci_run_url,
         )
     )
-    upstream_ci = {
-        "provider": ci_provider,
-        "run_id": ci_run_id,
-        "run_url": ci_run_url,
-        "head_sha": ci_head_sha,
-        "python_status": python_ci_status,
-        "typescript_status": typescript_ci_status,
-    }
     artifact = build_delivery_status(
         root,
         run_id=run_id,
