@@ -219,7 +219,13 @@ export async function loadReleasePinnedPromptPair(opts: {
   const stageSnapshotHash = manifest.stage_snapshot_hashes[stageKey];
   if (!stageSnapshotHash) throw new Error(`prompt_release_stage_snapshot_missing:${stageKey}`);
   const privateKey = [
+    "runtime-v2",
     manifest.release_id,
+    manifest.lifecycle_state,
+    manifest.activation_scope.account_mode,
+    manifest.activation_scope.traffic_percent,
+    manifest.code_commit,
+    stageSnapshotHash,
     "private",
     manifest.prompt_commit,
     pair.pair_hash,
@@ -261,7 +267,13 @@ export async function loadReleasePinnedPromptPair(opts: {
   }
   const fallbackPair = findPair(fallback.prompt_pairs, opts.agent, opts.cohort, opts.stage);
   const fallbackKey = [
+    "runtime-v2",
     manifest.release_id,
+    manifest.lifecycle_state,
+    manifest.activation_scope.account_mode,
+    manifest.activation_scope.traffic_percent,
+    manifest.code_commit,
+    stageSnapshotHash,
     "bundled_fallback",
     fallback.prompt_commit,
     fallbackPair.pair_hash,
@@ -335,10 +347,7 @@ export async function resolveConfiguredPromptReleaseContext(
   const registry = new ActivePromptReleaseRegistry(registryRoot);
   const manifest = await registry.resolveForRuntime(trafficAssignmentKey);
   const canaryPointer = await registry.canaryPointer();
-  if (!manifest) {
-    if (canaryPointer.current_release_id) return null;
-    throw new Error("active_prompt_release_missing");
-  }
+  if (!manifest) throw new Error("active_prompt_release_missing");
   const source = getConfiguredPromptSource();
   const accountModeValue = process.env.MOSAIC_PROMPT_ACCOUNT_MODE?.trim();
   if (!accountModeValue) throw new Error("prompt_release_account_mode_required");

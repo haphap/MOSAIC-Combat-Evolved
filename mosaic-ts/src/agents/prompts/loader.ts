@@ -74,6 +74,20 @@ const cache = new Map<string, string>();
 const knobsCache = new Map<string, LoadPromptWithKnobsResult>();
 const knobsSourceCache = new Map<string, ParsedPromptPair>();
 
+function releasePinnedPairCacheIdentity(pair: ReleasePinnedPromptPair): string {
+  return JSON.stringify([
+    "runtime-v2",
+    pair.releaseId,
+    pair.source,
+    pair.promptCommit,
+    pair.pairHash,
+    pair.stageSnapshotHash,
+    pair.accountMode,
+    pair.trafficPercent,
+    pair.lifecycleState,
+  ]);
+}
+
 /** Drop the in-memory prompt cache. Used by tests and after autoresearch
  *  mutation rewrites prompt files on disk. */
 export function clearPromptCache(): void {
@@ -164,9 +178,7 @@ export async function loadPrompt(opts: LoadOptions): Promise<string> {
     opts.cohort,
     opts.agent,
     opts.language,
-    pinnedPair
-      ? `${pinnedPair.releaseId}:${pinnedPair.source}:${pinnedPair.promptCommit}:${pinnedPair.pairHash}`
-      : "unreleased",
+    pinnedPair ? releasePinnedPairCacheIdentity(pinnedPair) : "unreleased",
   ].join("|");
   if (!opts.noCache) {
     const cached = cache.get(cacheKey);
@@ -268,9 +280,7 @@ export async function loadPromptWithKnobs(
     opts.stage ?? "legacy_unscoped",
     "ResearchKnobs",
     runtimeSourceStatusKey,
-    pinnedPair
-      ? `${pinnedPair.releaseId}:${pinnedPair.source}:${pinnedPair.promptCommit}:${pinnedPair.pairHash}`
-      : "unreleased",
+    pinnedPair ? releasePinnedPairCacheIdentity(pinnedPair) : "unreleased",
   ].join("|");
   if (!opts.noCache) {
     const cached = knobsCache.get(cacheKey);
@@ -324,9 +334,7 @@ async function loadParsedPromptPair(
     opts.cohort,
     opts.agent,
     "ResearchKnobsSource",
-    pinnedPair
-      ? `${pinnedPair.releaseId}:${pinnedPair.source}:${pinnedPair.promptCommit}:${pinnedPair.pairHash}`
-      : "unreleased",
+    pinnedPair ? releasePinnedPairCacheIdentity(pinnedPair) : "unreleased",
   ].join("|");
   if (!opts.noCache) {
     const cached = knobsSourceCache.get(sourceCacheKey);

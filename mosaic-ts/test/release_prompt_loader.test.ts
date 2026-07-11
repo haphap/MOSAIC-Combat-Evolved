@@ -11,7 +11,10 @@ import {
   releasePromptPairHash,
   releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
-import { buildReleasePromptPairsAtCommit } from "../src/agents/prompts/release_prompt_loader.js";
+import {
+  buildReleasePromptPairsAtCommit,
+  resolveConfiguredPromptReleaseContext,
+} from "../src/agents/prompts/release_prompt_loader.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
@@ -28,6 +31,18 @@ afterEach(() => {
 
 function sha256(text: string): string {
   return `sha256:${createHash("sha256").update(text).digest("hex")}`;
+}
+
+function canaryAssignmentKey(releaseId: string, trafficPercent: number, selected: boolean): string {
+  for (let index = 0; index < 10_000; index += 1) {
+    const key = `assignment-${index}`;
+    const bucket = Number.parseInt(
+      createHash("sha256").update(`${releaseId}\0${key}`).digest("hex").slice(0, 8),
+      16,
+    );
+    if ((bucket / 0x1_0000_0000) * 100 < trafficPercent === selected) return key;
+  }
+  throw new Error("canary assignment fixture unavailable");
 }
 
 function prompt(body: string): string {
@@ -297,6 +312,84 @@ describe("release-pinned prompt loading", () => {
       lifecycle_state: "canary",
       traffic_percent: 10,
     });
+  });
+
+  it("refreshes rollout metadata when a cached canary becomes active", async () => {
+    const contents = { zh: prompt("candidate zh"), en: prompt("candidate en") };
+    const repo = gitRepo(contents);
+    const active = release({ promptCommit: repo.commit, promptPair: pair(contents) });
+    const canary: ActivePromptReleaseManifest = {
+      ...active,
+      lifecycle_state: "canary",
+      activation_scope: { ...active.activation_scope, traffic_percent: 10 },
+      canary_ended_at: null,
+      runtime_slo_summary: null,
+      runtime_slo_evidence: null,
+      activated_at: null,
+    };
+
+    const first = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      releaseContext: { manifest: canary, privatePromptRepo: repo.root, accountMode: "paper" },
+    });
+    const second = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      releaseContext: { manifest: active, privatePromptRepo: repo.root, accountMode: "paper" },
+    });
+
+    expect(first.release).toMatchObject({ lifecycle_state: "canary", traffic_percent: 10 });
+    expect(second.release).toMatchObject({ lifecycle_state: "active", traffic_percent: 100 });
+  });
+
+  it("fails closed for first-canary control traffic instead of reading unpinned prompts", async () => {
+    const contents = { zh: prompt("canary candidate zh"), en: prompt("canary candidate en") };
+    const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-first-canary-"));
+    roots.push(registryRoot);
+    const activeShape = release({
+      promptCommit: "1234567",
+      promptPair: pair(contents),
+    });
+    const staged: ActivePromptReleaseManifest = {
+      ...activeShape,
+      lifecycle_state: "staged",
+      activation_scope: { ...activeShape.activation_scope, traffic_percent: 0 },
+      approved_by: null,
+      canary_started_at: null,
+      canary_ended_at: null,
+      runtime_slo_summary: null,
+      runtime_slo_evidence: null,
+      activated_at: null,
+    };
+    const canary: ActivePromptReleaseManifest = {
+      ...staged,
+      lifecycle_state: "canary",
+      activation_scope: { ...staged.activation_scope, traffic_percent: 10 },
+      approved_by: "operator:test",
+      canary_started_at: "2026-07-10T00:00:00Z",
+    };
+    const registry = new ActivePromptReleaseRegistry(registryRoot);
+    await registry.stage(staged);
+    await registry.transition(canary, {
+      audit: { operator: "operator:test", reason: "start first canary" },
+    });
+
+    const previousRegistry = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT;
+    try {
+      process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = registryRoot;
+      await expect(
+        resolveConfiguredPromptReleaseContext(canaryAssignmentKey("release-1", 10, false)),
+      ).rejects.toThrow("active_prompt_release_missing");
+    } finally {
+      if (previousRegistry === undefined) {
+        delete process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT;
+      } else {
+        process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = previousRegistry;
+      }
+    }
   });
 
   it("uses only a manifest-pinned bundled fallback when private source is unavailable", async () => {

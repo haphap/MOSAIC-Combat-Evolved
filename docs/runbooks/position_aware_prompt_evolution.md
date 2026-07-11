@@ -368,6 +368,15 @@ Acceptance checks:
   runtime spec and domain knob catalog, while mixed or duplicate fences still
   fail closed.
 
+Governed evaluation and runtime evidence checks are method-specific:
+
+- `paired_block_bootstrap`, `block_bootstrap`, `wilson_interval`, and
+  `fisher_z` must execute their registered estimators. An unknown method fails
+  closed; it must never be relabeled Gaussian output.
+- every invocation of a required tool participates in health evaluation. A
+  later missing, failed, or fallback call fires the configured confidence cap
+  even when an earlier call with the same tool name succeeded.
+
 ## Paper Execution
 
 Paper execution submits target-current delta orders only. The operator should
@@ -482,6 +491,15 @@ rtk pnpm --dir mosaic-ts dev prompt-release summarize-slo \
 `summarize-slo` recomputes fixed thresholds from event hashes. Fewer than 20
 eligible samples, any schema/token/order/exposure breach, mixed release
 identity, duplicate conflict, or stage-snapshot drift blocks activation.
+
+Percentage canaries require an already pinned active baseline for control
+traffic. An empty release registry is not a valid control plane: a request not
+assigned to the first candidate fails with `active_prompt_release_missing`
+instead of reading private or bundled working-tree prompts. Provision and
+verify the approved baseline pointer before sending canary traffic. Long-lived
+workers include lifecycle state, traffic percentage, account mode, and stage
+snapshot hash in prompt and research-knob cache identities, so a canary-to-active
+transition cannot retain stale canary metadata or emit stale canary events.
 
 After an interrupted cross-repository mutation, start a fresh process and use
 only the durable descriptor:

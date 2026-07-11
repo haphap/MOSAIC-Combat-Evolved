@@ -526,6 +526,11 @@ describe("aggregate active prompt release registry", () => {
     await registry.transition(release("release-1", "release-0", "canary"), {
       audit: { operator: "operator:test", reason: "start canary" },
     });
+    const assignments = await Promise.all(
+      Array.from({ length: 100 }, (_, index) => registry.resolveForRuntime(`run-${index}`)),
+    );
+    expect(assignments.some((manifest) => manifest?.release_id === "release-0")).toBe(true);
+    expect(assignments.some((manifest) => manifest?.release_id === "release-1")).toBe(true);
     await registry.transition(release("release-1", "release-0", "active"), {
       expectedBaseReleaseId: "release-0",
       audit: { operator: "operator:test", reason: "activate" },
@@ -539,7 +544,7 @@ describe("aggregate active prompt release registry", () => {
     expect((await registry.pointer()).pointer_version).toBe(3);
   });
 
-  it("rejects stale activation CAS and immutable component drift", async () => {
+  it("rejects a stale canary base pointer and immutable component drift", async () => {
     const registry = new ActivePromptReleaseRegistry(tempRoot("release-stale"));
     await registry.stage(release("release-0", null, "staged"));
     await registry.transition(release("release-0", null, "canary"), {
@@ -566,15 +571,11 @@ describe("aggregate active prompt release registry", () => {
       audit: { operator: "operator:test", reason: "activate" },
     });
     await registry.stage(release("release-stale", "release-0", "staged"));
-    await registry.transition(release("release-stale", "release-0", "canary"), {
-      audit: { operator: "operator:test", reason: "start canary" },
-    });
     await expect(
-      registry.transition(release("release-stale", "release-0", "active"), {
-        expectedBaseReleaseId: "release-0",
-        audit: { operator: "operator:test", reason: "activate" },
+      registry.transition(release("release-stale", "release-0", "canary"), {
+        audit: { operator: "operator:test", reason: "start canary" },
       }),
-    ).rejects.toThrow(/compare_and_swap_failed/);
+    ).rejects.toThrow(/canary_base_pointer_mismatch/);
   });
 
   it("reconciles manifest-first activation and rollback after a process crash", async () => {

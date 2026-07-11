@@ -241,6 +241,12 @@ export class ActivePromptReleaseRegistry {
       ) {
         throw new Error("prompt_release_canary_pointer_conflict");
       }
+      if (
+        next.lifecycle_state === "canary" &&
+        pointer.current_release_id !== next.base_release_id
+      ) {
+        throw new Error("prompt_release_canary_base_pointer_mismatch");
+      }
       if (next.lifecycle_state === "active") {
         if (!next.activated_at) throw new Error("prompt_release_activation_timestamp_missing");
         if (opts.expectedBaseReleaseId === undefined) {
@@ -367,6 +373,12 @@ export class ActivePromptReleaseRegistry {
       if ((bucket / 0x1_0000_0000) * 100 < canaryPointer.traffic_percent) {
         return canary;
       }
+      const baseline = await this.resolveActive();
+      if (!baseline) return null;
+      if (baseline.release_id !== canary.base_release_id) {
+        throw new Error("prompt_release_canary_base_pointer_mismatch");
+      }
+      return baseline;
     }
     return this.resolveActive();
   }

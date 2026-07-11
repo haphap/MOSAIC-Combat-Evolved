@@ -1530,11 +1530,106 @@ function requiredCurrentEvidenceKeys(knobs: ResearchKnobs): string[] {
   ];
 }
 
+function mergedToolStatusArgs(statuses: ReadonlyArray<ToolStatus>): unknown {
+  if (statuses.length === 1) return statuses[0]?.args;
+  const records = statuses.map((status) => status.args);
+  if (records.some((args) => args === null || typeof args !== "object" || Array.isArray(args))) {
+    return undefined;
+  }
+  const objects = records as ReadonlyArray<Record<string, unknown>>;
+  const keys = [...new Set(objects.flatMap((record) => Object.keys(record)))].sort();
+  const merged: Record<string, unknown> = {};
+  for (const key of keys) {
+    const values = objects.flatMap((record) => (record[key] === undefined ? [] : [record[key]]));
+    if (values.every(Array.isArray)) {
+      const seen = new Set<string>();
+      merged[key] = values.flatMap((value) =>
+        (value as unknown[]).filter((item) => {
+          const identity = JSON.stringify(canonicalResearchKnobs(item));
+          if (seen.has(identity)) return false;
+          seen.add(identity);
+          return true;
+        }),
+      );
+      continue;
+    }
+    if (values.every((value) => typeof value === "boolean")) {
+      merged[key] = values.some((value) => value === true);
+      continue;
+    }
+    const identities = values.map((value) => JSON.stringify(canonicalResearchKnobs(value)));
+    if (new Set(identities).size === 1) merged[key] = values[0];
+  }
+  return merged;
+}
+
+function aggregateToolStatusFingerprint(statuses: ReadonlyArray<ToolStatus>): string {
+  const canonical = JSON.stringify(
+    canonicalResearchKnobs(
+      statuses.map((status) => ({
+        call_id: status.call_id ?? null,
+        args: status.args ?? null,
+        args_fingerprint: status.args_fingerprint ?? null,
+        result_fingerprint: status.result_fingerprint ?? null,
+        source_fingerprint: status.source_fingerprint ?? null,
+        fingerprint: status.fingerprint ?? null,
+      })),
+    ),
+  );
+  return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
+}
+
+function aggregateToolStatusFieldFingerprint(
+  statuses: ReadonlyArray<ToolStatus>,
+  field: "args_fingerprint" | "result_fingerprint" | "source_fingerprint",
+): string | undefined {
+  const values = statuses.map((status) => status[field] ?? null);
+  if (values.every((value) => value === null)) return undefined;
+  const canonical = JSON.stringify(values);
+  return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
+}
+
 function statusForTool(
   statuses: ReadonlyArray<ToolStatus>,
   toolName: string,
 ): ToolStatus | undefined {
-  return statuses.find((status) => status.name === toolName);
+  const matching = statuses.filter((status) => status.name === toolName);
+  if (matching.length === 0) return undefined;
+  if (matching.length === 1) {
+    const only = matching[0] as ToolStatus;
+    return only.called ? only : { ...only, missing: true };
+  }
+  const args = mergedToolStatusArgs(matching);
+  const asOfValues = matching
+    .map((status) => status.as_of)
+    .filter((value): value is string => value !== undefined)
+    .sort();
+  const invocationIds = [
+    ...new Set(
+      matching
+        .map((status) => status.agent_invocation_id)
+        .filter((value): value is string => value !== undefined),
+    ),
+  ];
+  const fingerprint = aggregateToolStatusFingerprint(matching);
+  const argsFingerprint = aggregateToolStatusFieldFingerprint(matching, "args_fingerprint");
+  const resultFingerprint = aggregateToolStatusFieldFingerprint(matching, "result_fingerprint");
+  const sourceFingerprint = aggregateToolStatusFieldFingerprint(matching, "source_fingerprint");
+  return {
+    name: toolName,
+    called: matching.every((status) => status.called),
+    failed: matching.some((status) => status.failed),
+    missing: matching.some((status) => status.missing || !status.called),
+    fallback: matching.some((status) => status.fallback),
+    cache_hit: matching.every((status) => status.cache_hit),
+    ...(args !== undefined ? { args } : {}),
+    ...(asOfValues[0] ? { as_of: asOfValues[0] } : {}),
+    ...(invocationIds.length === 1 ? { agent_invocation_id: invocationIds[0] } : {}),
+    fingerprint,
+    ...(argsFingerprint ? { args_fingerprint: argsFingerprint } : {}),
+    ...(resultFingerprint ? { result_fingerprint: resultFingerprint } : {}),
+    ...(sourceFingerprint ? { source_fingerprint: sourceFingerprint } : {}),
+  };
 }
 
 function readConfidence(output: unknown): number | null {

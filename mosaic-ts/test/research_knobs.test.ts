@@ -308,6 +308,42 @@ research-knobs:
     expect(result.audit.fallback_scopes).toContain("tool:get_pboc_ops:fallback");
   });
 
+  it("aggregates health across repeated invocations of the same tool", () => {
+    const snapshot = buildResearchKnobsSnapshot({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      knobs: knobs(),
+    });
+
+    const result = applyResearchKnobCaps({ confidence: 0.9 }, snapshot, {
+      toolStatuses: [
+        {
+          name: "get_pboc_ops",
+          called: true,
+          failed: false,
+          missing: false,
+          fallback: false,
+          cache_hit: false,
+          args: { tickers: ["600000.SH"] },
+        },
+        {
+          name: "get_pboc_ops",
+          called: true,
+          failed: true,
+          missing: false,
+          fallback: true,
+          cache_hit: false,
+          args: { tickers: ["000001.SZ"] },
+        },
+      ],
+    });
+
+    expect(result.output.confidence).toBe(0.55);
+    expect(result.audit.fired_cap_ids).toEqual(["missing_current_data", "fallback_primary_tool"]);
+    expect(result.audit.missing_scopes).toContain("tool:get_pboc_ops:failed");
+    expect(result.audit.fallback_scopes).toContain("tool:get_pboc_ops:fallback");
+  });
+
   it("builds visible domain knobs from active runtime source statuses only", () => {
     const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
     expect(spec).toBeDefined();

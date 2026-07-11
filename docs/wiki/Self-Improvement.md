@@ -40,12 +40,23 @@ metric-to-calculator registry. The bilingual private prompt
 checker validates 25 agents across 26 runtime stages; it does not activate a
 card or a release pointer.
 
+The evaluator dispatches each registered uncertainty policy to its actual
+estimator: paired or independent block bootstrap, Wilson intervals for binary
+rates, and Fisher-z intervals for rank correlation. Runtime evidence health is
+also aggregated across every same-name tool invocation, so a later failure or
+fallback cannot escape a confidence cap because the first call succeeded.
+
 Kept mutations still move through staged and canary release states. Runtime
 events are bound to release, stage snapshots, run identity, schema/fallback,
 token, order, and exposure results. `prompt-release summarize-slo` recomputes
 the fixed thresholds; activation rejects handwritten summaries. The operator
 can run `autoresearch recover-transactions` after a crash and
 `prompt-release rollback` to restore the prior aggregate release pointer.
+Non-canary traffic remains on the active pinned baseline. If a first canary has
+no active baseline, control traffic fails closed instead of loading mutable
+working-tree prompts. Prompt caches include lifecycle state and rollout scope,
+so promotion of the same release id from canary to active refreshes runtime
+metadata.
 
 The decision-layer rollout uses one canonical sequence: alpha discovery, CIO
 proposal, frozen candidate target, CRO review, execution feasibility, CIO

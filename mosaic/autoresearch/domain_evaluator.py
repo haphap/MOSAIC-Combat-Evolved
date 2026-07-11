@@ -13,6 +13,8 @@ from pathlib import Path
 from statistics import NormalDist
 from typing import Any
 
+import numpy as np
+
 from .domain_metrics import DomainMetricInputError
 
 
@@ -624,28 +626,246 @@ def _validate_range(value: float, metric: Mapping[str, Any], field: str) -> None
         raise DomainEvaluationError(f"{field} is above metric valid range")
 
 
-def _uncertainty(
-    effects: Sequence[float], weights: Sequence[float], method: str, alpha: float
-) -> dict[str, Any]:
+def _effective_sample_size(weights: Sequence[float]) -> float:
     weight_sum = sum(weights)
-    mean = sum(value * weight for value, weight in zip(effects, weights)) / weight_sum
-    effective_n = weight_sum**2 / sum(weight**2 for weight in weights)
-    if effective_n <= 1:
-        standard_error = 0.0
-    else:
-        variance = sum(
-            weight * (value - mean) ** 2 for value, weight in zip(effects, weights)
-        ) / weight_sum
-        standard_error = math.sqrt(variance / effective_n)
+    return weight_sum**2 / sum(weight**2 for weight in weights)
+
+
+def _quantile(values: Sequence[float], probability: float) -> float:
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * probability
+    lower_index = math.floor(position)
+    upper_index = math.ceil(position)
+    if lower_index == upper_index:
+        return ordered[lower_index]
+    fraction = position - lower_index
+    return ordered[lower_index] * (1 - fraction) + ordered[upper_index] * fraction
+
+
+def _block_bootstrap_index_batch(
+    generator: np.random.Generator,
+    sample_count: int,
+    block_length: int,
+    batch_size: int,
+) -> np.ndarray:
+    block_count = math.ceil(sample_count / block_length)
+    starts = generator.integers(
+        0,
+        sample_count,
+        size=(batch_size, block_count),
+        dtype=np.intp,
+    )
+    offsets = np.arange(block_length, dtype=np.intp)
+    return ((starts[:, :, None] + offsets) % sample_count).reshape(batch_size, -1)[
+        :, :sample_count
+    ]
+
+
+def _aggregate_resample(
+    values: Sequence[float],
+    weights: Sequence[float],
+    aggregation: str,
+    indices: Sequence[int],
+) -> float:
+    if aggregation in ("mean", "hit_rate", "calibration_error", "rank_correlation"):
+        weight_sum = sum(weights[index] for index in indices)
+        return sum(values[index] * weights[index] for index in indices) / weight_sum
+    if aggregation == "max":
+        return max(values[index] for index in indices)
+    if aggregation == "min":
+        return min(values[index] for index in indices)
+    if aggregation == "sum":
+        return sum(values[index] * weights[index] for index in indices)
+    return _aggregate(
+        [values[index] for index in indices],
+        [weights[index] for index in indices],
+        aggregation,
+    )
+
+
+def _block_bootstrap_uncertainty(
+    baseline: Sequence[float],
+    treatment: Sequence[float],
+    weights: Sequence[float],
+    aggregation: str,
+    method: str,
+    alpha: float,
+) -> dict[str, Any]:
+    sample_count = len(weights)
+    block_length = max(1, min(sample_count, round(sample_count ** (1 / 3))))
+    replicate_count = 2_000
+    max_batch_indices = 1_000_000
+    seed_payload = {
+        "sample_count": sample_count,
+        "block_length": block_length,
+        "method": method,
+        "replicate_count": replicate_count,
+    }
+    seed = int(_canonical_json_hash(seed_payload).removeprefix(_SHA256_PREFIX)[:16], 16)
+    generator = np.random.default_rng(seed)
+    baseline_array = np.asarray(baseline, dtype=float)
+    treatment_array = np.asarray(treatment, dtype=float)
+    weight_array = np.asarray(weights, dtype=float)
+
+    def aggregate_batch(
+        values: np.ndarray, source: Sequence[float], indices: np.ndarray
+    ) -> np.ndarray:
+        if aggregation in ("mean", "hit_rate", "calibration_error", "rank_correlation"):
+            selected_weights = weight_array[indices]
+            return (values[indices] * selected_weights).sum(axis=1) / selected_weights.sum(
+                axis=1
+            )
+        if aggregation == "max":
+            return values[indices].max(axis=1)
+        if aggregation == "min":
+            return values[indices].min(axis=1)
+        if aggregation == "sum":
+            return (values[indices] * weight_array[indices]).sum(axis=1)
+        return np.asarray(
+            [
+                _aggregate_resample(source, weights, aggregation, selected)
+                for selected in indices
+            ]
+        )
+
+    estimates: list[float] = []
+    while len(estimates) < replicate_count:
+        remaining = replicate_count - len(estimates)
+        batch_size = min(remaining, max(1, max_batch_indices // sample_count))
+        baseline_indices = _block_bootstrap_index_batch(
+            generator, sample_count, block_length, batch_size
+        )
+        treatment_indices = (
+            baseline_indices
+            if method == "paired_block_bootstrap"
+            else _block_bootstrap_index_batch(
+                generator, sample_count, block_length, batch_size
+            )
+        )
+        batch_estimates = aggregate_batch(
+            treatment_array, treatment, treatment_indices
+        ) - aggregate_batch(baseline_array, baseline, baseline_indices)
+        estimates.extend(float(value) for value in batch_estimates)
+
+    estimate_mean = sum(estimates) / replicate_count
+    standard_error = math.sqrt(
+        sum((estimate - estimate_mean) ** 2 for estimate in estimates)
+        / (replicate_count - 1)
+    )
+    return {
+        "standard_error": standard_error,
+        "lower": _quantile(estimates, alpha / 2),
+        "upper": _quantile(estimates, 1 - alpha / 2),
+        "effective_sample_size": _effective_sample_size(weights),
+        "block_length": block_length,
+        "block_scheme": "circular_moving_block_v1",
+        "bootstrap_replicates": replicate_count,
+        "seed_policy": "sha256_numpy_pcg64_index_plan_v1",
+        "quantile_rule": "linear_type7_v1",
+        "max_batch_indices": max_batch_indices,
+    }
+
+
+def _wilson_interval(
+    values: Sequence[float], weights: Sequence[float], critical_value: float
+) -> tuple[float, float, float]:
+    if any(value not in (0.0, 1.0) for value in values):
+        raise DomainEvaluationError("wilson_interval requires binary metric values")
+    effective_n = _effective_sample_size(weights)
+    proportion = _aggregate(values, weights, "hit_rate")
+    critical_squared = critical_value**2
+    denominator = 1 + critical_squared / effective_n
+    center = (proportion + critical_squared / (2 * effective_n)) / denominator
+    half_width = (
+        critical_value
+        * math.sqrt(
+            proportion * (1 - proportion) / effective_n
+            + critical_squared / (4 * effective_n**2)
+        )
+        / denominator
+    )
+    return max(0.0, center - half_width), min(1.0, center + half_width), effective_n
+
+
+def _fisher_interval(
+    value: float, effective_n: float, critical_value: float
+) -> tuple[float, float]:
+    if not -1 <= value <= 1:
+        raise DomainEvaluationError("fisher_z requires correlation values in [-1, 1]")
+    if effective_n <= 3:
+        raise DomainEvaluationError("fisher_z requires effective sample size greater than 3")
+    clipped = min(1 - 1e-12, max(-1 + 1e-12, value))
+    transformed = math.atanh(clipped)
+    half_width = critical_value / math.sqrt(effective_n - 3)
+    return math.tanh(transformed - half_width), math.tanh(transformed + half_width)
+
+
+def _uncertainty(
+    baseline: Sequence[float],
+    treatment: Sequence[float],
+    weights: Sequence[float],
+    aggregation: str,
+    method: str,
+    alpha: float,
+) -> dict[str, Any]:
+    if not baseline or len(baseline) != len(treatment) or len(baseline) != len(weights):
+        raise DomainEvaluationError("uncertainty requires paired weighted values")
+    if not 0 < alpha < 1:
+        raise DomainEvaluationError("uncertainty alpha must be in (0, 1)")
+    if any(not math.isfinite(value) for value in (*baseline, *treatment, *weights)):
+        raise DomainEvaluationError("uncertainty inputs must be finite")
+    if any(weight <= 0 for weight in weights):
+        raise DomainEvaluationError("uncertainty weights must be positive")
+
     critical_value = NormalDist().inv_cdf(1 - alpha / 2)
+    if method in ("paired_block_bootstrap", "block_bootstrap"):
+        estimate = _block_bootstrap_uncertainty(
+            baseline, treatment, weights, aggregation, method, alpha
+        )
+    elif method == "wilson_interval":
+        baseline_lower, baseline_upper, baseline_n = _wilson_interval(
+            baseline, weights, critical_value
+        )
+        treatment_lower, treatment_upper, treatment_n = _wilson_interval(
+            treatment, weights, critical_value
+        )
+        lower = treatment_lower - baseline_upper
+        upper = treatment_upper - baseline_lower
+        estimate = {
+            "standard_error": (upper - lower) / (2 * critical_value),
+            "lower": lower,
+            "upper": upper,
+            "effective_sample_size": min(baseline_n, treatment_n),
+            "baseline_effective_sample_size": baseline_n,
+            "treatment_effective_sample_size": treatment_n,
+        }
+    elif method == "fisher_z":
+        baseline_value = _aggregate(baseline, weights, aggregation)
+        treatment_value = _aggregate(treatment, weights, aggregation)
+        effective_n = _effective_sample_size(weights)
+        baseline_lower, baseline_upper = _fisher_interval(
+            baseline_value, effective_n, critical_value
+        )
+        treatment_lower, treatment_upper = _fisher_interval(
+            treatment_value, effective_n, critical_value
+        )
+        lower = treatment_lower - baseline_upper
+        upper = treatment_upper - baseline_lower
+        estimate = {
+            "standard_error": (upper - lower) / (2 * critical_value),
+            "lower": lower,
+            "upper": upper,
+            "effective_sample_size": effective_n,
+        }
+    else:
+        raise DomainEvaluationError(f"unsupported uncertainty method: {method}")
+
     return {
         "method": method,
+        "estimator_version": "domain_uncertainty_v1",
         "confidence_level": 1 - alpha,
         "adjusted_alpha": alpha,
-        "standard_error": standard_error,
-        "lower": mean - critical_value * standard_error,
-        "upper": mean + critical_value * standard_error,
-        "effective_sample_size": effective_n,
+        **estimate,
     }
 
 
@@ -1065,7 +1285,6 @@ def evaluate_domain_mutation(
     baseline_value = _aggregate(baseline_values, weights, aggregation)
     treatment_value = _aggregate(treatment_values, weights, aggregation)
     effect_size = treatment_value - baseline_value
-    effects = [new - old for old, new in zip(baseline_values, treatment_values)]
     multiple_testing = _mapping(
         preregistration.get("multiple_testing"), "multiple_testing"
     )
@@ -1073,8 +1292,10 @@ def evaluate_domain_mutation(
         multiple_testing.get("adjusted_alpha"), "multiple_testing.adjusted_alpha"
     )
     uncertainty = _uncertainty(
-        effects,
+        baseline_values,
+        treatment_values,
         weights,
+        aggregation,
         str(metric.get("uncertainty_method")),
         adjusted_alpha,
     )
@@ -1129,8 +1350,10 @@ def evaluate_domain_mutation(
         split_baseline = _aggregate(split_baseline_values, split_weights, aggregation)
         split_treatment = _aggregate(split_treatment_values, split_weights, aggregation)
         split_uncertainty = _uncertainty(
-            [new - old for old, new in zip(split_baseline_values, split_treatment_values)],
+            split_baseline_values,
+            split_treatment_values,
             split_weights,
+            aggregation,
             str(metric.get("uncertainty_method")),
             adjusted_alpha,
         )

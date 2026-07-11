@@ -10,6 +10,7 @@ import pytest
 from mosaic.autoresearch.domain_evaluator import (
     DEFAULT_EVALUATION_CONTRACT_PATH,
     DomainEvaluationError,
+    _uncertainty,
     evaluate_domain_mutation,
     load_evaluation_contract,
 )
@@ -330,6 +331,69 @@ def test_generated_contract_hashes_validate():
     contract = load_evaluation_contract()
     assert contract["contract_hash"].startswith("sha256:")
     assert len(contract["evaluation_metrics"]) >= 1
+
+
+def test_registered_uncertainty_methods_use_their_declared_estimators():
+    baseline = [float(index) for index in range(20)]
+    treatment = [value + 0.5 for value in baseline]
+    weights = [1.0] * len(baseline)
+
+    paired = _uncertainty(
+        baseline,
+        treatment,
+        weights,
+        "mean",
+        "paired_block_bootstrap",
+        0.05,
+    )
+    repeated = _uncertainty(
+        baseline,
+        treatment,
+        weights,
+        "mean",
+        "paired_block_bootstrap",
+        0.05,
+    )
+    independent = _uncertainty(
+        baseline,
+        treatment,
+        weights,
+        "mean",
+        "block_bootstrap",
+        0.05,
+    )
+    wilson = _uncertainty(
+        [0.0] * 20,
+        [1.0] * 20,
+        weights,
+        "hit_rate",
+        "wilson_interval",
+        0.05,
+    )
+    fisher = _uncertainty(
+        [-0.5] * 20,
+        [0.5] * 20,
+        weights,
+        "rank_correlation",
+        "fisher_z",
+        0.05,
+    )
+
+    assert paired == repeated
+    assert paired["estimator_version"] == "domain_uncertainty_v1"
+    assert paired["seed_policy"] == "sha256_numpy_pcg64_index_plan_v1"
+    assert paired["quantile_rule"] == "linear_type7_v1"
+    assert paired["lower"] == pytest.approx(0.5)
+    assert paired["upper"] == pytest.approx(0.5)
+    assert independent["lower"] < 0.5 < independent["upper"]
+    assert wilson["lower"] < 1.0
+    assert wilson["upper"] == pytest.approx(1.0)
+    assert fisher["lower"] < 1.0 < fisher["upper"]
+
+
+def test_unregistered_uncertainty_method_fails_closed():
+    with pytest.raises(DomainEvaluationError, match="unsupported uncertainty method"):
+        _uncertainty([0.0] * 5, [1.0] * 5, [1.0] * 5, "mean", "gaussian", 0.05)
 
 
 def test_preregistration_sample_and_result_schemas_validate(tmp_path: Path):
