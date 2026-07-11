@@ -364,17 +364,25 @@ export const ActivePromptReleaseManifestSchema = z
       })
       .strict()
       .superRefine((evidence, ctx) => {
+        const isV2 = evidence.schema_version === "prompt_release_canary_slo_evidence_v2";
         const hasJournalClosure =
           evidence.journal_closure_hash !== undefined &&
           evidence.journal_record_count !== undefined;
-        if (
-          (evidence.schema_version === "prompt_release_canary_slo_evidence_v2") !==
-          hasJournalClosure
-        ) {
+        if (isV2 !== hasJournalClosure) {
           ctx.addIssue({
             code: "custom",
             path: ["journal_closure_hash"],
             message: "v2 SLO evidence requires a closed journal snapshot",
+          });
+        }
+        if (
+          evidence.aggregator_id !== "prompt_release_canary_slo" ||
+          evidence.aggregator_version !== (isV2 ? "2" : "1")
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["aggregator_version"],
+            message: "SLO evidence aggregator identity does not match its schema version",
           });
         }
       })

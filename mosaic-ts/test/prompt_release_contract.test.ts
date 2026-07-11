@@ -235,4 +235,22 @@ describe("aggregate prompt release contract", () => {
     driftedPair.zh.sha256 = `sha256:${"2".repeat(64)}`;
     expect(ActivePromptReleaseManifestSchema.safeParse(drifted).success).toBe(false);
   });
+
+  it("binds SLO evidence versions to their journal and aggregator contracts", () => {
+    const mismatched = release("active");
+    if (!mismatched.runtime_slo_evidence) throw new Error("active fixture requires SLOs");
+    mismatched.runtime_slo_evidence.aggregator_version = "2";
+    expect(ActivePromptReleaseManifestSchema.safeParse(mismatched).success).toBe(false);
+
+    const v2 = release("active");
+    if (!v2.runtime_slo_evidence) throw new Error("active fixture requires SLOs");
+    v2.runtime_slo_evidence = {
+      ...v2.runtime_slo_evidence,
+      schema_version: "prompt_release_canary_slo_evidence_v2",
+      journal_closure_hash: HASH,
+      journal_record_count: 40,
+      aggregator_version: "2",
+    };
+    expect(ActivePromptReleaseManifestSchema.safeParse(v2).success).toBe(true);
+  });
 });

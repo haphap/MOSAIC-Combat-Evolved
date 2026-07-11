@@ -340,7 +340,11 @@
                 }
               },
               "then": {
-                "required": ["journal_closure_hash", "journal_record_count"]
+                "required": ["journal_closure_hash", "journal_record_count"],
+                "properties": {
+                  "aggregator_id": { "const": "prompt_release_canary_slo" },
+                  "aggregator_version": { "const": "2" }
+                }
               }
             },
             {
@@ -352,6 +356,10 @@
                 }
               },
               "then": {
+                "properties": {
+                  "aggregator_id": { "const": "prompt_release_canary_slo" },
+                  "aggregator_version": { "const": "1" }
+                },
                 "not": {
                   "anyOf": [
                     { "required": ["journal_closure_hash"] },

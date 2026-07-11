@@ -1277,18 +1277,18 @@ describe("CIO position validator", () => {
     ).toThrow(/duplicate portfolio action ticker/);
   });
 
-  it("does not count runtime fallback HOLDs as model-reviewed positions", () => {
+  it("does not count runtime fallback reductions as model-reviewed positions", () => {
     const result = validateCioPositionActions({
       output: cioOutput([
         {
           ticker: "600519.SH",
-          action: "HOLD",
-          position_decision: "HOLD",
+          action: "REDUCE",
+          position_decision: "REDUCE",
           current_weight: 0.2,
-          target_weight: 0.2,
-          delta_weight: 0,
+          target_weight: 0.12,
+          delta_weight: -0.08,
           holding_period: "1M",
-          position_decision_reason: "runtime preserved omitted position",
+          position_decision_reason: "runtime reduced omitted over-limit position",
           thesis_status: "intact",
           risk_flags: ["position_review_missing"],
           dissent_notes: "",
@@ -1339,6 +1339,7 @@ describe("CIO position validator", () => {
         currentPositions: loadedPositions([
           { ...heldPosition, unrealized_pnl_pct: -0.12, holding_days: 25 },
         ]),
+        sharedPolicyValues: { max_single_name_weight: 0.2 },
       }),
     ).toThrow(/stop_loss breached/);
   });
@@ -1399,7 +1400,7 @@ describe("CIO position validator", () => {
         currentPositions: loadedPositions([
           { ...heldPosition, unrealized_pnl_pct: -0.06, holding_days: 25 },
         ]),
-        sharedPolicyValues: { stop_loss_pct: -0.05 },
+        sharedPolicyValues: { stop_loss_pct: -0.05, max_single_name_weight: 0.2 },
       }),
     ).toThrow(/stop_loss breached/);
   });
@@ -1503,7 +1504,7 @@ describe("CIO position validator", () => {
           { ...heldPosition, ticker: "688981.SH", sector: "semiconductor", current_weight: 0.18 },
           { ...heldPosition, ticker: "300750.SZ", sector: "semiconductor", current_weight: 0.1 },
         ]),
-        sharedPolicyValues: { max_sector_weight: 0.25 },
+        sharedPolicyValues: { max_single_name_weight: 0.2, max_sector_weight: 0.25 },
       }),
     ).toThrow(/max_sector_weight/);
   });
@@ -1784,6 +1785,7 @@ describe("CIO position validator", () => {
         },
       ]),
       currentPositions: loadedPositions([{ ...heldPosition, holding_days: 30 }]),
+      sharedPolicyValues: { max_single_name_weight: 0.2 },
     });
 
     expect(result.output.portfolio_actions[0]?.risk_flags).toContain("stale_thesis");
@@ -1840,6 +1842,7 @@ describe("CIO position validator", () => {
           entry_thesis_id: "thesis-000001",
         },
       ]),
+      sharedPolicyValues: { max_single_name_weight: 0.2 },
     });
 
     expect(result.position_reviews.map((review) => review.ticker).sort()).toEqual([

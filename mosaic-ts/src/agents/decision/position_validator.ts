@@ -197,12 +197,7 @@ export function validateCioPositionActions(opts: {
   }
   assertPositionDecisionSemantics(actions, currentPositions);
   for (const action of actions) {
-    if (
-      action.target_weight <= maxSingleNameWeight ||
-      action.target_weight <= (action.current_weight ?? 0) + 1e-9
-    ) {
-      continue;
-    }
+    if (action.target_weight <= maxSingleNameWeight) continue;
     if (!nonEmptyText(action.override_reason)) {
       throw new PositionActionValidationError(
         `${action.ticker}: target_weight exceeds max_single_name_weight without override_reason`,
