@@ -1,12 +1,14 @@
 # 智能体
 
 MOSAIC 跑 **4 层共 25 个智能体**,由 LangGraph.js(`mosaic-ts/src/graph/daily_cycle.ts`)装配成单次 daily cycle。各 agent 在 `mosaic-ts/src/agents/<layer>/`;每层工厂(`_factory.ts`)与 schema(`_schemas.ts`)共享。
+Canonical roster 为 `AGENTS_BY_LAYER`，其跨语言 committed form 是
+`registry/prompt_checks/runtime_agent_manifest_v1.json`。
 
 状态按层经 `mosaic-ts/src/agents/state.ts` 的逐层 map 流转(`layer1_outputs` … `layer4_outputs`,加顶层 `portfolio_actions` 镜像)。
 
 ## 第 1 层 —— 宏观 (10)
 
-`central_bank`、`china`、`commodities`、`dollar`、`emerging_markets`、`geopolitical`、`institutional_flow`、`news_sentiment`、`volatility`、`yield_curve`。(`_aggregator.ts` 汇总 Layer-1 输出。)
+`central_bank`、`geopolitical`、`china`、`dollar`、`yield_curve`、`commodities`、`volatility`、`emerging_markets`、`news_sentiment`、`institutional_flow`。(`_aggregator.ts` 汇总 Layer-1 输出。)
 
 Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `volatility` 用 `get_ivx` + `get_realized_volatility` + `get_etf_indicator(510050.SH)`;`emerging_markets` 用 `get_etf_price_data`;`china` 用 `get_property_data`(国房景气指数) + `get_policy_uncertainty`(EPU)。macro 层共 20 个工具。
 

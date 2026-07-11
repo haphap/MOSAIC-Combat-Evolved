@@ -75,18 +75,24 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 Release lifecycle 使用独立命令:
 
 ```bash
+pnpm dev prompt-release provision-baseline --manifest APPROVED_BASELINE.json \
+  --private-prompts-repo "$MOSAIC_PROMPTS_REPO" --approved-by operator:NAME \
+  --reason 'import previously approved baseline'
 pnpm dev prompt-release canary --release-id RELEASE_ID --approved-by operator:NAME \
   --reason 'bounded canary' --traffic-percent 10
 pnpm dev prompt-release summarize-slo --release-id RELEASE_ID \
-  --events .mosaic/prompt-releases/canary-events.jsonl \
   --observation-ended-at 2026-07-10T12:00:00Z \
   --out .mosaic/prompt-releases/RELEASE_ID-slo.json
+pnpm dev prompt-release activate --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'closed canary SLO passed' \
+  --slo-artifact .mosaic/prompt-releases/RELEASE_ID-slo.json
 pnpm dev prompt-release rollback --release-id RELEASE_ID \
   --approved-by operator:NAME --reason 'operator rollback'
 ```
 
-Canary 流量前必须设置 `MOSAIC_PROMPT_CANARY_EVENT_LOG`;activation 只接受生成的
-SLO artifact,拒绝手写 measurements。
+Canary 流量、summary 与 activation 必须使用同一个
+`MOSAIC_PROMPT_CANARY_EVENT_LOG`;activation 会重算 assignment/terminal journal
+closure，拒绝手写、过期或抽样 measurements。
 
 ## PRISM(多周期训练)
 

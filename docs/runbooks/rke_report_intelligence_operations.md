@@ -121,6 +121,30 @@ only when the registry directory is not under the standard repo layout. Explicit
 CLI/RPC `--registry-dir` or `registry_dir` still wins over both environment
 variables.
 
+### Governance Closure
+
+`registries-preflight` validates the exported `registry_manifest.json`, not just
+the presence of a directory. The manifest schema, clean source revision, file
+set, per-file SHA-256/byte count, aggregate file count, required private paths,
+and vintage hash must all close. A malformed fingerprint, missing file,
+duplicate entry, dirty private checkout, or unavailable git revision is a
+blocker. Re-export and commit the private registry; do not hand-edit the
+fingerprint manifest.
+
+Human approval drafts are not review imports. Before either analytical-footprint
+import, every row must explicitly set `approval_status=approved`, clear
+`human_approval_required`, clear the relevant `not_apply_*` flag, bind the CLI
+reviewer/date, and carry matching valid target-row hashes. The target hash covers
+the review focus, priority, counts, and quality-gap fields as well as row
+identity, so editing a target after approval invalidates the draft.
+
+Industry ETF proxy resolution uses normalized exact matches first, then only
+unambiguous longest containment matches of at least three characters. Ambiguous
+labels fail closed instead of taking the first substring match. Historical agent
+research context also filters outcome rows, source/viewpoint profiles, weighted
+contexts, and revalidation vintages at the requested `as_of`; future profiles
+must never enter a replay.
+
 Last source build:
 
 - Command:

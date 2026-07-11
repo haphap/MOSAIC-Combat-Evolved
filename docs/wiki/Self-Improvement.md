@@ -45,18 +45,27 @@ estimator: paired or independent block bootstrap, Wilson intervals for binary
 rates, and Fisher-z intervals for rank correlation. Runtime evidence health is
 also aggregated across every same-name tool invocation, so a later failure or
 fallback cannot escape a confidence cap because the first call succeeded.
+Sample manifests are content-addressed over both arms, evidence vintages,
+generator identity, and source snapshots. Promotion also requires common
+support; arm-specific exclusions and asymmetric missing values fail closed.
 
 Kept mutations still move through staged and canary release states. Runtime
-events are bound to release, stage snapshots, run identity, schema/fallback,
-token, order, and exposure results. `prompt-release summarize-slo` recomputes
-the fixed thresholds; activation rejects handwritten summaries. The operator
-can run `autoresearch recover-transactions` after a crash and
-`prompt-release rollback` to restore the prior aggregate release pointer.
-Non-canary traffic remains on the active pinned baseline. If a first canary has
-no active baseline, control traffic fails closed instead of loading mutable
-working-tree prompts. Prompt caches include lifecycle state and rollout scope,
-so promotion of the same release id from canary to active refreshes runtime
-metadata.
+records contain a durable pre-load assignment and one terminal outcome bound to
+release, stage snapshots, run identity, prompt source, schema/fallback, token,
+order, and exposure results. `prompt-release summarize-slo` reads the configured
+journal and closes both the invocation set and journal prefix; activation rereads
+the journal and rejects handwritten, stale, or subset summaries. Bundled prompt
+fallbacks count as source failures. The operator can run `autoresearch
+recover-transactions` after a crash and `prompt-release rollback` to restore the
+prior aggregate release pointer. Failed aborts remain pending and retain their
+path leases until candidate refs are confirmed absent.
+
+Non-canary traffic remains on the active pinned baseline. A first canary without
+that baseline is rejected; operators must import a previously approved active
+manifest with `prompt-release provision-baseline`. Runtime code identity remains
+pinned during canary traffic. Prompt caches include lifecycle state and rollout
+scope, so promotion of the same release id from canary to active refreshes
+runtime metadata.
 
 The decision-layer rollout uses one canonical sequence: alpha discovery, CIO
 proposal, frozen candidate target, CRO review, execution feasibility, CIO
@@ -64,6 +73,9 @@ final, and shared validation. Runtime carries the prior accepted final target
 across backtest/shadow cycles, resolves market and liquidity evidence per
 ticker, freezes prompt/source inputs for CIO final, and replaces outputs that
 declare unsupported knob influence with a deterministic conservative fallback.
+When runtime/shared concentration policy values are absent, CIO validation and
+fallback use the catalog defaults (12% single-name and 30% sector) rather than
+disabling the limits.
 The claim/evidence graph validator exists, but the evidence-runtime gate remains
 open until runtime-owned result fingerprints and evidence ids are passed to the
 structured extractor and every recommendation/action has verified claim refs.

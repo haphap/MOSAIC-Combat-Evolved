@@ -76,18 +76,24 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 Release lifecycle commands are separate from prompt asset commands:
 
 ```bash
+pnpm dev prompt-release provision-baseline --manifest APPROVED_BASELINE.json \
+  --private-prompts-repo "$MOSAIC_PROMPTS_REPO" --approved-by operator:NAME \
+  --reason 'import previously approved baseline'
 pnpm dev prompt-release canary --release-id RELEASE_ID --approved-by operator:NAME \
   --reason 'bounded canary' --traffic-percent 10
 pnpm dev prompt-release summarize-slo --release-id RELEASE_ID \
-  --events .mosaic/prompt-releases/canary-events.jsonl \
   --observation-ended-at 2026-07-10T12:00:00Z \
   --out .mosaic/prompt-releases/RELEASE_ID-slo.json
+pnpm dev prompt-release activate --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'closed canary SLO passed' \
+  --slo-artifact .mosaic/prompt-releases/RELEASE_ID-slo.json
 pnpm dev prompt-release rollback --release-id RELEASE_ID \
   --approved-by operator:NAME --reason 'operator rollback'
 ```
 
-Set `MOSAIC_PROMPT_CANARY_EVENT_LOG` before canary traffic. Activation consumes
-the generated SLO artifact; handwritten measurements are rejected.
+Set `MOSAIC_PROMPT_CANARY_EVENT_LOG` before canary traffic and keep it set for
+summary and activation. Activation recomputes the assignment/terminal journal
+closure; handwritten, stale, or subset measurements are rejected.
 
 ## PRISM (multi-regime training)
 

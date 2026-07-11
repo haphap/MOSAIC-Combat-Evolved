@@ -37,18 +37,28 @@ Evaluator 会把每种注册的不确定性策略分派给真实 estimator：pai
 block bootstrap、二元 rate 的 Wilson interval，以及 rank correlation 的 Fisher-z
 interval。Runtime evidence health 也会聚合同名工具的每一次调用；即使首个调用
 成功，后续 missing、failed 或 fallback 仍会触发 confidence cap。
+Sample manifest 会对 baseline/treatment 两个 arm、evidence vintage、generator
+identity 与 source snapshot 做 content hash；arm-specific exclusion 或非对称缺失会
+直接阻断 promotion。
 
-Keep 后仍须经过 staged 和 canary release。Runtime event 绑定 release、stage
-snapshot、run identity、schema/fallback、token、order 与 exposure 结果;
-`prompt-release summarize-slo` 会重算固定门槛,activation 拒绝手写 summary。进程
-中断后使用 `autoresearch recover-transactions`,并可用
-`prompt-release rollback` 恢复上一 aggregate release pointer。
-非 canary 流量必须留在 active pinned baseline。首轮 canary 如果没有 active
-baseline，control traffic 会 fail closed，而不会读取可变的 working-tree prompt。
-Prompt cache identity 包含 lifecycle state 和 rollout scope，因此同一 release id
-从 canary 晋升为 active 后会刷新 runtime metadata。
+Keep 后仍须经过 staged 和 canary release。每次 canary invocation 在 prompt load
+前持久化 assignment，并在 success、fallback、timeout 或 load failure 后写入唯一
+terminal record；bundled prompt fallback 同时计为 fallback 和 source failure。
+`prompt-release summarize-slo` 只读取配置的 journal，并闭合 invocation set 与
+journal prefix；activation 会重读 journal，拒绝手写、过期或抽样 summary。进程中断
+后使用 `autoresearch recover-transactions`,并可用 `prompt-release rollback` 恢复
+上一 aggregate release pointer。Abort 失败时 transaction 保持 pending，path lease
+在 candidate ref 被确认清除前不会释放。
+
+非 canary 流量必须留在 active pinned baseline。没有 active baseline 时 canary
+transition 会被拒绝；operator 必须先用 `prompt-release provision-baseline` 导入已批准
+且重新校验通过的 active manifest。Canary 期间 code identity 仍保持 pin。Prompt
+cache identity 包含 lifecycle state 和 rollout scope，因此同一 release id 从 canary
+晋升为 active 后会刷新 runtime metadata。
 
 Decision layer 固定按 alpha discovery、CIO proposal、冻结 candidate target、CRO review、execution feasibility、CIO final、shared validation 的顺序运行。Runtime 在 backtest/shadow cycle 间传递上一轮已接受 final target,按 ticker 解析 market/liquidity evidence,并冻结 CIO final 使用的 prompt/source 输入。若输出声明了 unsupported knob influence,原输出会被拒绝并替换为 deterministic conservative fallback,不能只记 audit 后继续执行。Claim/evidence graph validator 已存在,但只有 runtime-owned result fingerprint/evidence id 已注入 structured extractor,且每个 recommendation/action 都有 verified claim refs 后,evidence-runtime gate 才算通过。
+若 runtime/shared concentration policy 缺失，CIO validator 与 fallback 使用 catalog
+默认值（single-name 12%、sector 30%），不会把上限退化为 100%。
 
 ## PRISM —— 多周期训练
 

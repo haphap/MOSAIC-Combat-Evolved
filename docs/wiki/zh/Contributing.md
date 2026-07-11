@@ -20,7 +20,10 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 
 注意:
 - `ruff` 排除 vendored 采集器(`mosaic/dataflows/collectors`)—— 第三方,逐字保留。
-- operator checkout 如果带有 ignored private `registry/report_intelligence/` 产物,本地 `python -m pytest tests/ -q` 变慢时先用 `--durations=80 --durations-min=0.1` profile,再查 `du -sh registry`,并对照 CI 风格的 RKE 单文件拆分。RKE fixture 只能复制 public manifest closure,不得复制完整 operator registry。
+- 单体 `python -m pytest tests/ -q` 会串行执行 2,000 多个测试；请先用
+  `--durations=80 --durations-min=0.1` profile，并对照 CI 的 RKE 单文件拆分。
+  Registry fixture 会排除全部 private prefix，并在文件系统支持时使用
+  copy-on-write clone；不得复制完整 operator registry，默认也不得触发 live FRED。
 - 2026 年 7 月的一次本地 profile 显示,主要拖慢点是 `tests/test_rke_cli.py`:一个 CLI refresh contract 测试耗时 274s,多个 master-plan/promotion/review-progress CLI 用例耗时 22-89s。现在这些测试会 stub 掉本断言无关的深层 refresh/review-progress builder;本地跑该文件应约 10s 完成。accepted-import 测试也会 stub 掉无关的下游 report-bundle 重写;剩余已知本地热点是 `tests/test_rke_operator_handoff.py`,其中深层 handoff 用例仍会跑真实 manual review progress builder。
 - `tests/test_rke_tushare_reports.py` 过去会复制包含 private ignored 文件的 166 MB registry 九次,并依赖 clean CI 中不存在的 review 文件。现在它只复制 public registry fixture 并使用 synthetic review rows;27 个测试应约 3 秒完成,且 clean checkout 与 operator checkout 结果一致。
 - 部分测试由 `_HAS_QLIB` / 依赖存在性 guard,当某可选 extra(如 `pyqlib`、`bcrypt`、`numpy`)缺失时干净跳过,使套件可 hermetic 运行。

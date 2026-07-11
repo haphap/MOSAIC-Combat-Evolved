@@ -20,7 +20,11 @@ CI runs the same in `.github/workflows/ci.yml` (a Python lane + a TS lane). The 
 
 Notes:
 - `ruff` excludes the vendored collectors (`mosaic/dataflows/collectors`) — they're third-party, kept verbatim.
-- On operator checkouts with ignored private `registry/report_intelligence/` artifacts, profile a slow local `python -m pytest tests/ -q` with `--durations=80 --durations-min=0.1`, check `du -sh registry`, and compare the CI-style per-file RKE split. RKE fixtures must copy only their public manifest closure, never the full operator registry.
+- The monolithic `python -m pytest tests/ -q` runs more than 2,000 tests serially;
+  profile it with `--durations=80 --durations-min=0.1` and compare the CI-style
+  per-file RKE split. Registry fixtures exclude all private prefixes and use
+  copy-on-write clones when supported; they must never copy the full operator
+  registry or make live FRED calls by default.
 - A July 2026 local profile showed `tests/test_rke_cli.py` was the main drag: one CLI refresh contract test took 274s and several master-plan/promotion/review-progress CLI cases took 22-89s. Those tests now stub unrelated deep refresh/review-progress builders; the file should finish in about 10s locally. Accepted-import tests also stub unrelated downstream report-bundle rewrites; the remaining known local hotspot is `tests/test_rke_operator_handoff.py`, where deep handoff cases still exercise the real manual review progress builder.
 - `tests/test_rke_tushare_reports.py` previously copied a 166 MB private-augmented registry nine times and depended on ignored review files. It now uses public-only registry fixtures plus synthetic review rows; all 27 tests should finish in about 3s and behave identically on a clean checkout.
 - Some tests are guarded by `_HAS_QLIB` / dep-presence and skip cleanly when an optional extra (e.g. `pyqlib`, `bcrypt`, `numpy`) is absent, so the suite runs hermetically.

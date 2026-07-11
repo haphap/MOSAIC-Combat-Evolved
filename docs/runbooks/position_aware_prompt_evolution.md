@@ -62,13 +62,29 @@ times, and two direct-root handoff tests scanned it again. Pytest registry copie
 now exclude every path classified by `PRIVATE_LOCAL_REGISTRY_FILES` or
 `PRIVATE_LOCAL_REGISTRY_PREFIXES`, then rebuild only the small synthetic private
 fixture required by a test. Direct-root handoff/readiness cases use the same
-isolated registry.
+isolated registry. The registry-copy guard is installed once per pytest session,
+and public fixture files use filesystem copy-on-write clones when available
+(with a normal `copy2` fallback). A fixture test mutates the clone and verifies
+that the source registry is unchanged.
 
 On the 2026-07-10 verification run, the monolithic suite fell from more than 78
 minutes to about 3 minutes. `tests/test_rke_schema_artifacts.py` fell to about
 1.9 seconds, and the former 22.75-second handoff scan fell to about 0.06 seconds.
 Results and duration must not depend on ignored PDFs, report rows, review files,
 or `.mosaic` caches.
+
+The MiroFish A/B and memory suites still run their 150-seed measurement once for
+the regression assertions. Their separate determinism checks use two 12-seed
+runs; rerunning the 150-seed study a second time did not add coverage.
+
+The 2026-07-11 local profile completed the full serial suite in about 3 minutes.
+No single test accounted for the wall time: the largest entries were review
+progress fixture validation (`4.04s`), the one retained 150-seed A/B setup
+(`3.27s`), representative domain evaluation (`2.99s`), promotion dry-run
+(`2.06s`), and several operator-readiness cases (`1.3-2.0s` each). The remaining
+time is the aggregate of more than 2,000 serial tests, so use the CI per-file RKE
+split when diagnosing one subsystem rather than treating quiet `-q` output as a
+hang.
 
 Private/local schema fixtures are explicit diagnostics:
 
@@ -376,6 +392,13 @@ Governed evaluation and runtime evidence checks are method-specific:
 - every invocation of a required tool participates in health evaluation. A
   later missing, failed, or fallback call fires the configured confidence cap
   even when an earlier call with the same tool name succeeded.
+- every domain sample manifest carries a recomputed `sample_manifest_hash`,
+  generator id/version, and source snapshot hashes. Changing an arm value,
+  evidence vintage, split, or source snapshot invalidates the manifest and PIT
+  audit; sample ordering alone does not.
+- baseline and treatment must remain on common support. A missing arm,
+  arm-specific exclusion, or asymmetric null metric input blocks promotion with
+  `ASYMMETRIC_MISSINGNESS_GUARDRAIL_FAILED`.
 
 ## Paper Execution
 
@@ -477,28 +500,45 @@ writes one idempotent, fsynced runtime event to the operator-owned JSONL path:
 
 ```bash
 export MOSAIC_PROMPT_CANARY_EVENT_LOG=.mosaic/prompt-releases/canary-events.jsonl
+rtk pnpm --dir mosaic-ts dev prompt-release provision-baseline \
+  --manifest .mosaic/prompt-releases/APPROVED_BASELINE.json \
+  --private-prompts-repo "$MOSAIC_PROMPTS_REPO" \
+  --approved-by operator:NAME --reason 'import previously approved baseline'
 rtk pnpm --dir mosaic-ts dev prompt-release canary \
   --release-id RELEASE_ID --approved-by operator:NAME \
   --reason 'approved bounded canary' --traffic-percent 10
 rtk pnpm --dir mosaic-ts dev daily-cycle --cohort cohort_default --fake-llm
 rtk pnpm --dir mosaic-ts dev prompt-release summarize-slo \
   --release-id RELEASE_ID \
-  --events .mosaic/prompt-releases/canary-events.jsonl \
   --observation-ended-at 2026-07-10T12:00:00Z \
   --out .mosaic/prompt-releases/RELEASE_ID-slo.json
+rtk pnpm --dir mosaic-ts dev prompt-release activate \
+  --release-id RELEASE_ID --approved-by operator:NAME \
+  --reason 'closed canary SLO passed' \
+  --slo-artifact .mosaic/prompt-releases/RELEASE_ID-slo.json
 ```
 
-`summarize-slo` recomputes fixed thresholds from event hashes. Fewer than 20
-eligible samples, any schema/token/order/exposure breach, mixed release
-identity, duplicate conflict, or stage-snapshot drift blocks activation.
+Every canary invocation durably writes an assignment record before prompt
+loading and one terminal record on success, fallback, timeout, or load failure.
+A bundled prompt is counted as both fallback and primary-source failure; a
+prompt-load failure records an unavailable source and zero prompt tokens.
+`summarize-slo` reads only `MOSAIC_PROMPT_CANARY_EVENT_LOG`, requires one terminal
+record per assignment, and binds the eligible set plus the closed journal prefix
+to the artifact. Activation rereads that same journal and rejects a stale,
+edited, or subset artifact. Fewer than 20 eligible samples, any
+schema/token/order/exposure breach, duplicate conflict, incomplete invocation,
+same-release rollout-identity mismatch, or stage-snapshot drift blocks
+activation. Records for other releases are counted as explicit exclusions.
 
 Percentage canaries require an already pinned active baseline for control
-traffic. An empty release registry is not a valid control plane: a request not
-assigned to the first candidate fails with `active_prompt_release_missing`
-instead of reading private or bundled working-tree prompts. Provision and
-verify the approved baseline pointer before sending canary traffic. Long-lived
-workers include lifecycle state, traffic percentage, account mode, and stage
-snapshot hash in prompt and research-knob cache identities, so a canary-to-active
+traffic. An empty release registry is not a valid control plane: the registry
+rejects a canary transition with `prompt_release_canary_baseline_required`.
+`provision-baseline` accepts only a previously approved, schema-valid active
+manifest whose prompt pairs, bundled fallback, code checkout, contract hashes,
+and stage snapshots revalidate. Provision and verify that pointer before sending
+canary traffic. Runtime code identity remains pinned during canary assignment.
+Long-lived workers include lifecycle state, traffic percentage, account mode,
+and stage snapshot hash in prompt and research-knob cache identities, so a canary-to-active
 transition cannot retain stale canary metadata or emit stale canary events.
 
 After an interrupted cross-repository mutation, start a fresh process and use
@@ -508,6 +548,11 @@ only the durable descriptor:
 rtk pnpm --dir mosaic-ts dev autoresearch recover-transactions \
   --transaction-dir .mosaic/prompt-mutations/transactions
 ```
+
+An abort exception is never treated as cleanup success. The transaction remains
+`recovery_state=pending`, candidate refs are re-inspected, and the path lease is
+retained until every abort succeeds and every candidate ref is absent. Do not
+delete a lease or mark the transaction aborted by hand.
 
 Rollback drill:
 
@@ -568,6 +613,9 @@ Do not promote a mutation when any of these are true:
   semantics;
 - an active `max_sector_weight` runtime card is breached, or an action lacks
   sector exposure while that card is active;
+- missing runtime/shared risk policy values do not disable concentration
+  controls: validation and deterministic fallback use the catalog defaults
+  `max_single_name_weight=0.12` and `max_sector_weight=0.30`;
 - RKE report prior is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or
   `EXIT`;
 - MiroFish is the only evidence for `BUY`, `ADD`, `HOLD`, `REDUCE`, or `EXIT`;
