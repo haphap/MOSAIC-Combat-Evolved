@@ -81,43 +81,202 @@ from the local registry. Do not re-add Report Intelligence artifacts to
 
 ## Private Registry Repo
 
-The private registry repo is the source of truth for report-intelligence
-JSON/JSONL artifacts. Do not record its real remote URL, access token, licensed
-source content, or operator-specific local paths in this public runbook.
-MOSAIC-RKE does not auto-clone or auto-pull that repo at runtime. Operators
-clone, pull, commit, and push it explicitly so a batch run cannot change its
-de-duplication baseline in the middle of processing.
+The private registry repo is the published source of truth for agent-consumed
+report-intelligence JSON/JSONL snapshots. The gitignored registry in this
+checkout remains the staging area for extraction, batch merge, review import,
+and validation. Promote staging into the private repo only as one stable,
+reviewed commit; agents must not consume a half-written extraction run.
 
-First setup on a machine:
+Do not record the private repo's real remote URL, access token, licensed source
+content, or operator-specific local paths in this public runbook. MOSAIC-RKE
+does not auto-clone, pull, commit, or push that repo. Operators keep those Git
+transitions explicit so a batch run cannot change its de-duplication baseline
+in the middle of processing.
+
+### First-Time Setup on Another Machine
+
+Clone the MOSAIC code checkout and the private registry checkout as siblings or
+in another operator-controlled location. Keep the private remote generic in
+public documentation:
 
 ```bash
+git clone <mosaic-code-remote> <mosaic-rke-checkout>
 git clone <private-registry-remote> <private-registry-checkout>
-export MOSAIC_REGISTRIES_REPO=<private-registry-checkout>
-```
-
-Before formal extraction, batch merge, agent context export, or remote
-processing:
-
-```bash
-cd <private-registry-checkout>
-git pull --ff-only
 cd <mosaic-rke-checkout>
-mosaic-rke registries-preflight --root .
 ```
 
-After generating or merging private registry outputs:
+Set the private checkout's absolute path in the local, gitignored `.env`:
+
+```dotenv
+MOSAIC_REGISTRIES_REPO=/absolute/path/to/<private-registry-checkout>
+```
+
+For the standard `registry/report_intelligence` layout, do not set
+`MOSAIC_REGISTRY_DIR`. Configure Tushare, MinerU, the local OpenAI-compatible
+vLLM endpoint, and API keys separately on each machine; never copy secrets into
+either Git repository.
+
+Validate the first clone before using it:
 
 ```bash
-mosaic-rke export-private-registries --root . --output-dir <private-registry-checkout>
-cd <private-registry-checkout>
+cd <mosaic-rke-checkout>
+uv run mosaic-rke registries-preflight --root .
+```
+
+The expected closure is `accepted=true`, `blocker_count=0`, `dirty=false`, and
+`duplicate_fingerprint_count=0`.
+
+### Start Every Extraction or Merge Cycle
+
+Update both repositories, validate the last published snapshot, and hydrate it
+into the local ignored staging tree:
+
+```bash
+cd <mosaic-rke-checkout>
+git pull --ff-only
+git -C "$MOSAIC_REGISTRIES_REPO" pull --ff-only
+
+uv run mosaic-rke registries-preflight --root .
+uv run mosaic-rke hydrate-private-registries --root .
+```
+
+Hydration validates the clean committed private checkout and then exactly
+mirrors its managed JSON/JSONL files into the ignored staging tree. It deletes
+stale managed staging files, so run it before starting new local work, not after
+creating unexported changes. Hydration ensures a new machine preserves the
+complete published history rather than exporting only its newest batch.
+
+An agent-only consumer does not need hydration: pull the private checkout and
+run preflight, then agents read the committed snapshot directly through
+`MOSAIC_REGISTRIES_REPO`.
+
+### Add Only New UIDs or PDFs
+
+An incremental extraction machine does not need the historical PDF corpus.
+Hydration restores the published source IDs, report IDs, source/PDF hashes,
+processing status, and fingerprint manifest; these form the duplicate-detection
+baseline. The machine only needs metadata/UIDs for newly discovered reports and
+the new PDFs or downloadable URLs required for their extraction.
+
+For Tushare, merge newly fetched or imported UID rows into the hydrated source
+registry instead of replacing it:
+
+```bash
+cd <mosaic-rke-checkout>
+uv run mosaic-rke fetch-tushare-reports \
+  --root . \
+  --input-path /path/to/new_tushare_report_rows.jsonl \
+  --merge-existing-source \
+  --source-only
+```
+
+For operator-supplied macro reports, point the builder at an incremental inbox
+containing only new PDFs:
+
+```bash
+uv run mosaic-rke build-local-macro-report-sources \
+  --root . \
+  --input-dir /path/to/new_macro_pdf_inbox
+```
+
+The local builder now preserves hydrated historical rows by default, merges new
+content by `source_hash`, keeps the stable existing `source_id` when the same
+PDF appears at a new machine-local path, and deduplicates identical new PDFs.
+Use `--replace` only for an explicitly approved full reset with a complete
+corpus; never use it for an incremental remote update.
+
+During extraction, fingerprint matching skips reports already represented by
+`source_id`, processed status, source hash, PDF SHA-256, or the normalized
+institution/publish-time/title identity. Historical PDFs and converted
+Markdown remain outside Git and do not need to exist on every worker.
+
+### Extract and Merge into Local Staging
+
+When `MOSAIC_REGISTRIES_REPO` is set, every command that writes staging data
+must explicitly keep its output in the MOSAIC-RKE checkout:
+
+```bash
+uv run mosaic-rke report-intelligence \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
+  <stage-specific-options>
+
+uv run mosaic-rke merge-report-intelligence-batches \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  --input-dir <batch-output>
+```
+
+Use `registry/sources/tushare_research_reports.jsonl` instead when processing
+the Tushare corpus. The explicit `--registry-dir` is mandatory: omitting it can
+select the published private checkout as the write target. Batch shards should
+write to distinct local directories and merge into this staging registry only
+after their own checks pass.
+
+### Publish a Stable Snapshot
+
+Only one machine may publish at a time. Immediately before exporting, fetch the
+private remote and verify that the checkout is clean and not behind
+`origin/main`:
+
+```bash
+git -C "$MOSAIC_REGISTRIES_REPO" fetch origin
+git -C "$MOSAIC_REGISTRIES_REPO" status -sb
+git -C "$MOSAIC_REGISTRIES_REPO" log --oneline HEAD..origin/main
+```
+
+If the final command prints any commit, stop. Pull the new published baseline,
+hydrate again, and reapply or re-merge the local batch before exporting. Do not
+publish a snapshot built from a stale base.
+
+After staging generation, review, and validation have completed, export the
+complete managed JSON/JSONL snapshot with an explicit staging source:
+
+```bash
+uv run mosaic-rke export-private-registries \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  --output-dir "$MOSAIC_REGISTRIES_REPO"
+
+cd "$MOSAIC_REGISTRIES_REPO"
 git status
+find registry -type f -size +95M -print
 git add registry registry_manifest.json
 git commit -m "sync report intelligence registries"
-git push
+
+cd <mosaic-rke-checkout>
+uv run mosaic-rke registries-preflight --root .
+
+git -C "$MOSAIC_REGISTRIES_REPO" push
 ```
 
-Use `MOSAIC_REGISTRY_DIR=<private-registry-checkout>/registry/report_intelligence`
-only when the registry directory is not under the standard repo layout. Explicit
+Run preflight after commit and before push: preflight intentionally rejects a
+dirty private checkout. The exporter exactly mirrors its managed allowlist,
+removes stale managed target files, regenerates the fingerprint and root
+manifests, and fails closed if source and destination resolve to the same repo.
+The size check is a proactive guard before the remote's per-file hard limit;
+split or archive a growing JSONL before it reaches that limit.
+
+If push is rejected because another machine published first, never force-push.
+Preserve the local batch outputs, update and hydrate the new baseline, merge the
+batch again, regenerate the snapshot, and create a new commit.
+
+### Multi-Machine Invariants
+
+- Start writer sessions with `pull -> preflight -> hydrate`.
+- Keep the private checkout clean while agents consume it.
+- Write extraction, review, and merge results only to local ignored staging.
+- Publish one reviewed commit atomically; never force-push `main`.
+- Do not sync PDFs, Markdown, caches, credentials, `.env`, or `.mosaic/` through
+  the registry repository.
+- Treat any preflight blocker, duplicate fingerprint, manifest mismatch, dirty
+  checkout, or unexpected remote advance as a stop condition.
+
+Use `MOSAIC_REGISTRIES_REPO=<private-registry-checkout>` for the standard
+repository layout. `MOSAIC_REGISTRY_DIR=<nonstandard-report-intelligence-dir>`
+is only a direct read/write override for a nonstandard registry directory;
+full snapshot export and hydration require the standard repo layout. Explicit
 CLI/RPC `--registry-dir` or `registry_dir` still wins over both environment
 variables.
 
@@ -152,16 +311,17 @@ Last source build:
 ```bash
 uv run mosaic-rke build-local-macro-report-sources \
   --root . \
-  --input-dir /home/hap/Downloads/yanbaoke
+  --input-dir /home/hap/Downloads/yanbaoke/宏观策略
 ```
 
-- Scanned PDF count: `1967`
-- Written source rows: `1967`
-- Date range: `2017-10-15` to `2026-06-21`
+- Scanned PDF count: `788`
+- Written source rows: `788`
+- Duplicate PDF count: `0`
+- Date range: `2023-08-30` to `2026-06-09`
 - Report type counts:
-  `宏观策略=1014`, `宏观策略-A股=27`, `宏观策略-债券=274`,
-  `宏观策略-商品=68`, `宏观策略-大类资产=94`, `宏观策略-汇率=218`,
-  `宏观策略-海外=233`, `宏观策略-待分类=39`
+  `宏观策略=685`, `宏观策略-A股=22`, `宏观策略-债券=7`,
+  `宏观策略-商品=32`, `宏观策略-大类资产=19`, `宏观策略-汇率=14`,
+  `宏观策略-海外=9`
 
 ## Macro Series Backfill
 

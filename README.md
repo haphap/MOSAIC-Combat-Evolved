@@ -98,6 +98,24 @@ git clone https://github.com/haphap/MOSAIC-Prompts.git ../MOSAIC-Prompts
 echo "MOSAIC_PROMPTS_REPO=$(pwd)/../MOSAIC-Prompts" >> .env
 ```
 
+Optional private RKE registry repo:
+
+Agents can consume a clean, committed snapshot of the gitignored Report
+Intelligence JSON/JSONL registries from a separate private checkout. Clone the
+private repo outside this checkout and configure its local path:
+
+```bash
+git clone <private-registry-remote> ../MOSAIC-Registries
+echo "MOSAIC_REGISTRIES_REPO=$(pwd)/../MOSAIC-Registries" >> .env
+uv run mosaic-rke registries-preflight --root .
+uv run mosaic-rke hydrate-private-registries --root .
+```
+
+Keep generation in this checkout's ignored staging registry by passing
+`--registry-dir registry/report_intelligence`, then export a stable snapshot.
+The full pull, validate, export, commit, and push procedure is documented in
+`docs/runbooks/rke_report_intelligence_operations.md`.
+
 Run a full no-cost smoke cycle:
 
 ```bash

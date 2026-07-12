@@ -100,6 +100,7 @@ from .promotion_dry_run import (
 )
 from .private_registries import (
     export_private_registries,
+    hydrate_private_registries,
     registries_preflight,
     resolve_report_intelligence_registry_dir,
 )
@@ -1647,6 +1648,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="registry/sources/local_macro_strategy_reports.manifest.json",
         help="Private manifest JSON path under the repo.",
     )
+    local_macro_sources.add_argument(
+        "--replace",
+        action="store_true",
+        help=(
+            "Replace the existing source registry with the current scan instead of "
+            "preserving hydrated historical rows."
+        ),
+    )
 
     report_intelligence = subparsers.add_parser(
         "report-intelligence",
@@ -2124,6 +2133,17 @@ def build_parser() -> argparse.ArgumentParser:
     export_private_registries_parser.add_argument(
         "--registry-dir",
         help="Source Report Intelligence registry directory. Defaults to the shared resolver.",
+    )
+    hydrate_private_registries_parser = subparsers.add_parser(
+        "hydrate-private-registries",
+        help="Restore a validated MOSAIC-Registries snapshot into local ignored staging.",
+    )
+    hydrate_private_registries_parser.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    hydrate_private_registries_parser.add_argument(
+        "--source-dir",
+        help="MOSAIC-Registries checkout. Defaults to MOSAIC_REGISTRIES_REPO.",
     )
 
     apply_footprint_review = subparsers.add_parser(
@@ -2963,6 +2983,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             input_dir=args.input_dir,
             output_path=args.output_path,
             manifest_path=args.manifest_path,
+            merge_existing=not args.replace,
         )
         _print_json(asdict(result))
         return 0 if not result.blockers else 2
@@ -3129,6 +3150,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             root=root,
             output_dir=args.output_dir,
             registry_dir=args.registry_dir,
+        )
+        _print_json(result)
+        return 0 if result["accepted"] else 2
+    if args.command == "hydrate-private-registries":
+        result = hydrate_private_registries(
+            root=root,
+            source_dir=args.source_dir,
         )
         _print_json(result)
         return 0 if result["accepted"] else 2
