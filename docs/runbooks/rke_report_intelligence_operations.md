@@ -150,27 +150,45 @@ An agent-only consumer does not need hydration: pull the private checkout and
 run preflight, then agents read the committed snapshot directly through
 `MOSAIC_REGISTRIES_REPO`.
 
-### Restore Machine-Local Sources and Caches
+### Add Only New UIDs or PDFs
 
-The private Git repo intentionally excludes PDFs, converted Markdown, MinerU
-output, model caches, and `.mosaic/` state. A new extraction machine must either
-download/convert reports again or restore those caches through a separate
-operator-controlled private storage channel.
+An incremental extraction machine does not need the historical PDF corpus.
+Hydration restores the published source IDs, report IDs, source/PDF hashes,
+processing status, and fingerprint manifest; these form the duplicate-detection
+baseline. The machine only needs metadata/UIDs for newly discovered reports and
+the new PDFs or downloadable URLs required for their extraction.
 
-Private source rows can contain paths from the machine that published them.
-Rebuild the local macro source registry by scanning the actual PDF directory on
-the new machine; do not trust or hand-edit an old file list:
+For Tushare, merge newly fetched or imported UID rows into the hydrated source
+registry instead of replacing it:
 
 ```bash
 cd <mosaic-rke-checkout>
-uv run mosaic-rke build-local-macro-report-sources \
+uv run mosaic-rke fetch-tushare-reports \
   --root . \
-  --input-dir /path/to/宏观策略
+  --input-path /path/to/new_tushare_report_rows.jsonl \
+  --merge-existing-source \
+  --source-only
 ```
 
-The builder scans recursively and deduplicates identical PDFs by content hash.
-For Tushare sources, configure the local token and refresh the private source
-registry through the existing fetch/source-only workflow.
+For operator-supplied macro reports, point the builder at an incremental inbox
+containing only new PDFs:
+
+```bash
+uv run mosaic-rke build-local-macro-report-sources \
+  --root . \
+  --input-dir /path/to/new_macro_pdf_inbox
+```
+
+The local builder now preserves hydrated historical rows by default, merges new
+content by `source_hash`, keeps the stable existing `source_id` when the same
+PDF appears at a new machine-local path, and deduplicates identical new PDFs.
+Use `--replace` only for an explicitly approved full reset with a complete
+corpus; never use it for an incremental remote update.
+
+During extraction, fingerprint matching skips reports already represented by
+`source_id`, processed status, source hash, PDF SHA-256, or the normalized
+institution/publish-time/title identity. Historical PDFs and converted
+Markdown remain outside Git and do not need to exist on every worker.
 
 ### Extract and Merge into Local Staging
 

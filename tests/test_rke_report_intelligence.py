@@ -3515,6 +3515,71 @@ def test_local_macro_strategy_sources_deduplicate_identical_pdfs(tmp_path: Path)
     assert manifest["duplicate_pdf_count"] == 1
 
 
+def test_local_macro_strategy_sources_preserve_hydrated_history_by_default(
+    tmp_path: Path,
+):
+    input_dir = tmp_path / "macro_pdfs"
+    local_pdf = input_dir / "2026-01-02_BrokerA_宏观策略周报.pdf"
+    local_pdf.parent.mkdir(parents=True)
+    local_pdf.write_bytes(b"%PDF-1.4 available-on-this-machine")
+    output = tmp_path / "registry/sources/local_macro_strategy_reports.jsonl"
+    _write_jsonl(
+        output,
+        [
+            {
+                "source_id": "SRC-STABLE-IDENTITY",
+                "source_span_id": "SRC-STABLE-IDENTITY:original_pdf",
+                "source_hash": _sha(local_pdf),
+                "local_pdf_path": "/old-machine/report.pdf",
+                "url": "file:///old-machine/report.pdf",
+                "report_type": "宏观策略",
+                "publish_date": "2026-01-02",
+            },
+            {
+                "source_id": "SRC-HISTORICAL-ONLY",
+                "source_span_id": "SRC-HISTORICAL-ONLY:original_pdf",
+                "source_hash": "sha256:historical-only",
+                "local_pdf_path": "/old-machine/historical.pdf",
+                "url": "file:///old-machine/historical.pdf",
+                "report_type": "宏观策略",
+                "publish_date": "2025-12-31",
+            },
+        ],
+    )
+
+    result = build_local_macro_strategy_report_sources(
+        root=tmp_path,
+        input_dir=input_dir,
+    )
+
+    assert result.scanned_pdf_count == 1
+    assert result.written_rows == 2
+    rows = _read_jsonl(output)
+    assert [row["source_id"] for row in rows] == [
+        "SRC-STABLE-IDENTITY",
+        "SRC-HISTORICAL-ONLY",
+    ]
+    assert rows[0]["local_pdf_path"] == str(local_pdf.resolve())
+    manifest = json.loads(
+        (tmp_path / "registry/sources/local_macro_strategy_reports.manifest.json")
+        .read_text(encoding="utf-8")
+    )
+    assert manifest["merge_existing"] is True
+    assert manifest["preserved_existing_rows"] == 2
+    assert manifest["new_source_count"] == 0
+    assert manifest["refreshed_local_path_count"] == 1
+
+    replacement = build_local_macro_strategy_report_sources(
+        root=tmp_path,
+        input_dir=input_dir,
+        merge_existing=False,
+    )
+
+    assert replacement.written_rows == 1
+    replacement_ids = {row["source_id"] for row in _read_jsonl(output)}
+    assert "SRC-HISTORICAL-ONLY" not in replacement_ids
+
+
 def test_local_macro_strategy_sources_classify_fx_reports(tmp_path: Path):
     input_dir = tmp_path / "yanbaoke"
     pdfs = [

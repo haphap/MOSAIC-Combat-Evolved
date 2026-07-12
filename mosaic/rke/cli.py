@@ -1648,6 +1648,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="registry/sources/local_macro_strategy_reports.manifest.json",
         help="Private manifest JSON path under the repo.",
     )
+    local_macro_sources.add_argument(
+        "--replace",
+        action="store_true",
+        help=(
+            "Replace the existing source registry with the current scan instead of "
+            "preserving hydrated historical rows."
+        ),
+    )
 
     report_intelligence = subparsers.add_parser(
         "report-intelligence",
@@ -2975,6 +2983,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             input_dir=args.input_dir,
             output_path=args.output_path,
             manifest_path=args.manifest_path,
+            merge_existing=not args.replace,
         )
         _print_json(asdict(result))
         return 0 if not result.blockers else 2

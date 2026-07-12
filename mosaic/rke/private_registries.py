@@ -459,6 +459,18 @@ def _write_private_registry_manifest(output_dir: Path, copied_paths: Sequence[Pa
     }
 
 
+def _private_registry_manifest_paths(manifest_path: Path) -> tuple[str, ...]:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    files = payload.get("files") if isinstance(payload, Mapping) else None
+    if not isinstance(files, list):
+        return ()
+    return tuple(
+        str(row.get("path") or "").strip()
+        for row in files
+        if isinstance(row, Mapping) and str(row.get("path") or "").strip()
+    )
+
+
 def export_private_registries(
     *,
     root: str | Path = ".",
@@ -558,6 +570,18 @@ def hydrate_private_registries(
             registry_dir=source_registry,
         )
         blockers.extend(str(item) for item in preflight["blockers"])
+    managed_paths = set(_managed_private_registry_paths())
+    if not blockers:
+        snapshot_paths = set(
+            _private_registry_manifest_paths(
+                source_path / PRIVATE_REGISTRY_MANIFEST_NAME
+            )
+        )
+        unsupported_paths = sorted(snapshot_paths - managed_paths)
+        blockers.extend(
+            f"snapshot artifact unsupported by this MOSAIC-RKE version: {relative}"
+            for relative in unsupported_paths
+        )
     if blockers:
         return {
             "accepted": False,
@@ -573,7 +597,7 @@ def hydrate_private_registries(
 
     copied: list[Path] = []
     removed: list[Path] = []
-    for relative in _managed_private_registry_paths():
+    for relative in sorted(managed_paths):
         source = source_path / relative
         target = root_path / relative
         if not source.is_file():

@@ -1990,11 +1990,14 @@ def build_local_macro_strategy_report_sources(
     root: str | Path = ".",
     output_path: str | Path = LOCAL_MACRO_STRATEGY_REPORT_SOURCE_PATH,
     manifest_path: str | Path = LOCAL_MACRO_STRATEGY_REPORT_MANIFEST_PATH,
+    merge_existing: bool = True,
 ) -> LocalMacroStrategySourceResult:
     root_path = Path(root).resolve()
     source_dir = Path(input_dir).expanduser().resolve()
+    output = _source_file(root_path, output_path)
+    manifest = _source_file(root_path, manifest_path)
     blockers: list[str] = []
-    rows: list[dict[str, Any]] = []
+    scanned_rows: list[dict[str, Any]] = []
     scanned_pdf_count = 0
     duplicate_pdf_count = 0
     if not source_dir.exists() or not source_dir.is_dir():
@@ -2018,11 +2021,46 @@ def build_local_macro_strategy_report_sources(
                     duplicate_pdf_count += 1
                     continue
                 seen_source_hashes.add(source_hash)
-                rows.append(row)
+                scanned_rows.append(row)
             except OSError as exc:
                 blockers.append(f"pdf_stat_failed: {pdf_path.name}: {exc}")
-    output = _source_file(root_path, output_path)
-    manifest = _source_file(root_path, manifest_path)
+    existing_rows = (
+        _read_registry_jsonl(
+            output,
+            label="local_macro_strategy_reports",
+            blockers=blockers,
+        )
+        if merge_existing and output.exists()
+        else []
+    )
+    rows_by_hash: dict[str, dict[str, Any]] = {}
+    row_order: list[str] = []
+    for index, row in enumerate(existing_rows):
+        source_hash = str(row.get("source_hash") or "").strip()
+        key = source_hash or f"existing:{row.get('source_id') or index}"
+        if key not in rows_by_hash:
+            row_order.append(key)
+        rows_by_hash[key] = dict(row)
+    new_source_count = 0
+    refreshed_local_path_count = 0
+    for index, row in enumerate(scanned_rows):
+        source_hash = str(row.get("source_hash") or "").strip()
+        key = source_hash or f"scanned:{row.get('source_id') or index}"
+        existing = rows_by_hash.get(key)
+        if existing is None:
+            rows_by_hash[key] = row
+            row_order.append(key)
+            new_source_count += 1
+            continue
+        existing.update(
+            {
+                "local_pdf_path": row["local_pdf_path"],
+                "url": row["url"],
+                "discovered_at": row["discovered_at"],
+            }
+        )
+        refreshed_local_path_count += 1
+    rows = [rows_by_hash[key] for key in row_order]
     output.parent.mkdir(parents=True, exist_ok=True)
     manifest.parent.mkdir(parents=True, exist_ok=True)
     _write_jsonl(output, rows)
@@ -2037,9 +2075,13 @@ def build_local_macro_strategy_report_sources(
         "input_dir": str(source_dir),
         "output_path": _relative_or_absolute(output, root_path),
         "source_type": "local_macro_strategy_report",
+        "merge_existing": merge_existing,
         "scanned_pdf_count": scanned_pdf_count,
         "written_rows": len(rows),
         "duplicate_pdf_count": duplicate_pdf_count,
+        "preserved_existing_rows": max(0, len(rows) - new_source_count),
+        "new_source_count": new_source_count,
+        "refreshed_local_path_count": refreshed_local_path_count,
         "report_type_counts": report_type_counts,
         "min_publish_date": publish_dates[0] if publish_dates else "",
         "max_publish_date": publish_dates[-1] if publish_dates else "",

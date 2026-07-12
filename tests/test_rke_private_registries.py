@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mosaic.rke.cli import main
 from mosaic.rke.private_registries import (
+    _write_private_registry_manifest,
     build_report_fingerprint_manifest,
     export_private_registries,
     hydrate_private_registries,
@@ -329,6 +330,31 @@ def test_hydrate_private_registries_restores_clean_snapshot(tmp_path):
     assert json.loads(hydrated.read_text(encoding="utf-8"))[
         "forecast_claim_id"
     ] == "FC-HYDRATE"
+
+    unknown = published_repo / "registry/report_intelligence/future_artifact.jsonl"
+    _write_jsonl(unknown, [{"future_artifact_id": "FUTURE-1"}])
+    manifest = json.loads(
+        (published_repo / "registry_manifest.json").read_text(encoding="utf-8")
+    )
+    manifest_paths = [published_repo / row["path"] for row in manifest["files"]]
+    _write_private_registry_manifest(published_repo, [*manifest_paths, unknown])
+    subprocess.run(["git", "add", "."], cwd=published_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "newer snapshot fixture"],
+        cwd=published_repo,
+        check=True,
+    )
+
+    blocked = hydrate_private_registries(
+        root=tmp_path / "older-consumer-rke",
+        source_dir=published_repo,
+    )
+
+    assert blocked["accepted"] is False
+    assert blocked["blockers"] == [
+        "snapshot artifact unsupported by this MOSAIC-RKE version: "
+        "registry/report_intelligence/future_artifact.jsonl"
+    ]
 
 
 def test_registries_preflight_reports_missing_dirty_and_duplicates(tmp_path, monkeypatch):
