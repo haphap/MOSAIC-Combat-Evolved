@@ -93,69 +93,167 @@ does not auto-clone, pull, commit, or push that repo. Operators keep those Git
 transitions explicit so a batch run cannot change its de-duplication baseline
 in the middle of processing.
 
-First setup on a machine:
+### First-Time Setup on Another Machine
+
+Clone the MOSAIC code checkout and the private registry checkout as siblings or
+in another operator-controlled location. Keep the private remote generic in
+public documentation:
 
 ```bash
+git clone <mosaic-code-remote> <mosaic-rke-checkout>
 git clone <private-registry-remote> <private-registry-checkout>
-export MOSAIC_REGISTRIES_REPO=<private-registry-checkout>
+cd <mosaic-rke-checkout>
 ```
 
-Before formal extraction, batch merge, agent context export, or remote
-processing, update and validate the last published snapshot:
+Set the private checkout's absolute path in the local, gitignored `.env`:
+
+```dotenv
+MOSAIC_REGISTRIES_REPO=/absolute/path/to/<private-registry-checkout>
+```
+
+For the standard `registry/report_intelligence` layout, do not set
+`MOSAIC_REGISTRY_DIR`. Configure Tushare, MinerU, the local OpenAI-compatible
+vLLM endpoint, and API keys separately on each machine; never copy secrets into
+either Git repository.
+
+Validate the first clone before using it:
 
 ```bash
-cd <private-registry-checkout>
-git pull --ff-only
 cd <mosaic-rke-checkout>
-mosaic-rke registries-preflight --root .
-mosaic-rke hydrate-private-registries --root .
+uv run mosaic-rke registries-preflight --root .
 ```
 
-Hydration validates the clean committed private checkout and then mirrors its
-managed JSON/JSONL files into the ignored staging tree, deleting stale managed
-staging files. Run it before new work on another machine so the next export
-preserves the complete published history rather than replacing it with only a
-new local batch.
+The expected closure is `accepted=true`, `blocker_count=0`, `dirty=false`, and
+`duplicate_fingerprint_count=0`.
+
+### Start Every Extraction or Merge Cycle
+
+Update both repositories, validate the last published snapshot, and hydrate it
+into the local ignored staging tree:
+
+```bash
+cd <mosaic-rke-checkout>
+git pull --ff-only
+git -C "$MOSAIC_REGISTRIES_REPO" pull --ff-only
+
+uv run mosaic-rke registries-preflight --root .
+uv run mosaic-rke hydrate-private-registries --root .
+```
+
+Hydration validates the clean committed private checkout and then exactly
+mirrors its managed JSON/JSONL files into the ignored staging tree. It deletes
+stale managed staging files, so run it before starting new local work, not after
+creating unexported changes. Hydration ensures a new machine preserves the
+complete published history rather than exporting only its newest batch.
+
+An agent-only consumer does not need hydration: pull the private checkout and
+run preflight, then agents read the committed snapshot directly through
+`MOSAIC_REGISTRIES_REPO`.
+
+### Restore Machine-Local Sources and Caches
+
+The private Git repo intentionally excludes PDFs, converted Markdown, MinerU
+output, model caches, and `.mosaic/` state. A new extraction machine must either
+download/convert reports again or restore those caches through a separate
+operator-controlled private storage channel.
+
+Private source rows can contain paths from the machine that published them.
+Rebuild the local macro source registry by scanning the actual PDF directory on
+the new machine; do not trust or hand-edit an old file list:
+
+```bash
+cd <mosaic-rke-checkout>
+uv run mosaic-rke build-local-macro-report-sources \
+  --root . \
+  --input-dir /path/to/宏观策略
+```
+
+The builder scans recursively and deduplicates identical PDFs by content hash.
+For Tushare sources, configure the local token and refresh the private source
+registry through the existing fetch/source-only workflow.
+
+### Extract and Merge into Local Staging
 
 When `MOSAIC_REGISTRIES_REPO` is set, every command that writes staging data
-must explicitly keep its output in this checkout. For example:
+must explicitly keep its output in the MOSAIC-RKE checkout:
 
 ```bash
-mosaic-rke report-intelligence \
+uv run mosaic-rke report-intelligence \
   --root . \
   --registry-dir registry/report_intelligence \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
   <stage-specific-options>
 
-mosaic-rke merge-report-intelligence-batches \
+uv run mosaic-rke merge-report-intelligence-batches \
   --root . \
   --registry-dir registry/report_intelligence \
   --input-dir <batch-output>
 ```
 
-After staging generation, merge, review, and validation have completed, export
-the complete private JSON/JSONL snapshot with an explicit staging source:
+Use `registry/sources/tushare_research_reports.jsonl` instead when processing
+the Tushare corpus. The explicit `--registry-dir` is mandatory: omitting it can
+select the published private checkout as the write target. Batch shards should
+write to distinct local directories and merge into this staging registry only
+after their own checks pass.
+
+### Publish a Stable Snapshot
+
+Only one machine may publish at a time. Immediately before exporting, fetch the
+private remote and verify that the checkout is clean and not behind
+`origin/main`:
 
 ```bash
-mosaic-rke export-private-registries \
+git -C "$MOSAIC_REGISTRIES_REPO" fetch origin
+git -C "$MOSAIC_REGISTRIES_REPO" status -sb
+git -C "$MOSAIC_REGISTRIES_REPO" log --oneline HEAD..origin/main
+```
+
+If the final command prints any commit, stop. Pull the new published baseline,
+hydrate again, and reapply or re-merge the local batch before exporting. Do not
+publish a snapshot built from a stale base.
+
+After staging generation, review, and validation have completed, export the
+complete managed JSON/JSONL snapshot with an explicit staging source:
+
+```bash
+uv run mosaic-rke export-private-registries \
   --root . \
   --registry-dir registry/report_intelligence \
-  --output-dir <private-registry-checkout>
-cd <private-registry-checkout>
+  --output-dir "$MOSAIC_REGISTRIES_REPO"
+
+cd "$MOSAIC_REGISTRIES_REPO"
 git status
 find registry -type f -size +95M -print
 git add registry registry_manifest.json
 git commit -m "sync report intelligence registries"
+
 cd <mosaic-rke-checkout>
-mosaic-rke registries-preflight --root .
-cd <private-registry-checkout>
-git push
+uv run mosaic-rke registries-preflight --root .
+
+git -C "$MOSAIC_REGISTRIES_REPO" push
 ```
 
-The size check is a proactive guard before GitHub's per-file hard limit; split
-or archive a growing JSONL before it reaches that limit. Do not omit the
-explicit export `--registry-dir` while `MOSAIC_REGISTRIES_REPO` is set, because
-the shared resolver would otherwise select the published checkout as both
-source and destination.
+Run preflight after commit and before push: preflight intentionally rejects a
+dirty private checkout. The exporter exactly mirrors its managed allowlist,
+removes stale managed target files, regenerates the fingerprint and root
+manifests, and fails closed if source and destination resolve to the same repo.
+The size check is a proactive guard before the remote's per-file hard limit;
+split or archive a growing JSONL before it reaches that limit.
+
+If push is rejected because another machine published first, never force-push.
+Preserve the local batch outputs, update and hydrate the new baseline, merge the
+batch again, regenerate the snapshot, and create a new commit.
+
+### Multi-Machine Invariants
+
+- Start writer sessions with `pull -> preflight -> hydrate`.
+- Keep the private checkout clean while agents consume it.
+- Write extraction, review, and merge results only to local ignored staging.
+- Publish one reviewed commit atomically; never force-push `main`.
+- Do not sync PDFs, Markdown, caches, credentials, `.env`, or `.mosaic/` through
+  the registry repository.
+- Treat any preflight blocker, duplicate fingerprint, manifest mismatch, dirty
+  checkout, or unexpected remote advance as a stop condition.
 
 Use `MOSAIC_REGISTRIES_REPO=<private-registry-checkout>` for the standard
 repository layout. `MOSAIC_REGISTRY_DIR=<nonstandard-report-intelligence-dir>`
