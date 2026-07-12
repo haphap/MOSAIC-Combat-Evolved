@@ -78,6 +78,8 @@ export interface LlmOptions {
   model?: string;
   /** Override the temperature from config (Phase 1 default 0.2). */
   temperature?: number;
+  /** Omit sampling fields so an OpenAI-compatible server preset owns them. */
+  useProviderSamplingDefaults?: boolean;
   /** Override the provider from config (e.g. "lemonade" for local Qwen). */
   provider?: string;
   /** Override the base URL from config. */
@@ -183,7 +185,7 @@ function createOpenAiCompatible(
 
   const llm = new ChatOpenAI({
     model,
-    temperature: options.temperature ?? 0.2,
+    ...(!options.useProviderSamplingDefaults ? { temperature: options.temperature ?? 0.2 } : {}),
     ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
     ...(provider === "vllm"
       ? { modelKwargs: { chat_template_kwargs: { enable_thinking: false } } }

@@ -54,6 +54,18 @@ export interface AutoresearchCycleOptions {
   /** Use the deterministic canned mutation (Plan §11.5 4F --fake-llm smoke). */
   fakeLlm?: boolean;
   mutationMode?: "auto" | "knob_patch" | "prompt_rewrite";
+  /** Historical sandbox clock. Never accepted without historicalSandbox. */
+  simulatedNow?: string;
+  /** Prompt tree pinned to basePromptCommit for mutation input. */
+  promptsRoot?: string;
+  /** Private prompt commit from which the candidate branch must fork. */
+  basePromptCommit?: string;
+  /** Project code commit bound into candidate provenance. */
+  codeCommitHash?: string;
+  /** Isolates branch names and prevents wall-clock trigger semantics. */
+  historicalSandbox?: boolean;
+  /** Run-scoped branch namespace for historical candidates. */
+  historicalRunId?: string;
   deps: {
     llm: BaseChatModel;
     api: BridgeApi;
@@ -77,6 +89,10 @@ export interface MutationResult {
   summary?: string;
   error?: string;
   fill_commands?: string[];
+  branch_name?: string;
+  prompt_commit_hash?: string;
+  prompt_sha256?: string;
+  prompt_base_commit_hash?: string;
 }
 
 export interface CycleResult {
@@ -576,6 +592,12 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     forceAgent,
     fakeLlm = false,
     mutationMode = "auto",
+    simulatedNow,
+    promptsRoot,
+    basePromptCommit,
+    codeCommitHash,
+    historicalSandbox = false,
+    historicalRunId,
     deps,
     onLog,
   } = opts;
@@ -583,6 +605,21 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
   const log = onLog ?? (() => {});
   const safeLog = (msg: string) => log(redactSensitiveText(msg));
   const results: MutationResult[] = [];
+
+  if (simulatedNow && !historicalSandbox) {
+    throw new Error("simulatedNow requires historicalSandbox");
+  }
+  if (
+    historicalSandbox &&
+    (!simulatedNow || !basePromptCommit || !codeCommitHash || !historicalRunId)
+  ) {
+    throw new Error(
+      "historicalSandbox requires simulatedNow, historicalRunId, basePromptCommit, and codeCommitHash",
+    );
+  }
+  if (historicalSandbox && mutationMode !== "prompt_rewrite") {
+    throw new Error("historicalSandbox currently requires mutationMode=prompt_rewrite");
+  }
 
   const recovered = await recoverPromptMutationTransactions(deps.api);
   if (recovered.length > 0) {
@@ -597,6 +634,11 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         cohort,
         ...(forceAgent ? { force_agent: forceAgent } : {}),
         ...(dryRun ? { dry_run: true } : {}),
+        ...(historicalSandbox ? { historical_sandbox: true } : {}),
+        ...(historicalRunId ? { historical_run_id: historicalRunId } : {}),
+        ...(simulatedNow ? { as_of_date: simulatedNow } : {}),
+        ...(basePromptCommit ? { base_prompt_commit: basePromptCommit } : {}),
+        ...(codeCommitHash ? { code_commit_hash: codeCommitHash } : {}),
       });
     } catch (err) {
       safeLog(`trigger blocked: ${(err as Error).message}`);
@@ -606,7 +648,27 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     safeLog(
       `triggered: agent=${triggerResult.agent} version_id=${triggerResult.version_id} branch=${triggerResult.branch_name}`,
     );
-    const cycleMutationId = `KM-${triggerResult.version_id ?? "dry"}-${Date.now()}-${n}`;
+    if (
+      historicalSandbox &&
+      triggerResult.existing &&
+      triggerResult.version_id !== null &&
+      triggerResult.prompt_commit_hash
+    ) {
+      results.push({
+        agent: triggerResult.agent,
+        version_id: triggerResult.version_id,
+        status: "needs_fill",
+        branch_name: triggerResult.branch_name,
+        prompt_commit_hash: triggerResult.prompt_commit_hash,
+        ...(triggerResult.prompt_sha256 ? { prompt_sha256: triggerResult.prompt_sha256 } : {}),
+        ...(triggerResult.prompt_base_commit_hash
+          ? { prompt_base_commit_hash: triggerResult.prompt_base_commit_hash }
+          : {}),
+        summary: "recovered existing historical candidate",
+      });
+      continue;
+    }
+    const cycleMutationId = `KM-${triggerResult.version_id ?? "dry"}-${simulatedNow ?? Date.now()}-${n}`;
 
     // 2. Mutate: parameter-level research-knobs patch when enabled, otherwise legacy rewrite.
     let mutation: Awaited<ReturnType<typeof mutate>>;
@@ -620,12 +682,14 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
             agent: triggerResult.agent,
             deps: { llm: deps.llm, api: deps.api },
             mutationId: cycleMutationId,
+            ...(promptsRoot ? { promptsRoot } : {}),
             ...(fakeLlm ? { fakeLlm: true } : {}),
           })
         : await mutate({
             cohort,
             agent: triggerResult.agent,
             deps: { llm: deps.llm, api: deps.api },
+            ...(promptsRoot ? { promptsRoot } : {}),
             ...(fakeLlm ? { fakeLlm: true } : {}),
           });
     } catch (err) {
@@ -692,6 +756,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
             newKnobs: knobPromptMutation.new_knobs,
             mutation: knobPromptMutation.knob_mutation,
             decision: "applied",
+            ...(simulatedNow ? { createdAt: `${simulatedNow}T00:00:00.000Z` } : {}),
           })
         : null;
     if (knobMutationMetadata?.evaluation_policy.preregistration) {
@@ -748,6 +813,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
           contents: { zh: mutation.zh_prompt, en: mutation.en_prompt },
           target: "private_git",
           branch: triggerResult.branch_name,
+          ...(basePromptCommit ? { base_ref: basePromptCommit } : {}),
           message: `autoresearch: ${mutation.modification_summary}`,
         });
         await deps.api.autoresearchRecordMutation({
@@ -759,7 +825,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
             ? { prompt_base_commit_hash: writeResult.prompt_base_commit_hash }
             : {}),
           ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
-          code_commit_hash: triggerResult.base_commit,
+          code_commit_hash: codeCommitHash ?? triggerResult.base_commit,
         });
       }
     } catch (err) {
@@ -794,49 +860,56 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     let fillCommands: string[] | undefined;
     let evalError: string | undefined;
 
-    try {
-      // Scope evaluation to the version we just triggered, so an N-agent layer
-      // does N single-version evaluations instead of N full-cohort scans
-      // (§11.6 O(N²) fix). The result therefore contains at most this version.
-      const evalResult = await deps.api.autoresearchEvaluatePending({
-        cohort,
-        version_id: versionId,
-      });
-      const thisEval = evalResult.results.find((r) => r.version_id === versionId);
-      if (thisEval) {
-        if (
-          thisEval.status === "kept" ||
-          thisEval.status === "reverted" ||
-          thisEval.status === "eligible_for_promotion" ||
-          thisEval.status === "invalid"
-        ) {
-          evalStatus = thisEval.status;
-          deltaSharpe = thisEval.delta_sharpe;
-        } else if (thisEval.status === "incompatible") {
-          evalStatus = "incompatible";
-          evalError = redactSensitiveText(
-            thisEval.detail ?? "prompt is incompatible with current code",
-          );
-          safeLog(`evaluation incompatible: ${evalError}`);
-        } else if (thisEval.status === "needs_fill") {
-          evalStatus = "needs_fill";
-          fillCommands = (thisEval.missing_runs ?? []).map(backtestFillCommand);
-          for (const command of fillCommands) {
-            safeLog(`backtest-fill required: ${command}`);
+    if (historicalSandbox) {
+      // The historical runner owns its future-only validation/holdout arms and
+      // calls autoresearch.historical_decide.  Never enter the normal evaluator
+      // here: its keep path merges a feature branch into a default branch.
+      safeLog("evaluation delegated to historical walk-forward arms");
+    } else {
+      try {
+        // Scope evaluation to the version we just triggered, so an N-agent layer
+        // does N single-version evaluations instead of N full-cohort scans
+        // (§11.6 O(N²) fix). The result therefore contains at most this version.
+        const evalResult = await deps.api.autoresearchEvaluatePending({
+          cohort,
+          version_id: versionId,
+        });
+        const thisEval = evalResult.results.find((r) => r.version_id === versionId);
+        if (thisEval) {
+          if (
+            thisEval.status === "kept" ||
+            thisEval.status === "reverted" ||
+            thisEval.status === "eligible_for_promotion" ||
+            thisEval.status === "invalid"
+          ) {
+            evalStatus = thisEval.status;
+            deltaSharpe = thisEval.delta_sharpe;
+          } else if (thisEval.status === "incompatible") {
+            evalStatus = "incompatible";
+            evalError = redactSensitiveText(
+              thisEval.detail ?? "prompt is incompatible with current code",
+            );
+            safeLog(`evaluation incompatible: ${evalError}`);
+          } else if (thisEval.status === "needs_fill") {
+            evalStatus = "needs_fill";
+            fillCommands = (thisEval.missing_runs ?? []).map(backtestFillCommand);
+            for (const command of fillCommands) {
+              safeLog(`backtest-fill required: ${command}`);
+            }
+          } else if (thisEval.status === "error") {
+            evalStatus = "error";
+            evalError = redactSensitiveText(thisEval.detail ?? "evaluation failed");
+            safeLog(`evaluation error: ${evalError}`);
+          } else {
+            evalStatus = "needs_fill";
           }
-        } else if (thisEval.status === "error") {
-          evalStatus = "error";
-          evalError = redactSensitiveText(thisEval.detail ?? "evaluation failed");
-          safeLog(`evaluation error: ${evalError}`);
-        } else {
-          evalStatus = "needs_fill";
         }
+      } catch (err) {
+        // Evaluation not ready yet or crashed; log for visibility
+        evalStatus = "error";
+        evalError = redactSensitiveText((err as Error).message ?? "unknown");
+        safeLog(`evaluation error: ${evalError}`);
       }
-    } catch (err) {
-      // Evaluation not ready yet or crashed; log for visibility
-      evalStatus = "error";
-      evalError = redactSensitiveText((err as Error).message ?? "unknown");
-      safeLog(`evaluation error: ${evalError}`);
     }
 
     if (
@@ -869,6 +942,14 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       ...(evalError ? { error: evalError } : {}),
       ...(fillCommands && fillCommands.length > 0 ? { fill_commands: fillCommands } : {}),
       summary: mutation.modification_summary,
+      branch_name: triggerResult.branch_name,
+      ...((writeResult.prompt_commit_hash ?? writeResult.commit_hash)
+        ? { prompt_commit_hash: writeResult.prompt_commit_hash ?? writeResult.commit_hash }
+        : {}),
+      ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
+      ...(writeResult.prompt_base_commit_hash
+        ? { prompt_base_commit_hash: writeResult.prompt_base_commit_hash }
+        : {}),
     });
   }
 

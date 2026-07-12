@@ -53,6 +53,15 @@ describe("createLlmFromConfig", () => {
 
     expect(params.chat_template_kwargs).toEqual({ enable_thinking: false });
   });
+
+  it("can defer sampling parameters to the sndr server preset", () => {
+    const handle = createLlmFromConfig(config(), { useProviderSamplingDefaults: true });
+    const params = (
+      handle.llm as unknown as { invocationParams: () => Record<string, unknown> }
+    ).invocationParams();
+
+    expect(params.temperature).toBeUndefined();
+  });
 });
 
 function config(): MosaicConfig {

@@ -134,6 +134,12 @@ pnpm dev backtest --cohort cohort_default
 Options: `--cohort`, `--prompt-commit-hash <hash>`, `--fake-llm`, LLM flags, `--veto-threshold <num>`, `--initial-cash <amount>`, `--benchmark <ticker>`, `--force-refill`, `--log-every <n>`, `--out <path>`. Plus `backtest-fill` for the cache-fill stage.
 Stage-1 carry-over rebuilds `current_positions` from prior target weights and records holding days, entry thesis id, realized/unrealized PnL, residual drift, and closed-position exit reasons.
 
+For the resumable 2009→latest PIT walk-forward path, use `backtest-evolve` with a pinned
+private Prompt commit and a `.mosaic/` run directory. It resolves the current sndr
+`nvidia-qwen3.6-35b-a3b-nvfp4-5090` preset, keeps Fish context disabled, checkpoints every
+trading day, and evaluates monthly historical Prompt candidates in isolated private branches.
+See [2009 Agents historical evolution runbook](../runbooks/agents_history_evolution_2009.md).
+
 > The `--out` flag writes the metrics JSON. Full ATLAS-isomorphic artifacts (`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`) are produced by the `backtest.run_historical` **RPC** when called with a `results_dir` (see [Bridge RPC](Bridge-RPC.md)); not yet a `backtest` CLI flag.
 
 ## Paper trading

@@ -1252,6 +1252,25 @@ export interface AutoresearchTriggerResult {
   branch_name: string;
   base_commit: string;
   dry_run?: boolean;
+  existing?: boolean;
+  prompt_commit_hash?: string | null;
+  prompt_sha256?: string | null;
+  prompt_base_commit_hash?: string | null;
+}
+
+export interface AutoresearchHistoricalDecisionResult {
+  version_id: number;
+  decision: "keep" | "revert";
+  active_commit: string;
+  created: boolean;
+}
+
+export interface AutoresearchHistoricalValidationResult {
+  version_id: number;
+  compatible: boolean;
+  unknown_tools: string[];
+  missing_files: string[];
+  dropped_output_sections: string[];
 }
 
 /** One entry in the ``autoresearch.evaluate_pending`` results array. */
@@ -1741,6 +1760,7 @@ export class BridgeApi {
       open_cost?: number;
       close_cost?: number;
       deal_price?: string;
+      results_dir?: string;
     },
   ): Promise<BacktestMetricsResult> {
     return this.client.call<BacktestMetricsResult>("backtest.run_historical", {
@@ -2262,8 +2282,35 @@ export class BridgeApi {
     cohort: string;
     force_agent?: string;
     dry_run?: boolean;
+    historical_sandbox?: boolean;
+    historical_run_id?: string;
+    as_of_date?: string;
+    base_prompt_commit?: string;
+    code_commit_hash?: string;
   }): Promise<AutoresearchTriggerResult> {
     return this.client.call<AutoresearchTriggerResult>("autoresearch.trigger", params);
+  }
+
+  autoresearchHistoricalDecide(params: {
+    version_id: number;
+    decision: "keep" | "revert";
+    decided_at: string;
+    base_ref: string;
+    active_branch?: string;
+  }): Promise<AutoresearchHistoricalDecisionResult> {
+    return this.client.call<AutoresearchHistoricalDecisionResult>(
+      "autoresearch.historical_decide",
+      params,
+    );
+  }
+
+  autoresearchHistoricalValidate(params: {
+    version_id: number;
+  }): Promise<AutoresearchHistoricalValidationResult> {
+    return this.client.call<AutoresearchHistoricalValidationResult>(
+      "autoresearch.historical_validate",
+      params,
+    );
   }
 
   autoresearchRecordMutation(params: {

@@ -40,7 +40,13 @@ Registered tool modules (`mosaic/bridge/handlers/tools.py` `_TOOL_MODULES`): `ma
 ### autoresearch
 - `autoresearch.trigger`, `autoresearch.evaluate_pending`, `autoresearch.record_mutation`,
   `autoresearch.revert_modification`, `autoresearch.get_log`, `autoresearch.list_active_branches`,
-  `autoresearch.prepare_worktree`, `autoresearch.cleanup_worktree`.
+  `autoresearch.prepare_worktree`, `autoresearch.cleanup_worktree`,
+  `autoresearch.historical_validate`, `autoresearch.historical_decide`.
+
+`autoresearch.trigger` accepts a simulated `as_of_date`, run-scoped branch id, and pinned private
+Prompt base only when `historical_sandbox=true`. `autoresearch.historical_decide` is restricted to
+`history/*` candidates and copies kept files only to an isolated `history/*/active/*` branch; it
+never merges or deletes the private Prompt default branch.
 
 ### prism
 - `prism.list_cohorts`, `prism.train_cohort`, `prism.cohort_status`, `prism.complete_cohort_run`, `prism.compare_cohorts`.

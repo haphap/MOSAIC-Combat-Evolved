@@ -48,6 +48,8 @@ except Exception:
 autoresearch_trigger = _ar.autoresearch_trigger
 autoresearch_record_mutation = _ar.autoresearch_record_mutation
 autoresearch_evaluate_pending = _ar.autoresearch_evaluate_pending
+autoresearch_historical_decide = _ar.autoresearch_historical_decide
+autoresearch_historical_validate = _ar.autoresearch_historical_validate
 autoresearch_review_domain_promotion = _ar.autoresearch_review_domain_promotion
 autoresearch_get_log = _ar.autoresearch_get_log
 autoresearch_list_active_branches = _ar.autoresearch_list_active_branches
@@ -159,6 +161,199 @@ class TestAutoresearchTrigger(unittest.TestCase):
             capture_output=True, text=True, check=True,
         ).stdout.strip()
         self.assertEqual(git_branch, "")
+
+    def test_historical_trigger_uses_simulated_clock_and_private_prompt_base(self):
+        from mosaic.autoresearch.git_ops import GitOps
+
+        prompt_base = GitOps(self.repo_path).current_commit()
+        with patch.object(_ar, "_private_git_ops", return_value=GitOps(self.repo_path)):
+            result = autoresearch_trigger({
+                "cohort": "history_walkforward_2009",
+                "force_agent": "volatility",
+                "historical_sandbox": True,
+                "historical_run_id": "history-test-1",
+                "as_of_date": "2011-01-05",
+                "base_prompt_commit": prompt_base,
+                "code_commit_hash": "c" * 40,
+            })
+
+        self.assertEqual(
+            result["branch_name"],
+            "history/history-test-1/history_walkforward_2009/volatility/2011-01-05",
+        )
+        self.assertEqual(result["base_commit"], prompt_base)
+        version = self.store.get_prompt_version(result["version_id"])
+        self.assertTrue(version["created_at"].startswith("2011-01-05T00:00:00"))
+        self.assertEqual(version["code_commit_hash"], "c" * 40)
+
+    def test_simulated_clock_requires_historical_sandbox(self):
+        with self.assertRaises(RpcError) as ctx:
+            autoresearch_trigger({
+                "cohort": "euphoria_2021",
+                "force_agent": "volatility",
+                "historical_run_id": "history-test-1",
+                "as_of_date": "2011-01-05",
+            })
+        self.assertIn("historical_sandbox", ctx.exception.message)
+
+
+class TestAutoresearchHistoricalDecide(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self.store = ScorecardStore(db_path=self.tmp / "scorecard.db")
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._store_patch.start()
+
+    def tearDown(self):
+        self._store_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_revert_is_audit_only_and_uses_simulated_decision_date(self):
+        vid = self.store.create_prompt_version(
+            cohort="history_walkforward_2009",
+            agent="volatility",
+            branch_name="history/history_walkforward_2009/volatility/2011-01-05",
+            base_commit_hash="a" * 40,
+        )
+        self.store.set_version_mutation(
+            vid,
+            "b" * 40,
+            prompt_repo_id="private",
+        )
+
+        result = autoresearch_historical_decide({
+            "version_id": vid,
+            "decision": "revert",
+            "decided_at": "2011-10-10",
+            "base_ref": "a" * 40,
+        })
+
+        self.assertTrue(result["created"])
+        version = self.store.get_prompt_version(vid)
+        self.assertEqual(version["status"], "revert")
+        self.assertTrue(version["decided_at"].startswith("2011-10-10T00:00:00"))
+        events = [entry["event"] for entry in self.store.get_log()]
+        self.assertIn("historical_reverted", events)
+
+    def test_historical_validation_is_read_only(self):
+        vid = self.store.create_prompt_version(
+            cohort="history_walkforward_2009",
+            agent="volatility",
+            branch_name="history/history-test-1/history_walkforward_2009/volatility/2011-01-05",
+            base_commit_hash="a" * 40,
+        )
+        self.store.set_version_mutation(
+            vid,
+            "b" * 40,
+            prompt_repo_id="private",
+        )
+        compatibility = {
+            "compatible": False,
+            "unknown_tools": ["get_future_data"],
+            "missing_files": [],
+            "dropped_output_sections": [],
+        }
+        with (
+            patch.object(_ar, "_git_ops_for_branch", return_value=object()),
+            patch.object(_ar, "_git_ops", return_value=object()),
+            patch(
+                "mosaic.autoresearch.evaluator.validate_prompt_tool_compatibility",
+                return_value=compatibility,
+            ),
+        ):
+            result = autoresearch_historical_validate({"version_id": vid})
+
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["unknown_tools"], ["get_future_data"])
+        self.assertEqual(self.store.get_prompt_version(vid)["status"], "pending")
+
+    def test_keep_updates_only_isolated_active_branch_and_is_idempotent(self):
+        from mosaic.autoresearch.git_ops import GitOps
+
+        repo = self.tmp / "prompts"
+        repo.mkdir()
+        _make_git_repo(repo)
+        git_ops = GitOps(repo)
+        base = git_ops.current_commit()
+        candidate_branch = (
+            "history/history-test-1/history_walkforward_2009/volatility/2011-01-05"
+        )
+        prompt_paths = {
+            "prompts/mosaic/history_walkforward_2009/macro/volatility.zh.md": "候选\n",
+            "prompts/mosaic/history_walkforward_2009/macro/volatility.en.md": "candidate\n",
+        }
+        candidate_commit = git_ops.write_and_commit(
+            prompt_paths,
+            message="candidate",
+            branch=candidate_branch,
+            base_ref=base,
+        )
+        vid = self.store.create_prompt_version(
+            cohort="history_walkforward_2009",
+            agent="volatility",
+            branch_name=candidate_branch,
+            base_commit_hash=base,
+        )
+        self.store.set_version_mutation(
+            vid,
+            candidate_commit,
+            prompt_repo_id="private",
+        )
+        active_branch = "history/history_walkforward_2009/active/history-test-1"
+        params = {
+            "version_id": vid,
+            "decision": "keep",
+            "decided_at": "2011-10-10",
+            "base_ref": base,
+            "active_branch": active_branch,
+        }
+
+        with patch.object(_ar, "_private_git_ops", return_value=git_ops):
+            first = autoresearch_historical_decide(params)
+            repeated = autoresearch_historical_decide(params)
+
+        self.assertTrue(first["created"])
+        self.assertFalse(repeated["created"])
+        self.assertEqual(first["active_commit"], repeated["active_commit"])
+        self.assertEqual(git_ops.current_commit(), base)
+        for path, content in prompt_paths.items():
+            self.assertEqual(git_ops.show_file(active_branch, path), content)
+
+        second_branch = "history/history-test-1/history_walkforward_2009/china/2011-01-05"
+        second_paths = {
+            "prompts/mosaic/history_walkforward_2009/macro/china.zh.md": "中国候选\n",
+            "prompts/mosaic/history_walkforward_2009/macro/china.en.md": "china candidate\n",
+        }
+        second_commit = git_ops.write_and_commit(
+            second_paths,
+            message="second candidate",
+            branch=second_branch,
+            base_ref=base,
+        )
+        second_vid = self.store.create_prompt_version(
+            cohort="history_walkforward_2009",
+            agent="china",
+            branch_name=second_branch,
+            base_commit_hash=base,
+        )
+        self.store.set_version_mutation(
+            second_vid,
+            second_commit,
+            prompt_repo_id="private",
+        )
+        with patch.object(_ar, "_private_git_ops", return_value=git_ops):
+            second = autoresearch_historical_decide({
+                "version_id": second_vid,
+                "decision": "keep",
+                "decided_at": "2011-10-10",
+                "base_ref": first["active_commit"],
+                "active_branch": active_branch,
+            })
+
+        self.assertNotEqual(second["active_commit"], first["active_commit"])
+        for path, content in {**prompt_paths, **second_paths}.items():
+            self.assertEqual(git_ops.show_file(active_branch, path), content)
 
 
 class TestAutoresearchRecordMutation(unittest.TestCase):
