@@ -2052,14 +2052,13 @@ def build_local_macro_strategy_report_sources(
             row_order.append(key)
             new_source_count += 1
             continue
-        existing.update(
-            {
-                "local_pdf_path": row["local_pdf_path"],
-                "url": row["url"],
-                "discovered_at": row["discovered_at"],
-            }
-        )
-        refreshed_local_path_count += 1
+        local_location = {
+            "local_pdf_path": row["local_pdf_path"],
+            "url": row["url"],
+        }
+        if any(existing.get(field) != value for field, value in local_location.items()):
+            existing.update(local_location)
+            refreshed_local_path_count += 1
     rows = [rows_by_hash[key] for key in row_order]
     output.parent.mkdir(parents=True, exist_ok=True)
     manifest.parent.mkdir(parents=True, exist_ok=True)
