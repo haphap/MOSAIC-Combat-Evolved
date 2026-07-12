@@ -49,7 +49,9 @@ class TestMirofishHandlers(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_generate_scenarios(self):
-        out = _mf.mirofish_generate_scenarios({"seed": 42, "num_days": 30})
+        out = _mf.mirofish_generate_scenarios(
+            {"seed": 42, "num_days": 30, "engine": "montecarlo"}
+        )
         self.assertEqual(len(out["scenarios"]), 5)
         self.assertEqual(out["scenarios"][0]["scenario_type"], "base")
 
@@ -57,6 +59,7 @@ class TestMirofishHandlers(unittest.TestCase):
     def test_generate_scenarios_accepts_current_positions(self):
         out = _mf.mirofish_generate_scenarios({
             "seed": 42,
+            "engine": "montecarlo",
             "scenarios": ["base"],
             "current_positions": [
                 {
@@ -108,6 +111,7 @@ class TestMirofishHandlers(unittest.TestCase):
     def test_generate_scenarios_accepts_exposure_without_positions(self):
         out = _mf.mirofish_generate_scenarios({
             "seed": 42,
+            "engine": "montecarlo",
             "scenarios": ["base"],
             "sector_exposure": {"financials": 0.12},
             "theme_exposure": {"high_dividend": 0.08},
@@ -122,8 +126,15 @@ class TestMirofishHandlers(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_generate_reflexivity_flag(self):
-        plain = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"]})["scenarios"][0]
-        refl = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"], "reflexivity": True})["scenarios"][0]
+        plain = _mf.mirofish_generate_scenarios(
+            {"seed": 42, "scenarios": ["bull"], "engine": "montecarlo"}
+        )["scenarios"][0]
+        refl = _mf.mirofish_generate_scenarios({
+            "seed": 42,
+            "scenarios": ["bull"],
+            "reflexivity": True,
+            "engine": "montecarlo",
+        })["scenarios"][0]
         self.assertFalse(plain["reflexive"])
         self.assertTrue(refl["reflexive"])
         # Reflexive feedback changes the path.
@@ -204,12 +215,20 @@ class TestMirofishHandlers(unittest.TestCase):
         with self.assertRaises(RpcError):
             _mf.mirofish_save_context({"scenarios": "nope"})
 
-    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
-    def test_engine_defaults_to_montecarlo_off(self):
-        # No engine param → config default (montecarlo); swarm is OFF.
-        out = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"]})
-        self.assertEqual(out["engine"], "montecarlo")
-        self.assertNotIn("emergence", out["scenarios"][0])
+    def test_engine_defaults_to_oasis(self):
+        scenario = {
+            "scenario_type": "base",
+            "engine": "oasis",
+            "price_paths": {},
+            "final_state": {"regime": "NEUTRAL", "csi300_return": 0.0},
+        }
+        with patch(
+            "mosaic.mirofish.oasis.OasisMiroFishEngine.generate_all_scenarios",
+            return_value=[scenario],
+        ) as generate:
+            out = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["base"]})
+        self.assertEqual(out["engine"], "oasis")
+        generate.assert_called_once()
 
     @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_engine_swarm_opt_in(self):
@@ -235,10 +254,10 @@ class TestMirofishHandlers(unittest.TestCase):
                 _mf.mirofish_generate_scenarios({"engine": "oasis", "scenarios": ["base"]})
             self.assertIn("MOSAIC_MIROFISH_URL", ctx.exception.message)
 
-    def test_config_default_engine_is_off(self):
+    def test_config_default_engine_is_oasis(self):
         from mosaic.default_config import DEFAULT_CONFIG
 
-        self.assertEqual(DEFAULT_CONFIG["mirofish"]["engine"], "montecarlo")
+        self.assertEqual(DEFAULT_CONFIG["mirofish"]["engine"], "oasis")
 
     @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_scorer_defaults_to_terminal_off(self):
@@ -264,10 +283,10 @@ class TestMirofishHandlers(unittest.TestCase):
 
         self.assertEqual(DEFAULT_CONFIG["mirofish"]["scorer"], "terminal")
 
-    def test_config_default_inject_context_is_off(self):
+    def test_config_default_inject_context_is_on(self):
         from mosaic.default_config import DEFAULT_CONFIG
 
-        self.assertIs(DEFAULT_CONFIG["mirofish"]["inject_context"], False)
+        self.assertIs(DEFAULT_CONFIG["mirofish"]["inject_context"], True)
 
     def test_methods_registered(self):
         from mosaic.bridge.registry import all_methods

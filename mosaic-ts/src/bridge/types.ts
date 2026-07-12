@@ -116,7 +116,7 @@ export interface MosaicConfig {
   };
 
   // ----- MiroFish (Plan §11.8 / 7M) -----
-  /** Forward-simulation toggles. ``inject_context`` (default false) appends one
+  /** Forward-simulation toggles. ``inject_context`` (default true) appends one
    *  shared simulation-only MiroFish context to CRO, execution, and CIO. */
   mirofish?: {
     engine?: string;

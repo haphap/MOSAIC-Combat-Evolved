@@ -13,7 +13,7 @@
 | `active_cohort` | 活动 cohort 键(默认 `euphoria_2021`) |
 | `cohorts` | 7 个 cohort × {start, end}(见[自我改进](Self-Improvement.md)) |
 | `autoresearch` | cooldown / lockout / keep 阈值 / 月度上限 / 评估窗口 + opt-in `git` push |
-| `mirofish` | `engine` / `scorer` / `inject_context`(均 opt-in;默认 montecarlo / terminal / off;注入由第 4 层 CRO、autonomous execution 和 CIO 共享) |
+| `mirofish` | `engine` / `scorer` / `inject_context`(默认 oasis / terminal / on;注入由第 4 层 CRO、autonomous execution 和 CIO 共享) |
 | `data_vendors`、`tool_vendors` | 逐类别数据源选择 |
 | `agent_data_cache` | routed agent tool 数据的 SQLite 精确调用缓存;条目会保留到 TTL 刷新、max-entry 淘汰、cleanup 或 clear(`enabled` 默认 true;`db_path` 可选;`read_ttl_seconds` 默认 86400;`max_entries` 默认 50000;`skip_empty_results` 默认 true) |
 

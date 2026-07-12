@@ -100,6 +100,10 @@ function fakeApi(overrides: Partial<Record<string, unknown>> = {}): BridgeApi {
     mirofishGenerateScenarios: vi.fn().mockResolvedValue({
       scenarios: [scenario("bull", 0.12), scenario("bear", -0.1)],
     }),
+    mirofishSaveContext: vi.fn().mockResolvedValue({
+      date: "2026-07-12",
+      context: { context_hash: "sha256:test" },
+    }),
     mirofishScoreRecommendation: vi.fn().mockResolvedValue({ score: 0.7 }),
     mirofishRecordRun: vi.fn().mockResolvedValue({ id: 1 }),
     ...overrides,
@@ -122,11 +126,19 @@ describe("runMirofishTraining", () => {
     });
 
     expect(result.agents).toHaveLength(2);
+    expect(result.date).toBe("2026-07-12");
     // 2 scenarios scored per agent.
     expect(result.agents[0]?.scenario_scores).toHaveLength(2);
     expect(result.agents[0]?.avg_score).toBeCloseTo(0.7);
     expect(api.mirofishScoreRecommendation).toHaveBeenCalledTimes(4); // 2 agents × 2 scenarios
+    expect(api.mirofishSaveContext).toHaveBeenCalledOnce();
+    expect(api.mirofishSaveContext).toHaveBeenCalledWith({
+      scenarios: [scenario("bull", 0.12), scenario("bear", -0.1)],
+    });
     expect(api.mirofishRecordRun).toHaveBeenCalledTimes(2);
+    expect(api.mirofishRecordRun).toHaveBeenCalledWith(
+      expect.objectContaining({ date: "2026-07-12" }),
+    );
   });
 
   it("dry-run scores but does not record", async () => {
@@ -138,6 +150,7 @@ describe("runMirofishTraining", () => {
       deps: deps(api),
     });
     expect(api.mirofishScoreRecommendation).toHaveBeenCalled();
+    expect(api.mirofishSaveContext).not.toHaveBeenCalled();
     expect(api.mirofishRecordRun).not.toHaveBeenCalled();
   });
 

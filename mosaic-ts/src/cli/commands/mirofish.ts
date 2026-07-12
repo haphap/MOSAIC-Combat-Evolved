@@ -2,8 +2,8 @@
  * Phase 7 CLI: ``pnpm dev mirofish``.
  *
  * MiroFish synthetic-futures forward training:
- *   - generate: print the Monte-Carlo scenario set
- *   - train:    scenario → agent rec → score → record (isolated ledger)
+ *   - generate: persist + print the scenario set for Daily Cycle feedback
+ *   - train:    scenario → persist context → agent rec → score → record
  *   - history:  recent mirofish_runs
  */
 
@@ -68,7 +68,7 @@ export function registerMirofish(program: Command): void {
 
   cmd
     .command("generate")
-    .description("Generate + print the Monte-Carlo scenario set.")
+    .description("Generate, persist, and print the scenario set.")
     .option("--days <n>", "Days to simulate (default 30)")
     .option("--seed <n>", "RNG seed for reproducibility")
     .option(
@@ -77,10 +77,7 @@ export function registerMirofish(program: Command): void {
     )
     .option("--print", "Print scenario detail")
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
-    .option(
-      "--engine <name>",
-      "Scenario engine: montecarlo (default) | swarm (agent-to-agent) | oasis (real engine)",
-    )
+    .option("--engine <name>", "Scenario engine: oasis (default, real Fish) | montecarlo | swarm")
     .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
     .option("--max-rounds <n>", "Cap OASIS sim rounds (oasis engine only; server default 5)")
     .option(
@@ -106,6 +103,7 @@ export function registerMirofish(program: Command): void {
           ...(opts.maxRounds ? { max_rounds: Number.parseInt(opts.maxRounds, 10) } : {}),
           ...portfolioInputs,
         });
+        const persisted = await api.mirofishSaveContext({ scenarios });
         console.log(
           pc.bold(
             `\nmirofish scenarios (${scenarios.length})${engine ? ` [engine=${engine}]` : ""}`,
@@ -123,6 +121,11 @@ export function registerMirofish(program: Command): void {
             }
           }
         }
+        console.log(
+          pc.dim(
+            `  saved context ${persisted.date} (${persisted.context.context_hash ?? "hash unavailable"})`,
+          ),
+        );
       });
     });
 
@@ -139,7 +142,7 @@ export function registerMirofish(program: Command): void {
     .option("--dry-run", "Score but do not persist")
     .option("--fake-llm", "Deterministic canned recommendations (zero cost)")
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
-    .option("--engine <name>", "Scenario engine: montecarlo (default) | swarm | oasis")
+    .option("--engine <name>", "Scenario engine: oasis (default, real Fish) | montecarlo | swarm")
     .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
     .option("--scorer <name>", "Scoring: terminal (default) | path_aware (drawdown-penalised)")
     .option("--path-aware", "Shorthand for --scorer path_aware (score the equity curve)")

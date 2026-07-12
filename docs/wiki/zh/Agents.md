@@ -33,9 +33,9 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 - **autonomous_execution** —— 把决策转成交易(读 CRO + alpha + L3 + Darwinian 权重)。
 - **cio** —— 最终组合。写 `layer4_outputs.cio` 并把 `portfolio_actions` 镜像到顶层(单写者)。CIO 可推荐宽基 ETF 也可推荐个股。
 
-### MiroFish 上下文注入(opt-in)
+### MiroFish 上下文注入
 
-当 `config.mirofish.inject_context` 为真时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。默认关闭。context 必须带 `scenario_count`、`horizon_days`、`as_of_date`、`context_hash` 和 `generator_version`;字段不完整或 lookahead 的 context 会在 prompt injection 前禁用。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。autonomous_execution 节点还会在输出进入 CIO 前,对已激活的最小交易 delta、滑点上限和流动性下限 execution cards 做运行时校验。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext` 和 L4 validators。
+当 `config.mirofish.inject_context` 为真(默认开启)时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。成功执行 `mirofish generate` 或非 dry-run 的 `mirofish train` 会自动刷新 context。context 必须带 `scenario_count`、`horizon_days`、`as_of_date`、`context_hash` 和 `generator_version`;字段不完整或 lookahead 的 context 会在 prompt injection 前禁用。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。autonomous_execution 节点还会在输出进入 CIO 前,对已激活的最小交易 delta、滑点上限和流动性下限 execution cards 做运行时校验。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext` 和 L4 validators。
 
 RKE report context 仍是 shadow-only research prior。若 portfolio action 声明的
 影响来源只有 RKE prior 和/或 MiroFish simulation context,CIO 校验会拒绝。

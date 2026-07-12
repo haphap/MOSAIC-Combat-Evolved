@@ -1,5 +1,5 @@
 /**
- * 7M Step 2: formatMirofishContext + opt-in CIO prompt injection.
+ * 7M Step 2: formatMirofishContext + configurable L4 prompt injection.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -97,7 +97,7 @@ describe("formatMirofishContext", () => {
   });
 });
 
-describe("CIO MiroFish context injection (opt-in)", () => {
+describe("CIO MiroFish context injection", () => {
   let promptDir: string;
 
   class ScriptedLlm {
@@ -196,7 +196,7 @@ describe("CIO MiroFish context injection (opt-in)", () => {
     });
   }
 
-  it("does NOT inject when toggle is off (default)", async () => {
+  it("does NOT inject when the runtime config omits the toggle", async () => {
     const llm = new ScriptedLlm();
     const handle = {
       llm: llm as unknown as LlmHandle["llm"],

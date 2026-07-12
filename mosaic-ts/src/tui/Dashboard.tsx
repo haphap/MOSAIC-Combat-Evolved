@@ -600,7 +600,7 @@ function MirofishTab({
     <Box flexDirection="column">
       <Text color="cyan">latest scenario context</Text>
       {!context ? (
-        <Text dimColor>no scenario context — run `mirofish generate` + save_context</Text>
+        <Text dimColor>no scenario context — run `mirofish generate`</Text>
       ) : (
         <Box flexDirection="column">
           <Text>
