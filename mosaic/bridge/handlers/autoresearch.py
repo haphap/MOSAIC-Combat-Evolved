@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -190,10 +191,50 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
     if force_agent is not None and not isinstance(force_agent, str):
         raise RpcError(INVALID_PARAMS, "'force_agent' must be a string")
     dry_run = bool(params.get("dry_run", False))
+    historical_sandbox = bool(params.get("historical_sandbox", False))
+    historical_run_id = params.get("historical_run_id")
+    if historical_sandbox:
+        if not isinstance(historical_run_id, str) or not re.fullmatch(
+            r"[A-Za-z0-9._-]+", historical_run_id
+        ):
+            raise RpcError(
+                INVALID_PARAMS,
+                "historical_sandbox requires a safe 'historical_run_id'",
+            )
+    as_of_date = params.get("as_of_date")
+    if as_of_date is not None:
+        if not historical_sandbox:
+            raise RpcError(
+                INVALID_PARAMS,
+                "'as_of_date' is restricted to historical_sandbox triggers",
+            )
+        if not isinstance(as_of_date, str):
+            raise RpcError(INVALID_PARAMS, "'as_of_date' must be YYYY-MM-DD")
+        try:
+            now = datetime.strptime(as_of_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, "'as_of_date' must be YYYY-MM-DD") from exc
+    else:
+        now = _now()
+
+    base_prompt_commit = params.get("base_prompt_commit")
+    if base_prompt_commit is not None:
+        if not historical_sandbox or not isinstance(base_prompt_commit, str):
+            raise RpcError(
+                INVALID_PARAMS,
+                "'base_prompt_commit' requires historical_sandbox and a string ref",
+            )
+        try:
+            base_prompt_commit = _private_git_ops().rev_parse(base_prompt_commit)
+        except Exception as exc:
+            raise RpcError(AUTORESEARCH_ERROR, f"invalid private prompt base ref: {exc}") from exc
+
+    code_commit_hash = params.get("code_commit_hash")
+    if code_commit_hash is not None and not isinstance(code_commit_hash, str):
+        raise RpcError(INVALID_PARAMS, "'code_commit_hash' must be a string")
 
     store = _store()
     config = _config()
-    now = _now()
 
     # Monthly cap check (applies to any new trigger for this cohort).
     cap_result = check_monthly_cap(store, cohort, now, config)
@@ -204,7 +245,11 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
     # rejection on what would be a no-op duplicate trigger).
     if force_agent:
         today_str = now.strftime("%Y-%m-%d")
-        branch_name = f"cohort/{cohort}/auto/{force_agent}/{today_str}"
+        branch_name = (
+            f"history/{historical_run_id}/{cohort}/{force_agent}/{today_str}"
+            if historical_sandbox
+            else f"cohort/{cohort}/auto/{force_agent}/{today_str}"
+        )
         existing = store.get_version_by_branch(branch_name)
         if existing:
             return {
@@ -212,6 +257,10 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
                 "agent": existing["agent"],
                 "branch_name": existing["branch_name"],
                 "base_commit": existing["base_commit_hash"],
+                "existing": True,
+                "prompt_commit_hash": existing.get("modification_commit_hash"),
+                "prompt_sha256": existing.get("prompt_sha256"),
+                "prompt_base_commit_hash": existing.get("prompt_base_commit_hash"),
             }
 
     # Select agent.
@@ -219,7 +268,11 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
 
     # Idempotency: if the branch_name already has a version, return it.
     today_str = now.strftime("%Y-%m-%d")
-    branch_name = f"cohort/{cohort}/auto/{agent}/{today_str}"
+    branch_name = (
+            f"history/{historical_run_id}/{cohort}/{agent}/{today_str}"
+        if historical_sandbox
+        else f"cohort/{cohort}/auto/{agent}/{today_str}"
+    )
     existing = store.get_version_by_branch(branch_name)
     if existing:
         return {
@@ -227,6 +280,10 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
             "agent": existing["agent"],
             "branch_name": existing["branch_name"],
             "base_commit": existing["base_commit_hash"],
+            "existing": True,
+            "prompt_commit_hash": existing.get("modification_commit_hash"),
+            "prompt_sha256": existing.get("prompt_sha256"),
+            "prompt_base_commit_hash": existing.get("prompt_base_commit_hash"),
         }
 
     # Cooldown check.
@@ -235,7 +292,9 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(AUTORESEARCH_ERROR, cooldown_result.reason)
 
     git = _git_ops()
-    base_commit = git.current_commit()
+    project_commit = git.current_commit()
+    base_commit = base_prompt_commit or project_commit
+    code_commit = code_commit_hash or project_commit
 
     # Dry-run: report the selection (agent + would-be branch) without
     # creating a git branch or a prompt_versions row (Plan §11.5 4E: dry-run
@@ -255,12 +314,14 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
         agent=agent,
         branch_name=branch_name,
         base_commit_hash=base_commit,
-        code_commit_hash=base_commit,
+        code_commit_hash=code_commit,
+        created_at=now.isoformat(),
     )
     store.append_log(
         version_id,
         "triggered",
-        f"agent={agent}, prompt_branch={branch_name}, code_base={base_commit[:12]}",
+        f"agent={agent}, prompt_branch={branch_name}, code_base={code_commit[:12]}",
+        created_at=now.isoformat(),
     )
 
     return {
@@ -268,6 +329,7 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
         "agent": agent,
         "branch_name": branch_name,
         "base_commit": base_commit,
+        "existing": False,
     }
 
 
@@ -728,6 +790,191 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         if mutation_id:
             result["mutation_id"] = mutation_id
     return {"results": results}
+
+
+# ---------------------------------------------------------------------------
+# autoresearch.historical_validate
+# ---------------------------------------------------------------------------
+
+
+@method("autoresearch.historical_validate")
+def autoresearch_historical_validate(params: dict[str, Any]) -> dict[str, Any]:
+    """Read-only tool/output-contract validation for a historical candidate."""
+
+    from mosaic.autoresearch.evaluator import validate_prompt_tool_compatibility
+
+    version_id = _require_int(params, "version_id")
+    version = _store().get_prompt_version(version_id)
+    if version is None:
+        raise RpcError(INVALID_PARAMS, f"prompt version {version_id} not found")
+    if not str(version.get("branch_name") or "").startswith("history/"):
+        raise RpcError(
+            AUTORESEARCH_ERROR,
+            "historical validation is restricted to history/* candidate branches",
+        )
+    if version.get("prompt_repo_id") != "private":
+        raise RpcError(AUTORESEARCH_ERROR, "historical validation requires private prompts")
+    try:
+        result = validate_prompt_tool_compatibility(
+            version,
+            _git_ops_for_branch(version["branch_name"], version),
+            baseline_git=_git_ops(),
+        )
+    except Exception as exc:
+        raise RpcError(AUTORESEARCH_ERROR, f"historical compatibility check failed: {exc}") from exc
+    return {
+        "version_id": version_id,
+        "compatible": bool(result.get("compatible")),
+        "unknown_tools": result.get("unknown_tools", []),
+        "missing_files": result.get("missing_files", []),
+        "dropped_output_sections": result.get("dropped_output_sections", []),
+    }
+
+
+# ---------------------------------------------------------------------------
+# autoresearch.historical_decide
+# ---------------------------------------------------------------------------
+
+
+@method("autoresearch.historical_decide")
+def autoresearch_historical_decide(params: dict[str, Any]) -> dict[str, Any]:
+    """Apply a keep/revert inside an isolated historical prompt branch.
+
+    Unlike the normal decider this method never merges or deletes the private
+    prompt repository's default branch.  A keep copies only the mutated agent's
+    zh/en files onto an explicit ``history/.../active/...`` branch.  The call is
+    idempotent so a checkpoint recovery can safely repeat it.
+    """
+
+    version_id = _require_int(params, "version_id")
+    decision = _require_str(params, "decision")
+    if decision not in ("keep", "revert"):
+        raise RpcError(INVALID_PARAMS, "'decision' must be 'keep' or 'revert'")
+    decided_at_raw = _require_str(params, "decided_at")
+    try:
+        decided_at = datetime.strptime(decided_at_raw, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        ).isoformat()
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, "'decided_at' must be YYYY-MM-DD") from exc
+
+    store = _store()
+    version = store.get_prompt_version(version_id)
+    if version is None:
+        raise RpcError(INVALID_PARAMS, f"prompt version {version_id} not found")
+    branch_name = str(version.get("branch_name") or "")
+    if not branch_name.startswith("history/"):
+        raise RpcError(
+            AUTORESEARCH_ERROR,
+            "historical decisions are restricted to history/* candidate branches",
+        )
+    if version.get("status") in ("keep", "revert"):
+        expected = "keep" if decision == "keep" else "revert"
+        if version["status"] != expected:
+            raise RpcError(AUTORESEARCH_ERROR, "historical decision already finalized")
+        active_commit = _require_str(params, "base_ref")
+        active_branch = params.get("active_branch")
+        if decision == "keep" and isinstance(active_branch, str):
+            try:
+                active_commit = _private_git_ops().rev_parse(active_branch)
+            except Exception:
+                pass
+        return {
+            "version_id": version_id,
+            "decision": decision,
+            "active_commit": active_commit,
+            "created": False,
+        }
+
+    if decision == "revert":
+        store.decide_version(version_id, "revert", decided_at=decided_at)
+        store.append_log(
+            version_id,
+            "historical_reverted",
+            "historical sandbox candidate rejected; branch retained for audit",
+            created_at=decided_at,
+        )
+        return {
+            "version_id": version_id,
+            "decision": decision,
+            "active_commit": _require_str(params, "base_ref"),
+            "created": True,
+        }
+
+    active_branch = _require_str(params, "active_branch")
+    base_ref = _require_str(params, "base_ref")
+    if not active_branch.startswith("history/") or "/active/" not in active_branch:
+        raise RpcError(
+            INVALID_PARAMS,
+            "'active_branch' must be an isolated history/*/active/* branch",
+        )
+    if version.get("prompt_repo_id") != "private":
+        raise RpcError(AUTORESEARCH_ERROR, "historical keep requires a private prompt commit")
+    candidate_commit = version.get("modification_commit_hash")
+    if not isinstance(candidate_commit, str) or not candidate_commit:
+        raise RpcError(AUTORESEARCH_ERROR, "historical candidate commit is missing")
+
+    from mosaic.bridge.handlers.prompts import _rel_path
+
+    git = _private_git_ops()
+    try:
+        resolved_base = git.rev_parse(base_ref)
+        candidate_commit = git.rev_parse(candidate_commit)
+        files = {
+            _rel_path(version["agent"], version["cohort"], lang): git.show_file(
+                candidate_commit,
+                _rel_path(version["agent"], version["cohort"], lang),
+            )
+            for lang in ("zh", "en")
+        }
+        branch_exists = git.branch_exists(active_branch)
+        active_ref = git.rev_parse(active_branch) if branch_exists else resolved_base
+
+        def _active_content_matches(path: str, content: str) -> bool:
+            try:
+                return git.show_file(active_branch, path) == content
+            except Exception:
+                return False
+
+        already_applied = branch_exists and all(
+            _active_content_matches(path, content) for path, content in files.items()
+        )
+        if active_ref != resolved_base and not already_applied:
+            raise RpcError(
+                AUTORESEARCH_ERROR,
+                "historical active branch does not match the checkpoint base ref",
+            )
+        active_commit = (
+            active_ref
+            if already_applied
+            else git.write_and_commit(
+                files,
+                message=(
+                    f"historical sandbox: keep {version['agent']} "
+                    f"for {version['cohort']} at {decided_at_raw}"
+                ),
+                branch=active_branch,
+                base_ref=resolved_base,
+            )
+        )
+    except RpcError:
+        raise
+    except Exception as exc:
+        raise RpcError(AUTORESEARCH_ERROR, f"historical prompt promotion failed: {exc}") from exc
+
+    store.decide_version(version_id, "keep", decided_at=decided_at)
+    store.append_log(
+        version_id,
+        "historical_kept",
+        f"sandbox_active_commit={active_commit}",
+        created_at=decided_at,
+    )
+    return {
+        "version_id": version_id,
+        "decision": decision,
+        "active_commit": active_commit,
+        "created": True,
+    }
 
 
 # ---------------------------------------------------------------------------

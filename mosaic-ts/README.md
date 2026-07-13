@@ -70,15 +70,17 @@ pnpm dev janus regime [--date YYYY-MM-DD]
 pnpm dev janus history [--days 30]
 
 # Phase 7 MiroFish (synthetic-futures forward training; isolated from real P&L)
-pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # scenario set (--swarm = Phase 7M.1 agent-to-agent engine; default Monte-Carlo)
-  # --engine oasis = drive a deployed 666ghj/MiroFish service (set MOSAIC_MIROFISH_URL, e.g. http://localhost:5001);
+pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # real MOSAIC-Fish by default; generate + persist context
+  # The default oasis engine drives deployed MOSAIC-Fish (set MOSAIC_MIROFISH_URL, e.g. http://localhost:5001);
   #   walks the real multi-step API (graph/build → simulation → report) and maps the prediction report's
-  #   direction onto scenario regimes (lossy: MiroFish predicts narratives, not prices). Needs LLM+Zep keys; default off.
+  #   direction onto scenario regimes (lossy: MiroFish predicts narratives, not prices). Needs configured LLM + embedding APIs.
+  # Use --engine montecarlo or --engine swarm for an explicit local/no-service run.
 pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run] [--swarm] [--path-aware]
   # --path-aware = score the direction-adjusted equity curve with a max-drawdown penalty (default: terminal cumulative return)
 pnpm dev mirofish history [--days 30]
-  # config mirofish.inject_context=true (default false) appends the latest MiroFish scenario
-  # context (regime/最高信念方向/尾部风险 + "仅供参考" disclaimer) to the CIO prompt — 7M Step 2
+  # mirofish.inject_context defaults true and appends the latest persisted scenario context
+  # to CRO / autonomous execution / CIO with anti-lookahead checks and a simulation-only disclaimer.
+  # Real-service operations: ../docs/runbooks/mosaic_fish_feedback_loop.md
 
 # Phase 8 — paper trading (simulated A-share ETF account; fake money, local SQLite)
 pnpm dev paper register <user> <pw>                  # create account

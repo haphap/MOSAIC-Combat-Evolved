@@ -157,10 +157,10 @@ def _portfolio_exposure_context(params: dict[str, Any]) -> dict[str, Any]:
 def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     """Generate the scenario set (base/bull/bear/tail_up/tail_down).
 
-    ``engine``: 'montecarlo' (default), 'swarm' (Phase 7M.1 agent-to-agent), or
-    'oasis' (7M Step 3 — a deployed 666ghj/MiroFish service via HTTP; needs
-    MOSAIC_MIROFISH_URL). When omitted, falls back to ``config.mirofish.engine``
-    (default montecarlo). Swarm ignores ``reflexivity`` (it is reflexive by design).
+    ``engine``: 'oasis' (default — deployed MOSAIC-Fish via HTTP), 'montecarlo',
+    or 'swarm' (Phase 7M.1 agent-to-agent). Oasis needs
+    ``MOSAIC_MIROFISH_URL``. When omitted, falls back to ``config.mirofish.engine``
+    (default oasis). Swarm ignores ``reflexivity`` (it is reflexive by design).
     """
     num_days = _opt_int(params, "num_days", 30)
     seed = _opt_seed(params)
@@ -188,7 +188,7 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     if engine is None:
         from mosaic.default_config import DEFAULT_CONFIG
 
-        engine = DEFAULT_CONFIG.get("mirofish", {}).get("engine", "montecarlo")
+        engine = DEFAULT_CONFIG.get("mirofish", {}).get("engine", "oasis")
     if engine not in ("montecarlo", "swarm", "oasis"):
         raise RpcError(INVALID_PARAMS, "'engine' must be 'montecarlo', 'swarm' or 'oasis'")
 

@@ -23,6 +23,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { extractTextContent } from "./content.js";
 import { isChinese } from "./i18n.js";
+import { extractLlmTokenUsage, type LlmTokenUsage } from "./runtime.js";
 
 // ---------------------------------------------------------------------------
 // 1. bindStructured
@@ -37,21 +38,31 @@ export function bindStructured<TSchema extends z.ZodType>(
   schema: TSchema,
   agentName: string,
   onLog?: (msg: string) => void,
+  onUsage?: (usage: LlmTokenUsage) => void,
 ): {
   invoke: (input: unknown, options?: { signal?: AbortSignal }) => Promise<z.infer<TSchema>>;
 } | null {
   try {
-    const schemaWithCanonicalAgent = z.preprocess(
-      (value) => canonicalizeAgentField(value, agentName),
-      schema,
-    );
+    const useProviderJsonSchema = isOpenAiLlm(llm);
+    const providerSchema = useProviderJsonSchema
+      ? providerCompatibleJsonSchema(schema)
+      : z.preprocess((value) => canonicalizeAgentField(value, agentName), schema);
     // withStructuredOutput return type is provider-dependent; erase via any.
     // biome-ignore lint/suspicious/noExplicitAny: return type depends on provider
-    const bound = (llm as any).withStructuredOutput(schemaWithCanonicalAgent);
+    const bound = (llm as any).withStructuredOutput(providerSchema, {
+      includeRaw: true,
+      name: agentName.replace(/[^A-Za-z0-9_-]/g, "_"),
+    });
     return {
       invoke: async (input: unknown, options?: { signal?: AbortSignal }) => {
-        const result = await bound.invoke(input, options);
-        return canonicalizeExistingAgentField(result, agentName) as z.infer<TSchema>;
+        const response = await bound.invoke(input, options);
+        const envelope = structuredEnvelope(response);
+        if (envelope.raw !== undefined) onUsage?.(extractLlmTokenUsage(envelope.raw));
+        return (
+          useProviderJsonSchema
+            ? schema.parse(canonicalizeAgentField(envelope.parsed, agentName))
+            : canonicalizeExistingAgentField(envelope.parsed, agentName)
+        ) as z.infer<TSchema>;
       },
     };
   } catch (err) {
@@ -161,6 +172,8 @@ export interface StructuredInvokeResult<T> {
   rendered: string;
   /** The structured result, or ``null`` when free-text fallback was used. */
   structured: T | null;
+  /** Token usage from structured extraction or its free-text retry. */
+  usage: LlmTokenUsage;
 }
 
 export interface StructuredInvokeOptions<T> {
@@ -221,12 +234,15 @@ export async function invokeStructuredOrFreetext<T>(
   } = opts;
 
   // ---- structured path ----
-  const bound = bindStructured(llm, schema, agentName, onLog);
+  let structuredUsage: LlmTokenUsage = { promptTokens: 0, completionTokens: 0 };
+  const bound = bindStructured(llm, schema, agentName, onLog, (usage) => {
+    structuredUsage = usage;
+  });
   if (bound !== null) {
     try {
       const invokeTarget = structuredMessages ?? messages;
       const result = (await bound.invoke(invokeTarget, signal ? { signal } : undefined)) as T;
-      return { rendered: render(result), structured: result };
+      return { rendered: render(result), structured: result, usage: structuredUsage };
     } catch (err) {
       emitStructuredLog(
         onLog,
@@ -251,6 +267,7 @@ export async function invokeStructuredOrFreetext<T>(
     [new SystemMessage(buildJsonFallbackSystem(fallbackSystem, schema, agentName)), userMsg],
     signal ? { signal } : undefined,
   );
+  const fallbackUsage = extractLlmTokenUsage(response);
   const content =
     typeof response.content === "string"
       ? response.content.trim()
@@ -259,7 +276,7 @@ export async function invokeStructuredOrFreetext<T>(
   if (parsed !== null) {
     try {
       const result = schema.parse(canonicalizeAgentField(parsed, agentName));
-      return { rendered: render(result), structured: result };
+      return { rendered: render(result), structured: result, usage: fallbackUsage };
     } catch (err) {
       emitStructuredLog(
         onLog,
@@ -268,7 +285,37 @@ export async function invokeStructuredOrFreetext<T>(
       );
     }
   }
-  return { rendered: content, structured: null };
+  return { rendered: content, structured: null, usage: fallbackUsage };
+}
+
+function isOpenAiLlm(llm: BaseChatModel): boolean {
+  return (llm as BaseChatModel & { _llmType?: () => string })._llmType?.() === "openai";
+}
+
+function providerCompatibleJsonSchema<T>(schema: z.ZodType<T>): unknown {
+  try {
+    return removeUnsupportedGuidanceKeywords(z.toJSONSchema(schema));
+  } catch {
+    return schema;
+  }
+}
+
+function removeUnsupportedGuidanceKeywords(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(removeUnsupportedGuidanceKeywords);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "propertyNames")
+      .map(([key, nested]) => [key, removeUnsupportedGuidanceKeywords(nested)]),
+  );
+}
+
+function structuredEnvelope(value: unknown): { raw?: unknown; parsed: unknown } {
+  if (value !== null && typeof value === "object" && "parsed" in value && "raw" in value) {
+    const envelope = value as { raw?: unknown; parsed: unknown };
+    return { raw: envelope.raw, parsed: envelope.parsed };
+  }
+  return { parsed: value };
 }
 
 function emitStructuredLog(onLog: ((msg: string) => void) | undefined, message: string): void {

@@ -3,10 +3,11 @@
  *
  * Drives the synthetic-futures training loop:
  *   1. ask Python for the Monte-Carlo scenario set (mirofish.generate_scenarios);
- *   2. present each scenario to each agent → an LLM recommendation
+ *   2. persist the generated set as the next Daily Cycle context;
+ *   3. present each scenario to each agent → an LLM recommendation
  *      (BUY/SELL/HOLD + tickers + conviction);
- *   3. score the recommendation against the scenario path (Python);
- *   4. record the per-agent average score to the isolated mirofish_runs ledger.
+ *   4. score the recommendation against the scenario path (Python);
+ *   5. record the per-agent average score to the isolated mirofish_runs ledger.
  *
  * Python owns scenario generation + scoring + persistence; this file owns the
  * LLM agent-recommendation step. ``--fake-llm`` swaps in a deterministic canned
@@ -637,6 +638,18 @@ export async function runMirofishTraining(
     `generated ${scenes.length} scenarios (${numDays}d${reflexive ? ", reflexive" : ""}${engine ? `, engine=${engine}` : ""})`,
   );
 
+  let resultDate = date ?? new Date().toISOString().slice(0, 10);
+  if (!dryRun) {
+    const persisted = await deps.api.mirofishSaveContext({
+      scenarios: scenes,
+      ...(date ? { date } : {}),
+    });
+    resultDate = persisted.date;
+    log(
+      `saved scenario context (${persisted.date}, ${persisted.context.context_hash ?? "hash unavailable"})`,
+    );
+  }
+
   const results: AgentTrainingResult[] = [];
   for (const agent of agents) {
     const scenarioScores: AgentTrainingResult["scenario_scores"] = [];
@@ -667,7 +680,7 @@ export async function runMirofishTraining(
         scenario_type: scenarios && scenarios.length === 1 ? (scenarios[0] as string) : "all",
         n_scenarios: scenarioScores.length,
         avg_score: avg,
-        ...(date ? { date } : {}),
+        date: resultDate,
         detail: scenarioScores.map((s) => ({ scenario: s.scenario_type, score: s.score })),
       });
     }
@@ -675,7 +688,7 @@ export async function runMirofishTraining(
   }
 
   return {
-    date: date ?? new Date().toISOString().slice(0, 10),
+    date: resultDate,
     n_scenarios: scenes.length,
     agents: results,
   };

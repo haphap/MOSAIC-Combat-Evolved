@@ -104,9 +104,9 @@ CLI: `prism list|train|status|compare`.
 
 `mosaic/mirofish/` synthesizes forward scenarios from a behavioral agent swarm and grades recommendations against them.
 
-- **engine** (`config.mirofish.engine`): `montecarlo` (default — i.i.d. correlated paths + optional reflexivity kernel) or `swarm` (agent-to-agent interaction). Swarm is opt-in.
+- **engine** (`config.mirofish.engine`): `oasis` (default — real self-hosted MOSAIC-Fish), `montecarlo` (local correlated paths), or `swarm` (local agent-to-agent interaction).
 - **scorer** (`config.mirofish.scorer`): `terminal` (default — direction × cumulative return) or `path_aware` (drawdown-penalized equity curve; the `--path-aware` shorthand on `mirofish train`).
-- **inject_context** (`config.mirofish.inject_context`, default OFF): append one shared, simulation-only scenario context to the L4 CRO, autonomous execution, and CIO prompts for the run (see [Agents](Agents.md)).
+- **inject_context** (`config.mirofish.inject_context`, default ON): append one shared, simulation-only scenario context to the L4 CRO, autonomous execution, and CIO prompts for the run (see [Agents](Agents.md)). Successful `mirofish generate` and non-dry-run `mirofish train` commands refresh that context automatically.
 - An OASIS adapter can drive a real external MiroFish engine over HTTP (`MOSAIC_MIROFISH_URL`).
 
 CLI: `mirofish generate|train|history`; RPCs under `mirofish.*`.

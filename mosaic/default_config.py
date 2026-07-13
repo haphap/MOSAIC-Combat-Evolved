@@ -240,23 +240,23 @@ DEFAULT_CONFIG = {
         "min_matured_agents_for_update": 8,
     },
     # MiroFish forward-simulation (Plan §11.8 / §11.8.1). 'engine' selects the
-    # scenario generator: 'montecarlo' (default — i.i.d. correlated paths +
-    # optional per-asset reflexivity kernel) or 'swarm' (Phase 7M.1 agent-to-
-    # agent interaction engine). Swarm is OPT-IN; default keeps the cheap,
-    # well-validated Monte-Carlo path.
+    # scenario generator: 'oasis' (default — real self-hosted MOSAIC-Fish),
+    # 'montecarlo' (local i.i.d. correlated paths + optional per-asset
+    # reflexivity kernel), or 'swarm' (local agent-to-agent interaction).
     "mirofish": {
-        "engine": "montecarlo",
+        "engine": "oasis",
         # 'scorer' selects how a rec is graded against a scenario's paths:
         # 'terminal' (default — direction × cumulative return) or 'path_aware'
         # (direction-adjusted equity curve with a max-drawdown penalty, so the
         # realised path shape the swarm engine varies reaches the signal).
         # OPT-IN; default keeps the terminal scorer byte-identical.
         "scorer": "terminal",
-        # 'inject_context': when True, the CIO (Layer 4) prompt gets an appended
+        # 'inject_context': when True, Layer 4 CRO / autonomous execution / CIO
+        # prompts get an appended
         # MiroFish forward-looking section (latest persisted scenario context:
         # regime / highest-conviction direction / tail risk) with a "simulation
-        # only" disclaimer (7M Step 2). OPT-IN; default OFF — daily-cycle prompts
-        # are byte-identical unless turned on.
-        "inject_context": False,
+        # only" disclaimer (7M Step 2). Default ON closes the feedback loop after
+        # ``mirofish generate/train``; operators can still disable it explicitly.
+        "inject_context": True,
     },
 }

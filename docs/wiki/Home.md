@@ -27,7 +27,7 @@
 | Decision graph | 4 layers, 25 agents (10 macro → 7 sector → 4 superinvestor → 4 decision), orchestrated by LangGraph.js as one daily cycle |
 | Self-improvement | Autoresearch rewrites prompts on git branches and keeps/reverts by ΔSharpe |
 | Multi-regime | PRISM trains across 7 market-regime cohorts; JANUS meta-weights across them |
-| Reflexive sim | MiroFish forward-simulates scenarios (Monte-Carlo default, opt-in swarm engine) |
+| Reflexive sim | Real MOSAIC-Fish/OASIS by default, with explicit local Monte-Carlo and swarm engines |
 | Backtest / paper | qlib two-stage vectorized backtest + a bespoke paper-trading engine (T+1, commission) |
 | Languages | Python `≥3.10` sidecar · Node `≥22` + TypeScript front-end |
 | License | Apache-2.0 (vendored qlib collector deps remain MIT — see [Data Layer](Data-Layer.md)) |

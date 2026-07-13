@@ -113,15 +113,17 @@ pnpm dev janus weights
 ## MiroFish(反身性模拟)
 
 ```bash
-pnpm dev mirofish generate --swarm --seed 7      # 生成情景
+pnpm dev mirofish generate --swarm --seed 7      # 生成情景并持久化 agent context
+pnpm dev mirofish generate --engine oasis --scenarios base --max-rounds 1  # 真实服务 smoke
 pnpm dev mirofish train --path-aware             # 前向训练;--path-aware = 回撤惩罚评分
 pnpm dev mirofish train --current-positions-file .mosaic/tmp/mirofish-positions.json --fake-llm --dry-run
 pnpm dev mirofish history
 ```
 子命令:`generate`、`train`、`history`。
-- `generate`:`--days <n>`、`--seed <n>`、`--print`、`--reflexive`、`--swarm`、`--engine <name>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--sector-exposure-json <json>`、`--theme-exposure-json <json>`。
+- `generate`:`--days <n>`、`--seed <n>`、`--print`、`--reflexive`、`--swarm`、`--engine <name>`、`--max-rounds <n>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--sector-exposure-json <json>`、`--theme-exposure-json <json>`。
 - `train`:`--days`、`--seed`、`--agents <list>`、`--dry-run`、`--fake-llm`、`--reflexive`、`--engine <name>`、`--swarm`、`--scorer <name>`、`--path-aware`、同样的 portfolio-stress fixture 参数、LLM 选项。
 portfolio-stress 文件和 `--current-positions-json` 都可以是 JSON 持仓数组,也可以是包含 `current_positions`、`sector_exposure`、`theme_exposure` 的对象;显式 exposure 参数会覆盖文件或 inline fixture 值。每个持仓必须带正数 `market_price` 或 `current_price`。
+`generate` 和非 dry-run `train` 会自动持久化供下一次 Daily Cycle 使用的情景 context;`train --dry-run` 不写 context 或训练记录。
 
 ## 回测
 

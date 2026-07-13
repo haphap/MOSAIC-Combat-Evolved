@@ -114,15 +114,17 @@ Subcommands: `run`, `weights`, `regime`, `history`. Options: `--date <date>`, `-
 ## MiroFish (reflexive simulation)
 
 ```bash
-pnpm dev mirofish generate --swarm --seed 7      # generate scenarios
+pnpm dev mirofish generate --swarm --seed 7      # generate + persist the agent context
+pnpm dev mirofish generate --engine oasis --scenarios base --max-rounds 1  # real-service smoke
 pnpm dev mirofish train --path-aware             # forward-train; --path-aware = drawdown-penalized scorer
 pnpm dev mirofish train --current-positions-file .mosaic/tmp/mirofish-positions.json --fake-llm --dry-run
 pnpm dev mirofish history
 ```
 Subcommands: `generate`, `train`, `history`.
-- `generate`: `--days <n>`, `--seed <n>`, `--print`, `--reflexive`, `--swarm`, `--engine <name>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--sector-exposure-json <json>`, `--theme-exposure-json <json>`.
+- `generate`: `--days <n>`, `--seed <n>`, `--print`, `--reflexive`, `--swarm`, `--engine <name>`, `--max-rounds <n>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--sector-exposure-json <json>`, `--theme-exposure-json <json>`.
 - `train`: `--days`, `--seed`, `--agents <list>`, `--dry-run`, `--fake-llm`, `--reflexive`, `--engine <name>`, `--swarm`, `--scorer <name>`, `--path-aware`, the same portfolio-stress fixture flags, and LLM flags.
 Portfolio-stress files and `--current-positions-json` may be either a JSON position array or an object with `current_positions`, `sector_exposure`, and `theme_exposure`; explicit exposure flags override file or inline fixture values. Each position must include a positive `market_price` or `current_price`.
+`generate` and non-dry-run `train` automatically persist the scenario context consumed by the next Daily Cycle; `train --dry-run` persists neither context nor training rows.
 
 ## Backtest
 
@@ -131,6 +133,12 @@ pnpm dev backtest --cohort cohort_default
 ```
 Options: `--cohort`, `--prompt-commit-hash <hash>`, `--fake-llm`, LLM flags, `--veto-threshold <num>`, `--initial-cash <amount>`, `--benchmark <ticker>`, `--force-refill`, `--log-every <n>`, `--out <path>`. Plus `backtest-fill` for the cache-fill stage.
 Stage-1 carry-over rebuilds `current_positions` from prior target weights and records holding days, entry thesis id, realized/unrealized PnL, residual drift, and closed-position exit reasons.
+
+For the resumable 2009→latest PIT walk-forward path, use `backtest-evolve` with a pinned
+private Prompt commit and a `.mosaic/` run directory. It resolves the current sndr
+`nvidia-qwen3.6-35b-a3b-nvfp4-5090` preset, keeps Fish context disabled, checkpoints every
+trading day, and evaluates monthly historical Prompt candidates in isolated private branches.
+See [2009 Agents historical evolution runbook](../runbooks/agents_history_evolution_2009.md).
 
 > The `--out` flag writes the metrics JSON. Full ATLAS-isomorphic artifacts (`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`) are produced by the `backtest.run_historical` **RPC** when called with a `results_dir` (see [Bridge RPC](Bridge-RPC.md)); not yet a `backtest` CLI flag.
 

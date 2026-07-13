@@ -341,6 +341,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
             signal,
           });
+          promptTokens += extractor.usage.promptTokens;
+          completionTokens += extractor.usage.completionTokens;
 
           const rawOutput = extractor.structured ?? spec.fallback(analysisText);
           const claimSelection = runtimeEvidence
@@ -414,11 +416,16 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             ]),
           );
 
-          return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle), {
-            state,
-            knobSnapshot,
-            canaryEvent,
-          });
+          return buildLayerFourUpdate(
+            spec,
+            output,
+            buildLlmCall(spec.agentId, structuredHandle, { promptTokens, completionTokens }),
+            {
+              state,
+              knobSnapshot,
+              canaryEvent,
+            },
+          );
         },
         timeoutMs,
         `L4 ${spec.agentId}`,
