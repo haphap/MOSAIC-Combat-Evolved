@@ -84,6 +84,13 @@ rtk journalctl --user --since "10 minutes ago" _COMM=kwin_wayland \
 服务 owner 执行 `rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090`，不得在故障状态下
 继续运行。
 
+2026-07-13 验证回执：`history-2009-qwen35b-128k-smoke-v3` 使用 resolution
+`sha256:ba860c7d7be81c40db46475d40bd9d48f49eb7f159b03b38ba56d1bd49a54275`
+完成两个交易日并从 checkpoint 1 恢复到 checkpoint 2；累计 52 次计费调用、
+2,244,897 prompt tokens、142,031 completion tokens，模型耗时约 16 分 12 秒。
+抽样最低可用显存约 1.2 GiB，KDE 仍保持 3840x2160@60，且没有新增 KWin、NVKMS、
+HTTP 500、CUDA 或 traceback 错误。该 `.mosaic/` run 仅是私有本地验证证据，不提交。
+
 ## 3. 静态验证
 
 ```bash
