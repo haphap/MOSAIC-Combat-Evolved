@@ -26,11 +26,12 @@ import {
   type LlmUsage,
   loadCheckpoint,
   pairedBlockBootstrap,
+  pendingEvolutionAfterCompletedDay,
   pendingLayer,
   phaseForDate,
+  selectFamilyWinnerId,
   selectLayerAgent,
   sha256Json,
-  shouldTriggerEvolution,
   writeJsonAtomic,
 } from "../../backtest/evolution.js";
 import type { BacktestActionInput, MosaicConfig } from "../../bridge/index.js";
@@ -75,7 +76,7 @@ interface BacktestEvolveOptions {
   benchmark?: string;
 }
 
-interface EvolutionManifest {
+export interface EvolutionManifest {
   schema_version: "mosaic.backtest_evolution_manifest.v1";
   run_id: string;
   created_at: string;
@@ -274,6 +275,26 @@ async function runBacktestEvolution(opts: BacktestEvolveOptions): Promise<void> 
       return prepared;
     };
 
+    const pendingAtResume = pendingEvolutionAfterCompletedDay(checkpoint, tradeDays);
+    if (pendingAtResume && !checkpoint.pendingEvolution) {
+      checkpoint.pendingEvolution = pendingAtResume;
+      writeJsonAtomic(checkpointPath, checkpoint);
+    }
+    if (checkpoint.pendingEvolution) {
+      checkpoint = await generateMonthlyCandidates({
+        api,
+        checkpoint,
+        checkpointPath,
+        tradeDays,
+        llmHandle,
+        config,
+        codeCommit,
+        cohort,
+        getGraph,
+      });
+      await pruneWorktrees(api, worktrees, checkpoint);
+    }
+
     let newlyCompleted = 0;
     while (checkpoint.nextTradingDayIndex < tradeDays.length) {
       if (maxDays !== undefined && newlyCompleted >= maxDays) break;
@@ -345,25 +366,18 @@ async function runBacktestEvolution(opts: BacktestEvolveOptions): Promise<void> 
       };
       writeJsonAtomic(journalPath, journal);
       checkpoint = await applyDailyJournal(api, checkpoint, journal);
+      const pending = pendingEvolutionAfterCompletedDay(checkpoint, tradeDays);
+      if (pending && !checkpoint.pendingEvolution) checkpoint.pendingEvolution = pending;
       writeJsonAtomic(checkpointPath, checkpoint);
       rmSync(journalPath, { force: true });
       newlyCompleted += 1;
 
-      if (
-        shouldTriggerEvolution(
-          tradeDays,
-          index,
-          checkpoint.processedEvolutionMonths,
-          DEFAULT_EVOLUTION_POLICY,
-        )
-      ) {
+      if (checkpoint.pendingEvolution?.triggerIndex === index) {
         checkpoint = await generateMonthlyCandidates({
           api,
           checkpoint,
           checkpointPath,
           tradeDays,
-          triggerIndex: index,
-          triggerDate: tradeDate,
           llmHandle,
           config,
           codeCommit,
@@ -629,29 +643,37 @@ async function generateMonthlyCandidates(opts: {
   checkpoint: EvolutionCheckpoint;
   checkpointPath: string;
   tradeDays: ReadonlyArray<string>;
-  triggerIndex: number;
-  triggerDate: string;
   llmHandle: LlmHandle;
   config: MosaicConfig;
   codeCommit: string;
   cohort: string;
   getGraph: (commit: string) => Promise<WorktreeGraph>;
 }): Promise<EvolutionCheckpoint> {
-  const month = opts.triggerDate.slice(0, 7);
-  const window = candidateWindow(opts.tradeDays, opts.triggerIndex, DEFAULT_EVOLUTION_POLICY);
+  const pending = opts.checkpoint.pendingEvolution;
+  if (!pending) throw new Error("monthly candidate generation requires a pending evolution");
+  const month = pending.month;
+  const window = candidateWindow(opts.tradeDays, pending.triggerIndex, DEFAULT_EVOLUTION_POLICY);
   if (!window) {
-    opts.checkpoint.processedEvolutionMonths.push(month);
+    if (!opts.checkpoint.processedEvolutionMonths.includes(month)) {
+      opts.checkpoint.processedEvolutionMonths.push(month);
+    }
+    delete opts.checkpoint.pendingEvolution;
     writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
     return opts.checkpoint;
   }
   const [macroSkill, weights] = await Promise.all([
     opts.api.scorecardListMacroSkill(opts.cohort, window.trainStart),
-    opts.api.darwinianGetWeights(opts.cohort, opts.triggerDate),
+    opts.api.darwinianGetWeights(opts.cohort, pending.triggerDate),
   ]);
   const baseGraph = await opts.getGraph(opts.checkpoint.activePromptCommit);
   const familyId = `${opts.checkpoint.runId}:${month}`;
   for (const layer of LAYER_ORDER) {
-    if (pendingLayer(opts.checkpoint.candidates, layer)) continue;
+    if (pending.completedLayers.includes(layer)) continue;
+    if (pendingLayer(opts.checkpoint.candidates, layer)) {
+      completePendingLayer(opts.checkpoint, layer);
+      writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
+      continue;
+    }
     const agent = selectLayerAgent({
       layer,
       macroSkill: macroSkill.rows,
@@ -666,7 +688,7 @@ async function generateMonthlyCandidates(opts: {
       mutationMode: "prompt_rewrite",
       historicalSandbox: true,
       historicalRunId: opts.checkpoint.runId,
-      simulatedNow: opts.triggerDate,
+      simulatedNow: pending.triggerDate,
       promptsRoot: baseGraph.promptsRoot,
       basePromptCommit: opts.checkpoint.activePromptCommit,
       codeCommitHash: opts.codeCommit,
@@ -678,6 +700,8 @@ async function generateMonthlyCandidates(opts: {
       console.error(
         pc.yellow(`evolution skipped ${layer}/${agent}: ${mutation?.error ?? "no commit"}`),
       );
+      completePendingLayer(opts.checkpoint, layer);
+      writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
       continue;
     }
     const compatibility = await opts.api.autoresearchHistoricalValidate({
@@ -688,11 +712,11 @@ async function generateMonthlyCandidates(opts: {
       await opts.api.autoresearchHistoricalDecide({
         version_id: mutation.version_id,
         decision: "revert",
-        decided_at: opts.triggerDate,
+        decided_at: pending.triggerDate,
         base_ref: opts.checkpoint.activePromptCommit,
       });
       opts.checkpoint.lineage.push({
-        date: opts.triggerDate,
+        date: pending.triggerDate,
         agent,
         versionId: mutation.version_id,
         decision: "revert",
@@ -700,6 +724,7 @@ async function generateMonthlyCandidates(opts: {
         activeCommit: opts.checkpoint.activePromptCommit,
         reasonCodes,
       });
+      completePendingLayer(opts.checkpoint, layer);
       writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
       console.error(
         pc.yellow(`evolution rejected ${layer}/${agent}: incompatible prompt contract`),
@@ -723,8 +748,8 @@ async function generateMonthlyCandidates(opts: {
       versionId: mutation.version_id,
       agent,
       layer,
-      triggerDate: opts.triggerDate,
-      triggerIndex: opts.triggerIndex,
+      triggerDate: pending.triggerDate,
+      triggerIndex: pending.triggerIndex,
       baseCommit: opts.checkpoint.activePromptCommit,
       candidateCommit: mutation.prompt_commit_hash,
       candidatePromptSha256: candidateGraph.promptSha256,
@@ -741,9 +766,13 @@ async function generateMonthlyCandidates(opts: {
       },
     };
     opts.checkpoint.candidates.push(candidate);
+    completePendingLayer(opts.checkpoint, layer);
     writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
   }
-  opts.checkpoint.processedEvolutionMonths.push(month);
+  if (!opts.checkpoint.processedEvolutionMonths.includes(month)) {
+    opts.checkpoint.processedEvolutionMonths.push(month);
+  }
+  delete opts.checkpoint.pendingEvolution;
   writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
   return opts.checkpoint;
 }
@@ -883,41 +912,54 @@ async function settleCandidates(opts: {
         pValue: candidate.holdout?.paired.pValue ?? 1,
       })),
     );
-    for (const candidate of [...family].sort(
+    const ordered = [...family].sort(
       (left, right) => LAYER_ORDER.indexOf(left.layer) - LAYER_ORDER.indexOf(right.layer),
-    )) {
+    );
+    for (const candidate of ordered) {
       if (candidate.status !== "awaiting_family" || !candidate.holdout) continue;
       candidate.adjustedQ = qValues[candidate.id] ?? 1;
-      const reasons = evaluationReasonCodes(candidate.holdout, {
+      candidate.reasonCodes = evaluationReasonCodes(candidate.holdout, {
         adjustedQ: candidate.adjustedQ,
       });
+    }
+    const winnerId = selectFamilyWinnerId(ordered);
+    for (const candidate of ordered) {
+      if (candidate.status !== "awaiting_family" || !candidate.holdout) continue;
+      if (candidate.id === winnerId) continue;
+      const reasons =
+        candidate.reasonCodes.length > 0
+          ? candidate.reasonCodes
+          : ["FAMILY_CANDIDATE_NOT_SELECTED"];
       candidate.reasonCodes = reasons;
-      if (reasons.length === 0) {
-        const previousCommit = opts.checkpoint.activePromptCommit;
-        const decision = await opts.api.autoresearchHistoricalDecide({
-          version_id: candidate.versionId,
-          decision: "keep",
-          decided_at: opts.tradeDate,
-          base_ref: previousCommit,
-          active_branch: opts.checkpoint.activePromptBranch,
-        });
-        opts.checkpoint.activePromptCommit = decision.active_commit;
-        const graph = await opts.getGraph(decision.active_commit);
-        opts.checkpoint.activePromptSha256 = graph.promptSha256;
-        candidate.status = "kept";
-        opts.checkpoint.lineage.push({
-          date: opts.tradeDate,
-          agent: candidate.agent,
-          versionId: candidate.versionId,
-          decision: "keep",
-          previousCommit,
-          activeCommit: decision.active_commit,
-          reasonCodes: [],
-        });
-      } else {
-        await recordDecision(opts, candidate, "revert", reasons);
-        candidate.status = "reverted";
-      }
+      await recordDecision(opts, candidate, "revert", reasons);
+      candidate.status = "reverted";
+      writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
+    }
+    const winner = ordered.find(
+      (candidate) => candidate.id === winnerId && candidate.status === "awaiting_family",
+    );
+    if (winner) {
+      const previousCommit = opts.checkpoint.activePromptCommit;
+      const decision = await opts.api.autoresearchHistoricalDecide({
+        version_id: winner.versionId,
+        decision: "keep",
+        decided_at: opts.tradeDate,
+        base_ref: previousCommit,
+        active_branch: opts.checkpoint.activePromptBranch,
+      });
+      opts.checkpoint.activePromptCommit = decision.active_commit;
+      const graph = await opts.getGraph(decision.active_commit);
+      opts.checkpoint.activePromptSha256 = graph.promptSha256;
+      winner.status = "kept";
+      opts.checkpoint.lineage.push({
+        date: opts.tradeDate,
+        agent: winner.agent,
+        versionId: winner.versionId,
+        decision: "keep",
+        previousCommit,
+        activeCommit: decision.active_commit,
+        reasonCodes: [],
+      });
       writeJsonAtomic(opts.checkpointPath, opts.checkpoint);
     }
   }
@@ -1020,7 +1062,7 @@ function readTrajectory(path: string): { returns: number[]; turnover: number } {
   return { returns, turnover };
 }
 
-function ensureManifest(opts: {
+export function ensureManifest(opts: {
   path: string;
   resume: boolean;
   start: string;
@@ -1050,6 +1092,8 @@ function ensureManifest(opts: {
       model_hash: opts.resolution?.hash ?? "fake",
       runtime_image_id: opts.runtimeImageId,
       qlib_data_hash: sha256Json(opts.qlibData),
+      initial_cash: opts.initialCash,
+      benchmark: opts.benchmark,
     };
     const actual = {
       start_date: existing.start_date,
@@ -1061,6 +1105,8 @@ function ensureManifest(opts: {
       model_hash: existing.model.resolution?.hash ?? "fake",
       runtime_image_id: existing.model.runtime_image_id,
       qlib_data_hash: sha256Json(existing.qlib_data),
+      initial_cash: existing.initial_cash,
+      benchmark: existing.benchmark,
     };
     if (sha256Json(actual) !== sha256Json(expected)) {
       throw new Error("resume manifest does not match code/prompt/model/config inputs");
@@ -1275,6 +1321,12 @@ function safeId(value: string): string {
 
 function isTerminal(status: CandidateStatus): boolean {
   return ["kept", "reverted", "validation_failed", "error"].includes(status);
+}
+
+function completePendingLayer(checkpoint: EvolutionCheckpoint, layer: Layer): void {
+  const pending = checkpoint.pendingEvolution;
+  if (!pending || pending.completedLayers.includes(layer)) return;
+  pending.completedLayers.push(layer);
 }
 
 function candidateSummary(candidate: EvolutionCandidate): Record<string, unknown> {

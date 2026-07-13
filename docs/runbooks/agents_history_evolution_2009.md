@@ -14,7 +14,8 @@ MOSAIC-Prompts 的默认分支，也不会触发 paper/live promotion。
 - 前 504 个交易日使用冻结 Prompt。
 - 每月首个交易日检查一次；每层最多一个未决候选。
 - 504 日训练、5 日 purge、90 日验证、5 日 embargo、90 日锁箱。
-- 候选采用 paired 5-day block bootstrap；同月候选执行 BH-FDR。
+- 候选采用 paired 5-day block bootstrap；同月候选执行 BH-FDR，并且每个 family 最多
+  保留一个 winner，避免组合未经验证的 Prompt。
 - Fish context 强制关闭；backtest memory 强制关闭。
 
 ## 1. 固定代码与 Prompt
@@ -151,15 +152,15 @@ rtk pnpm --dir mosaic-ts dev backtest-evolve \
 
 所有日期严格顺序执行。主组合使用当前 active Prompt；每个候选拥有固定 base/candidate
 双臂、独立持仓状态和独立 qlib run。验证失败立即在历史账本中 revert；锁箱通过且
-同月 FDR 通过后，候选文件才会复制到 `history/.../active/...` 分支，并从下一交易日
-生效。候选审计分支始终保留。
+同月 FDR 通过后，仅排名最高的通过候选会复制到 `history/.../active/...` 分支，并从
+下一交易日生效；其余候选 revert。候选审计分支始终保留。
 
 ## 7. 产物与故障恢复
 
 run 目录为私有、gitignored 数据，主要文件包括：
 
 - `manifest.json`：代码、Prompt、Qlib、配置、模型和 sndr resolution 指纹。
-- `checkpoint.json`：下一交易日、持仓、Prompt lineage 和候选状态。
+- `checkpoint.json`：下一交易日、持仓、Prompt lineage、候选状态和未完成的月度演化意图。
 - `daily-journal.json`：仅在日提交尚未完成时存在，用于 exactly-once 恢复。
 - `data/scorecard.db`：隔离的回测、Autoresearch 和动作账本。
 - `candidates/`：验证/锁箱双臂的 qlib summary 与 trajectory。
@@ -172,6 +173,7 @@ run 目录为私有、gitignored 数据，主要文件包括：
 - sndr preset resolution 改变；
 - 配置或 Qlib 交易日历改变；
 - run 起止日期或 cohort 改变。
+- 初始资金或 benchmark 改变。
 
 不要手工编辑 checkpoint、journal、SQLite 或候选分支。若确需更换模型、参数、数据或
 代码，保留旧目录作为审计证据并启动新的 run。

@@ -3,17 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
+import type { EvolutionCandidate, EvolutionCheckpoint } from "../src/backtest/evolution.js";
 import {
   benjaminiHochberg,
   candidateWindow,
   DEFAULT_EVOLUTION_POLICY,
   evaluationReasonCodes,
   pairedBlockBootstrap,
+  pendingEvolutionAfterCompletedDay,
+  selectFamilyWinnerId,
   selectLayerAgent,
   shouldTriggerEvolution,
 } from "../src/backtest/evolution.js";
 import type { BacktestMetricsResult } from "../src/bridge/types.js";
 import {
+  ensureManifest,
   loadStrictQlibTradingDays,
   registerBacktestEvolve,
 } from "../src/cli/commands/backtest-evolve.js";
@@ -66,6 +70,38 @@ describe("backtest-evolve CLI", () => {
     } finally {
       if (previous === undefined) delete process.env.QLIB_CN_DATA_PATH;
       else process.env.QLIB_CN_DATA_PATH = previous;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects resume when initial cash or benchmark changes", () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-evolution-manifest-"));
+    const path = join(root, "manifest.json");
+    const base = {
+      path,
+      start: "2009-01-05",
+      end: "2026-06-09",
+      cohort: "history_walkforward_2009",
+      codeCommit: "code-1",
+      baselineCommit: "prompt-1",
+      baselinePromptSha256: "sha256:prompt",
+      resolution: null,
+      runtimeImageId: null,
+      fakeLlm: true,
+      initialCash: 1_000_000,
+      benchmark: "SH000300",
+      configOverrides: { memory_in_backtest: false },
+      qlibData: qlibFingerprint(),
+    };
+    try {
+      ensureManifest({ ...base, resume: false });
+      expect(() => ensureManifest({ ...base, resume: true, initialCash: 2_000_000 })).toThrow(
+        "resume manifest does not match",
+      );
+      expect(() => ensureManifest({ ...base, resume: true, benchmark: "SH000905" })).toThrow(
+        "resume manifest does not match",
+      );
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -122,6 +158,27 @@ describe("historical evolution schedule", () => {
         rotation: 2,
       }),
     ).toBe("biotech");
+  });
+
+  it("retains a pending month across the next trading day until generation completes", () => {
+    const days = isoDays("2009-01-01", 800);
+    const triggerIndex = days.findIndex(
+      (day, current) =>
+        current >= DEFAULT_EVOLUTION_POLICY.warmupTradingDays &&
+        day.slice(0, 7) !== days[current - 1]?.slice(0, 7),
+    );
+    const checkpoint = evolutionCheckpoint(triggerIndex + 1);
+    const pending = pendingEvolutionAfterCompletedDay(checkpoint, days);
+    expect(pending).toMatchObject({
+      triggerIndex,
+      triggerDate: days[triggerIndex],
+      completedLayers: [],
+    });
+
+    if (!pending) throw new Error("expected pending evolution");
+    checkpoint.pendingEvolution = pending;
+    checkpoint.nextTradingDayIndex += 1;
+    expect(pendingEvolutionAfterCompletedDay(checkpoint, days)).toEqual(pending);
   });
 });
 
@@ -182,6 +239,16 @@ describe("historical evolution statistics", () => {
 
     expect(reasons).toEqual(["MAX_DRAWDOWN_WORSE", "TURNOVER_GUARDRAIL", "FDR_GATE_FAILED"]);
   });
+
+  it("selects exactly one independently evaluated winner per candidate family", () => {
+    const candidates = [
+      passingCandidate("macro", 0.02, 0.002),
+      passingCandidate("sector", 0.01, 0.001),
+      passingCandidate("decision", 0.01, 0.003),
+    ];
+
+    expect(selectFamilyWinnerId(candidates)).toBe("decision");
+  });
 });
 
 function isoDays(start: string, count: number): string[] {
@@ -229,5 +296,105 @@ function metrics(overrides: Partial<BacktestMetricsResult>): BacktestMetricsResu
     initial_cash: 1_000_000,
     final_value: 1_030_000,
     ...overrides,
+  };
+}
+
+function qlibFingerprint() {
+  return {
+    calendar_sha256: "sha256:calendar",
+    instruments_sha256: "sha256:instruments",
+    feature_inventory_sha256: "sha256:inventory",
+    feature_content_sha256: "sha256:content",
+    feature_file_count: 1,
+    feature_total_bytes: 3,
+    first_date: "2009-01-05",
+    last_date: "2026-06-09",
+    selected_days_sha256: "sha256:selected",
+  };
+}
+
+function evolutionCheckpoint(nextTradingDayIndex: number): EvolutionCheckpoint {
+  return {
+    schemaVersion: "mosaic.backtest_evolution_checkpoint.v1",
+    runId: "run-1",
+    cohort: "history_walkforward_2009",
+    startDate: "2009-01-01",
+    endDate: "2030-01-01",
+    nextTradingDayIndex,
+    tradeDaysHash: "sha256:days",
+    mainBacktestRunId: 1,
+    activePromptCommit: "base",
+    activePromptSha256: "sha256:base",
+    activePromptBranch: "history/run-1/active/main",
+    mainArm: {
+      positions: {
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        position_snapshot_hash: "sha256:empty",
+        positions: [],
+      },
+      previousTarget: {
+        schema_version: "portfolio.previous_target_state.v1",
+        snapshot_status: "empty_confirmed",
+        final_target_hash: null,
+        as_of_date: "2009-01-01",
+        portfolio_actions: [],
+        source_error_code: null,
+      },
+    },
+    mainUsage: { calls: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, elapsedMs: 0 },
+    candidates: [],
+    lineage: [],
+    processedEvolutionMonths: [],
+    layerRotation: { macro: 0, sector: 0, superinvestor: 0, decision: 0 },
+  };
+}
+
+function passingCandidate(id: string, adjustedQ: number, meanDelta: number): EvolutionCandidate {
+  const evaluation = {
+    base: metrics({ alpha: 0.01, max_drawdown: -0.1 }),
+    candidate: metrics({ alpha: 0.02, max_drawdown: -0.09 }),
+    baseTurnover: 1,
+    candidateTurnover: 1,
+    paired: {
+      meanDelta,
+      ciLower: 0.0001,
+      ciUpper: 0.004,
+      pValue: adjustedQ,
+      effectiveSampleSize: 18,
+    },
+  };
+  return {
+    id,
+    familyId: "family-1",
+    versionId: id.length,
+    agent: id,
+    layer: id === "macro" ? "macro" : id === "sector" ? "sector" : "decision",
+    triggerDate: "2011-01-03",
+    triggerIndex: 504,
+    baseCommit: "base",
+    candidateCommit: `candidate-${id}`,
+    candidatePromptSha256: `sha256:${id}`,
+    branchName: `history/run/${id}`,
+    window: {
+      trainStart: "2009-01-01",
+      trainEnd: "2011-01-03",
+      validationStart: "2011-01-10",
+      validationEnd: "2011-05-10",
+      holdoutStart: "2011-05-18",
+      holdoutEnd: "2011-09-20",
+    },
+    runs: { validationBase: 1, validationCandidate: 2, holdoutBase: 3, holdoutCandidate: 4 },
+    baseArm: evolutionCheckpoint(0).mainArm,
+    candidateArm: evolutionCheckpoint(0).mainArm,
+    status: "awaiting_family",
+    holdout: evaluation,
+    adjustedQ,
+    reasonCodes: [],
+    usage: {
+      base: { calls: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, elapsedMs: 0 },
+      candidate: { calls: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, elapsedMs: 0 },
+    },
   };
 }

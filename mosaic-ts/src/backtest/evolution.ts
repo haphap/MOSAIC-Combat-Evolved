@@ -145,6 +145,13 @@ export interface PromptLineageEvent {
   reasonCodes: string[];
 }
 
+export interface PendingEvolution {
+  month: string;
+  triggerIndex: number;
+  triggerDate: string;
+  completedLayers: Layer[];
+}
+
 export interface EvolutionCheckpoint {
   schemaVersion: typeof EVOLUTION_CHECKPOINT_SCHEMA;
   runId: string;
@@ -163,6 +170,7 @@ export interface EvolutionCheckpoint {
   lineage: PromptLineageEvent[];
   processedEvolutionMonths: string[];
   layerRotation: Record<Layer, number>;
+  pendingEvolution?: PendingEvolution;
   completedAt?: string;
 }
 
@@ -232,6 +240,28 @@ export function shouldTriggerEvolution(
     return false;
   }
   return !processedMonths.includes(date.slice(0, 7));
+}
+
+export function pendingEvolutionAfterCompletedDay(
+  checkpoint: EvolutionCheckpoint,
+  tradeDays: ReadonlyArray<string>,
+  policy = DEFAULT_EVOLUTION_POLICY,
+): PendingEvolution | null {
+  if (checkpoint.pendingEvolution) return checkpoint.pendingEvolution;
+  const triggerIndex = checkpoint.nextTradingDayIndex - 1;
+  const triggerDate = tradeDays[triggerIndex];
+  if (
+    !triggerDate ||
+    !shouldTriggerEvolution(tradeDays, triggerIndex, checkpoint.processedEvolutionMonths, policy)
+  ) {
+    return null;
+  }
+  return {
+    month: triggerDate.slice(0, 7),
+    triggerIndex,
+    triggerDate,
+    completedLayers: [],
+  };
 }
 
 export function candidateWindow(
@@ -428,4 +458,25 @@ export function evaluationReasonCodes(
     reasons.push("FDR_GATE_FAILED");
   }
   return reasons;
+}
+
+export function selectFamilyWinnerId(candidates: ReadonlyArray<EvolutionCandidate>): string | null {
+  const passing = candidates
+    .filter(
+      (candidate) =>
+        candidate.status === "awaiting_family" &&
+        candidate.holdout !== undefined &&
+        evaluationReasonCodes(
+          candidate.holdout,
+          candidate.adjustedQ === undefined ? {} : { adjustedQ: candidate.adjustedQ },
+        ).length === 0,
+    )
+    .sort(
+      (left, right) =>
+        (left.adjustedQ ?? 1) - (right.adjustedQ ?? 1) ||
+        (right.holdout?.paired.meanDelta ?? Number.NEGATIVE_INFINITY) -
+          (left.holdout?.paired.meanDelta ?? Number.NEGATIVE_INFINITY) ||
+        left.id.localeCompare(right.id),
+    );
+  return passing[0]?.id ?? null;
 }
