@@ -49,6 +49,12 @@ rtk sndr launch nvidia-qwen3.6-35b-a3b-nvfp4-5090 --dry-run --skip-autodetect
 KV cache、并发、MTP、tool/reasoning parser 和渲染配置绑定进 manifest；服务配置与
 card 不一致时会拒绝运行。
 
+从 2026-07-13 起，该 preset 的工作上下文固定为 `max_model_len=128000`，并使用
+`gpu_memory_utilization=0.85`，保留 `turboquant_4bit_nc`、`max_num_seqs=1`、
+`max_num_batched_tokens=2048` 和 MTP K=3。
+此前的 140K 配置在 Agents 满载时曾把 RTX 5090 D 显存推到 KDE 无法分配 NVKMS
+显示缓冲区的程度。不要通过手工 vLLM 参数恢复 140K；始终以 sndr 渲染结果为准。
+
 如服务未启动，由一个明确的 owner 启动并持续负责其生命周期：
 
 ```bash
@@ -57,6 +63,26 @@ rtk sndr launch nvidia-qwen3.6-35b-a3b-nvfp4-5090 --skip-autodetect
 
 等待 `http://127.0.0.1:8000/health` 就绪，并确保 `MOSAIC_VLLM_API_KEY` 通过环境提供。
 不要把 key 写入命令、runbook、manifest 或日志。
+
+服务健康后验证桌面显存门槛：
+
+```bash
+rtk nvidia-smi \
+  --query-gpu=memory.used,memory.free,utilization.gpu,temperature.gpu \
+  --format=csv,noheader,nounits
+rtk kscreen-doctor -o
+rtk journalctl -k --since "10 minutes ago" \
+  --grep "Failed to allocate NVKMS memory for GEM object" --no-pager
+rtk journalctl --user --since "10 minutes ago" _COMM=kwin_wayland \
+  --grep "Applying output configuration failed|Failed to find a working output layer configuration" \
+  --no-pager
+```
+
+128K/0.85 基准在服务空闲时应留下约 2.4 GiB 可用显存；Agents 推理满载时应至少留下
+1 GiB，且最后两条检查不得出现新记录。128K/0.90 曾在长请求中降至约 226 MiB，不能
+作为桌面主机的运行参数。若再次出现 NVKMS/KWin 分配失败或低于门槛，先停止回测，再由
+服务 owner 执行 `rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090`，不得在故障状态下
+继续运行。
 
 ## 3. 静态验证
 
@@ -177,3 +203,7 @@ run 目录为私有、gitignored 数据，主要文件包括：
 
 不要手工编辑 checkpoint、journal、SQLite 或候选分支。若确需更换模型、参数、数据或
 代码，保留旧目录作为审计证据并启动新的 run。
+
+140K 与 128K 的 sndr resolution 不同。2026-07-13 之前按 140K 创建的 run（包括
+`.mosaic/backtests/history-2009-qwen35b-main`）只能作为审计证据保留，不能用 128K
+preset 执行 `--resume`；后续正式运行必须使用新的 run 目录。

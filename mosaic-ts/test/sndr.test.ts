@@ -14,9 +14,9 @@ const preset = {
   profile: "nvidia-qwen3.6-35b-a3b-nvfp4-tq-k8v4-5090",
   card: {
     status: "experimental",
-    card_version: 1,
-    card_updated: "2026-07-08",
-    context: { max_model_len: 140000 },
+    card_version: 2,
+    card_updated: "2026-07-13",
+    context: { max_model_len: 128000 },
     concurrency: { canonical: 1 },
     hardware_fit: { engine_pin: "0.23.1rc1.dev424+g3f5a1e173" },
   },
@@ -24,8 +24,8 @@ const preset = {
 
 const rendered = [
   "vllm serve",
-  "--gpu-memory-utilization 0.9",
-  "--max-model-len 140000",
+  "--gpu-memory-utilization 0.85",
+  "--max-model-len 128000",
   "--max-num-seqs 1",
   "--max-num-batched-tokens 2048",
   "--kv-cache-dtype turboquant_4bit_nc",
@@ -43,7 +43,8 @@ describe("sndr Qwen 35B preset resolution", () => {
     const resolution = resolveQwen35bPreset(runner());
 
     expect(resolution.profileId).toBe("nvidia-qwen3.6-35b-a3b-nvfp4-tq-k8v4-5090");
-    expect(resolution.maxModelLen).toBe(140_000);
+    expect(resolution.maxModelLen).toBe(128_000);
+    expect(resolution.gpuMemoryUtilization).toBe(0.85);
     expect(resolution.maxNumBatchedTokens).toBe(2_048);
     expect(resolution.kvCacheDtype).toBe("turboquant_4bit_nc");
     expect(resolution.speculativeTokens).toBe(3);

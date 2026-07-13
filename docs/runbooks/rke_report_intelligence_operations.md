@@ -533,12 +533,18 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
 - This service shares port `8000` with the 35B NVFP4 sndr service. Run only one
   of them at a time.
 
-Current 2026-07-08 sndr direct-launch presets:
+Current 2026-07-13 sndr direct-launch presets:
 
-- `nvidia-qwen3.6-35b-a3b-nvfp4-5090`: keep at `max_model_len=140000`,
-  `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
-  MTP K=3. The 140K fixed benchmark completed; 150K was not promoted because
-  the observed headroom was thin.
+- `nvidia-qwen3.6-35b-a3b-nvfp4-5090`: keep at `max_model_len=128000`,
+  `--gpu-memory-utilization 0.85`, `--kv-cache-dtype turboquant_4bit_nc`,
+  `--max-num-batched-tokens 2048`, and MTP K=3. The 140K fixed benchmark
+  remains valid historical evidence, but a
+  sustained Agents run at 140K exhausted NVKMS display-allocation headroom and
+  broke the KDE Wayland output path. A 128K/0.90 probe was also rejected after
+  free VRAM fell to about 226 MiB during a long Agents request. The 128K/0.85
+  envelope is the operator default; it boots with about 2.4 GiB free at idle,
+  and the operational gate requires at least 1 GiB free under Agents load with
+  no new KWin/NVKMS display-allocation errors.
 - `nvidia-qwen3.6-27b-nvfp4-5090`: use `max_model_len=130000`,
   `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
   MTP K=3. The 140K run completed, but 130K was materially faster and left more
