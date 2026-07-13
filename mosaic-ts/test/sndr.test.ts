@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   type CommandRunner,
   preflightQwen35bPreset,
+  QWEN_35B_KDE_SAFE_GPU_MEMORY_UTILIZATION,
+  QWEN_35B_KDE_SAFE_MAX_MODEL_LEN,
   QWEN_35B_NVFP4_PRESET,
   resolveQwen35bPreset,
   verifyQwen35bRuntimeImage,
@@ -16,7 +18,7 @@ const preset = {
     status: "experimental",
     card_version: 2,
     card_updated: "2026-07-13",
-    context: { max_model_len: 128000 },
+    context: { max_model_len: QWEN_35B_KDE_SAFE_MAX_MODEL_LEN },
     concurrency: { canonical: 1 },
     hardware_fit: { engine_pin: "0.23.1rc1.dev424+g3f5a1e173" },
   },
@@ -24,8 +26,8 @@ const preset = {
 
 const rendered = [
   "vllm serve",
-  "--gpu-memory-utilization 0.85",
-  "--max-model-len 128000",
+  `--gpu-memory-utilization ${QWEN_35B_KDE_SAFE_GPU_MEMORY_UTILIZATION}`,
+  `--max-model-len ${QWEN_35B_KDE_SAFE_MAX_MODEL_LEN}`,
   "--max-num-seqs 1",
   "--max-num-batched-tokens 2048",
   "--kv-cache-dtype turboquant_4bit_nc",
@@ -65,6 +67,29 @@ describe("sndr Qwen 35B preset resolution", () => {
     expect(verifyQwen35bRuntimeImage(resolveQwen35bPreset(base), dockerRunner)).toBe(imageId);
   });
 
+  it("fails closed when sndr restores the unsafe 140K context", () => {
+    const unsafe = rendered.replace("--max-model-len 128000", "--max-model-len 140000");
+    const unsafePreset = {
+      ...preset,
+      card: { ...preset.card, context: { max_model_len: 140000 } },
+    };
+
+    expect(() => resolveQwen35bPreset(runner(undefined, unsafe, unsafePreset))).toThrow(
+      /violates the KDE-safe envelope/,
+    );
+  });
+
+  it("fails closed when sndr restores the unsafe 0.90 GPU allocation", () => {
+    const unsafe = rendered.replace(
+      "--gpu-memory-utilization 0.85",
+      "--gpu-memory-utilization 0.9",
+    );
+
+    expect(() => resolveQwen35bPreset(runner(undefined, unsafe))).toThrow(
+      /violates the KDE-safe envelope/,
+    );
+  });
+
   it("fails closed when preflight is not runnable", () => {
     expect(() => preflightQwen35bPreset(runner("VERDICT: CANNOT RUN"))).toThrow(
       /did not report RUNNABLE/,
@@ -72,11 +97,15 @@ describe("sndr Qwen 35B preset resolution", () => {
   });
 });
 
-function runner(preflight = "VERDICT: RUNNABLE (with warnings)"): CommandRunner {
+function runner(
+  preflight = "VERDICT: RUNNABLE (with warnings)",
+  renderedLaunch = rendered,
+  presetValue = preset,
+): CommandRunner {
   return (_command, args) => {
     if (args[0] === "--version") return ok("sndr 12.0.0.dev0\n");
-    if (args[0] === "preset") return ok(`${JSON.stringify(preset)}\n`);
-    if (args[0] === "launch") return ok(rendered);
+    if (args[0] === "preset") return ok(`${JSON.stringify(presetValue)}\n`);
+    if (args[0] === "launch") return ok(renderedLaunch);
     if (args[0] === "preflight") return ok(preflight);
     return { status: 1, stdout: "", stderr: "unexpected command" };
   };

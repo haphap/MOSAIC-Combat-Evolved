@@ -545,6 +545,15 @@ Current 2026-07-13 sndr direct-launch presets:
   envelope is the operator default; it boots with about 2.4 GiB free at idle,
   and the operational gate requires at least 1 GiB free under Agents load with
   no new KWin/NVKMS display-allocation errors.
+  The portable source is private repository
+  `haphap/sndr-local-qwen36-configs`, pinned at tag
+  `qwen35b-kde-128k-v2` (commit
+  `2e038f2d0ec31c8721762ed017a0262b1057684c`). Its installer applies the
+  required sndr compatibility patch and synchronizes the exact
+  hardware/model/preset/profile files. MOSAIC Agents also rejects rendered
+  35B settings outside the 128K/0.85 envelope and sustained desktop runs must
+  use the VRAM guard documented in
+  `docs/runbooks/agents_history_evolution_2009.md`.
 - `nvidia-qwen3.6-27b-nvfp4-5090`: use `max_model_len=130000`,
   `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
   MTP K=3. The 140K run completed, but 130K was materially faster and left more
@@ -553,8 +562,9 @@ Current 2026-07-13 sndr direct-launch presets:
   `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
   MTP K=3. The 130K run did not materially improve speed over 140K, so the
   larger validated context is preferred.
-- These are local sndr preset/profile updates under `/home/hap/.sndr`. Do not
-  commit sndr files into this repository. Benchmark evidence files under
+- The 35B local sndr definitions are versioned only in the private config
+  repository above; do not duplicate them in this repository. Benchmark
+  evidence files under
   `.mosaic/rke/all_agent_evolution/fixed_episode_benchmark/` are private
   generated evidence and must not be committed.
 
