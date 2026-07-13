@@ -92,14 +92,18 @@ export function formatDurationMs(ms: number): string {
   return `${minutes}m${String(seconds).padStart(2, "0")}s`;
 }
 
-export function buildLlmCall(agentId: string, handle: LlmHandle): LlmCallRecord {
+export function buildLlmCall(
+  agentId: string,
+  handle: LlmHandle,
+  usage: LlmTokenUsage = { promptTokens: 0, completionTokens: 0 },
+): LlmCallRecord {
   return {
     ts: new Date().toISOString(),
     agent: agentId,
     model: handle.model,
     provider: handle.provider,
-    prompt_tokens: 0,
-    completion_tokens: 0,
+    prompt_tokens: usage.promptTokens,
+    completion_tokens: usage.completionTokens,
     cost_usd: 0,
   };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentTimeoutError,
+  buildLlmCall,
   formatAgentEvent,
   formatDurationMs,
   parseAgentTimeoutSeconds,
@@ -10,6 +11,17 @@ import {
 } from "../src/agents/helpers/runtime.js";
 
 describe("agent runtime helpers", () => {
+  it("persists measured token usage in the scorecard call record", () => {
+    const call = buildLlmCall(
+      "central_bank",
+      { model: "qwen", provider: "vllm" } as Parameters<typeof buildLlmCall>[1],
+      { promptTokens: 123, completionTokens: 45 },
+    );
+
+    expect(call.prompt_tokens).toBe(123);
+    expect(call.completion_tokens).toBe(45);
+  });
+
   it("parses explicit timeout seconds and off aliases", () => {
     expect(parseAgentTimeoutSeconds(undefined)).toBeUndefined();
     expect(parseAgentTimeoutSeconds(" 12.5 ")).toBe(12.5);

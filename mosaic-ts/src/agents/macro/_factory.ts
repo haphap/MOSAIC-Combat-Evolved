@@ -310,7 +310,10 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
               capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
             ).output;
           }
-          const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+          const llmCall = buildLlmCall(spec.agentId, structuredHandle, {
+            promptTokens: loopResult.promptTokens + extractor.usage.promptTokens,
+            completionTokens: loopResult.completionTokens + extractor.usage.completionTokens,
+          });
           const canaryEvent = buildAgentPromptCanaryEvent({
             context: canaryContext,
             agent: spec.agentId,

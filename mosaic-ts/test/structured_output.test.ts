@@ -17,6 +17,8 @@ import {
 class ScriptedLlm {
   invokeCalls: SystemMessage[][] = [];
   structuredCalls = 0;
+  structuredSchema: unknown;
+  structuredConfig: unknown;
   readonly supportsStructured: boolean;
   readonly structuredResponse: unknown;
   readonly structuredThrows: Error | null;
@@ -36,16 +38,36 @@ class ScriptedLlm {
     this.structuredThrows = opts.structuredThrows ?? null;
   }
 
-  withStructuredOutput(_schema: unknown): {
+  _llmType(): string {
+    return "openai";
+  }
+
+  withStructuredOutput(
+    schema: unknown,
+    config?: { includeRaw?: boolean },
+  ): {
     invoke: (input: unknown) => Promise<unknown>;
   } {
     if (!this.supportsStructured) {
       throw new Error("withStructuredOutput not supported");
     }
+    this.structuredSchema = schema;
+    this.structuredConfig = config;
     return {
       invoke: async (_input) => {
         this.structuredCalls += 1;
         if (this.structuredThrows) throw this.structuredThrows;
+        if (config?.includeRaw) {
+          return {
+            parsed: this.structuredResponse,
+            raw: new AIMessage({
+              content: "",
+              response_metadata: {
+                tokenUsage: { promptTokens: 11, completionTokens: 5, totalTokens: 16 },
+              },
+            }),
+          };
+        }
         return this.structuredResponse;
       },
     };
@@ -155,8 +177,31 @@ describe("invokeStructuredOrFreetext", () => {
     });
     expect(result.structured).toEqual({ stance: "NEUTRAL", key_rate_change_bps: 0 });
     expect(result.rendered).toBe("stance=NEUTRAL, bps=0");
+    expect(result.usage).toEqual({ promptTokens: 11, completionTokens: 5 });
     expect(llm.structuredCalls).toBe(1);
     expect(llm.invokeCalls.length).toBe(0); // free-text path not used
+  });
+
+  it("removes Guidance-incompatible propertyNames while retaining local Zod validation", async () => {
+    const RecordSchema = z.object({
+      agent: z.literal("record_agent"),
+      values: z.record(z.string().startsWith("/"), z.number()),
+    });
+    const llm = new ScriptedLlm({
+      structuredResponse: { agent: "wrong", values: { "/score": 1 } },
+    });
+
+    const result = await invokeStructuredOrFreetext({
+      llm: llm as unknown as Parameters<typeof invokeStructuredOrFreetext>[0]["llm"],
+      schema: RecordSchema,
+      messages: baseMessages,
+      render: (value) => `${value.agent}:${value.values["/score"]}`,
+      agentName: "record_agent",
+    });
+
+    expect(JSON.stringify(llm.structuredSchema)).not.toContain("propertyNames");
+    expect(JSON.stringify(llm.structuredSchema)).toContain("additionalProperties");
+    expect(result.structured).toEqual({ agent: "record_agent", values: { "/score": 1 } });
   });
 
   it("canonicalizes wrong agent literals before schema validation", async () => {
@@ -200,8 +245,31 @@ describe("invokeStructuredOrFreetext", () => {
     });
     expect(result.structured).toBeNull();
     expect(result.rendered).toBe("PBOC stance: NEUTRAL.");
+    expect(result.usage).toEqual({ promptTokens: 0, completionTokens: 0 });
     expect(llm.invokeCalls.length).toBe(1);
     expect(logs[0]).toContain("provider does not support withStructuredOutput");
+  });
+
+  it("captures token usage from the free-text retry", async () => {
+    const llm = new ScriptedLlm({
+      supportsStructured: false,
+      responses: [
+        new AIMessage({
+          content: "Free text recovery body.",
+          response_metadata: {
+            tokenUsage: { promptTokens: 13, completionTokens: 7, totalTokens: 20 },
+          },
+        }),
+      ],
+    });
+    const result = await invokeStructuredOrFreetext({
+      llm: llm as unknown as Parameters<typeof invokeStructuredOrFreetext>[0]["llm"],
+      schema: Schema,
+      messages: baseMessages,
+      render: () => "UNREACHABLE",
+      agentName: "central_bank",
+    });
+    expect(result.usage).toEqual({ promptTokens: 13, completionTokens: 7 });
   });
 
   it("parses JSON fallback when structured output is unsupported", async () => {
