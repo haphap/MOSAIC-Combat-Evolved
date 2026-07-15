@@ -309,45 +309,89 @@ export function upsertRuntimeEvidenceContract(
   const influenceFields = domainCards.some((card) => card.evidence_dependencies.length > 0)
     ? "`declared_knob_influence_ids`, `declared_influence_rationale`"
     : "(none)";
-  const body =
-    language === "zh"
-      ? [
-          "## Runtime Evidence Output Contract",
-          "Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。",
-          `输出字段包括：${outputFields}。`,
-          `必需 runtime tools：${requiredTools || "(none)"}。`,
-          ...(opts.includeResearchKnobDetails === false
-            ? []
-            : [
-                `本 agent 的 domain knob card ids：${domainCardIds || "(none)"}。`,
-                `Knob influence 审计字段：${influenceFields}。`,
-              ]),
-          "必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 " +
-            "`evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 " +
-            "`research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、" +
-            "position decision、portfolio action、risk adjustment 或 execution check 都必须用 " +
-            "`claim_refs` 引用支持它的 claim。证据不足时输出有证据支持的显式空 disposition 与 uncertainty " +
-            "claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。",
-        ]
-      : [
-          "## Runtime Evidence Output Contract",
-          "Runtime supplies the only valid evidence catalog and research rule ids for this invocation.",
-          `Output fields include: ${outputFields}.`,
-          `Required runtime tools: ${requiredTools || "(none)"}.`,
-          ...(opts.includeResearchKnobDetails === false
-            ? []
-            : [
-                `Domain knob card ids for this agent: ${domainCardIds || "(none)"}.`,
-                `Knob influence audit fields: ${influenceFields}.`,
-              ]),
-          "Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog " +
-            "`evidence_id` values through `evidence_refs`; every inference claim must also cite an " +
-            "allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, " +
-            "position decision, portfolio action, risk adjustment, or execution check must use " +
-            "`claim_refs` to cite its supporting claim. When evidence is insufficient, emit an " +
-            "evidence-backed explicit empty disposition and an uncertainty claim; never invent evidence ids, fingerprints, " +
-            "rule ids, or cross-run references.",
-        ];
+  let body: string[];
+  if (spec.layer === "macro" && language === "zh") {
+    body = [
+      "## 运行时证据输出合同",
+      "运行时提供本次调用唯一有效的证据目录与研究规则 ID。",
+      `输出字段包括：${outputFields}。`,
+      `必需运行时工具：${requiredTools || "（无）"}。`,
+      ...(opts.includeResearchKnobDetails === false
+        ? []
+        : [
+            `本角色的领域旋钮卡片 ID：${domainCardIds || "（无）"}。`,
+            `旋钮影响审计字段：${influenceFields}。`,
+          ]),
+      "必须输出 `claims` 与 `claim_refs`。每个非 `uncertainty` claim 必须通过 " +
+        "`evidence_refs` 引用证据目录中的 `evidence_id`；每个 `inference` claim 还必须通过 " +
+        "`research_rule_refs` 引用允许的规则 ID。所有建议、候选、标的选择、仓位决策、组合操作、" +
+        "风险调整或执行检查都必须用 `claim_refs` 引用支持它的 claim。" +
+        "必需证据不足时拒绝本阶段，不得生成宏观输出；只有证据有效但相互冲突时，才能输出带证据引用的 " +
+        "`uncertainty` 声明。不得伪造证据 ID、指纹、规则 ID 或跨运行引用。",
+    ];
+  } else if (spec.layer === "macro") {
+    body = [
+      "## Runtime Evidence Output Contract",
+      "Runtime supplies the only valid evidence catalog and research rule ids for this invocation.",
+      `Output fields include: ${outputFields}.`,
+      `Required runtime tools: ${requiredTools || "(none)"}.`,
+      ...(opts.includeResearchKnobDetails === false
+        ? []
+        : [
+            `Domain knob card ids for this agent: ${domainCardIds || "(none)"}.`,
+            `Knob influence audit fields: ${influenceFields}.`,
+          ]),
+      "Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog " +
+        "`evidence_id` values through `evidence_refs`; every inference claim must also cite an " +
+        "allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, " +
+        "position decision, portfolio action, risk adjustment, or execution check must use " +
+        "`claim_refs` to cite its supporting claim. When required evidence is insufficient, reject the stage " +
+        "without emitting a Macro output. Only valid but conflicting evidence may produce an evidence-backed " +
+        "`uncertainty` claim. Never invent evidence ids, fingerprints, " +
+        "rule ids, or cross-run references.",
+    ];
+  } else if (language === "zh") {
+    // Preserve the established non-Macro projection byte-for-byte. This command
+    // rebuilds Macro prompts only and must not create unrelated private drift.
+    body = [
+      "## Runtime Evidence Output Contract",
+      "Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。",
+      `输出字段包括：${outputFields}。`,
+      `必需 runtime tools：${requiredTools || "(none)"}。`,
+      ...(opts.includeResearchKnobDetails === false
+        ? []
+        : [
+            `本 agent 的 domain knob card ids：${domainCardIds || "(none)"}。`,
+            `Knob influence 审计字段：${influenceFields}。`,
+          ]),
+      "必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 " +
+        "`evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 " +
+        "`research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、" +
+        "position decision、portfolio action、risk adjustment 或 execution check 都必须用 " +
+        "`claim_refs` 引用支持它的 claim。证据不足时输出有证据支持的显式空 disposition 与 uncertainty " +
+        "claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。",
+    ];
+  } else {
+    body = [
+      "## Runtime Evidence Output Contract",
+      "Runtime supplies the only valid evidence catalog and research rule ids for this invocation.",
+      `Output fields include: ${outputFields}.`,
+      `Required runtime tools: ${requiredTools || "(none)"}.`,
+      ...(opts.includeResearchKnobDetails === false
+        ? []
+        : [
+            `Domain knob card ids for this agent: ${domainCardIds || "(none)"}.`,
+            `Knob influence audit fields: ${influenceFields}.`,
+          ]),
+      "Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog " +
+        "`evidence_id` values through `evidence_refs`; every inference claim must also cite an " +
+        "allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, " +
+        "position decision, portfolio action, risk adjustment, or execution check must use " +
+        "`claim_refs` to cite its supporting claim. When evidence is insufficient, emit an " +
+        "evidence-backed explicit empty disposition and an uncertainty claim; never invent evidence ids, fingerprints, " +
+        "rule ids, or cross-run references.",
+    ];
+  }
   const block = [
     "<!-- runtime-evidence-contract:start -->",
     ...body,

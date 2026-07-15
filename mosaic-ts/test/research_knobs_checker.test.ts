@@ -140,9 +140,16 @@ describe("upsertRuntimeEvidenceContract", () => {
     const spec = specForAgent("central_bank");
     const first = upsertRuntimeEvidenceContract("# central_bank", spec, "en");
     const second = upsertRuntimeEvidenceContract(first, spec, "en");
+    const zh = upsertRuntimeEvidenceContract("# central_bank", spec, "zh");
 
     expect(second).toBe(first);
     expect(first.match(/runtime-evidence-contract:start/g)).toHaveLength(1);
+    expect(first).toContain("reject the stage without emitting a Macro output");
+    expect(first).not.toContain("empty disposition");
+    expect(zh).toContain("## 运行时证据输出合同");
+    expect(zh).toContain("拒绝本阶段，不得生成宏观输出");
+    expect(zh).not.toContain("Runtime Evidence Output Contract");
+    expect(zh).not.toContain("显式空 disposition");
     for (const field of ["claims", "claim_refs", "evidence_refs", "research_rule_refs"]) {
       expect(first).toContain(`\`${field}\``);
     }
@@ -512,6 +519,58 @@ describe("checkResearchKnobsPrompts", () => {
       expect(semiconductorKnobs.lookbacks[id]).toBeDefined();
       expect(semiconductorKnobs.thresholds[id]).toBeUndefined();
     }
+    for (const spec of RUNTIME_AGENT_SPECS.filter((item) => item.layer === "macro")) {
+      for (const card of domainKnobCardsForSpec(spec)) {
+        if (card.id.endsWith("_days") || card.id.endsWith("_quarters")) {
+          expect(card.projection_bucket, `${spec.agent}:${card.id}`).toBe("lookbacks");
+          expect(card.type, `${spec.agent}:${card.id}`).toBe("integer");
+          expect(card.min, `${spec.agent}:${card.id}`).toBeGreaterThanOrEqual(1);
+          expect(card.step, `${spec.agent}:${card.id}`).toBe(1);
+        }
+        if (card.id.endsWith("_bps")) {
+          expect(card.default, `${spec.agent}:${card.id}`).toBe(25);
+          expect(card.step, `${spec.agent}:${card.id}`).toBe(5);
+        }
+      }
+    }
+    expect(domainKnobCardsForSpec(specForAgent("dollar")).map((card) => card.id)).toEqual([
+      "broad_dollar_trend_window_days",
+      "rmb_pressure_weight",
+      "fx_volatility_weight",
+      "onshore_offshore_spread_weight",
+      "a_share_fx_liquidity_weight",
+      "dollar_pressure_cap",
+    ]);
+    expect(domainKnobCardsForSpec(specForAgent("commodities")).map((card) => card.id)).toContain(
+      "inflation_shock_transmission_weight",
+    );
+    expect(domainKnobCardsForSpec(specForAgent("volatility")).map((card) => card.id)).toEqual([
+      "vix_weight",
+      "china_realized_vol_weight",
+      "cross_market_stress_weight",
+      "risk_off_threshold",
+      "vol_amplification_window_days",
+      "volatility_cap",
+    ]);
+    expect(domainKnobCardsForSpec(specForAgent("market_breadth")).map((card) => card.id)).toEqual([
+      "breadth_composite_weight",
+      "breadth_state_confirmation_weight",
+      "breadth_change_confirmation_weight",
+      "return_dispersion_weight",
+      "concentration_confirmation_weight",
+      "a_share_transmission_weight",
+    ]);
+    expect(
+      domainKnobCardsForSpec(specForAgent("institutional_flow")).map((card) => card.id),
+    ).toEqual([
+      "market_flow_window_days",
+      "sector_rotation_window_days",
+      "flow_persistence_days",
+      "main_net_inflow_threshold",
+      "etf_share_change_weight",
+      "crowding_confirmation_weight",
+      "null_flow_fallback_cap",
+    ]);
     for (const spec of RUNTIME_AGENT_SPECS) {
       const generated = buildRuntimeResearchKnobs(spec);
       const cards = domainKnobCardsForSpec(spec);

@@ -1,7 +1,13 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MACRO_AGENT_IDS, MACRO_ROLE_CONTRACTS } from "../src/agents/macro/_contracts.js";
+import {
+  MACRO_AGENT_IDS,
+  MACRO_ROLE_CONTRACTS,
+  renderMacroPromptBody,
+} from "../src/agents/macro/_contracts.js";
+import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/research_knobs_projection.js";
+import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 
 const root = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default", "macro");
 const privateManifest = JSON.parse(
@@ -69,6 +75,21 @@ describe("generated bundled macro prompts", () => {
     }
   });
 
+  it.each(MACRO_AGENT_IDS)("keeps generated bundled %s prompts synchronized", (agent) => {
+    const spec = RUNTIME_AGENT_SPECS.find((candidate) => candidate.agent === agent);
+    expect(spec).toBeDefined();
+    if (!spec) throw new Error(`missing runtime spec for ${agent}`);
+    for (const language of ["zh", "en"] as const) {
+      const expected = upsertRuntimeEvidenceContract(
+        renderMacroPromptBody(agent, language, "cohort_default"),
+        spec,
+        language,
+        { includeResearchKnobDetails: false },
+      );
+      expect(prompt(agent, language)).toBe(expected);
+    }
+  });
+
   it("keeps every public bundled prompt free of research-knob internals", () => {
     const bundledRoot = resolve(process.cwd(), "..", "prompts", "mosaic");
     const files = readdirSync(bundledRoot, { recursive: true, encoding: "utf8" }).filter((file) =>
@@ -79,6 +100,18 @@ describe("generated bundled macro prompts", () => {
       const text = readFileSync(join(bundledRoot, file), "utf8");
       expect(text).not.toContain("```research-knobs");
       expect(text).not.toMatch(/domain knob|knob influence/i);
+    }
+  });
+
+  it("keeps Chinese prompt prose localized and rejects nonexistent Macro dispositions", () => {
+    for (const agent of MACRO_AGENT_IDS) {
+      const zh = prompt(agent, "zh");
+      const en = prompt(agent, "en");
+      expect(zh).toContain("## 运行时证据输出合同");
+      expect(zh).not.toMatch(/^## (Runtime|Analysis|Cohort|Prohibited)/m);
+      expect(zh).not.toContain("empty disposition");
+      expect(zh).not.toContain("Layer-1");
+      expect(en).not.toContain("empty disposition");
     }
   });
 

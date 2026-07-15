@@ -22,6 +22,56 @@ export const MACRO_AGENT_IDS = [
   "institutional_flow",
 ] as const satisfies ReadonlyArray<MacroAgentId>;
 
+export const MACRO_PROMPT_COHORT_IDS = [
+  "cohort_default",
+  "cohort_bull_2007",
+  "cohort_bull_2016",
+  "cohort_crisis_2008",
+  "cohort_crisis_covid",
+  "cohort_euphoria_2021",
+  "cohort_rate_tightening",
+  "cohort_recovery_2020",
+] as const;
+
+export type MacroPromptCohortId = (typeof MACRO_PROMPT_COHORT_IDS)[number];
+
+export const MACRO_COHORT_LENSES: Readonly<
+  Record<MacroPromptCohortId, { zh: string; en: string }>
+> = {
+  cohort_default: {
+    zh: "默认实时基线：不预设牛熊状态，由本角色快照中的当前 PIT 证据决定。",
+    en: "Default live baseline: assume no bull or bear regime; let current PIT evidence in this role's snapshot decide.",
+  },
+  cohort_bull_2007: {
+    zh: "流动性牛市与泡沫尾部压力测试：检验有利条件是扩大参与度，还是只放大杠杆与脆弱性。",
+    en: "Liquidity-bull and bubble-tail stress test: distinguish broader participation from leverage-amplified fragility.",
+  },
+  cohort_bull_2016: {
+    zh: "供给侧改革与周期修复压力测试：区分可持续的基本面改善与短暂的价格、库存或政策脉冲。",
+    en: "Supply-side-reform and cyclical-repair stress test: separate durable fundamental improvement from temporary price, inventory, or policy impulses.",
+  },
+  cohort_crisis_2008: {
+    zh: "信用危机压力测试：优先检查冲击是否通过融资、流动性、外需或资产负债表脆弱性被放大。",
+    en: "Credit-crisis stress test: prioritize amplification through funding, liquidity, external demand, or balance-sheet fragility.",
+  },
+  cohort_crisis_covid: {
+    zh: "疫情冲击压力测试：区分暂时停摆、持续需求损伤、供应约束与政策托底。",
+    en: "Pandemic-shock stress test: separate temporary shutdowns, persistent demand damage, supply constraints, and policy backstops.",
+  },
+  cohort_euphoria_2021: {
+    zh: "拥挤繁荣压力测试：降低单一叙事或单一渠道确认的可信度，并检查反转触发器。",
+    en: "Crowded-boom stress test: discount single-narrative or single-channel confirmation and identify reversal triggers.",
+  },
+  cohort_rate_tightening: {
+    zh: "利率与信用收紧压力测试：检查紧缩冲击的持续性、传导时滞与非对称影响。",
+    en: "Rate- and credit-tightening stress test: examine persistence, transmission lags, and asymmetric effects of tightening shocks.",
+  },
+  cohort_recovery_2020: {
+    zh: "早期复苏压力测试：区分低基数反弹、连续修复与能够延续的周期加速。",
+    en: "Early-recovery stress test: distinguish low-base rebounds, sequential repair, and durable cyclical acceleration.",
+  },
+};
+
 export const MACRO_ROLE_CONTRACTS: Readonly<Record<MacroAgentId, MacroRoleContract>> = {
   china: {
     agentId: "china",
@@ -234,5 +284,60 @@ export function renderMacroRuntimeContract(agent: MacroAgentId, language: "zh" |
     "Check as-of validity, changes versus expectations, evidence conflicts, and A-share transmission. Reject hollow answers, vague empty arrays, cross-role conclusions, and unsupported percentages.",
     "Any observed number echoed in structured_conclusion must carry its series_id or evidence_id and exactly match the fixed snapshot.",
     "direction=NEUTRAL requires strength=0; otherwise strength must be 1–5. claims, claim_refs, key_drivers, and channels must all be non-empty.",
+  ].join("\n");
+}
+
+export function renderMacroPromptBody(
+  agent: MacroAgentId,
+  language: "zh" | "en",
+  cohort: MacroPromptCohortId,
+): string {
+  const lens = MACRO_COHORT_LENSES[cohort][language];
+  const acceptsEvents = agent === "china" || agent === "geopolitical";
+  if (language === "zh") {
+    return [
+      `# ${agent} — 第一层宏观传导`,
+      "",
+      renderMacroRuntimeContract(agent, "zh"),
+      "",
+      "## 情景压力测试视角",
+      lens,
+      "该视角不是先验或结论，不得改变职责、工具、输出模式（schema）、PIT 门槛或固定快照语义；仅使用本角色允许的快照证据，当前证据冲突时以当前证据为准。",
+      "",
+      "## 分析流程",
+      "1. 必须调用唯一允许的角色快照；工具失败、PIT 状态无效或覆盖不足时拒绝该阶段，不得改写为中性市场。",
+      "2. 逐项检查 `released_at`、`vintage_at` 与 `as_of`；比较实际值、前值、预期差和变化，明确冲突证据。",
+      "3. 只解释本角色负责的传导渠道，并落到 A 股风险溢价、盈利、流动性或行业敏感度。",
+      "4. 结论必须由非空 `claims`、结论级 `claim_refs`、`key_drivers`、`channels` 与 `confidence` 支持。",
+      "",
+      acceptsEvents
+        ? "Tushare `major_news` 与官方政策文件只能作为去重、发布时间过滤后的事件证据，不得形成独立新闻情绪票。"
+        : "不得读取 `major_news` 或推断新闻情绪；新闻事件证据只属于 `china` 与 `geopolitical`。",
+      "不得调用 OpenCLI、Google/财新搜索或实时雪球关注数。不得虚构来源、数值、百分比、时间戳或快照字段。",
+      "旧 `emerging_markets` 与 `news_sentiment` 输出仅供审计，状态为 `legacy_unverified`，不能作为当前证据或 Darwinian 先验。",
+      "",
+    ].join("\n");
+  }
+  return [
+    `# ${agent} — Layer-1 macro transmission`,
+    "",
+    renderMacroRuntimeContract(agent, "en"),
+    "",
+    "## Cohort stress-test lens",
+    lens,
+    "This lens is neither a prior nor a conclusion. It cannot change the role, tool, schema, PIT gate, or fixed-snapshot semantics; use only this role's allowed snapshot evidence, and let current evidence override the lens when they conflict.",
+    "",
+    "## Analysis workflow",
+    "1. Call the one allowed role snapshot. Reject the stage when the tool fails, PIT validity fails, or required coverage is insufficient; never turn missing data into a neutral market.",
+    "2. Check `released_at`, `vintage_at`, and `as_of`; compare actual, previous, expectation surprise, and changes, and expose conflicting evidence.",
+    "3. Explain only this role's transmission into A-share risk premia, earnings, liquidity, or sector sensitivity.",
+    "4. Support the conclusion with non-empty `claims`, conclusion-level `claim_refs`, `key_drivers`, `channels`, and `confidence`.",
+    "",
+    acceptsEvents
+      ? "Tushare `major_news` and official policy documents are deduplicated, timestamp-filtered event evidence only; never cast a separate news-sentiment vote."
+      : "Do not read `major_news` or infer news sentiment; news-event evidence belongs only to `china` and `geopolitical`.",
+    "Never call OpenCLI, Google/Caixin search, or real-time Xueqiu follower counts. Never invent sources, values, percentages, timestamps, or snapshot fields.",
+    "Legacy `emerging_markets` and `news_sentiment` outputs are audit-only `legacy_unverified` records and provide no current evidence or Darwinian prior.",
+    "",
   ].join("\n");
 }

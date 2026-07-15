@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   MACRO_AGENT_IDS,
+  MACRO_COHORT_LENSES,
   MACRO_OUTPUT_FIELD_NAMES,
+  MACRO_PROMPT_COHORT_IDS,
   MACRO_ROLE_CONTRACTS,
+  renderMacroPromptBody,
   renderMacroRuntimeContract,
 } from "../src/agents/macro/_contracts.js";
 import { validateMacroSnapshotEchoes } from "../src/agents/macro/_semantic_validation.js";
@@ -83,6 +86,31 @@ describe("macro responsibility matrix", () => {
     expect(en).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility.en);
     expect(zh).not.toContain("```json");
     expect(en).not.toContain("```json");
+  });
+
+  it("keeps cohort lenses distinct without changing role-scoped contracts", () => {
+    expect(
+      new Set(MACRO_PROMPT_COHORT_IDS.map((cohort) => MACRO_COHORT_LENSES[cohort].en)).size,
+    ).toBe(MACRO_PROMPT_COHORT_IDS.length);
+    expect(
+      new Set(MACRO_PROMPT_COHORT_IDS.map((cohort) => MACRO_COHORT_LENSES[cohort].zh)).size,
+    ).toBe(MACRO_PROMPT_COHORT_IDS.length);
+    for (const agent of MACRO_AGENT_IDS) {
+      for (const language of ["zh", "en"] as const) {
+        const bodies = MACRO_PROMPT_COHORT_IDS.map((cohort) =>
+          renderMacroPromptBody(agent, language, cohort),
+        );
+        expect(new Set(bodies).size, `${agent}:${language}`).toBe(MACRO_PROMPT_COHORT_IDS.length);
+        for (const [index, cohort] of MACRO_PROMPT_COHORT_IDS.entries()) {
+          expect(bodies[index]).toContain(MACRO_COHORT_LENSES[cohort][language]);
+          expect(bodies[index]).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
+        }
+      }
+      const zh = renderMacroPromptBody(agent, "zh", "cohort_default");
+      expect(zh).not.toMatch(/^## (Runtime|Analysis|Cohort|Prohibited)/m);
+      expect(zh).not.toContain("When evidence is insufficient");
+      expect(zh).not.toContain("Layer-1");
+    }
   });
 
   it("keeps news event evidence limited to China and geopolitical snapshots", () => {

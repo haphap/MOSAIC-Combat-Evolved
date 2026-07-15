@@ -10,7 +10,9 @@ carried into current roles.
 
 The public run contract pins the rebuilt private prompt tree in
 `registry/prompt_checks/macro_prompt_role_contract_manifest_v1.json`, including
-the private commit and a path-and-content SHA-256 over all 160 prompts.
+the private commit and a path-and-content SHA-256 over all 160 prompts. The
+digest consumes files in sorted relative-path order as UTF-8 path, NUL, raw
+file content, NUL.
 
 The code-owned role matrix, tool whitelist, uniform Zod output schema, and
 generated prompt contract live in
@@ -18,6 +20,23 @@ generated prompt contract live in
 `strength`, `horizon`, `channels`, non-empty evidence claims and conclusion
 references, key drivers, and confidence. Neutral means exactly strength zero;
 non-neutral strength is 1–5.
+
+## Prompt generation and cohort boundary
+
+The bundled repository contains concise Chinese and English prompts for the
+default cohort. They deliberately omit the private `research-knobs` fence and
+knob-card details. The private prompt repository contains all 160 combinations
+of ten roles, eight cohorts, and two languages. Run
+`pnpm dev prompts sync-macro-prompts` to regenerate either tree from the same
+code-owned role and tool contract.
+
+Role, tool, schema, PIT, and knob metadata stay identical across cohorts. Each
+cohort instead has a distinct, bilingual stress-test lens that tells the role
+which failure mode to challenge without supplying a market prior or overriding
+current evidence. This preserves meaningful cohort variation without reviving
+the old cohort-specific role drift or hidden output contracts. Chinese prompt
+prose is Chinese; schema field names, tool names, and evidence identifiers stay
+unchanged so runtime binding remains exact.
 
 ## Point-in-time data boundary
 
