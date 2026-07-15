@@ -6,72 +6,30 @@ research-knobs:
       cap: 0.6
       enforcement: code
       required_evidence:
-        - fred_series
+        - volatility_snapshot
       trigger: primary_tool_failed_or_fallback
     missing_current_data:
       cap: 0.55
       enforcement: code
       required_evidence:
-        - fred_series
+        - volatility_snapshot
       trigger: missing_required_evidence
   evidence_registry:
-    etf_indicator:
+    volatility_snapshot:
       current_data: true
       fallback_confidence_cap: 0.6
-      metric: etf_indicator_current
-      primary: false
-      tool: get_etf_indicator
-    fred_series:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: fred_series_current
+      metric: volatility_snapshot_current
       primary: true
-      tool: get_fred_series
-    ivx:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: ivx_current
-      primary: false
-      tool: get_ivx
-    realized_volatility:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: realized_volatility_current
-      primary: false
-      tool: get_realized_volatility
-    rke_prior:
-      current_data: false
-      metric: research_prior
-      primary: false
-      tool: get_rke_research_context
+      tool: get_volatility_snapshot
   evidence_weights:
-    etf_indicator: 0.25
-    fred_series: 0.25
-    ivx: 0.25
-    realized_volatility: 0.25
-    rke_prior: 0
+    volatility_snapshot: 1
   layer: macro
   lookbacks:
     vol_amplification_window_days: 20
   mutation_targets:
     - max: 1
       min: 0
-      path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/fred_series_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/ivx_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/realized_volatility_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/etf_indicator_weight/value
+      path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/volatility_snapshot_weight/value
       step: 0.05
       type: number
     - max: 0.75
@@ -91,7 +49,7 @@ research-knobs:
       type: number
     - max: 1
       min: 0
-      path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/ivx_weight/value
+      path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/china_realized_vol_weight/value
       step: 0.05
       type: number
     - max: 1
@@ -121,7 +79,7 @@ research-knobs:
         - positive
       horizon: 5d
       id: macro.volatility.soft.001
-      target_variable: vix_regime
+      target_variable: direction
     - allowed_outputs:
         - better
         - neutral
@@ -134,8 +92,8 @@ research-knobs:
         - neutral
         - worse
       horizon: 5d
-      id: macro.volatility.ivx_weight.5d
-      target_variable: ivx_weight
+      id: macro.volatility.china_realized_vol_weight.5d
+      target_variable: china_realized_vol_weight
     - allowed_outputs:
         - better
         - neutral
@@ -174,12 +132,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.volatility.vix_weight.primary
-              evidence_key: fred_series
+              evidence_key: volatility_snapshot
               metric_ids:
-                - fred_series_current
+                - volatility_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_fred_series
+              tool: get_volatility_snapshot
           evidence_dependency_policies:
             macro.volatility.vix_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -198,24 +156,24 @@ research-knobs:
             - agent_run
           default: 0.2
           evidence_dependencies:
-            - dependency_id: macro.volatility.ivx_weight.primary
-              evidence_key: fred_series
+            - dependency_id: macro.volatility.china_realized_vol_weight.primary
+              evidence_key: volatility_snapshot
               metric_ids:
-                - fred_series_current
+                - volatility_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_fred_series
+              tool: get_volatility_snapshot
           evidence_dependency_policies:
-            macro.volatility.ivx_weight.primary:
+            macro.volatility.china_realized_vol_weight.primary:
               fallback: exclude_sample_and_cap_if_required
               loaded: allow
               missing: exclude_sample_and_cap_if_required
               partial_loaded: exclude_sample_only
               stale: exclude_sample_and_cap_if_required
               tool_failed: exclude_sample_and_cap_if_required
-          id: ivx_weight
+          id: china_realized_vol_weight
           owner_stage: agent_run
-          path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/ivx_weight/value
+          path: /rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/china_realized_vol_weight/value
           projection_bucket: thresholds
           runtime_input_source_policies: {}
           runtime_input_sources: []
@@ -224,12 +182,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.volatility.realized_vol_weight.primary
-              evidence_key: fred_series
+              evidence_key: volatility_snapshot
               metric_ids:
-                - fred_series_current
+                - volatility_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_fred_series
+              tool: get_volatility_snapshot
           evidence_dependency_policies:
             macro.volatility.realized_vol_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -249,12 +207,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.volatility.risk_off_threshold.primary
-              evidence_key: fred_series
+              evidence_key: volatility_snapshot
               metric_ids:
-                - fred_series_current
+                - volatility_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_fred_series
+              tool: get_volatility_snapshot
           evidence_dependency_policies:
             macro.volatility.risk_off_threshold.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -274,12 +232,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.volatility.vol_amplification_window_days.primary
-              evidence_key: fred_series
+              evidence_key: volatility_snapshot
               metric_ids:
-                - fred_series_current
+                - volatility_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_fred_series
+              tool: get_volatility_snapshot
           evidence_dependency_policies:
             macro.volatility.vol_amplification_window_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -299,12 +257,12 @@ research-knobs:
           default: 0.25
           evidence_dependencies:
             - dependency_id: macro.volatility.volatility_cap.primary
-              evidence_key: fred_series
+              evidence_key: volatility_snapshot
               metric_ids:
-                - fred_series_current
+                - volatility_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_fred_series
+              tool: get_volatility_snapshot
           evidence_dependency_policies:
             macro.volatility.volatility_cap.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -325,18 +283,19 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - channels
       - claim_refs
       - claims
-      - ivx_regime
+      - direction
+      - horizon
       - key_drivers
-      - regime_filter
-      - vix_regime
+      - strength
     must_not_cover:
       - final_portfolio_sizing
       - single_stock_recommendation
   schema_version: research_knobs_v1
   thresholds:
-    ivx_weight: 0.2
+    china_realized_vol_weight: 0.2
     realized_vol_weight: 0.2
     risk_off_threshold: 0.6
     vix_weight: 0.2
@@ -344,67 +303,30 @@ research-knobs:
   tie_breaks: []
 ```
 
-# volatility — Volatility Regime Analyst (cohort_default baseline)
+# volatility — Layer-1 macro transmission
 
-You are the **volatility** agent in MOSAIC's Layer-1. Read **VIX (US) + iVX
-(China) + the composite regime gate** consumed by the Layer-4 execution
-agents.
+## Runtime role and tool contract (generated from code)
+Assess US implied volatility, China realized volatility, and cross-market stress.
 
-> Note: Phase 0 lacks a direct iVX feed + ETF tools. The `ivx_regime` field
-> is inferred from CN treasury-curve volatility; confidence is capped
-> accordingly.
+Prohibited:
+- Do not call realized volatility iVX
 
-## Tools
+Only call: get_volatility_snapshot.
+Treat the runtime JSON Schema as the sole output-field contract; do not use hand-written JSON examples.
+Check as-of validity, changes versus expectations, evidence conflicts, and A-share transmission. Reject hollow answers, vague empty arrays, cross-role conclusions, and unsupported percentages.
+Any observed number echoed in structured_conclusion must carry its series_id or evidence_id and exactly match the fixed snapshot.
+direction=NEUTRAL requires strength=0; otherwise strength must be 1–5. claims, claim_refs, key_drivers, and channels must all be non-empty.
 
-* `get_fred_series` — must pull `VIXCLS` (CBOE VIX).
-* `get_yield_curve_cn(curr_date, look_back_days=30)` — CN curve daily
-  volatility as an iVX proxy.
+## Analysis workflow
+1. Call the one allowed role snapshot. Reject the stage when the tool fails, PIT validity fails, or required coverage is insufficient; never turn missing data into a neutral market.
+2. Check released_at and vintage_at against as-of; compare actual, previous, expectation surprise, and changes, and expose conflicting evidence.
+3. Explain only this role's transmission into A-share risk premia, earnings, liquidity, or sector sensitivity.
+4. Support the conclusion with non-empty claims, conclusion-level claim_refs, key_drivers, channels, and confidence.
 
-## Workflow
-
-1. **VIXCLS required** — no volatility read without VIX.
-2. **`vix_regime` strict thresholds**:
-   - LOW: VIX < 15
-   - ELEVATED: 15 ≤ VIX < 25
-   - STRESS: VIX ≥ 25
-3. **`ivx_regime` inference** — daily-vol σ on CN 10Y over 30 days:
-   - LOW: σ < 4 BPS
-   - ELEVATED: 4 ≤ σ < 8
-   - STRESS: σ ≥ 8
-   Cap confidence ≤ 0.5 (no direct iVX data).
-4. **`regime_filter` composite**:
-   - RISK_OFF: VIX > 25 OR σ ≥ 8 OR persistent curve inversion
-   - RISK_ON: VIX < 15 AND σ < 4 AND curve STEEPENING
-   - NEUTRAL: anything else
-
-## Scoring boundary
-
-* Tool returns are current evidence only. Do not estimate or mention realized
-  forward returns in the JSON.
-* MOSAIC scorecard evaluates this agent later with persisted point-in-time
-  labels; your job is the as-of macro signal, not future P&L calculation.
-
-## Output schema
-
-```json
-{
-  "agent": "volatility",
-  "vix_regime": "LOW | ELEVATED | STRESS",
-  "ivx_regime": "LOW | ELEVATED | STRESS",
-  "regime_filter": "RISK_ON | NEUTRAL | RISK_OFF",
-  "key_drivers": ["<3-5 short evidence bullets>"],
-  "confidence": <0-1>
-}
-```
-
-## Writing constraints
-
-* `regime_filter = RISK_OFF` is the most sensitive input to the Layer-4
-  execution agents — must triangulate VIX absolute level + WoW change +
-  curve shape. No single-variable RISK_OFF.
-* No qualitative phrasing like "VIX is tight"; cite "VIX 26.4, +3.8 WoW".
-* `confidence ≥ 0.7` only when both VIX data is complete and the 30-day
-  curve series is complete.
+Do not read or infer news sentiment; event evidence belongs only to china and geopolitical.
+Never call OpenCLI, Google/Caixin search, or real-time Xueqiu follower counts. Never invent sources, values, percentages, timestamps, or snapshot fields.
+commodities may use contango/backwardation only with a real term structure; volatility must distinguish US implied volatility from China realized volatility.
+Legacy emerging_markets/news_sentiment outputs are audit-only legacy_unverified records and provide no current evidence or Darwinian prior.
 
 <!-- runtime-evidence-contract:start -->
 
@@ -412,11 +334,11 @@ agents.
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `vix_regime`, `ivx_regime`, `regime_filter`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
+Output fields include: `direction`, `strength`, `horizon`, `channels`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
 
-Required runtime tools: `get_rke_research_context`, `get_fred_series`, `get_ivx`, `get_realized_volatility`, `get_etf_indicator`.
+Required runtime tools: `get_volatility_snapshot`.
 
-Domain knob card ids for this agent: `vix_weight`, `ivx_weight`, `realized_vol_weight`, `risk_off_threshold`, `vol_amplification_window_days`, `volatility_cap`.
+Domain knob card ids for this agent: `vix_weight`, `china_realized_vol_weight`, `realized_vol_weight`, `risk_off_threshold`, `vol_amplification_window_days`, `volatility_cap`.
 
 Knob influence audit fields: `declared_knob_influence_ids`, `declared_influence_rationale`.
 

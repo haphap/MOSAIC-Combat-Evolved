@@ -30,18 +30,18 @@ import type {
   CroOutput,
   CurrentPositionsSnapshot,
   DollarOutput,
-  EmergingMarketsOutput,
   EnergyOutput,
   FinancialsOutput,
   GeopoliticalOutput,
   IndustrialsOutput,
   InstitutionalFlowOutput,
-  NewsSentimentOutput,
+  MarketBreadthOutput,
   PortfolioAction,
   RegimeSignal,
   RelationshipMapperOutput,
   SemiconductorOutput,
   SuperinvestorOutput,
+  UsEconomyOutput,
   VolatilityOutput,
   YieldCurveOutput,
 } from "../src/agents/types.js";
@@ -52,6 +52,7 @@ import { submitPaperTargetDeltaOrders } from "../src/cli/commands/daily-cycle.js
 import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
 import { buildDailyCycleGraph, DAILY_CYCLE_LAYER_NODES } from "../src/graph/daily_cycle.js";
 import type { LlmHandle } from "../src/llm/factory.js";
+import { macroOutput } from "./helpers/macro.js";
 
 // ============================================================ helpers / shared
 
@@ -432,6 +433,16 @@ describe("paper target-delta execution", () => {
 
 const FAKE_TOOLS: ToolMetadata[] = [
   "get_rke_research_context",
+  "get_china_macro_snapshot",
+  "get_us_macro_snapshot",
+  "get_central_bank_snapshot",
+  "get_rates_credit_snapshot",
+  "get_fx_conditions_snapshot",
+  "get_commodity_conditions_snapshot",
+  "get_geopolitical_events_snapshot",
+  "get_volatility_snapshot",
+  "get_market_breadth_snapshot",
+  "get_market_positioning_snapshot",
   "get_pboc_ops",
   "get_fred_series",
   "get_yield_curve_cn",
@@ -469,8 +480,32 @@ const FAKE_TOOLS: ToolMetadata[] = [
 
 const fakeApi: BridgeApi = {
   toolsList: async () => FAKE_TOOLS,
-  toolsCall: async (name: string) => ({ text: `${name}_csv` }),
+  toolsCall: async (name: string) => {
+    const role = MACRO_SNAPSHOT_ROLE_BY_TOOL[name];
+    if (!role) return { text: `${name}_csv` };
+    return {
+      text: JSON.stringify({
+        schema_version:
+          role === "market_breadth" ? "market_breadth_snapshot_v1" : "macro_role_snapshot_v1",
+        ...(role !== "market_breadth" ? { role } : {}),
+        as_of_date: "2024-06-24",
+      }),
+    };
+  },
 } as unknown as BridgeApi;
+
+const MACRO_SNAPSHOT_ROLE_BY_TOOL: Record<string, string> = {
+  get_china_macro_snapshot: "china",
+  get_us_macro_snapshot: "us_economy",
+  get_central_bank_snapshot: "central_bank",
+  get_rates_credit_snapshot: "yield_curve",
+  get_fx_conditions_snapshot: "dollar",
+  get_commodity_conditions_snapshot: "commodities",
+  get_geopolitical_events_snapshot: "geopolitical",
+  get_volatility_snapshot: "volatility",
+  get_market_breadth_snapshot: "market_breadth",
+  get_market_positioning_snapshot: "institutional_flow",
+};
 
 const BASE_CONFIG: MosaicConfig = {
   llm_provider: "fake",
@@ -549,15 +584,15 @@ function emptyState(): DailyCycleStateType {
 
 interface CannedOutputs {
   // L1 macro (10)
-  central_bank: CentralBankOutput;
   china: ChinaOutput;
-  geopolitical: GeopoliticalOutput;
+  us_economy: UsEconomyOutput;
+  central_bank: CentralBankOutput;
   dollar: DollarOutput;
   yield_curve: YieldCurveOutput;
   commodities: CommoditiesOutput;
+  geopolitical: GeopoliticalOutput;
   volatility: VolatilityOutput;
-  emerging_markets: EmergingMarketsOutput;
-  news_sentiment: NewsSentimentOutput;
+  market_breadth: MarketBreadthOutput;
   institutional_flow: InstitutionalFlowOutput;
   // L2 sector (7)
   semiconductor: SemiconductorOutput;
@@ -596,88 +631,19 @@ function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
   });
   return {
     // ---- L1 ----
-    central_bank: {
-      agent: "central_bank",
-      stance: "ACCOMMODATIVE",
-      key_rate_change_bps: -10,
-      qe_qt_balance_change: "OMO +20B",
-      next_window: "2024-07-15",
-      key_drivers: ["d-cb"],
-      confidence: 0.7,
-    },
-    china: {
-      agent: "china",
-      policy_direction: "PRO_GROWTH",
-      sector_focus: ["semi"],
-      risk_drivers: ["debt"],
-      key_drivers: ["d-cn"],
-      confidence: 0.7,
-    },
-    geopolitical: {
-      agent: "geopolitical",
-      escalation_level: 1,
-      hot_zones: ["x"],
-      trade_impact: "x",
-      key_drivers: ["d-geo"],
-      confidence: 0.7,
-    },
-    dollar: {
-      agent: "dollar",
-      dxy_trend: "WEAKENING",
-      cny_pressure: "LOW",
-      dxy_cny_correlation: -70,
-      key_drivers: ["d-dlr"],
-      confidence: 0.7,
-    },
-    yield_curve: {
-      agent: "yield_curve",
-      curve_shape: "STEEPENING",
-      recession_signal: "GREEN",
-      cn_us_spread_bps: -150,
-      key_drivers: ["d-yc"],
-      confidence: 0.7,
-    },
-    commodities: {
-      agent: "commodities",
-      oil_regime: "BACKWARDATION",
-      metals_regime: "RISK_ON",
-      ag_regime: "BALANCED",
-      china_demand_signal: "ACCELERATING",
-      key_drivers: ["d-cmd"],
-      confidence: 0.7,
-    },
-    volatility: {
-      agent: "volatility",
-      vix_regime: "LOW",
-      ivx_regime: "LOW",
-      regime_filter: "RISK_ON",
-      key_drivers: ["d-vol"],
-      confidence: 0.7,
-    },
-    emerging_markets: {
-      agent: "emerging_markets",
-      em_relative: "OUTPERFORMING",
-      hk_a_share_ratio: 1.3,
-      capital_flow: "NET_INFLOW",
-      key_drivers: ["d-em"],
-      confidence: 0.7,
-    },
-    news_sentiment: {
-      agent: "news_sentiment",
-      retail_sentiment_score: 0.5,
-      hot_topics: ["x"],
-      contrarian_flag: false,
-      key_drivers: ["d-ns"],
-      confidence: 0.7,
-    },
-    institutional_flow: {
-      agent: "institutional_flow",
-      main_net_flow_cny: 5000,
-      top_buyers: ["x"],
-      sectors_in_out: [{ sector: "semi", net_amount_cny: 5000 }],
-      key_drivers: ["d-if"],
-      confidence: 0.7,
-    },
+    china: macroOutput("china", { direction: "SUPPORTIVE", strength: 5 }),
+    us_economy: macroOutput("us_economy", { direction: "SUPPORTIVE", strength: 5 }),
+    central_bank: macroOutput("central_bank", { direction: "SUPPORTIVE", strength: 5 }),
+    dollar: macroOutput("dollar", { direction: "SUPPORTIVE", strength: 5 }),
+    yield_curve: macroOutput("yield_curve", { direction: "SUPPORTIVE", strength: 5 }),
+    commodities: macroOutput("commodities", { direction: "SUPPORTIVE", strength: 5 }),
+    geopolitical: macroOutput("geopolitical", { direction: "SUPPORTIVE", strength: 5 }),
+    volatility: macroOutput("volatility", { direction: "SUPPORTIVE", strength: 5 }),
+    market_breadth: macroOutput("market_breadth", { direction: "SUPPORTIVE", strength: 5 }),
+    institutional_flow: macroOutput("institutional_flow", {
+      direction: "SUPPORTIVE",
+      strength: 5,
+    }),
     // ---- L2 ----
     semiconductor: {
       agent: "semiconductor",
@@ -847,15 +813,15 @@ function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
 
 const ALL_AGENT_IDS = [
   // L1
-  "central_bank",
   "china",
-  "geopolitical",
+  "us_economy",
+  "central_bank",
   "dollar",
   "yield_curve",
   "commodities",
+  "geopolitical",
   "volatility",
-  "emerging_markets",
-  "news_sentiment",
+  "market_breadth",
   "institutional_flow",
   // L2
   "semiconductor",
@@ -879,15 +845,15 @@ const ALL_AGENT_IDS = [
 
 // L4 layer subdir mapping
 const AGENT_SUBDIR: Record<string, string> = {
-  central_bank: "macro",
   china: "macro",
-  geopolitical: "macro",
+  us_economy: "macro",
+  central_bank: "macro",
   dollar: "macro",
   yield_curve: "macro",
   commodities: "macro",
+  geopolitical: "macro",
   volatility: "macro",
-  emerging_markets: "macro",
-  news_sentiment: "macro",
+  market_breadth: "macro",
   institutional_flow: "macro",
   semiconductor: "sector",
   energy: "sector",

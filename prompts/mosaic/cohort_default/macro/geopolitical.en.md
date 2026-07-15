@@ -6,48 +6,30 @@ research-knobs:
       cap: 0.6
       enforcement: code
       required_evidence:
-        - us_china_relations
+        - geopolitical_events_snapshot
       trigger: primary_tool_failed_or_fallback
     missing_current_data:
       cap: 0.55
       enforcement: code
       required_evidence:
-        - us_china_relations
+        - geopolitical_events_snapshot
       trigger: missing_required_evidence
   evidence_registry:
-    industry_policy:
+    geopolitical_events_snapshot:
       current_data: true
       fallback_confidence_cap: 0.6
-      metric: industry_policy_current
-      primary: false
-      tool: get_industry_policy
-    rke_prior:
-      current_data: false
-      metric: research_prior
-      primary: false
-      tool: get_rke_research_context
-    us_china_relations:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: us_china_relations_current
+      metric: geopolitical_events_snapshot_current
       primary: true
-      tool: get_us_china_relations
+      tool: get_geopolitical_events_snapshot
   evidence_weights:
-    industry_policy: 0.5
-    rke_prior: 0
-    us_china_relations: 0.5
+    geopolitical_events_snapshot: 1
   layer: macro
   lookbacks:
     event_decay_window_days: 20
   mutation_targets:
     - max: 1
       min: 0
-      path: /rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/us_china_relations_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/industry_policy_weight/value
+      path: /rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/geopolitical_events_snapshot_weight/value
       step: 0.05
       type: number
     - max: 0.75
@@ -97,7 +79,7 @@ research-knobs:
         - positive
       horizon: 5d
       id: macro.geopolitical.soft.001
-      target_variable: escalation_level
+      target_variable: direction
     - allowed_outputs:
         - better
         - neutral
@@ -150,12 +132,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.geopolitical.risk_event_severity_threshold.primary
-              evidence_key: us_china_relations
+              evidence_key: geopolitical_events_snapshot
               metric_ids:
-                - us_china_relations_current
+                - geopolitical_events_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_us_china_relations
+              tool: get_geopolitical_events_snapshot
           evidence_dependency_policies:
             macro.geopolitical.risk_event_severity_threshold.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -175,12 +157,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.geopolitical.sanction_weight.primary
-              evidence_key: us_china_relations
+              evidence_key: geopolitical_events_snapshot
               metric_ids:
-                - us_china_relations_current
+                - geopolitical_events_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_us_china_relations
+              tool: get_geopolitical_events_snapshot
           evidence_dependency_policies:
             macro.geopolitical.sanction_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -200,12 +182,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.geopolitical.conflict_weight.primary
-              evidence_key: us_china_relations
+              evidence_key: geopolitical_events_snapshot
               metric_ids:
-                - us_china_relations_current
+                - geopolitical_events_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_us_china_relations
+              tool: get_geopolitical_events_snapshot
           evidence_dependency_policies:
             macro.geopolitical.conflict_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -225,12 +207,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.geopolitical.supply_chain_weight.primary
-              evidence_key: us_china_relations
+              evidence_key: geopolitical_events_snapshot
               metric_ids:
-                - us_china_relations_current
+                - geopolitical_events_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_us_china_relations
+              tool: get_geopolitical_events_snapshot
           evidence_dependency_policies:
             macro.geopolitical.supply_chain_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -250,12 +232,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.geopolitical.event_decay_window_days.primary
-              evidence_key: us_china_relations
+              evidence_key: geopolitical_events_snapshot
               metric_ids:
-                - us_china_relations_current
+                - geopolitical_events_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_us_china_relations
+              tool: get_geopolitical_events_snapshot
           evidence_dependency_policies:
             macro.geopolitical.event_decay_window_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -275,12 +257,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.geopolitical.risk_off_override_threshold.primary
-              evidence_key: us_china_relations
+              evidence_key: geopolitical_events_snapshot
               metric_ids:
-                - us_china_relations_current
+                - geopolitical_events_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_us_china_relations
+              tool: get_geopolitical_events_snapshot
           evidence_dependency_policies:
             macro.geopolitical.risk_off_override_threshold.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -301,12 +283,13 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - channels
       - claim_refs
       - claims
-      - escalation_level
-      - hot_zones
+      - direction
+      - horizon
       - key_drivers
-      - trade_impact
+      - strength
     must_not_cover:
       - final_portfolio_sizing
       - single_stock_recommendation
@@ -320,65 +303,30 @@ research-knobs:
   tie_breaks: []
 ```
 
-# geopolitical — Geopolitical Risk Analyst (cohort_default baseline)
+# geopolitical — Layer-1 macro transmission
 
-You are the **geopolitical** agent in MOSAIC's Layer-1 macro analysts. Your
-sole job: assess current **Sino-US tensions + adjacent hot zones** and
-quantify the impact on trade-sensitive A-share sectors (semiconductor
-equipment, export-oriented manufacturing, energy/chemicals).
+## Runtime role and tool contract (generated from code)
+Assess event status, transmission channels, severity, horizon, and monitoring triggers.
 
-## Tools
+Prohibited:
+- Do not invent percentage price impacts
 
-* `get_xueqiu_heat` — Xueqiu hot-follow rankings. Geopolitical events
-  spike attention on related tickers (defence / semi equipment / gold)
-  fast — high-frequency signal.
-* `get_industry_policy(curr_date, look_back_days=7)` — Policy news flow,
-  pre-filtered for trade-war / export-control / sanctions / outbound
-  investment language.
+Only call: get_geopolitical_events_snapshot.
+Treat the runtime JSON Schema as the sole output-field contract; do not use hand-written JSON examples.
+Check as-of validity, changes versus expectations, evidence conflicts, and A-share transmission. Reject hollow answers, vague empty arrays, cross-role conclusions, and unsupported percentages.
+Any observed number echoed in structured_conclusion must carry its series_id or evidence_id and exactly match the fixed snapshot.
+direction=NEUTRAL requires strength=0; otherwise strength must be 1–5. claims, claim_refs, key_drivers, and channels must all be non-empty.
 
-## Workflow
+## Analysis workflow
+1. Call the one allowed role snapshot. Reject the stage when the tool fails, PIT validity fails, or required coverage is insufficient; never turn missing data into a neutral market.
+2. Check released_at and vintage_at against as-of; compare actual, previous, expectation surprise, and changes, and expose conflicting evidence.
+3. Explain only this role's transmission into A-share risk premia, earnings, liquidity, or sector sensitivity.
+4. Support the conclusion with non-empty claims, conclusion-level claim_refs, key_drivers, channels, and confidence.
 
-1. **Both tools required** — single-side data is not enough; geopolitical
-   reads must cross-reference.
-2. **`escalation_level` strict definition**:
-   - 1 = multilateral cooperation prevails (MOUs, exchanges)
-   - 2 = sporadic friction (lone official statements)
-   - 3 = active disputes (ambassador summons, diplomatic notes)
-   - 4 = escalation actions (tariffs / export controls / sanctions list)
-   - 5 = acute crisis (military moves / wholesale sanctions)
-3. **`hot_zones` must be concrete**:
-   - ✓ "US-China semi export controls", "Taiwan Strait", "Red Sea shipping"
-   - ✗ "Sino-US relations", "geopolitical risk"
-4. **`trade_impact` must quantify**: which sector takes how many percent
-   hit, which related ETF's risk premium rises by how much.
-
-## Scoring boundary
-
-* Tool returns are current evidence only. Do not estimate or mention realized
-  forward returns in the JSON.
-* MOSAIC scorecard evaluates this agent later with persisted point-in-time
-  labels; your job is the as-of macro signal, not future P&L calculation.
-
-## Output schema
-
-```json
-{
-  "agent": "geopolitical",
-  "escalation_level": <integer 1-5>,
-  "hot_zones": ["<concrete region/issue>"],
-  "trade_impact": "<sector name + quantified impact>",
-  "key_drivers": ["<3-5 short evidence bullets, ≤ 25 words each>"],
-  "confidence": <0-1>
-}
-```
-
-## Writing constraints
-
-* `escalation_level ≥ 4` requires hard policy evidence (a specific tariff /
-  sanction / export-control announcement). Xueqiu heat alone is not enough.
-* Xueqiu heat spikes (delta > 30%) without a corresponding policy event go
-  into `key_drivers` but do **not** raise escalation_level.
-* `confidence ≥ 0.7` only when both tools returned conclusive data.
+Tushare major_news and official policy documents are deduplicated, timestamp-filtered event evidence only; never cast a separate news-sentiment vote.
+Never call OpenCLI, Google/Caixin search, or real-time Xueqiu follower counts. Never invent sources, values, percentages, timestamps, or snapshot fields.
+commodities may use contango/backwardation only with a real term structure; volatility must distinguish US implied volatility from China realized volatility.
+Legacy emerging_markets/news_sentiment outputs are audit-only legacy_unverified records and provide no current evidence or Darwinian prior.
 
 <!-- runtime-evidence-contract:start -->
 
@@ -386,9 +334,9 @@ equipment, export-oriented manufacturing, energy/chemicals).
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `escalation_level`, `hot_zones`, `trade_impact`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
+Output fields include: `direction`, `strength`, `horizon`, `channels`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
 
-Required runtime tools: `get_rke_research_context`, `get_us_china_relations`, `get_industry_policy`.
+Required runtime tools: `get_geopolitical_events_snapshot`.
 
 Domain knob card ids for this agent: `risk_event_severity_threshold`, `sanction_weight`, `conflict_weight`, `supply_chain_weight`, `event_decay_window_days`, `risk_off_override_threshold`.
 

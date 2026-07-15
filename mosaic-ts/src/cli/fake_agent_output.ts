@@ -9,6 +9,11 @@ export function fakeAgentStructuredOutput(
 ): unknown {
   const jsonSchema = normalizeJsonSchema(schema);
   const output = synthesize(jsonSchema) as Record<string, unknown>;
+  if ("direction" in output && "strength" in output) {
+    output.direction = "NEUTRAL";
+    output.strength = 0;
+    if ("horizon" in output) output.horizon = "WEEKS";
+  }
   if (!("claims" in output)) return output;
   const text = messageText(messages);
   const evidenceId = firstEvidenceId(text);

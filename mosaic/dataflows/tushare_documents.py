@@ -1,7 +1,7 @@
 """Tushare document crawler → ``macro_documents`` (autoresearch macro plan P5).
 
-Persists Tushare news/corpus documents (the OpenCLI side is handled in
-``opencli_news``) so they become a *point-in-time* event source: each row is
+Persists Tushare news/corpus documents so they become a *point-in-time* event
+source for China and geopolitical evidence: each row is
 stamped with ``discovered_at`` (crawl time) and ``published_at`` (from the
 item). Historical scoring only reads documents discovered on/before the signal
 date, so a backfill stamped "now" can never leak into past scoring.
@@ -77,7 +77,7 @@ def crawl_macro_documents(
     errors: list[dict[str, str]] = []
     for ep in eps:
         spec = catalog.get(ep) or {}
-        agent_tags = list(spec.get("agent_tags") or ("news_sentiment",))
+        agent_tags = list(spec.get("agent_tags") or ("china", "geopolitical"))
         try:
             items = fetch(ep, start_date, end_date)
         except Exception as exc:  # noqa: BLE001 - one bad endpoint shouldn't abort the crawl

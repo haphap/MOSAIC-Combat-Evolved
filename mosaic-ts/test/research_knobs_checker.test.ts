@@ -284,10 +284,10 @@ describe("checkResearchKnobsPrompts", () => {
   it("fails when evidence metrics are not registered for the tool", async () => {
     const spec = specForAgent("central_bank");
     const knobs = buildRuntimeResearchKnobs(spec);
-    const pboc = knobs.evidence_registry.pboc_ops;
-    expect(pboc).toBeDefined();
-    if (!pboc) return;
-    pboc.metric = "unregistered_pboc_metric";
+    const snapshot = knobs.evidence_registry.central_bank_snapshot;
+    expect(snapshot).toBeDefined();
+    if (!snapshot) return;
+    snapshot.metric = "unregistered_central_bank_snapshot_metric";
     for (const lang of ["zh", "en"] as const) {
       writePrompt(
         fake.root,
@@ -306,7 +306,7 @@ describe("checkResearchKnobsPrompts", () => {
 
     expect(report.ready).toBe(false);
     expect(report.rows.find((item) => item.agent === "central_bank")?.reasons).toContain(
-      "evidence_metric_not_registered:pboc_ops:unregistered_pboc_metric",
+      "evidence_metric_not_registered:central_bank_snapshot:unregistered_central_bank_snapshot_metric",
     );
   });
 
@@ -858,16 +858,16 @@ describe("checkResearchKnobsPrompts", () => {
     const repo = makeRoot();
     try {
       const promptsRoot = join(repo.root, "prompts", "mosaic");
-      const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "central_bank");
+      const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "semiconductor");
       expect(spec).toBeDefined();
       if (!spec) return;
       const registry = buildDomainKnobValueRegistry(spec, "cohort_default");
       const targetPath = Object.keys(registry.values_by_path).find((path) =>
-        path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+        path.endsWith("/learnable_parameters/price_confirmation_pct/value"),
       );
       expect(targetPath).toBeDefined();
       if (!targetPath) return;
-      registry.values_by_path[targetPath] = 0.35;
+      registry.values_by_path[targetPath] = 0.1;
       const registryPath = domainKnobValueRegistryPath({
         privatePromptsRoot: promptsRoot,
         cohort: "cohort_default",
@@ -909,22 +909,22 @@ describe("checkResearchKnobsPrompts", () => {
       const report = await checkResearchKnobsPrompts({
         cohort: "cohort_default",
         privatePromptsRoot: promptsRoot,
-        enabledAgents: new Set(["central_bank"]),
+        enabledAgents: new Set(["semiconductor"]),
       });
 
       expect(report.ready).toBe(true);
-      expect(knobs.thresholds.pboc_fed_policy_weight).toBe(0.35);
+      expect(knobs.thresholds.price_confirmation_pct).toBe(0.1);
 
-      registry.values_by_path[targetPath] = 0.4;
+      registry.values_by_path[targetPath] = 0.12;
       writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
       const stale = await checkResearchKnobsPrompts({
         cohort: "cohort_default",
         privatePromptsRoot: promptsRoot,
-        enabledAgents: new Set(["central_bank"]),
+        enabledAgents: new Set(["semiconductor"]),
       });
       expect(stale.ready).toBe(false);
-      expect(stale.rows.find((row) => row.agent === "central_bank")?.reasons.join("\n")).toContain(
-        "domain_card_projection_missing:pboc_fed_policy_weight",
+      expect(stale.rows.find((row) => row.agent === "semiconductor")?.reasons.join("\n")).toContain(
+        "domain_card_projection_missing:price_confirmation_pct",
       );
     } finally {
       repo.cleanup();
@@ -935,7 +935,7 @@ describe("checkResearchKnobsPrompts", () => {
     const repo = makeRoot();
     try {
       const promptsRoot = join(repo.root, "prompts", "mosaic");
-      const spec = specForAgent("central_bank");
+      const spec = specForAgent("semiconductor");
       const registry = buildDomainKnobValueRegistry(spec, "cohort_default");
       const registryPath = domainKnobValueRegistryPath({
         privatePromptsRoot: promptsRoot,
@@ -975,16 +975,16 @@ describe("checkResearchKnobsPrompts", () => {
       const missing = await checkResearchKnobsPrompts({
         cohort: "cohort_default",
         privatePromptsRoot: promptsRoot,
-        enabledAgents: new Set(["central_bank"]),
+        enabledAgents: new Set(["semiconductor"]),
       });
       expect(missing.ready).toBe(false);
       expect(
-        missing.rows.find((row) => row.agent === "central_bank")?.reasons.join("\n"),
+        missing.rows.find((row) => row.agent === "semiconductor")?.reasons.join("\n"),
       ).toContain("prompt_ir_missing:");
 
       const promptIr = buildPromptIrContract(spec);
       promptIr.required_tools = promptIr.required_tools.filter(
-        (tool) => tool.name !== "get_pboc_ops",
+        (tool) => tool.name !== spec.requiredTools[0],
       );
       const promptIrPath = promptIrPathForSpec({ privatePromptsRoot: promptsRoot, spec });
       mkdirSync(join(repo.root, "prompt_ir"), { recursive: true });
@@ -992,10 +992,10 @@ describe("checkResearchKnobsPrompts", () => {
       const stale = await checkResearchKnobsPrompts({
         cohort: "cohort_default",
         privatePromptsRoot: promptsRoot,
-        enabledAgents: new Set(["central_bank"]),
+        enabledAgents: new Set(["semiconductor"]),
       });
       expect(stale.ready).toBe(false);
-      expect(stale.rows.find((row) => row.agent === "central_bank")?.reasons.join("\n")).toContain(
+      expect(stale.rows.find((row) => row.agent === "semiconductor")?.reasons.join("\n")).toContain(
         "prompt_ir_required_tools_mismatch",
       );
     } finally {
@@ -1040,7 +1040,7 @@ describe("checkResearchKnobsPrompts", () => {
   });
 
   it("fails closed for conflicting-evidence caps without direction adapters", async () => {
-    const spec = specForAgent("central_bank");
+    const spec = specForAgent("semiconductor");
     const knobs = buildRuntimeResearchKnobs(spec);
     const evidenceKeys = Object.keys(knobs.evidence_registry).filter((key) => key !== "rke_prior");
     expect(evidenceKeys.length).toBeGreaterThanOrEqual(2);
@@ -1067,10 +1067,10 @@ describe("checkResearchKnobsPrompts", () => {
     const report = await checkResearchKnobsPrompts({
       cohort: "cohort_default",
       promptsRoot: fake.root,
-      enabledAgents: new Set(["central_bank"]),
+      enabledAgents: new Set(["semiconductor"]),
     });
 
-    const row = report.rows.find((item) => item.agent === "central_bank");
+    const row = report.rows.find((item) => item.agent === "semiconductor");
     expect(report.ready).toBe(false);
     expect(row?.reasons.join("\n")).toContain(
       "conflicting_evidence_direction_adapter_missing:conflicting_signals",

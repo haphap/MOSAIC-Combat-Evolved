@@ -1,11 +1,11 @@
-"""Deterministic document event/sentiment classifier (macro plan P4).
+"""Deterministic document event classifier for China/geopolitical evidence.
 
 The crawler (``dataflows.tushare_documents`` / ``opencli_news``) persists raw
 documents into ``macro_documents`` with empty ``event_tags`` / ``sentiment_score``.
 This module fills them and builds a **point-in-time daily sentiment/event
-index** that macro agents consume as evidence.
+index** that only ``china`` and ``geopolitical`` may consume as event evidence.
 
-Design constraints from ``docs/plans/macro-agent-data-source-plan.md`` (P4/§news_sentiment):
+Design constraints:
     * Deterministic, lexicon-based — **never** an LLM subjective sentiment used
       directly as a realised label (plan line 473). The index is evidence / a
       percentile trigger, not a forward-return label by itself.
@@ -25,6 +25,8 @@ import logging
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+EVENT_EVIDENCE_ROLES = frozenset({"china", "geopolitical"})
 
 # Event family → (risk-on orientation, bilingual keyword lexicon). Orientation
 # is the common risk-on convention shared with macro_path_labels: +1 risk-on,
@@ -195,6 +197,19 @@ def build_sentiment_index(
     sentiment_index, event_counts, dominant_event}``. Never raises.
     """
     from datetime import datetime, timedelta
+
+    if agent not in EVENT_EVIDENCE_ROLES:
+        return {
+            "agent": agent,
+            "as_of_date": as_of_date,
+            "lookback_days": lookback_days,
+            "n_documents": 0,
+            "n_evidence_only": 0,
+            "sentiment_index": None,
+            "event_counts": {},
+            "dominant_event": None,
+            "status": "role_not_permitted",
+        }
 
     try:
         end = as_of_date

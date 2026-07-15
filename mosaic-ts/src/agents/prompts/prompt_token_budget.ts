@@ -170,11 +170,18 @@ export async function buildPromptTokenBudgetManifest(opts: {
           promptsRoot: source.promptsRoot,
           noCache: true,
         });
-        const stageKey = `${spec.agent}:${stageSpec.stage}`;
-        const hashes =
-          snapshotHashes.get(stageKey) ?? ({} as Record<"private" | "bundled", string>);
-        hashes[source.source] = loaded.snapshot.hash;
-        snapshotHashes.set(stageKey, hashes);
+        // This manifest's cross-repository parity gate covers Macro prompts,
+        // whose private cohort variants are intentionally rebuilt from the
+        // bundled role contract. Other layers retain independently evolved
+        // private research knobs and are measured for size without being
+        // forced to equal their bundled projections.
+        if (layer === "macro") {
+          const stageKey = `${spec.agent}:${stageSpec.stage}`;
+          const hashes =
+            snapshotHashes.get(stageKey) ?? ({} as Record<"private" | "bundled", string>);
+          hashes[source.source] = loaded.snapshot.hash;
+          snapshotHashes.set(stageKey, hashes);
+        }
         const projectionBytes = utf8Bytes(
           JSON.stringify(canonicalResearchKnobs(loaded.snapshot.knobs)),
         );

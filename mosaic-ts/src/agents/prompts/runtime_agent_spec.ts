@@ -6,10 +6,10 @@ import { centralBankSpec } from "../macro/central_bank.js";
 import { chinaSpec } from "../macro/china.js";
 import { commoditiesSpec } from "../macro/commodities.js";
 import { dollarSpec } from "../macro/dollar.js";
-import { emergingMarketsSpec } from "../macro/emerging_markets.js";
 import { geopoliticalSpec } from "../macro/geopolitical.js";
 import { institutionalFlowSpec } from "../macro/institutional_flow.js";
-import { newsSentimentSpec } from "../macro/news_sentiment.js";
+import { marketBreadthSpec } from "../macro/market_breadth.js";
+import { usEconomySpec } from "../macro/us_economy.js";
 import { volatilitySpec } from "../macro/volatility.js";
 import { yieldCurveSpec } from "../macro/yield_curve.js";
 import { biotechSpec } from "../sector/biotech.js";
@@ -290,15 +290,15 @@ function runtimeSpec(
 }
 
 export const RUNTIME_AGENT_SPECS: ReadonlyArray<RuntimeAgentSpec> = [
-  runtimeSpec("macro", centralBankSpec),
-  runtimeSpec("macro", geopoliticalSpec),
   runtimeSpec("macro", chinaSpec),
+  runtimeSpec("macro", usEconomySpec),
+  runtimeSpec("macro", centralBankSpec),
   runtimeSpec("macro", dollarSpec),
   runtimeSpec("macro", yieldCurveSpec),
   runtimeSpec("macro", commoditiesSpec),
+  runtimeSpec("macro", geopoliticalSpec),
   runtimeSpec("macro", volatilitySpec),
-  runtimeSpec("macro", emergingMarketsSpec),
-  runtimeSpec("macro", newsSentimentSpec),
+  runtimeSpec("macro", marketBreadthSpec),
   runtimeSpec("macro", institutionalFlowSpec),
   runtimeSpec("sector", semiconductorSpec),
   runtimeSpec("sector", energySpec),

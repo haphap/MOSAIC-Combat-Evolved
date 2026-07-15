@@ -109,4 +109,26 @@ describe("prompt token budget manifest", () => {
     expect(artifact.summary.semantic_parity_passed).toBe(false);
     expect(artifact.summary.ready).toBe(false);
   });
+
+  it("keeps independently evolved non-macro knobs outside the macro parity gate", async () => {
+    const roots = fixtureRoots();
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "semiconductor");
+    if (!spec) throw new Error("semiconductor spec missing");
+    const knobs = structuredClone(buildRuntimeResearchKnobs(spec));
+    const missing = knobs.confidence_caps.missing_current_data;
+    if (!missing) throw new Error("missing current-data cap missing");
+    missing.cap = 0.5;
+    const fence = renderResearchKnobsFence(knobs);
+    for (const language of ["zh", "en"] as const) {
+      writeFileSync(
+        join(roots.privateRoot, "cohort_default", "sector", `semiconductor.${language}.md`),
+        `${fence}\n\n# semiconductor ${language}\nRuntime contract body.\n`,
+      );
+    }
+
+    const artifact = await build(roots);
+
+    expect(artifact.summary.semantic_parity_passed).toBe(true);
+    expect(artifact.summary.ready).toBe(true);
+  });
 });

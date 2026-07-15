@@ -162,47 +162,30 @@ export function summarizeAgentOutput(output: unknown): string {
   const agent = stringField(obj, "agent");
   const parts: string[] = [];
 
+  if (
+    agent &&
+    [
+      "china",
+      "us_economy",
+      "central_bank",
+      "dollar",
+      "yield_curve",
+      "commodities",
+      "geopolitical",
+      "volatility",
+      "market_breadth",
+      "institutional_flow",
+    ].includes(agent)
+  ) {
+    pushString(parts, "direction", obj, "direction");
+    pushNumber(parts, "strength", obj, "strength", 0);
+    pushString(parts, "horizon", obj, "horizon");
+    pushNumber(parts, "conf", obj, "confidence", 2);
+    pushArrayLength(parts, "drivers", obj, "key_drivers");
+    return parts.join(" ");
+  }
+
   switch (agent) {
-    case "central_bank":
-      pushString(parts, "stance", obj, "stance");
-      pushNumber(parts, "bps", obj, "key_rate_change_bps");
-      break;
-    case "geopolitical":
-      pushNumber(parts, "level", obj, "escalation_level");
-      pushArrayLength(parts, "zones", obj, "hot_zones");
-      break;
-    case "china":
-      pushString(parts, "policy", obj, "policy_direction");
-      pushArrayLength(parts, "focus", obj, "sector_focus");
-      break;
-    case "dollar":
-      pushString(parts, "dxy", obj, "dxy_trend");
-      pushString(parts, "cny", obj, "cny_pressure");
-      break;
-    case "yield_curve":
-      pushString(parts, "curve", obj, "curve_shape");
-      pushString(parts, "recession", obj, "recession_signal");
-      break;
-    case "commodities":
-      pushString(parts, "oil", obj, "oil_regime");
-      pushString(parts, "metals", obj, "metals_regime");
-      break;
-    case "volatility":
-      pushString(parts, "vix", obj, "vix_regime");
-      pushString(parts, "filter", obj, "regime_filter");
-      break;
-    case "emerging_markets":
-      pushString(parts, "em", obj, "em_relative");
-      pushString(parts, "flow", obj, "capital_flow");
-      break;
-    case "news_sentiment":
-      pushNumber(parts, "retail", obj, "retail_sentiment_score", 2);
-      pushArrayLength(parts, "topics", obj, "hot_topics");
-      break;
-    case "institutional_flow":
-      pushNumber(parts, "main_flow", obj, "main_net_flow_cny", 0);
-      pushArrayLength(parts, "sectors", obj, "sectors_in_out");
-      break;
     case "relationship_mapper":
       pushArrayLength(parts, "chains", obj, "supply_chains");
       pushArrayLength(parts, "risks", obj, "contagion_risks");

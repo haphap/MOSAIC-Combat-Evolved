@@ -54,123 +54,71 @@ export interface KnobInfluenceDeclaration {
     | undefined;
 }
 
-/** Plan §5.1 — central_bank, geopolitical, china, dollar, yield_curve,
- *  commodities, volatility, emerging_markets, news_sentiment, institutional_flow.
- *
- *  Each agent emits a different payload shape; the union below covers the 10
- *  but consumers usually narrow by agent ID. The aggregator only reads the
- *  shared `confidence` + `key_drivers` fields.
- */
-export interface MacroAgentOutputBase extends KnobInfluenceDeclaration {
-  /** Agent ID, e.g. "central_bank". Useful for debugging when payloads are
-   *  passed around without their map key. */
-  agent: string;
-  /** Required by every macro agent — drives layer_1_consensus_score. */
+export type MacroAgentId =
+  | "china"
+  | "us_economy"
+  | "central_bank"
+  | "dollar"
+  | "yield_curve"
+  | "commodities"
+  | "geopolitical"
+  | "volatility"
+  | "market_breadth"
+  | "institutional_flow";
+
+/** The sole directional contract shared by every Layer-1 macro role. */
+export interface MacroTransmission {
+  direction: "SUPPORTIVE" | "NEUTRAL" | "ADVERSE";
+  strength: 0 | 1 | 2 | 3 | 4 | 5;
+  horizon: "DAYS" | "WEEKS" | "MONTHS";
+  channels: string[];
+  claim_refs: string[];
+}
+
+export interface MacroAgentOutputBase extends KnobInfluenceDeclaration, MacroTransmission {
+  agent: MacroAgentId;
   confidence: number;
-  /** ≤ 5 short evidence bullets pulled from tool returns. */
   key_drivers: string[];
+  claims: LlmResearchClaim[];
+  claim_refs: string[];
 }
 
-export interface CentralBankOutput extends MacroAgentOutputBase {
-  agent: "central_bank";
-  stance: "ACCOMMODATIVE" | "NEUTRAL" | "TIGHTENING";
-  key_rate_change_bps: number;
-  qe_qt_balance_change: string;
-  next_window: string;
-}
-
-export interface GeopoliticalOutput extends MacroAgentOutputBase {
-  agent: "geopolitical";
-  /** 1 (calm) → 5 (acute crisis). */
-  escalation_level: 1 | 2 | 3 | 4 | 5;
-  hot_zones: string[];
-  trade_impact: string;
-}
-
-export interface ChinaOutput extends MacroAgentOutputBase {
-  agent: "china";
-  policy_direction: "PRO_GROWTH" | "BALANCED" | "RESTRAINING";
-  sector_focus: string[];
-  risk_drivers: string[];
-}
-
-export interface DollarOutput extends MacroAgentOutputBase {
-  agent: "dollar";
-  dxy_trend: "STRENGTHENING" | "STABLE" | "WEAKENING";
-  cny_pressure: "HIGH" | "MODERATE" | "LOW";
-  /** Integer correlation × 100 (e.g. 73 means 0.73) of USD/CNY vs DXY. */
-  dxy_cny_correlation: number;
-}
-
-export interface YieldCurveOutput extends MacroAgentOutputBase {
-  agent: "yield_curve";
-  curve_shape: "STEEPENING" | "FLATTENING" | "INVERTED" | "BULL_FLATTENING";
-  recession_signal: "GREEN" | "YELLOW" | "RED";
-  /** China minus US 10Y yield, in basis points. */
-  cn_us_spread_bps: number;
-}
-
-export interface CommoditiesOutput extends MacroAgentOutputBase {
-  agent: "commodities";
-  oil_regime: "BACKWARDATION" | "CONTANGO" | "NEUTRAL";
-  metals_regime: "RISK_ON" | "RISK_OFF" | "ROTATING";
-  ag_regime: "TIGHT" | "BALANCED" | "GLUT";
-  china_demand_signal: "ACCELERATING" | "STEADY" | "DECELERATING";
-}
-
-export interface VolatilityOutput extends MacroAgentOutputBase {
-  agent: "volatility";
-  vix_regime: "LOW" | "ELEVATED" | "STRESS";
-  ivx_regime: "LOW" | "ELEVATED" | "STRESS";
-  /** Computed from VIX/iVX ratio per Plan §5.1. */
-  regime_filter: "RISK_ON" | "NEUTRAL" | "RISK_OFF";
-}
-
-export interface EmergingMarketsOutput extends MacroAgentOutputBase {
-  agent: "emerging_markets";
-  em_relative: "OUTPERFORMING" | "INLINE" | "UNDERPERFORMING";
-  /** HK index level / A-share index level (via cross-market ETF prices). */
-  hk_a_share_ratio: number;
-  capital_flow: "NET_INFLOW" | "FLAT" | "NET_OUTFLOW";
-}
-
-export interface NewsSentimentOutput extends MacroAgentOutputBase {
-  agent: "news_sentiment";
-  /** Retail sentiment from news/Caixin/policy flow, normalised to [-1, 1]. */
-  retail_sentiment_score: number;
-  hot_topics: string[];
-  /** True only when sentiment diverges from explicit current flow evidence. */
-  contrarian_flag: boolean;
-}
-
-export interface InstitutionalFlowOutput extends MacroAgentOutputBase {
-  agent: "institutional_flow";
-  /** Net main-funds (主力, large+extra-large orders) flow in CNY million. Negative = outflow. */
-  main_net_flow_cny: number;
-  /** Top 5 buyer institutions by amount. */
-  top_buyers: string[];
-  /** Sectors net bought (positive amount) / sold (negative). */
-  sectors_in_out: Array<{ sector: string; net_amount_cny: number }>;
-}
+export type CentralBankOutput = MacroAgentOutputBase & { agent: "central_bank" };
+export type ChinaOutput = MacroAgentOutputBase & { agent: "china" };
+export type UsEconomyOutput = MacroAgentOutputBase & { agent: "us_economy" };
+export type DollarOutput = MacroAgentOutputBase & { agent: "dollar" };
+export type YieldCurveOutput = MacroAgentOutputBase & { agent: "yield_curve" };
+export type CommoditiesOutput = MacroAgentOutputBase & { agent: "commodities" };
+export type GeopoliticalOutput = MacroAgentOutputBase & { agent: "geopolitical" };
+export type VolatilityOutput = MacroAgentOutputBase & { agent: "volatility" };
+export type MarketBreadthOutput = MacroAgentOutputBase & { agent: "market_breadth" };
+export type InstitutionalFlowOutput = MacroAgentOutputBase & { agent: "institutional_flow" };
 
 export type MacroAgentOutput =
-  | CentralBankOutput
-  | GeopoliticalOutput
   | ChinaOutput
+  | UsEconomyOutput
+  | CentralBankOutput
   | DollarOutput
   | YieldCurveOutput
   | CommoditiesOutput
+  | GeopoliticalOutput
   | VolatilityOutput
-  | EmergingMarketsOutput
-  | NewsSentimentOutput
+  | MarketBreadthOutput
   | InstitutionalFlowOutput;
+
+/** Old rows remain readable for audit only and never enter current aggregation or ranking. */
+export interface LegacyMacroAgentOutput {
+  agent: "emerging_markets" | "news_sentiment";
+  legacy_status: "legacy_unverified";
+  [key: string]: unknown;
+}
 
 /** Plan §5.1 — aggregated regime call after all 10 macro agents have written. */
 export interface RegimeSignal {
   stance: "BULLISH" | "BEARISH" | "NEUTRAL";
   confidence: number;
   key_drivers: string[];
-  /** Mean confidence of the 10 macro agents weighted by their stance alignment. */
+  /** Final six-group score S in [-1, 1]. */
   layer_1_consensus_score: number;
 }
 

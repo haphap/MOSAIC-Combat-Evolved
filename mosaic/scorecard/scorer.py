@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
+from mosaic.dataflows.exceptions import DataVendorUnavailable
+
 logger = logging.getLogger(__name__)
 
 # Default benchmark for A-share alpha calc (Plan §11.3 design decision #5).
@@ -533,6 +535,30 @@ def _fetch_macro_label_closes(
                 config.orientation,
                 config.drawdown_penalty_lambda,
             )
+
+    if config.path_kind == "breadth_confirmation":
+        try:
+            from mosaic.dataflows.market_breadth import (
+                compute_forward_breadth_confirmation,
+                load_market_breadth_inputs,
+            )
+
+            components = compute_forward_breadth_confirmation(
+                load_market_breadth_inputs(),
+                start_iso,
+                end_iso,
+                bench_ret,
+            )
+            combined = components["combined_score_5d"]
+            return (
+                [1.0, 1.0 + combined],
+                "primary",
+                "market_breadth:composite_change+equal_weight_relative:50/50",
+                config.orientation,
+                config.drawdown_penalty_lambda,
+            )
+        except DataVendorUnavailable:
+            pass
 
     return (
         _fallback_benchmark_closes(benchmark, start_iso, end_iso, bench_ret),

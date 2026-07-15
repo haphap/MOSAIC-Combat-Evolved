@@ -1,16 +1,24 @@
 # Agents
 
 MOSAIC runs **25 agents across 4 layers**, assembled into one daily cycle by LangGraph.js (`mosaic-ts/src/graph/daily_cycle.ts`). Each agent lives in `mosaic-ts/src/agents/<layer>/`; per-layer factories (`_factory.ts`) and schemas (`_schemas.ts`) are shared.
-The canonical roster is `AGENTS_BY_LAYER`; its committed cross-language form is
-`registry/prompt_checks/runtime_agent_manifest_v1.json`.
+The canonical roster is `AGENTS_BY_LAYER`; its stage-aware committed form is
+`registry/prompt_checks/runtime_agent_manifest_v2.json`.
 
 State flows layer by layer via per-layer maps in `mosaic-ts/src/agents/state.ts` (`layer1_outputs` … `layer4_outputs`, plus a top-level `portfolio_actions` mirror).
 
 ## Layer 1 — Macro (10)
 
-`central_bank`, `geopolitical`, `china`, `dollar`, `yield_curve`, `commodities`, `volatility`, `emerging_markets`, `news_sentiment`, `institutional_flow`. (`_aggregator.ts` consolidates Layer-1 output.)
+`china`, `us_economy`, `central_bank`, `dollar`, `yield_curve`, `commodities`,
+`geopolitical`, `volatility`, `market_breadth`, `institutional_flow`.
+`emerging_markets` and `news_sentiment` are audit-only `legacy_unverified`
+records. (`_aggregator.ts` consolidates Layer-1 output.)
 
-Layer-1 agents call sidecar tools (Tushare/akshare/FRED/Xueqiu/etc.) — e.g. `volatility` uses `get_ivx` + `get_realized_volatility` + `get_etf_indicator(510050.SH)`; `emerging_markets` uses `get_etf_price_data`; `china` uses `get_property_data` (国房景气指数) + `get_policy_uncertainty` (EPU). The macro layer is 20 tools (see [Data Layer](Data-Layer.md) for the full list).
+Each Layer-1 role reads exactly one role-scoped PIT snapshot. Tushare is the
+primary structured source; preregistered ALFRED/official vintages fill US
+revisions without implicit fallback. News is event evidence only for `china`
+and `geopolitical`. `market_breadth` receives deterministic equal-weight A-share
+breadth metrics and does not calculate them in the model. See
+[Macro Agent role contracts](../macro_agent_role_contracts.md).
 
 ## Layer 2 — Sector (7)
 

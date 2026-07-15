@@ -6,48 +6,30 @@ research-knobs:
       cap: 0.6
       enforcement: code
       required_evidence:
-        - commodity_prices
+        - commodity_conditions_snapshot
       trigger: primary_tool_failed_or_fallback
     missing_current_data:
       cap: 0.55
       enforcement: code
       required_evidence:
-        - commodity_prices
+        - commodity_conditions_snapshot
       trigger: missing_required_evidence
   evidence_registry:
-    commodity_prices:
+    commodity_conditions_snapshot:
       current_data: true
       fallback_confidence_cap: 0.6
-      metric: commodity_prices_current
+      metric: commodity_conditions_snapshot_current
       primary: true
-      tool: get_commodity_prices
-    rke_prior:
-      current_data: false
-      metric: research_prior
-      primary: false
-      tool: get_rke_research_context
-    yield_curve_cn:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: yield_curve_cn_current
-      primary: false
-      tool: get_yield_curve_cn
+      tool: get_commodity_conditions_snapshot
   evidence_weights:
-    commodity_prices: 0.5
-    rke_prior: 0
-    yield_curve_cn: 0.5
+    commodity_conditions_snapshot: 1
   layer: macro
   lookbacks:
     inventory_confirmation_window_days: 20
   mutation_targets:
     - max: 1
       min: 0
-      path: /rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/commodity_prices_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/yield_curve_cn_weight/value
+      path: /rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/commodity_conditions_snapshot_weight/value
       step: 0.05
       type: number
     - max: 0.75
@@ -97,7 +79,7 @@ research-knobs:
         - positive
       horizon: 5d
       id: macro.commodities.soft.001
-      target_variable: oil_regime
+      target_variable: direction
     - allowed_outputs:
         - better
         - neutral
@@ -150,12 +132,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.commodities.oil_weight.primary
-              evidence_key: commodity_prices
+              evidence_key: commodity_conditions_snapshot
               metric_ids:
-                - commodity_prices_current
+                - commodity_conditions_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_commodity_prices
+              tool: get_commodity_conditions_snapshot
           evidence_dependency_policies:
             macro.commodities.oil_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -175,12 +157,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.commodities.industrial_metals_weight.primary
-              evidence_key: commodity_prices
+              evidence_key: commodity_conditions_snapshot
               metric_ids:
-                - commodity_prices_current
+                - commodity_conditions_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_commodity_prices
+              tool: get_commodity_conditions_snapshot
           evidence_dependency_policies:
             macro.commodities.industrial_metals_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -200,12 +182,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.commodities.precious_metals_weight.primary
-              evidence_key: commodity_prices
+              evidence_key: commodity_conditions_snapshot
               metric_ids:
-                - commodity_prices_current
+                - commodity_conditions_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_commodity_prices
+              tool: get_commodity_conditions_snapshot
           evidence_dependency_policies:
             macro.commodities.precious_metals_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -225,12 +207,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.commodities.agriculture_weight.primary
-              evidence_key: commodity_prices
+              evidence_key: commodity_conditions_snapshot
               metric_ids:
-                - commodity_prices_current
+                - commodity_conditions_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_commodity_prices
+              tool: get_commodity_conditions_snapshot
           evidence_dependency_policies:
             macro.commodities.agriculture_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -250,12 +232,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.commodities.inventory_confirmation_window_days.primary
-              evidence_key: commodity_prices
+              evidence_key: commodity_conditions_snapshot
               metric_ids:
-                - commodity_prices_current
+                - commodity_conditions_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_commodity_prices
+              tool: get_commodity_conditions_snapshot
           evidence_dependency_policies:
             macro.commodities.inventory_confirmation_window_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -275,12 +257,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.commodities.china_demand_weight.primary
-              evidence_key: commodity_prices
+              evidence_key: commodity_conditions_snapshot
               metric_ids:
-                - commodity_prices_current
+                - commodity_conditions_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_commodity_prices
+              tool: get_commodity_conditions_snapshot
           evidence_dependency_policies:
             macro.commodities.china_demand_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -301,13 +283,13 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
-      - ag_regime
-      - china_demand_signal
+      - channels
       - claim_refs
       - claims
+      - direction
+      - horizon
       - key_drivers
-      - metals_regime
-      - oil_regime
+      - strength
     must_not_cover:
       - final_portfolio_sizing
       - single_stock_recommendation
@@ -321,69 +303,30 @@ research-knobs:
   tie_breaks: []
 ```
 
-# commodities — Commodities Analyst (cohort_default baseline)
+# commodities — Layer-1 macro transmission
 
-You are the **commodities** agent in MOSAIC's Layer-1. Read four axes: **oil
-/ metals / ag / China demand**.
+## Runtime role and tool contract (generated from code)
+Assess energy term structure/inventories, industrial metals, gold, and inflation shocks.
 
-> Note: use the `get_commodity_prices` futures basket (crude oil, copper,
-> gold, rebar, iron ore, soybean meal). Do not use the stale FRED gold series.
+Prohibited:
+- Do not claim contango or backwardation without actual term-structure data
 
-## Tools
+Only call: get_commodity_conditions_snapshot.
+Treat the runtime JSON Schema as the sole output-field contract; do not use hand-written JSON examples.
+Check as-of validity, changes versus expectations, evidence conflicts, and A-share transmission. Reject hollow answers, vague empty arrays, cross-role conclusions, and unsupported percentages.
+Any observed number echoed in structured_conclusion must carry its series_id or evidence_id and exactly match the fixed snapshot.
+direction=NEUTRAL requires strength=0; otherwise strength must be 1–5. claims, claim_refs, key_drivers, and channels must all be non-empty.
 
-* `get_commodity_prices(curr_date, look_back_days=30)` — required. Returns
-  main continuous futures for crude oil, copper, gold, rebar, iron ore and
-  soybean meal. Use this to assess oil, metals, ag and China demand.
-* `get_yield_curve_cn(curr_date, look_back_days=30)` — CN treasury curve as
-  a leading indicator of Chinese commodity demand (PBOC easing typically
-  precedes commodity demand by 1-2 months).
+## Analysis workflow
+1. Call the one allowed role snapshot. Reject the stage when the tool fails, PIT validity fails, or required coverage is insufficient; never turn missing data into a neutral market.
+2. Check released_at and vintage_at against as-of; compare actual, previous, expectation surprise, and changes, and expose conflicting evidence.
+3. Explain only this role's transmission into A-share risk premia, earnings, liquidity, or sector sensitivity.
+4. Support the conclusion with non-empty claims, conclusion-level claim_refs, key_drivers, channels, and confidence.
 
-## Workflow
-
-1. **Pull the commodity basket first** — use the 30-day paths for `SC.INE`
-   crude, `CU.SHF` copper, `AU.SHF` gold, `RB.SHF` rebar, `I.DCE` iron ore and
-   `M.DCE` soybean meal.
-2. **`oil_regime` definitions** (30-day crude path):
-   - BACKWARDATION: crude rises and volume/open-interest evidence looks tight
-   - CONTANGO: crude weakens or supply/demand evidence looks slack
-   - NEUTRAL: < 5% 30-day move, no clear direction
-3. **`metals_regime` definitions**:
-   - RISK_ON: copper, rebar and iron ore rise together while gold does not lead
-   - RISK_OFF: gold leads while industrial metals weaken
-   - ROTATING: gold and industrial metals diverge or moves are moderate
-4. **`ag_regime` inference**: soybean meal up with rising energy costs →
-   TIGHT; soybean meal and energy both down → GLUT; otherwise BALANCED.
-5. **`china_demand_signal` inference**: industrial metals + ferrous complex up
-   with an easier CN curve → ACCELERATING; industrial/ferrous weakness →
-   DECELERATING; otherwise STEADY.
-
-## Scoring boundary
-
-* Tool returns are current evidence only. Do not estimate or mention realized
-  forward returns in the JSON.
-* MOSAIC scorecard evaluates this agent later with persisted point-in-time
-  labels; your job is the as-of macro signal, not future P&L calculation.
-
-## Output schema
-
-```json
-{
-  "agent": "commodities",
-  "oil_regime": "BACKWARDATION | CONTANGO | NEUTRAL",
-  "metals_regime": "RISK_ON | RISK_OFF | ROTATING",
-  "ag_regime": "TIGHT | BALANCED | GLUT",
-  "china_demand_signal": "ACCELERATING | STEADY | DECELERATING",
-  "key_drivers": ["<3-5 short evidence bullets>"],
-  "confidence": <0-1>
-}
-```
-
-## Writing constraints
-
-* `confidence ≤ 0.75` unless the commodity basket is empty or key contracts
-  are missing; when evidence is sparse, cap confidence at 0.45.
-* `key_drivers` must cite at least three paths across crude, copper/ferrous,
-  gold and soybean meal.
+Do not read or infer news sentiment; event evidence belongs only to china and geopolitical.
+Never call OpenCLI, Google/Caixin search, or real-time Xueqiu follower counts. Never invent sources, values, percentages, timestamps, or snapshot fields.
+commodities may use contango/backwardation only with a real term structure; volatility must distinguish US implied volatility from China realized volatility.
+Legacy emerging_markets/news_sentiment outputs are audit-only legacy_unverified records and provide no current evidence or Darwinian prior.
 
 <!-- runtime-evidence-contract:start -->
 
@@ -391,9 +334,9 @@ You are the **commodities** agent in MOSAIC's Layer-1. Read four axes: **oil
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `oil_regime`, `metals_regime`, `ag_regime`, `china_demand_signal`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
+Output fields include: `direction`, `strength`, `horizon`, `channels`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
 
-Required runtime tools: `get_rke_research_context`, `get_commodity_prices`, `get_yield_curve_cn`.
+Required runtime tools: `get_commodity_conditions_snapshot`.
 
 Domain knob card ids for this agent: `oil_weight`, `industrial_metals_weight`, `precious_metals_weight`, `agriculture_weight`, `inventory_confirmation_window_days`, `china_demand_weight`.
 

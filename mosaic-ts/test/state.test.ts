@@ -17,6 +17,7 @@ import type {
   LlmCallRecord,
   RegimeSignal,
 } from "../src/agents/types.js";
+import { macroOutput } from "./helpers/macro.js";
 
 /** Reducer functions are exported for direct unit testing — see Plan §11.2. */
 
@@ -152,23 +153,19 @@ describe("state reducers", () => {
 
 describe("DailyCycleState integration via reducer composition", () => {
   it("simulates a full Layer-1 fan-out with two parallel writers", () => {
-    const cb: CentralBankOutput = {
-      agent: "central_bank",
-      stance: "ACCOMMODATIVE",
-      key_rate_change_bps: -10,
-      qe_qt_balance_change: "reverse repo +200B CNY",
-      next_window: "2024-07-15",
+    const cb: CentralBankOutput = macroOutput("central_bank", {
+      direction: "SUPPORTIVE",
+      strength: 4,
       key_drivers: ["MLF rolled at lower rate"],
       confidence: 0.78,
-    };
-    const cn: ChinaOutput = {
-      agent: "china",
-      policy_direction: "PRO_GROWTH",
-      sector_focus: ["semiconductor"],
-      risk_drivers: ["property"],
+    });
+    const cn: ChinaOutput = macroOutput("china", {
+      direction: "SUPPORTIVE",
+      strength: 3,
+      channels: ["semiconductor"],
       key_drivers: ["新质生产力 keyword"],
       confidence: 0.65,
-    };
+    });
     // Two concurrent agent nodes both produce a 1-key update — the reducer
     // composes them into a single map.
     const after = dictMergeReducer<CentralBankOutput | ChinaOutput>(

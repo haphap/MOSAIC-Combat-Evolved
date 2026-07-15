@@ -29,6 +29,15 @@ def _state(outputs: dict, date: str = "2024-01-02", cohort: str = "cohort_defaul
     }
 
 
+def _macro(agent: str, direction: str = "NEUTRAL", confidence: float = 0.7) -> dict:
+    return {
+        "agent": agent,
+        "direction": direction,
+        "strength": 0 if direction == "NEUTRAL" else 5,
+        "confidence": confidence,
+    }
+
+
 # Deterministic calendar: ±N calendar days (good enough for unit tests).
 def _ntd(d: str, n: int) -> str:
     return (_dt.date.fromisoformat(d) + _dt.timedelta(days=n)).isoformat()
@@ -49,14 +58,10 @@ class TestExpand(unittest.TestCase):
         rows = expand_state_to_macro_signals(
             _state(
                 {
-                    "central_bank": {"agent": "central_bank", "stance": "ACCOMMODATIVE", "confidence": 0.8},
-                    "yield_curve": {"agent": "yield_curve", "recession_signal": "RED", "confidence": 0.5},
-                    "volatility": {"agent": "volatility", "regime_filter": "NEUTRAL", "confidence": 0.4},
-                    "institutional_flow": {
-                        "agent": "institutional_flow",
-                        "sectors_in_out": [{"net_amount_cny": 1500}, {"net_amount_cny": -200}],
-                        "confidence": 0.6,
-                    },
+                    "central_bank": _macro("central_bank", "SUPPORTIVE", 0.8),
+                    "yield_curve": _macro("yield_curve", "ADVERSE", 0.5),
+                    "volatility": _macro("volatility", "NEUTRAL", 0.4),
+                    "institutional_flow": _macro("institutional_flow", "SUPPORTIVE", 0.6),
                 }
             )
         )
@@ -64,11 +69,11 @@ class TestExpand(unittest.TestCase):
         self.assertEqual(by["central_bank"]["vote"], 1)
         self.assertEqual(by["yield_curve"]["vote"], -1)
         self.assertEqual(by["volatility"]["vote"], 0)
-        self.assertEqual(by["institutional_flow"]["vote"], 1)  # net +1300 > 1000
+        self.assertEqual(by["institutional_flow"]["vote"], 1)
         self.assertEqual(by["central_bank"]["consensus_stance"], "BULLISH")
 
     def test_macro_excluded_from_recommendations(self):
-        st = _state({"central_bank": {"agent": "central_bank", "stance": "TIGHTENING", "confidence": 0.5}})
+        st = _state({"central_bank": _macro("central_bank", "ADVERSE", 0.5)})
         self.assertEqual(expand_state_to_recommendations(st), [])
         self.assertEqual(len(expand_state_to_macro_signals(st)), 1)
 
@@ -83,7 +88,7 @@ class TestIngestIdempotent(unittest.TestCase):
         import os
         with tempfile.TemporaryDirectory() as d:
             store = ScorecardStore(db_path=os.path.join(d, "t.db"))
-            st = _state({"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}})
+            st = _state({"dollar": _macro("dollar", "SUPPORTIVE", 0.5)})
             self.assertEqual(store.append_macro_signals_from_state(st), 1)
             store.append_macro_signals_from_state(st)  # re-ingest
             with store._connect() as conn:
@@ -128,7 +133,7 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_bullish_vote_benchmark_up_hits_positive(self):
         out, row = self._run(
-            {"volatility": {"agent": "volatility", "regime_filter": "RISK_ON", "confidence": 0.8}},
+            {"volatility": _macro("volatility", "SUPPORTIVE", 0.8)},
             bench_ret=0.03,
         )
         self.assertEqual(out["macro_scored"], 1)
@@ -139,7 +144,7 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_bearish_vote_benchmark_down_hits_positive(self):
         _, row = self._run(
-            {"yield_curve": {"agent": "yield_curve", "recession_signal": "RED", "confidence": 0.7}},
+            {"yield_curve": _macro("yield_curve", "ADVERSE", 0.7)},
             bench_ret=-0.03,
         )
         self.assertEqual(row["vote"], -1)
@@ -149,20 +154,20 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_neutral_small_move_positive_big_move_negative(self):
         _, small = self._run(
-            {"volatility": {"agent": "volatility", "regime_filter": "NEUTRAL", "confidence": 0.6}},
+            {"volatility": _macro("volatility", "NEUTRAL", 0.6)},
             bench_ret=0.001,  # within band
         )
         self.assertEqual(small["realized_label"], 0)
         self.assertGreater(small["raw_macro_score_5d"], 0)
         _, big = self._run(
-            {"volatility": {"agent": "volatility", "regime_filter": "NEUTRAL", "confidence": 0.6}},
+            {"volatility": _macro("volatility", "NEUTRAL", 0.6)},
             bench_ret=0.05,  # big move
         )
         self.assertLess(big["raw_macro_score_5d"], 0)
 
     def test_neutral_band_override_controls_realized_label(self):
         _, row = self._run(
-            {"volatility": {"agent": "volatility", "regime_filter": "RISK_ON", "confidence": 0.8}},
+            {"volatility": _macro("volatility", "SUPPORTIVE", 0.8)},
             bench_ret=0.01,
             neutral_band=0.02,
         )
@@ -177,7 +182,7 @@ class TestMacroScorer(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
         store.append_macro_signals_from_state(
-            _state({"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}}, date=d0)
+            _state({"dollar": _macro("dollar", "SUPPORTIVE", 0.5)}, date=d0)
         )
         with _cal_patch(), \
              patch("mosaic.scorecard.scorer._fetch_close", lambda ts, date: None), \
@@ -199,7 +204,7 @@ class TestMacroSkill(unittest.TestCase):
         store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
         # two scored rows for one agent
         store.append_macro_signals_from_state(
-            _state({"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}}, date="2024-01-02")
+            _state({"dollar": _macro("dollar", "SUPPORTIVE", 0.5)}, date="2024-01-02")
         )
         with store._connect() as conn:
             rid = conn.execute("SELECT id FROM macro_signals").fetchone()[0]
@@ -222,7 +227,7 @@ class TestMacroSkill(unittest.TestCase):
             date = f"2024-01-0{i}"
             store.append_macro_signals_from_state(
                 _state(
-                    {"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}},
+                    {"dollar": _macro("dollar", "SUPPORTIVE", 0.5)},
                     date=date,
                 )
             )
@@ -251,13 +256,13 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         expected_primary = {
             "central_bank": "rate_sensitive_path_5d",
             "china": "china_growth_proxy_path_5d",
+            "us_economy": "us_demand_transmission_path_5d",
             "geopolitical": "risk_off_path_5d",
             "dollar": "cny_pressure_path_5d",
             "yield_curve": "curve_sensitive_path_5d",
             "commodities": "commodity_basket_path_5d",
             "volatility": "volatility_shock_path_5d",
-            "emerging_markets": "em_hk_relative_path_5d",
-            "news_sentiment": "sentiment_followthrough_path_5d",
+            "market_breadth": "market_breadth_confirmation_5d",
             "institutional_flow": "flow_followthrough_path_5d",
         }
         for agent, label_type in expected_primary.items():
@@ -286,9 +291,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
             _state(
                 {
                     "volatility": {
-                        "agent": "volatility",
-                        "regime_filter": "RISK_OFF",
-                        "confidence": 0.8,
+                        **_macro("volatility", "ADVERSE", 0.8),
                     }
                 },
                 date=d0,
@@ -335,11 +338,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         store.append_macro_signals_from_state(
             _state(
                 {
-                    "volatility": {
-                        "agent": "volatility",
-                        "regime_filter": "RISK_OFF",
-                        "confidence": 0.8,
-                    }
+                    "volatility": _macro("volatility", "ADVERSE", 0.8)
                 },
                 date=d0,
             )
@@ -371,7 +370,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
         store.append_macro_signals_from_state(
             _state(
-                {"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}},
+                {"dollar": _macro("dollar", "SUPPORTIVE", 0.5)},
                 date=d0,
             )
         )
@@ -399,31 +398,30 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
 
         d0 = "2024-01-02"
         outputs = {
-            "central_bank": {"agent": "central_bank", "stance": "ACCOMMODATIVE", "confidence": 0.7},
-            "china": {"agent": "china", "policy_direction": "PRO_GROWTH", "confidence": 0.7},
-            "geopolitical": {"agent": "geopolitical", "escalation_level": 2, "confidence": 0.7},
-            "dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.7},
-            "yield_curve": {"agent": "yield_curve", "recession_signal": "GREEN", "confidence": 0.7},
-            "commodities": {"agent": "commodities", "china_demand_signal": "ACCELERATING", "confidence": 0.7},
-            "volatility": {"agent": "volatility", "regime_filter": "RISK_ON", "confidence": 0.7},
-            "emerging_markets": {"agent": "emerging_markets", "em_relative": "OUTPERFORMING", "confidence": 0.7},
-            "news_sentiment": {"agent": "news_sentiment", "retail_sentiment_score": 0.5, "confidence": 0.7},
-            "institutional_flow": {
-                "agent": "institutional_flow",
-                "sectors_in_out": [{"net_amount_cny": 1500}],
-                "confidence": 0.7,
-            },
+            agent: _macro(agent, "SUPPORTIVE", 0.7)
+            for agent in (
+                "china",
+                "us_economy",
+                "central_bank",
+                "dollar",
+                "yield_curve",
+                "commodities",
+                "geopolitical",
+                "volatility",
+                "market_breadth",
+                "institutional_flow",
+            )
         }
         expected_labels = {
             "central_bank": "rate_sensitive_path_5d",
             "china": "china_growth_proxy_path_5d",
+            "us_economy": "us_demand_transmission_path_5d",
             "geopolitical": "risk_off_path_5d",
             "dollar": "cny_pressure_path_5d",
             "yield_curve": "curve_sensitive_path_5d",
             "commodities": "commodity_basket_path_5d",
             "volatility": "volatility_shock_path_5d",
-            "emerging_markets": "em_hk_relative_path_5d",
-            "news_sentiment": "sentiment_followthrough_path_5d",
+            "market_breadth": "market_breadth_confirmation_5d",
             "institutional_flow": "flow_followthrough_path_5d",
         }
         tmp = tempfile.TemporaryDirectory()
@@ -465,14 +463,10 @@ class TestMacroInfluenceDiagnostics(unittest.TestCase):
             _state(
                 {
                     "central_bank": {
-                        "agent": "central_bank",
-                        "stance": "ACCOMMODATIVE",
-                        "confidence": 1.0,
+                        **_macro("central_bank", "SUPPORTIVE", 1.0),
                     },
                     "yield_curve": {
-                        "agent": "yield_curve",
-                        "recession_signal": "RED",
-                        "confidence": 1.0,
+                        **_macro("yield_curve", "ADVERSE", 1.0),
                     },
                 }
             )
@@ -492,16 +486,8 @@ class TestMacroInfluenceDiagnostics(unittest.TestCase):
         store.append_macro_signals_from_state(
             _state(
                 {
-                    "central_bank": {
-                        "agent": "central_bank",
-                        "stance": "ACCOMMODATIVE",
-                        "confidence": 1.0,
-                    },
-                    "yield_curve": {
-                        "agent": "yield_curve",
-                        "recession_signal": "RED",
-                        "confidence": 1.0,
-                    },
+                    "central_bank": _macro("central_bank", "SUPPORTIVE", 1.0),
+                    "yield_curve": _macro("yield_curve", "ADVERSE", 1.0),
                 },
                 date=d0,
             )

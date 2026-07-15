@@ -72,6 +72,14 @@ PRIMARY_LABEL_CONFIGS: dict[str, MacroPathLabelConfig] = {
         benchmark_relative=True,
         source_description="China growth proxy ETF relative to benchmark",
     ),
+    "us_demand_transmission_path_5d": MacroPathLabelConfig(
+        agent="us_economy",
+        label_type="us_demand_transmission_path_5d",
+        path_kind="relative",
+        primary_symbols=("513100.SH",),
+        benchmark_relative=True,
+        source_description="US equity demand-cycle proxy relative to CSI300",
+    ),
     "risk_off_path_5d": MacroPathLabelConfig(
         agent="geopolitical",
         label_type="risk_off_path_5d",
@@ -110,20 +118,15 @@ PRIMARY_LABEL_CONFIGS: dict[str, MacroPathLabelConfig] = {
         drawdown_penalty_lambda=1.5,
         source_description="benchmark path with stronger drawdown penalty",
     ),
-    "em_hk_relative_path_5d": MacroPathLabelConfig(
-        agent="emerging_markets",
-        label_type="em_hk_relative_path_5d",
-        path_kind="relative",
-        primary_symbols=("513050.SH",),  # HK tech ETF proxy
-        benchmark_relative=True,
-        source_description="HK/EM proxy ETF relative to benchmark",
-    ),
-    "sentiment_followthrough_path_5d": MacroPathLabelConfig(
-        agent="news_sentiment",
-        label_type="sentiment_followthrough_path_5d",
-        path_kind="benchmark",
+    "market_breadth_confirmation_5d": MacroPathLabelConfig(
+        agent="market_breadth",
+        label_type="market_breadth_confirmation_5d",
+        path_kind="breadth_confirmation",
         primary_symbols=(),
-        source_description="market follow-through path after sentiment signal",
+        source_description=(
+            "50% subsequent breadth-composite change + 50% PIT equal-weight "
+            "A-share return relative to benchmark"
+        ),
     ),
     "flow_followthrough_path_5d": MacroPathLabelConfig(
         agent="institutional_flow",

@@ -380,6 +380,15 @@ def _macro_state(outputs: dict, date: str = "2024-01-02") -> dict:
     }
 
 
+def _macro_output(agent: str, direction: str = "SUPPORTIVE", confidence: float = 0.7) -> dict:
+    return {
+        "agent": agent,
+        "direction": direction,
+        "strength": 0 if direction == "NEUTRAL" else 5,
+        "confidence": confidence,
+    }
+
+
 def test_full_label_sources_gate_controls_primary_labels():
     # Gate OFF: no agent's primary is a new proxy/path label; the two PR #73
     # agents still keep a (benchmark-derived) primary.
@@ -398,7 +407,7 @@ def test_scorer_default_gate_on_uses_proxy_agent_path_label(tmp_path):
     store = ScorecardStore(db_path=os.path.join(tmp_path, "t.db"))
     d0 = "2024-01-02"
     store.append_macro_signals_from_state(
-        _macro_state({"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}}, d0)
+        _macro_state({"dollar": _macro_output("dollar", confidence=0.5)}, d0)
     )
     t5 = _ntd(d0, 5)
     with _cal(), \
@@ -416,7 +425,7 @@ def test_scorer_explicit_gate_off_keeps_proxy_agent_off_path_label(tmp_path):
     store = ScorecardStore(db_path=os.path.join(tmp_path, "t.db"))
     d0 = "2024-01-02"
     store.append_macro_signals_from_state(
-        _macro_state({"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}}, d0)
+        _macro_state({"dollar": _macro_output("dollar", confidence=0.5)}, d0)
     )
     t5 = _ntd(d0, 5)
     with _cal(), \
@@ -438,7 +447,7 @@ def test_scorer_relative_label_falls_back_when_dates_do_not_overlap(tmp_path):
     d0 = "2024-01-02"
     store.append_macro_signals_from_state(
         _macro_state(
-            {"central_bank": {"agent": "central_bank", "stance": "ACCOMMODATIVE", "confidence": 0.7}},
+            {"central_bank": _macro_output("central_bank")},
             d0,
         )
     )
@@ -467,16 +476,19 @@ def test_p6_integration_ingest_score_skill_select(tmp_path):
     store = ScorecardStore(db_path=os.path.join(tmp_path, "t.db"))
     d0 = "2024-01-02"
     outputs = {
-        "central_bank": {"agent": "central_bank", "stance": "TIGHTENING", "confidence": 0.7},
-        "china": {"agent": "china", "policy_direction": "PRO_GROWTH", "confidence": 0.6},
-        "geopolitical": {"agent": "geopolitical", "escalation_level": 5, "confidence": 0.6},
-        "dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5},
-        "yield_curve": {"agent": "yield_curve", "recession_signal": "GREEN", "confidence": 0.5},
-        "commodities": {"agent": "commodities", "china_demand_signal": "ACCELERATING", "confidence": 0.5},
-        "volatility": {"agent": "volatility", "regime_filter": "RISK_ON", "confidence": 0.7},
-        "emerging_markets": {"agent": "emerging_markets", "em_relative": "OUTPERFORMING", "confidence": 0.6},
-        "news_sentiment": {"agent": "news_sentiment", "retail_sentiment_score": 0.5, "confidence": 0.6},
-        "institutional_flow": {"agent": "institutional_flow", "sectors_in_out": [{"net_amount_cny": 1500}], "confidence": 0.6},
+        agent: _macro_output(agent)
+        for agent in (
+            "china",
+            "us_economy",
+            "central_bank",
+            "dollar",
+            "yield_curve",
+            "commodities",
+            "geopolitical",
+            "volatility",
+            "market_breadth",
+            "institutional_flow",
+        )
     }
     assert store.append_macro_signals_from_state(_macro_state(outputs, d0)) == 10
     t5 = _ntd(d0, 5)
@@ -514,8 +526,8 @@ def test_compare_label_sources_reports_both_families(tmp_path):
     store.append_macro_signals_from_state(
         _macro_state(
             {
-                "volatility": {"agent": "volatility", "regime_filter": "RISK_ON", "confidence": 0.7},
-                "dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.6},
+                "volatility": _macro_output("volatility"),
+                "dollar": _macro_output("dollar", confidence=0.6),
             },
             d0,
         )
@@ -566,7 +578,7 @@ def test_crawl_macro_documents_persists_dedupes_and_tags(tmp_path):
     assert len(rows) == 2
     assert all(r["discovered_at"] == "2024-01-06T00:00:00+00:00" for r in rows)
     tags = _json.loads(rows[0]["agent_tags_json"])
-    assert "news_sentiment" in tags  # news endpoint's macro agents
+    assert set(tags) == {"china", "geopolitical"}
     assert all(r["published_at"] for r in rows)
     # P4: crawler classifies at ingest — "央行宣布降准" → policy_support (risk-on),
     # "地缘冲突升级" → geopolitical_escalation (risk-off).
@@ -648,25 +660,25 @@ def test_sentiment_index_is_point_in_time_and_requires_published_at(tmp_path):
     store.append_macro_documents(
         [
             # in-window, dated, discovered before as-of → counts
-            {"content_hash": "h1", "source": "tushare", "agent_tags": ["news_sentiment"],
+            {"content_hash": "h1", "source": "tushare", "agent_tags": ["china"],
              "title": "市场大涨 rally 利好", "published_at": "2024-01-04",
              "discovered_at": "2024-01-04T00:00:00+00:00"},
             # discovered AFTER as-of → excluded (look-ahead)
-            {"content_hash": "h2", "source": "tushare", "agent_tags": ["news_sentiment"],
+            {"content_hash": "h2", "source": "tushare", "agent_tags": ["china"],
              "title": "暴跌 risk-off", "published_at": "2024-01-04",
              "discovered_at": "2024-01-09T00:00:00+00:00"},
             # no published_at → evidence-only, never in index
-            {"content_hash": "h3", "source": "tushare", "agent_tags": ["news_sentiment"],
+            {"content_hash": "h3", "source": "tushare", "agent_tags": ["china"],
              "title": "暴跌 risk-off", "published_at": None,
              "discovered_at": "2024-01-04T00:00:00+00:00"},
-            # different agent → not counted for news_sentiment
+            # different agent → not counted for china
             {"content_hash": "h4", "source": "tushare", "agent_tags": ["dollar"],
              "title": "暴跌 risk-off", "published_at": "2024-01-04",
              "discovered_at": "2024-01-04T00:00:00+00:00"},
         ]
     )
     classify_persisted_documents(store)
-    idx = build_sentiment_index(store, "news_sentiment", "2024-01-05", lookback_days=7)
+    idx = build_sentiment_index(store, "china", "2024-01-05", lookback_days=7)
     assert idx["n_documents"] == 1  # only h1
     assert idx["n_evidence_only"] == 1  # h3 (undated)
     assert idx["sentiment_index"] > 0

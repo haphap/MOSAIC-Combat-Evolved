@@ -6,43 +6,23 @@ research-knobs:
       cap: 0.6
       enforcement: code
       required_evidence:
-        - pboc_ops
+        - central_bank_snapshot
       trigger: primary_tool_failed_or_fallback
     missing_current_data:
       cap: 0.55
       enforcement: code
       required_evidence:
-        - pboc_ops
+        - central_bank_snapshot
       trigger: missing_required_evidence
   evidence_registry:
-    fred_series:
+    central_bank_snapshot:
       current_data: true
       fallback_confidence_cap: 0.6
-      metric: fred_series_current
-      primary: false
-      tool: get_fred_series
-    pboc_ops:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: pboc_ops_current
+      metric: central_bank_snapshot_current
       primary: true
-      tool: get_pboc_ops
-    rke_prior:
-      current_data: false
-      metric: research_prior
-      primary: false
-      tool: get_rke_research_context
-    yield_curve_cn:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: yield_curve_cn_current
-      primary: false
-      tool: get_yield_curve_cn
+      tool: get_central_bank_snapshot
   evidence_weights:
-    fred_series: 0.3333333333333333
-    pboc_ops: 0.3333333333333333
-    rke_prior: 0
-    yield_curve_cn: 0.3333333333333333
+    central_bank_snapshot: 1
   layer: macro
   lookbacks:
     liquidity_net_injection_window_days: 20
@@ -50,17 +30,7 @@ research-knobs:
   mutation_targets:
     - max: 1
       min: 0
-      path: /rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_ops_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/fred_series_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/yield_curve_cn_weight/value
+      path: /rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/central_bank_snapshot_weight/value
       step: 0.05
       type: number
     - max: 0.75
@@ -110,7 +80,7 @@ research-knobs:
         - positive
       horizon: 5d
       id: macro.central_bank.soft.001
-      target_variable: stance
+      target_variable: direction
     - allowed_outputs:
         - better
         - neutral
@@ -163,12 +133,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.central_bank.pboc_fed_policy_weight.primary
-              evidence_key: pboc_ops
+              evidence_key: central_bank_snapshot
               metric_ids:
-                - pboc_ops_current
+                - central_bank_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_pboc_ops
+              tool: get_central_bank_snapshot
           evidence_dependency_policies:
             macro.central_bank.pboc_fed_policy_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -188,12 +158,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.central_bank.liquidity_net_injection_window_days.primary
-              evidence_key: pboc_ops
+              evidence_key: central_bank_snapshot
               metric_ids:
-                - pboc_ops_current
+                - central_bank_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_pboc_ops
+              tool: get_central_bank_snapshot
           evidence_dependency_policies:
             macro.central_bank.liquidity_net_injection_window_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -213,12 +183,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.central_bank.omo_mlf_freshness_days.primary
-              evidence_key: pboc_ops
+              evidence_key: central_bank_snapshot
               metric_ids:
-                - pboc_ops_current
+                - central_bank_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_pboc_ops
+              tool: get_central_bank_snapshot
           evidence_dependency_policies:
             macro.central_bank.omo_mlf_freshness_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -238,12 +208,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.central_bank.easing_threshold_bps.primary
-              evidence_key: pboc_ops
+              evidence_key: central_bank_snapshot
               metric_ids:
-                - pboc_ops_current
+                - central_bank_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_pboc_ops
+              tool: get_central_bank_snapshot
           evidence_dependency_policies:
             macro.central_bank.easing_threshold_bps.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -263,12 +233,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.central_bank.tightening_threshold_bps.primary
-              evidence_key: pboc_ops
+              evidence_key: central_bank_snapshot
               metric_ids:
-                - pboc_ops_current
+                - central_bank_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_pboc_ops
+              tool: get_central_bank_snapshot
           evidence_dependency_policies:
             macro.central_bank.tightening_threshold_bps.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -288,12 +258,12 @@ research-knobs:
           default: 0.25
           evidence_dependencies:
             - dependency_id: macro.central_bank.policy_conflict_cap.primary
-              evidence_key: pboc_ops
+              evidence_key: central_bank_snapshot
               metric_ids:
-                - pboc_ops_current
+                - central_bank_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_pboc_ops
+              tool: get_central_bank_snapshot
           evidence_dependency_policies:
             macro.central_bank.policy_conflict_cap.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -314,13 +284,13 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - channels
       - claim_refs
       - claims
+      - direction
+      - horizon
       - key_drivers
-      - key_rate_change_bps
-      - next_window
-      - qe_qt_balance_change
-      - stance
+      - strength
     must_not_cover:
       - final_portfolio_sizing
       - single_stock_recommendation
@@ -333,73 +303,31 @@ research-knobs:
   tie_breaks: []
 ```
 
-# central_bank — Central Bank Analyst (cohort_default baseline)
+# central_bank — Layer-1 macro transmission
 
-You are the **central_bank** agent in MOSAIC's Layer-1 macro analysts.
-You have exactly one job: read the current monetary-policy stance of both
-**the People's Bank of China (PBOC)** and **the U.S. Federal Reserve (Fed)**
-and produce quantified, evidence-grounded key changes.
+## Runtime role and tool contract (generated from code)
+Assess PBOC/Fed reaction functions, policy bias, liquidity, and policy divergence.
 
-## Tools
+Prohibited:
+- Do not cast another China/US cycle vote
+- Do not read another agent's output
 
-* `get_pboc_ops(curr_date, look_back_days=7)` — PBOC open-market operations
-  (OMO / MLF / SLF). CSV with columns `op_type`, `volume` (CNY 100M / 亿元),
-  `rate`, `term`.
-* `get_fred_series(series_id, start_date, end_date)` — Fed data. You **must**
-  call this at least once with `FEDFUNDS` (effective federal funds rate);
-  may also pull `DFF` (daily) when finer granularity is useful.
-* `get_yield_curve_cn(curr_date, look_back_days=30)` — China treasury yield
-  curve (Tushare yc_cb, curve_type=0 sovereign). Use 1y/10y spread shifts to
-  infer how PBOC's actions are transmitting through the curve.
+Only call: get_central_bank_snapshot.
+Treat the runtime JSON Schema as the sole output-field contract; do not use hand-written JSON examples.
+Check as-of validity, changes versus expectations, evidence conflicts, and A-share transmission. Reject hollow answers, vague empty arrays, cross-role conclusions, and unsupported percentages.
+Any observed number echoed in structured_conclusion must carry its series_id or evidence_id and exactly match the fixed snapshot.
+direction=NEUTRAL requires strength=0; otherwise strength must be 1–5. claims, claim_refs, key_drivers, and channels must all be non-empty.
 
-## Workflow rules (strict)
+## Analysis workflow
+1. Call the one allowed role snapshot. Reject the stage when the tool fails, PIT validity fails, or required coverage is insufficient; never turn missing data into a neutral market.
+2. Check released_at and vintage_at against as-of; compare actual, previous, expectation surprise, and changes, and expose conflicting evidence.
+3. Explain only this role's transmission into A-share risk premia, earnings, liquidity, or sector sensitivity.
+4. Support the conclusion with non-empty claims, conclusion-level claim_refs, key_drivers, channels, and confidence.
 
-1. **Read both sides every cycle**: every reply must call `get_pboc_ops` AND
-   `get_fred_series`. **Never** rule on stance from only one side.
-2. **Quantify every change**: every claim must cite a concrete number —
-   rate changes in BPS, balance shifts in 亿 (CNY 100M), spread changes in
-   BPS. No vague terms like "loose-ish" or "tightening" without numbers.
-3. **Do not fabricate**: if a tool returned no data for a field, say so —
-   never paper it over with "historically" or "typically".
-4. **Next window**: must produce either an ISO date (`2024-07-15`) for the
-   next material policy window or the literal token `unknown`. No "later
-   this month", "soon", etc.
-
-## Scoring boundary
-
-* Tool returns are current evidence only. Do not estimate or mention realized
-  forward returns in the JSON.
-* MOSAIC scorecard evaluates this agent later with persisted point-in-time
-  labels; your job is the as-of macro signal, not future P&L calculation.
-
-## Output schema
-
-The final reply must populate this JSON shape:
-
-```json
-{
-  "agent": "central_bank",
-  "stance": "ACCOMMODATIVE | NEUTRAL | TIGHTENING",
-  "key_rate_change_bps": <number; PBOC+Fed combined effective direction; negative = easing>,
-  "qe_qt_balance_change": "<string, e.g. 'OMO net injection +20B CNY, MLF -150B CNY'>",
-  "next_window": "<YYYY-MM-DD or 'unknown'>",
-  "key_drivers": ["<3-5 short evidence bullets, ≤ 25 words each>"],
-  "confidence": <0-1; higher = stronger evidence base>
-}
-```
-
-## Writing constraints
-
-* **Dual-central-bank coupling**: explicitly state whether PBOC + Fed are
-  moving the same direction (both easing / both tightening), opposite, or
-  out of phase. Downstream `dollar` and `yield_curve` agents read this.
-* Every `key_drivers` bullet must contain a number or a date. Example:
-  - ✓ "PBOC OMO net injection +20B CNY on 6/24; -80B the prior week"
-  - ✗ "Central bank turning more accommodative"
-* `confidence ≥ 0.7` only when both tools returned conclusive data;
-  drop to `≤ 0.5` if either tool failed or returned thin data.
-* Do NOT include markdown headings, tables, or explanatory paragraphs in the
-  final output — your reply gets parsed into JSON by a structured extractor.
+Do not read or infer news sentiment; event evidence belongs only to china and geopolitical.
+Never call OpenCLI, Google/Caixin search, or real-time Xueqiu follower counts. Never invent sources, values, percentages, timestamps, or snapshot fields.
+commodities may use contango/backwardation only with a real term structure; volatility must distinguish US implied volatility from China realized volatility.
+Legacy emerging_markets/news_sentiment outputs are audit-only legacy_unverified records and provide no current evidence or Darwinian prior.
 
 <!-- runtime-evidence-contract:start -->
 
@@ -407,9 +335,9 @@ The final reply must populate this JSON shape:
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `stance`, `key_rate_change_bps`, `qe_qt_balance_change`, `next_window`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
+Output fields include: `direction`, `strength`, `horizon`, `channels`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
 
-Required runtime tools: `get_rke_research_context`, `get_pboc_ops`, `get_fred_series`, `get_yield_curve_cn`.
+Required runtime tools: `get_central_bank_snapshot`.
 
 Domain knob card ids for this agent: `pboc_fed_policy_weight`, `liquidity_net_injection_window_days`, `omo_mlf_freshness_days`, `easing_threshold_bps`, `tightening_threshold_bps`, `policy_conflict_cap`.
 

@@ -7,15 +7,15 @@
     {
       "cohort": "cohort_default",
       "enabled_agent_stages": [
-        "central_bank:agent_run",
-        "geopolitical:agent_run",
         "china:agent_run",
+        "us_economy:agent_run",
+        "central_bank:agent_run",
         "dollar:agent_run",
         "yield_curve:agent_run",
         "commodities:agent_run",
+        "geopolitical:agent_run",
         "volatility:agent_run",
-        "emerging_markets:agent_run",
-        "news_sentiment:agent_run",
+        "market_breadth:agent_run",
         "institutional_flow:agent_run",
         "semiconductor:agent_run",
         "energy:agent_run",
@@ -46,84 +46,17 @@
   ],
   "agents": [
     {
-      "agent": "central_bank",
-      "layer": "macro",
-      "prompt_ir_agent_id": "macro.central_bank",
-      "required_tools": [
-        "get_rke_research_context",
-        "get_pboc_ops",
-        "get_fred_series",
-        "get_yield_curve_cn"
-      ],
-      "output_schema_fields": [
-        "stance",
-        "key_rate_change_bps",
-        "qe_qt_balance_change",
-        "next_window",
-        "key_drivers",
-        "confidence",
-        "claims",
-        "claim_refs"
-      ],
-      "stages": [
-        {
-          "stage": "agent_run",
-          "enablement": "enabled",
-          "output_schema_ref": "macro.central_bank.output.v1",
-          "max_repair_attempts": 3,
-          "required_source_ids": [],
-          "produced_source_ids": [
-            "upstream_agent_outputs"
-          ]
-        }
-      ]
-    },
-    {
-      "agent": "geopolitical",
-      "layer": "macro",
-      "prompt_ir_agent_id": "macro.geopolitical",
-      "required_tools": [
-        "get_rke_research_context",
-        "get_us_china_relations",
-        "get_industry_policy"
-      ],
-      "output_schema_fields": [
-        "escalation_level",
-        "hot_zones",
-        "trade_impact",
-        "key_drivers",
-        "confidence",
-        "claims",
-        "claim_refs"
-      ],
-      "stages": [
-        {
-          "stage": "agent_run",
-          "enablement": "enabled",
-          "output_schema_ref": "macro.geopolitical.output.v1",
-          "max_repair_attempts": 3,
-          "required_source_ids": [],
-          "produced_source_ids": [
-            "upstream_agent_outputs"
-          ]
-        }
-      ]
-    },
-    {
       "agent": "china",
       "layer": "macro",
       "prompt_ir_agent_id": "macro.china",
       "required_tools": [
-        "get_rke_research_context",
-        "get_industry_policy",
-        "get_policy_uncertainty",
-        "get_pboc_ops",
-        "get_property_data"
+        "get_china_macro_snapshot"
       ],
       "output_schema_fields": [
-        "policy_direction",
-        "sector_focus",
-        "risk_drivers",
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
         "key_drivers",
         "confidence",
         "claims",
@@ -143,19 +76,77 @@
       ]
     },
     {
+      "agent": "us_economy",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.us_economy",
+      "required_tools": [
+        "get_us_macro_snapshot"
+      ],
+      "output_schema_fields": [
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
+        "key_drivers",
+        "confidence",
+        "claims",
+        "claim_refs"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.us_economy.output.v1",
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "central_bank",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.central_bank",
+      "required_tools": [
+        "get_central_bank_snapshot"
+      ],
+      "output_schema_fields": [
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
+        "key_drivers",
+        "confidence",
+        "claims",
+        "claim_refs"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.central_bank.output.v1",
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
       "agent": "dollar",
       "layer": "macro",
       "prompt_ir_agent_id": "macro.dollar",
       "required_tools": [
-        "get_rke_research_context",
-        "get_fred_series",
-        "get_usdcny",
-        "get_us_china_spread"
+        "get_fx_conditions_snapshot"
       ],
       "output_schema_fields": [
-        "dxy_trend",
-        "cny_pressure",
-        "dxy_cny_correlation",
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
         "key_drivers",
         "confidence",
         "claims",
@@ -179,15 +170,13 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.yield_curve",
       "required_tools": [
-        "get_rke_research_context",
-        "get_yield_curve_cn",
-        "get_fred_series",
-        "get_us_china_spread"
+        "get_rates_credit_snapshot"
       ],
       "output_schema_fields": [
-        "curve_shape",
-        "recession_signal",
-        "cn_us_spread_bps",
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
         "key_drivers",
         "confidence",
         "claims",
@@ -211,15 +200,13 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.commodities",
       "required_tools": [
-        "get_rke_research_context",
-        "get_commodity_prices",
-        "get_yield_curve_cn"
+        "get_commodity_conditions_snapshot"
       ],
       "output_schema_fields": [
-        "oil_regime",
-        "metals_regime",
-        "ag_regime",
-        "china_demand_signal",
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
         "key_drivers",
         "confidence",
         "claims",
@@ -239,20 +226,47 @@
       ]
     },
     {
+      "agent": "geopolitical",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.geopolitical",
+      "required_tools": [
+        "get_geopolitical_events_snapshot"
+      ],
+      "output_schema_fields": [
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
+        "key_drivers",
+        "confidence",
+        "claims",
+        "claim_refs"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.geopolitical.output.v1",
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
       "agent": "volatility",
       "layer": "macro",
       "prompt_ir_agent_id": "macro.volatility",
       "required_tools": [
-        "get_rke_research_context",
-        "get_fred_series",
-        "get_ivx",
-        "get_realized_volatility",
-        "get_etf_indicator"
+        "get_volatility_snapshot"
       ],
       "output_schema_fields": [
-        "vix_regime",
-        "ivx_regime",
-        "regime_filter",
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
         "key_drivers",
         "confidence",
         "claims",
@@ -272,22 +286,17 @@
       ]
     },
     {
-      "agent": "emerging_markets",
+      "agent": "market_breadth",
       "layer": "macro",
-      "prompt_ir_agent_id": "macro.emerging_markets",
+      "prompt_ir_agent_id": "macro.market_breadth",
       "required_tools": [
-        "get_rke_research_context",
-        "get_etf_price_data",
-        "get_us_china_spread",
-        "get_fred_series",
-        "get_etf_info",
-        "get_etf_nav",
-        "get_etf_universe"
+        "get_market_breadth_snapshot"
       ],
       "output_schema_fields": [
-        "em_relative",
-        "hk_a_share_ratio",
-        "capital_flow",
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
         "key_drivers",
         "confidence",
         "claims",
@@ -297,39 +306,7 @@
         {
           "stage": "agent_run",
           "enablement": "enabled",
-          "output_schema_ref": "macro.emerging_markets.output.v1",
-          "max_repair_attempts": 3,
-          "required_source_ids": [],
-          "produced_source_ids": [
-            "upstream_agent_outputs"
-          ]
-        }
-      ]
-    },
-    {
-      "agent": "news_sentiment",
-      "layer": "macro",
-      "prompt_ir_agent_id": "macro.news_sentiment",
-      "required_tools": [
-        "get_rke_research_context",
-        "get_news",
-        "get_caixin_sentiment",
-        "get_industry_policy"
-      ],
-      "output_schema_fields": [
-        "retail_sentiment_score",
-        "hot_topics",
-        "contrarian_flag",
-        "key_drivers",
-        "confidence",
-        "claims",
-        "claim_refs"
-      ],
-      "stages": [
-        {
-          "stage": "agent_run",
-          "enablement": "enabled",
-          "output_schema_ref": "macro.news_sentiment.output.v1",
+          "output_schema_ref": "macro.market_breadth.output.v1",
           "max_repair_attempts": 3,
           "required_source_ids": [],
           "produced_source_ids": [
@@ -343,15 +320,13 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.institutional_flow",
       "required_tools": [
-        "get_rke_research_context",
-        "get_lhb_ranking",
-        "get_fund_flow",
-        "get_stock_moneyflow"
+        "get_market_positioning_snapshot"
       ],
       "output_schema_fields": [
-        "main_net_flow_cny",
-        "top_buyers",
-        "sectors_in_out",
+        "direction",
+        "strength",
+        "horizon",
+        "channels",
         "key_drivers",
         "confidence",
         "claims",

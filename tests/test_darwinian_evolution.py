@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ MACRO_AGENTS = [
     "yield_curve",
     "commodities",
     "volatility",
-    "emerging_markets",
+    "us_economy",
 ]
 REC_AGENTS = [
     "semiconductor",
@@ -167,6 +168,45 @@ def test_evolutionary_weights_skip_small_macro_population(tmp_path: Path):
     assert weights["dollar"]["weight"] == pytest.approx(1.0)
     assert weights["dollar"]["update_action"] == "skipped"
     assert weights["dollar"]["quartile"] is None
+
+
+def test_macro_weight_stays_one_below_30_non_overlapping_samples(tmp_path: Path):
+    store = _store(tmp_path)
+    start = date(2024, 1, 1)
+    for index in range(145):
+        _add_macro_score(
+            store,
+            "market_breadth",
+            0.02,
+            (start + timedelta(days=index)).isoformat(),
+        )
+    store.upsert_darwinian_weights(
+        [
+            {
+                "cohort": COHORT,
+                "agent": "market_breadth",
+                "date": "2023-12-31",
+                "weight": 2.0,
+                "layer": "macro",
+                "rank_scope": "macro",
+            }
+        ]
+    )
+
+    compute_weights(
+        store,
+        COHORT,
+        "2024-06-01",
+        config=_cfg(
+            min_scored_observations_per_agent=30,
+            min_matured_agents_for_update=1,
+        ),
+    )
+
+    row = store.get_darwinian_weights(COHORT, "2024-06-01")["market_breadth"]
+    assert row["n_obs"] == 29
+    assert row["weight"] == 1.0
+    assert row["update_action"] == "skipped"
 
 
 def test_evolutionary_weights_share_table_for_recommendation_agents(tmp_path: Path):

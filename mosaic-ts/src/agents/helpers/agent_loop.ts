@@ -45,6 +45,12 @@ export interface AgentToolLoopOptions {
   replayFullToolMaxChars?: number;
   /** Deterministic role-required evidence to collect before the first LLM turn. */
   initialToolCalls?: ReadonlyArray<AgentInitialToolCall>;
+  /**
+   * Whether tools remain advertised to the model after deterministic initial
+   * collection. Default true. Set false when the runtime owns the only allowed
+   * call and the model must analyze that frozen result without changing scope.
+   */
+  allowModelToolCalls?: boolean;
   /** Forward LLM stderr / debug logs through this channel (default: silent). */
   onLog?: (msg: string) => void;
   /** Abort signal for the current agent wall-clock timeout. */
@@ -520,13 +526,19 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   // Some BaseChatModel subclasses lack bindTools; the caller is responsible
   // for picking a provider that supports tool-calling. Fail loud rather than
   // silently dropping the tools.
-  if (!opts.llm.bindTools) {
+  if (opts.allowModelToolCalls !== false && !opts.llm.bindTools) {
     throw new Error(
       "runAgentToolLoop: provider chat model does not implement bindTools — " +
         "switch to a provider/model that supports tool calling (anthropic, openai, ...).",
     );
   }
-  const llmWithTools = opts.llm.bindTools(opts.tools as StructuredToolInterface[]);
+  const llmWithTools =
+    opts.allowModelToolCalls === false
+      ? opts.llm
+      : opts.llm.bindTools?.(opts.tools as StructuredToolInterface[]);
+  if (!llmWithTools) {
+    throw new Error("runAgentToolLoop: provider failed to bind the registered tools.");
+  }
 
   if (opts.initialToolCalls?.length) {
     const calls = opts.initialToolCalls.map((call, index) => ({

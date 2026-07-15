@@ -40,6 +40,8 @@ from typing import Annotated, Optional
 from langchain_core.tools import tool
 
 from mosaic.dataflows.interface import route_to_vendor
+from mosaic.dataflows.macro_snapshots import render_role_snapshot
+from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 
 
 # ============================================================ Macro series (Tushare preferred, FRED fallback)
@@ -775,6 +777,89 @@ def get_industry_moneyflow(
     return route_to_vendor("get_industry_moneyflow", curr_date, look_back_days, industries)
 
 
+# ============================================================ Role-scoped PIT snapshots
+
+
+@tool
+def get_china_macro_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return the validated China growth/price/credit/external/fiscal snapshot."""
+    return render_role_snapshot("china", as_of_date)
+
+
+@tool
+def get_us_macro_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return the validated US growth/employment/inflation/demand vintage snapshot."""
+    return render_role_snapshot("us_economy", as_of_date)
+
+
+@tool
+def get_central_bank_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return deterministic macro summaries plus PBOC/Fed operations; never agent conclusions."""
+    return render_role_snapshot("central_bank", as_of_date)
+
+
+@tool
+def get_rates_credit_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return Chinese/US nominal-real curves, money-market, and credit conditions."""
+    return render_role_snapshot("yield_curve", as_of_date)
+
+
+@tool
+def get_fx_conditions_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return broad-dollar, RMB, FX-pressure, and A-share liquidity-transmission inputs."""
+    return render_role_snapshot("dollar", as_of_date)
+
+
+@tool
+def get_commodity_conditions_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return energy term structure/inventory, metals, gold, and inflation-shock inputs."""
+    return render_role_snapshot("commodities", as_of_date)
+
+
+@tool
+def get_geopolitical_events_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return deduplicated, timestamp-filtered geopolitical and official-policy events."""
+    return render_role_snapshot("geopolitical", as_of_date)
+
+
+@tool
+def get_volatility_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return US implied volatility, China realized volatility, and cross-market stress."""
+    return render_role_snapshot("volatility", as_of_date)
+
+
+@tool
+def get_market_breadth_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Compute the deterministic PIT A-share breadth snapshot; reject coverage below 90%."""
+    return render_market_breadth_snapshot(as_of_date)
+
+
+@tool
+def get_market_positioning_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return market-wide flow, sector rotation, ETF-share, and crowding inputs."""
+    return render_role_snapshot("institutional_flow", as_of_date)
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -799,4 +884,14 @@ __all__ = [
     "get_property_data",
     "get_stock_moneyflow",
     "get_industry_moneyflow",
+    "get_china_macro_snapshot",
+    "get_us_macro_snapshot",
+    "get_central_bank_snapshot",
+    "get_rates_credit_snapshot",
+    "get_fx_conditions_snapshot",
+    "get_commodity_conditions_snapshot",
+    "get_geopolitical_events_snapshot",
+    "get_volatility_snapshot",
+    "get_market_breadth_snapshot",
+    "get_market_positioning_snapshot",
 ]

@@ -6,60 +6,30 @@ research-knobs:
       cap: 0.6
       enforcement: code
       required_evidence:
-        - yield_curve_cn
+        - rates_credit_snapshot
       trigger: primary_tool_failed_or_fallback
     missing_current_data:
       cap: 0.55
       enforcement: code
       required_evidence:
-        - yield_curve_cn
+        - rates_credit_snapshot
       trigger: missing_required_evidence
   evidence_registry:
-    fred_series:
+    rates_credit_snapshot:
       current_data: true
       fallback_confidence_cap: 0.6
-      metric: fred_series_current
-      primary: false
-      tool: get_fred_series
-    rke_prior:
-      current_data: false
-      metric: research_prior
-      primary: false
-      tool: get_rke_research_context
-    us_china_spread:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: us_china_spread_current
-      primary: false
-      tool: get_us_china_spread
-    yield_curve_cn:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: yield_curve_cn_current
+      metric: rates_credit_snapshot_current
       primary: true
-      tool: get_yield_curve_cn
+      tool: get_rates_credit_snapshot
   evidence_weights:
-    fred_series: 0.3333333333333333
-    rke_prior: 0
-    us_china_spread: 0.3333333333333333
-    yield_curve_cn: 0.3333333333333333
+    rates_credit_snapshot: 1
   layer: macro
   lookbacks:
     term_spread_window_days: 20
   mutation_targets:
     - max: 1
       min: 0
-      path: /rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/yield_curve_cn_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/fred_series_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/us_china_spread_weight/value
+      path: /rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/rates_credit_snapshot_weight/value
       step: 0.05
       type: number
     - max: 0.75
@@ -109,7 +79,7 @@ research-knobs:
         - positive
       horizon: 5d
       id: macro.yield_curve.soft.001
-      target_variable: curve_shape
+      target_variable: direction
     - allowed_outputs:
         - better
         - neutral
@@ -162,12 +132,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.yield_curve.term_spread_window_days.primary
-              evidence_key: yield_curve_cn
+              evidence_key: rates_credit_snapshot
               metric_ids:
-                - yield_curve_cn_current
+                - rates_credit_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_yield_curve_cn
+              tool: get_rates_credit_snapshot
           evidence_dependency_policies:
             macro.yield_curve.term_spread_window_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -187,12 +157,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.yield_curve.inversion_threshold_bps.primary
-              evidence_key: yield_curve_cn
+              evidence_key: rates_credit_snapshot
               metric_ids:
-                - yield_curve_cn_current
+                - rates_credit_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_yield_curve_cn
+              tool: get_rates_credit_snapshot
           evidence_dependency_policies:
             macro.yield_curve.inversion_threshold_bps.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -212,12 +182,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.yield_curve.steepening_threshold_bps.primary
-              evidence_key: yield_curve_cn
+              evidence_key: rates_credit_snapshot
               metric_ids:
-                - yield_curve_cn_current
+                - rates_credit_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_yield_curve_cn
+              tool: get_rates_credit_snapshot
           evidence_dependency_policies:
             macro.yield_curve.steepening_threshold_bps.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -237,12 +207,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.yield_curve.flattening_threshold_bps.primary
-              evidence_key: yield_curve_cn
+              evidence_key: rates_credit_snapshot
               metric_ids:
-                - yield_curve_cn_current
+                - rates_credit_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_yield_curve_cn
+              tool: get_rates_credit_snapshot
           evidence_dependency_policies:
             macro.yield_curve.flattening_threshold_bps.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -262,12 +232,12 @@ research-knobs:
           default: 0.25
           evidence_dependencies:
             - dependency_id: macro.yield_curve.credit_spread_discount.primary
-              evidence_key: yield_curve_cn
+              evidence_key: rates_credit_snapshot
               metric_ids:
-                - yield_curve_cn_current
+                - rates_credit_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_yield_curve_cn
+              tool: get_rates_credit_snapshot
           evidence_dependency_policies:
             macro.yield_curve.credit_spread_discount.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -287,12 +257,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.yield_curve.duration_risk_weight.primary
-              evidence_key: yield_curve_cn
+              evidence_key: rates_credit_snapshot
               metric_ids:
-                - yield_curve_cn_current
+                - rates_credit_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_yield_curve_cn
+              tool: get_rates_credit_snapshot
           evidence_dependency_policies:
             macro.yield_curve.duration_risk_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -313,12 +283,13 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - channels
       - claim_refs
       - claims
-      - cn_us_spread_bps
-      - curve_shape
+      - direction
+      - horizon
       - key_drivers
-      - recession_signal
+      - strength
     must_not_cover:
       - final_portfolio_sizing
       - single_stock_recommendation
@@ -332,67 +303,31 @@ research-knobs:
   tie_breaks: []
 ```
 
-# yield_curve — Yield-Curve Analyst (cohort_default baseline)
+# yield_curve — Layer-1 macro transmission
 
-You are the **yield_curve** agent in MOSAIC's Layer-1. Read the **CN
-treasury curve shape + the CN-US 10Y spread** and produce a "curve +
-recession signal" view.
+## Runtime role and tool contract (generated from code)
+Assess Chinese/US nominal and real curves, money markets, credit conditions, and duration pricing.
 
-## Tools
+Prohibited:
+- Do not emit a recession traffic light
+- Do not infer central-bank policy
 
-* `get_yield_curve_cn(curr_date, look_back_days=30)` — daily CN treasury
-  yields (1y/2y/3y/5y/7y/10y/30y). Curve-shape calls require the 30-day
-  trend, not a single day's snapshot.
-* `get_fred_series(series_id, start_date, end_date)` — pull `DGS10`
-  + `DGS2` (US 10Y / 2Y). This tool tries Tushare `us_tycr` first and
-  uses FRED only as fallback. Without these you cannot infer US recession risk.
-* `get_us_china_spread(curr_date, look_back_days=30)` — composite CN 10Y -
-  US 10Y spread.
+Only call: get_rates_credit_snapshot.
+Treat the runtime JSON Schema as the sole output-field contract; do not use hand-written JSON examples.
+Check as-of validity, changes versus expectations, evidence conflicts, and A-share transmission. Reject hollow answers, vague empty arrays, cross-role conclusions, and unsupported percentages.
+Any observed number echoed in structured_conclusion must carry its series_id or evidence_id and exactly match the fixed snapshot.
+direction=NEUTRAL requires strength=0; otherwise strength must be 1–5. claims, claim_refs, key_drivers, and channels must all be non-empty.
 
-## Workflow
+## Analysis workflow
+1. Call the one allowed role snapshot. Reject the stage when the tool fails, PIT validity fails, or required coverage is insufficient; never turn missing data into a neutral market.
+2. Check released_at and vintage_at against as-of; compare actual, previous, expectation surprise, and changes, and expose conflicting evidence.
+3. Explain only this role's transmission into A-share risk premia, earnings, liquidity, or sector sensitivity.
+4. Support the conclusion with non-empty claims, conclusion-level claim_refs, key_drivers, channels, and confidence.
 
-1. **Always pull a 30-day window** — curve-shape calls need trends.
-2. **`curve_shape` strict definitions**:
-   - STEEPENING: long-end rises faster than short-end. Healthy recovery.
-   - FLATTENING: short-end rises faster than long-end. Early tightening.
-   - INVERTED: 10Y < 2Y. Recession warning.
-   - BULL_FLATTENING: long-end falls faster than short-end. **Most
-     dangerous** — recession-front risk.
-3. **`recession_signal` strict definitions**:
-   - GREEN = STEEPENING sustained ≥ 2 weeks
-   - YELLOW = FLATTENING or mild inversion (|10Y - 2Y| < 20 BPS)
-   - RED = persistent inversion AND BULL_FLATTENING co-occurring
-4. **`cn_us_spread_bps` is an integer** sourced from get_us_china_spread's
-   latest row. CN-US negative spreads are normal in 2024+; sign + magnitude
-   both matter.
-
-## Scoring boundary
-
-* Tool returns are current evidence only. Do not estimate or mention realized
-  forward returns in the JSON.
-* MOSAIC scorecard evaluates this agent later with persisted point-in-time
-  labels; your job is the as-of macro signal, not future P&L calculation.
-
-## Output schema
-
-```json
-{
-  "agent": "yield_curve",
-  "curve_shape": "STEEPENING | FLATTENING | INVERTED | BULL_FLATTENING",
-  "recession_signal": "GREEN | YELLOW | RED",
-  "cn_us_spread_bps": <integer BPS>,
-  "key_drivers": ["<3-5 short evidence bullets>"],
-  "confidence": <0-1>
-}
-```
-
-## Writing constraints
-
-* `recession_signal = RED` requires **both** ≥ 2 weeks of inversion **and**
-  long-end falling faster than short-end (BULL_FLATTENING). Single-day
-  inversion → drop to YELLOW.
-* `key_drivers` must cite per-tenor BPS WoW changes: 1y/2y/10y/30y separately.
-* Single-day data only → confidence ≤ 0.4.
+Do not read or infer news sentiment; event evidence belongs only to china and geopolitical.
+Never call OpenCLI, Google/Caixin search, or real-time Xueqiu follower counts. Never invent sources, values, percentages, timestamps, or snapshot fields.
+commodities may use contango/backwardation only with a real term structure; volatility must distinguish US implied volatility from China realized volatility.
+Legacy emerging_markets/news_sentiment outputs are audit-only legacy_unverified records and provide no current evidence or Darwinian prior.
 
 <!-- runtime-evidence-contract:start -->
 
@@ -400,9 +335,9 @@ recession signal" view.
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `curve_shape`, `recession_signal`, `cn_us_spread_bps`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
+Output fields include: `direction`, `strength`, `horizon`, `channels`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
 
-Required runtime tools: `get_rke_research_context`, `get_yield_curve_cn`, `get_fred_series`, `get_us_china_spread`.
+Required runtime tools: `get_rates_credit_snapshot`.
 
 Domain knob card ids for this agent: `term_spread_window_days`, `inversion_threshold_bps`, `steepening_threshold_bps`, `flattening_threshold_bps`, `credit_spread_discount`, `duration_risk_weight`.
 

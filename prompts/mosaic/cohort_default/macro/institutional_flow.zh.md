@@ -1,39 +1,3 @@
-# institutional_flow — 机构资金流向分析师（cohort_default 基线）
-
-你是 MOSAIC Layer-1 宏观分析师中的 **机构资金 (institutional_flow)** agent。
-量化 **主力资金净流入 + 龙虎榜 top 买家 + 各板块进出**。
-
-> 注：北向资金（沪深港通）实时额度已停止公布，本 agent 改用个股主力资金流
-> (`get_stock_moneyflow`) + 龙虎榜综合判断主力动向（A 股龙虎榜已捕获大部分
-> 机构动作）。
-
-## 你的工具
-
-* `get_lhb_ranking(curr_date)` —— 龙虎榜当日交易明细。当日触发 LHB 上榜的
-  个股 + 买卖席位 + 净买入金额。
-* `get_stock_moneyflow(ticker, start_date, end_date)` —— 个股主力资金流。
-  `net_mf_amount`(净流入,万元)+ 大单/特大单 buy/sell，判断主力是吸筹还是出货。
-  必须拉一周窗口（5 个交易日）。
-* `get_fund_flow(curr_date)` —— ETF 份额变化，辅助看公募/被动资金方向。
-
-## 工作流程
-
-1. **龙虎榜必调**；对当日重点个股（LHB 上榜 + 热门票）逐一调
-   `get_stock_moneyflow` 看主力是流入还是流出。
-2. **`main_net_flow_cny`**：把重点个股 `net_mf_amount`(主力净流入)汇总，
-   折算为 CNY 百万元。正 = 主力净吸筹，负 = 净出货。
-3. **`top_buyers`**：龙虎榜买入金额前 3-5 名机构（用 `name` 字段或机构席位
-   verbatim，不要简化）。如果当日无龙虎榜（非交易日），写 `["no LHB today"]`。
-4. **`sectors_in_out`**：用 LHB top 个股的申万一级行业聚合，正向 = 净买入，
-   负向 = 净卖出。各 sector 金额按 CNY 百万元报。
-5. **量化要求**：每条 `key_drivers` 必须含具体金额（CNY 百万元）或 ts_code。
-
-## 评分边界
-
-* 工具返回的数据只作为当日 evidence。不要在 JSON 中预测或填写未来实际收益。
-* MOSAIC scorecard 会在之后用已持久化、point-in-time 的 label 评分；你的任务是输出
-  as-of 宏观信号，不是计算未来 P&L。
-
 ```research-knobs
 research-knobs:
   agent: macro.institutional_flow
@@ -42,43 +6,23 @@ research-knobs:
       cap: 0.6
       enforcement: code
       required_evidence:
-        - lhb_ranking
+        - market_positioning_snapshot
       trigger: primary_tool_failed_or_fallback
     missing_current_data:
       cap: 0.55
       enforcement: code
       required_evidence:
-        - lhb_ranking
+        - market_positioning_snapshot
       trigger: missing_required_evidence
   evidence_registry:
-    fund_flow:
+    market_positioning_snapshot:
       current_data: true
       fallback_confidence_cap: 0.6
-      metric: fund_flow_current
-      primary: false
-      tool: get_fund_flow
-    lhb_ranking:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: lhb_ranking_current
+      metric: market_positioning_snapshot_current
       primary: true
-      tool: get_lhb_ranking
-    rke_prior:
-      current_data: false
-      metric: research_prior
-      primary: false
-      tool: get_rke_research_context
-    stock_moneyflow:
-      current_data: true
-      fallback_confidence_cap: 0.6
-      metric: stock_moneyflow_current
-      primary: false
-      tool: get_stock_moneyflow
+      tool: get_market_positioning_snapshot
   evidence_weights:
-    fund_flow: 0.3333333333333333
-    lhb_ranking: 0.3333333333333333
-    rke_prior: 0
-    stock_moneyflow: 0.3333333333333333
+    market_positioning_snapshot: 1
   layer: macro
   lookbacks:
     flow_persistence_days: 20
@@ -87,17 +31,7 @@ research-knobs:
   mutation_targets:
     - max: 1
       min: 0
-      path: /rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/lhb_ranking_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/fund_flow_weight/value
-      step: 0.05
-      type: number
-    - max: 1
-      min: 0
-      path: /rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/stock_moneyflow_weight/value
+      path: /rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/market_positioning_snapshot_weight/value
       step: 0.05
       type: number
     - max: 0.75
@@ -147,7 +81,7 @@ research-knobs:
         - positive
       horizon: 5d
       id: macro.institutional_flow.soft.001
-      target_variable: main_net_flow_cny
+      target_variable: direction
     - allowed_outputs:
         - better
         - neutral
@@ -200,12 +134,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.institutional_flow.lhb_window_days.primary
-              evidence_key: lhb_ranking
+              evidence_key: market_positioning_snapshot
               metric_ids:
-                - lhb_ranking_current
+                - market_positioning_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_lhb_ranking
+              tool: get_market_positioning_snapshot
           evidence_dependency_policies:
             macro.institutional_flow.lhb_window_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -225,12 +159,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.institutional_flow.industry_moneyflow_window_days.primary
-              evidence_key: lhb_ranking
+              evidence_key: market_positioning_snapshot
               metric_ids:
-                - lhb_ranking_current
+                - market_positioning_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_lhb_ranking
+              tool: get_market_positioning_snapshot
           evidence_dependency_policies:
             macro.institutional_flow.industry_moneyflow_window_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -250,12 +184,12 @@ research-knobs:
           default: 0.6
           evidence_dependencies:
             - dependency_id: macro.institutional_flow.main_net_inflow_threshold.primary
-              evidence_key: lhb_ranking
+              evidence_key: market_positioning_snapshot
               metric_ids:
-                - lhb_ranking_current
+                - market_positioning_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_lhb_ranking
+              tool: get_market_positioning_snapshot
           evidence_dependency_policies:
             macro.institutional_flow.main_net_inflow_threshold.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -275,12 +209,12 @@ research-knobs:
           default: 0.2
           evidence_dependencies:
             - dependency_id: macro.institutional_flow.top_buyer_weight.primary
-              evidence_key: lhb_ranking
+              evidence_key: market_positioning_snapshot
               metric_ids:
-                - lhb_ranking_current
+                - market_positioning_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_lhb_ranking
+              tool: get_market_positioning_snapshot
           evidence_dependency_policies:
             macro.institutional_flow.top_buyer_weight.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -300,12 +234,12 @@ research-knobs:
           default: 0.25
           evidence_dependencies:
             - dependency_id: macro.institutional_flow.null_flow_fallback_cap.primary
-              evidence_key: lhb_ranking
+              evidence_key: market_positioning_snapshot
               metric_ids:
-                - lhb_ranking_current
+                - market_positioning_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_lhb_ranking
+              tool: get_market_positioning_snapshot
           evidence_dependency_policies:
             macro.institutional_flow.null_flow_fallback_cap.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -325,12 +259,12 @@ research-knobs:
           default: 20
           evidence_dependencies:
             - dependency_id: macro.institutional_flow.flow_persistence_days.primary
-              evidence_key: lhb_ranking
+              evidence_key: market_positioning_snapshot
               metric_ids:
-                - lhb_ranking_current
+                - market_positioning_snapshot_current
               min_scope_coverage: 1
               scope_resolution: pre_run
-              tool: get_lhb_ranking
+              tool: get_market_positioning_snapshot
           evidence_dependency_policies:
             macro.institutional_flow.flow_persistence_days.primary:
               fallback: exclude_sample_and_cap_if_required
@@ -351,12 +285,13 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - channels
       - claim_refs
       - claims
+      - direction
+      - horizon
       - key_drivers
-      - main_net_flow_cny
-      - sectors_in_out
-      - top_buyers
+      - strength
     must_not_cover:
       - final_portfolio_sizing
       - single_stock_recommendation
@@ -368,27 +303,31 @@ research-knobs:
   tie_breaks: []
 ```
 
-## 输出 schema
+# institutional_flow — Layer-1 宏观传导
 
-```json
-{
-  "agent": "institutional_flow",
-  "main_net_flow_cny": <number, CNY 百万元>,
-  "top_buyers": ["<机构席位 verbatim>", ...],
-  "sectors_in_out": [{"sector": "<板块名>", "net_amount_cny": <number>}, ...],
-  "key_drivers": ["<3-5 条关键证据>"],
-  "confidence": <0-1>
-}
-```
+## 运行时职责与工具合同（代码生成）
+判断全市场资金、行业轮动、ETF 份额与拥挤度。
 
-## 写作约束
+禁区：
+- 龙虎榜只能作为辅助
+- 不得以抽样个股代表全市场
 
-* 龙虎榜空数据日（节假日 / 周末 / 数据延迟）：`top_buyers = ["no LHB
-  today"]`、`sectors_in_out = [{"sector": "unknown", "net_amount_cny": 0}]`、
-  `confidence ≤ 0.3`，并在 `key_drivers` 解释。
-* `top_buyers` 不要泛化为"机构"、"游资"，必须是具体席位名（如"中信证券
-  上海溧阳路营业部"）。
-* `confidence ≥ 0.7` 仅在主力资金 + 龙虎榜数据都齐全且非节假日时使用。
+只允许调用：get_market_positioning_snapshot。
+以运行时 JSON Schema 为唯一输出字段与约束来源，不使用手写 JSON 示例。
+检查 as-of 时间有效性、变化/预期差、证据冲突与 A 股传导。不得输出空壳、模糊空数组、跨角色结论或无证据百分比。
+structured_conclusion 回显观测数值时必须带 series_id 或 evidence_id，且数值必须与固定快照完全一致。
+direction=NEUTRAL 时 strength 必须为 0；否则 strength 必须为 1–5。claims、claim_refs、key_drivers、channels 均不得为空。
+
+## 分析流程
+1. 必须调用唯一允许的角色快照；工具失败、PIT 状态无效或覆盖不足时拒绝该阶段，不得改写为中性市场。
+2. 逐项检查 released_at、vintage_at 与 as-of；比较实际值、前值、预期差和变化，明确冲突证据。
+3. 只解释本角色负责的传导渠道，并落到 A 股风险溢价、盈利、流动性或行业敏感度。
+4. 结论必须由非空 claims、结论级 claim_refs、key_drivers、channels 与 confidence 支持。
+
+不得读取或推断新闻情绪；事件证据只属于 china 与 geopolitical。
+不得调用 OpenCLI、Google/财新搜索或实时雪球关注数。不得虚构来源、数值、百分比、时间戳或快照字段。
+commodities 仅在快照含真实期限结构时使用 contango/backwardation；volatility 必须区分美国隐含波动与中国实现波动。
+legacy emerging_markets/news_sentiment 仅供旧审计，状态为 legacy_unverified，不能作为当前证据或 Darwinian 先验。
 
 <!-- runtime-evidence-contract:start -->
 
@@ -396,9 +335,9 @@ research-knobs:
 
 Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。
 
-输出字段包括：`main_net_flow_cny`, `top_buyers`, `sectors_in_out`, `key_drivers`, `confidence`, `claims`, `claim_refs`。
+输出字段包括：`direction`, `strength`, `horizon`, `channels`, `key_drivers`, `confidence`, `claims`, `claim_refs`。
 
-必需 runtime tools：`get_rke_research_context`, `get_lhb_ranking`, `get_fund_flow`, `get_stock_moneyflow`。
+必需 runtime tools：`get_market_positioning_snapshot`。
 
 本 agent 的 domain knob card ids：`lhb_window_days`, `industry_moneyflow_window_days`, `main_net_inflow_threshold`, `top_buyer_weight`, `null_flow_fallback_cap`, `flow_persistence_days`。
 

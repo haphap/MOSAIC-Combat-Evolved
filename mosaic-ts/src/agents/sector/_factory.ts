@@ -389,8 +389,8 @@ export function buildLayerTwoUserContext(state: DailyCycleStateType, agentId: st
       `* key_drivers:\n${regime.key_drivers.map((d) => `  - ${d}`).join("\n")}\n`
     : "## Layer-1 macro regime\n* (not available — state.layer1_consensus is null)\n";
 
-  const chinaBlock = renderChinaSummary(state);
-  const flowBlock = renderInstitutionalFlowSummary(state);
+  const chinaBlock = renderMacroTransmissionSummary(state, "china");
+  const flowBlock = renderMacroTransmissionSummary(state, "institutional_flow");
 
   return (
     `Cycle context for ${agentId} (Layer 2 sector analyst):\n` +
@@ -415,28 +415,18 @@ export function buildLayerTwoUserContext(state: DailyCycleStateType, agentId: st
   );
 }
 
-function renderChinaSummary(state: DailyCycleStateType): string {
-  const out = state.layer1_outputs?.china;
-  if (out?.agent !== "china") return "## china (Layer 1)\n* (not available)\n";
+function renderMacroTransmissionSummary(
+  state: DailyCycleStateType,
+  agent: "china" | "institutional_flow",
+): string {
+  const out = state.layer1_outputs?.[agent];
+  if (out?.agent !== agent) return `## ${agent} (Layer 1)\n* (not available)\n`;
   return (
-    `## china (Layer 1) — policy direction\n` +
-    `* policy_direction: ${out.policy_direction}\n` +
-    `* sector_focus:     ${out.sector_focus.join(", ")}\n` +
-    `* risk_drivers:     ${out.risk_drivers.join(", ")}\n`
-  );
-}
-
-function renderInstitutionalFlowSummary(state: DailyCycleStateType): string {
-  const out = state.layer1_outputs?.institutional_flow;
-  if (out?.agent !== "institutional_flow")
-    return "## institutional_flow (Layer 1)\n* (not available)\n";
-  const sectors = out.sectors_in_out
-    .map((s) => `${s.sector}=${s.net_amount_cny.toFixed(0)}`)
-    .join(", ");
-  return (
-    `## institutional_flow (Layer 1)\n` +
-    `* main_net_flow_cny: ${out.main_net_flow_cny.toFixed(0)} CNY mil\n` +
-    `* sectors_in_out:     ${sectors}\n`
+    `## ${agent} (Layer 1)\n` +
+    `* direction: ${out.direction}\n` +
+    `* strength: ${out.strength}/5\n` +
+    `* horizon: ${out.horizon}\n` +
+    `* channels: ${out.channels.join(", ")}\n`
   );
 }
 

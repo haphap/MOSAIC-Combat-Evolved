@@ -645,8 +645,8 @@ def _decision_agent_audits_json(layer4: dict[str, Any]) -> str | None:
 
 MACRO_AGENTS: frozenset[str] = frozenset(
     {
-        "central_bank", "china", "geopolitical", "dollar", "yield_curve",
-        "commodities", "volatility", "emerging_markets", "news_sentiment",
+        "china", "us_economy", "central_bank", "dollar", "yield_curve",
+        "commodities", "geopolitical", "volatility", "market_breadth",
         "institutional_flow",
     }
 )
@@ -675,47 +675,10 @@ def _macro_vote(agent: str, out: dict[str, Any]) -> int:
 
     Canonical mapping — must match the TS aggregator's ``voteForAgent``.
     """
-    if agent == "central_bank":
-        s = out.get("stance")
-        return 1 if s == "ACCOMMODATIVE" else (-1 if s == "TIGHTENING" else 0)
-    if agent == "china":
-        d = out.get("policy_direction")
-        return 1 if d == "PRO_GROWTH" else (-1 if d == "RESTRAINING" else 0)
-    if agent == "geopolitical":
-        try:
-            lvl = int(out.get("escalation_level"))
-        except (TypeError, ValueError):
-            return 0
-        return 1 if lvl <= 2 else (-1 if lvl >= 4 else 0)
-    if agent == "dollar":
-        t = out.get("dxy_trend")
-        return 1 if t == "WEAKENING" else (-1 if t == "STRENGTHENING" else 0)
-    if agent == "yield_curve":
-        r = out.get("recession_signal")
-        return 1 if r == "GREEN" else (-1 if r == "RED" else 0)
-    if agent == "commodities":
-        c = out.get("china_demand_signal")
-        return 1 if c == "ACCELERATING" else (-1 if c == "DECELERATING" else 0)
-    if agent == "volatility":
-        r = out.get("regime_filter")
-        return 1 if r == "RISK_ON" else (-1 if r == "RISK_OFF" else 0)
-    if agent == "emerging_markets":
-        e = out.get("em_relative")
-        return 1 if e == "OUTPERFORMING" else (-1 if e == "UNDERPERFORMING" else 0)
-    if agent == "news_sentiment":
-        score = float(out.get("retail_sentiment_score") or 0.0)
-        if out.get("contrarian_flag"):
-            return -1 if score > 0 else 0
-        return 1 if score > 0.3 else (-1 if score < -0.3 else 0)
-    if agent == "institutional_flow":
-        sectors = out.get("sectors_in_out") or []
-        net = sum(
-            float(s.get("net_amount_cny") or 0.0)
-            for s in sectors
-            if isinstance(s, dict)
-        )
-        return 1 if net > 1000 else (-1 if net < -1000 else 0)
-    return 0
+    if agent not in MACRO_AGENTS:
+        return 0
+    direction = out.get("direction")
+    return 1 if direction == "SUPPORTIVE" else (-1 if direction == "ADVERSE" else 0)
 
 
 def _macro_consensus_score(votes: Iterable[tuple[int, Optional[float]]]) -> float:

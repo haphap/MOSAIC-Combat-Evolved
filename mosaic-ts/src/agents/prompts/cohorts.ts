@@ -28,15 +28,15 @@ export type Language = "zh" | "en";
 /** Agent IDs grouped by their canonical layer (Plan §5). */
 export const AGENTS_BY_LAYER = {
   macro: [
-    "central_bank",
-    "geopolitical",
     "china",
+    "us_economy",
+    "central_bank",
     "dollar",
     "yield_curve",
     "commodities",
+    "geopolitical",
     "volatility",
-    "emerging_markets",
-    "news_sentiment",
+    "market_breadth",
     "institutional_flow",
   ],
   sector: [

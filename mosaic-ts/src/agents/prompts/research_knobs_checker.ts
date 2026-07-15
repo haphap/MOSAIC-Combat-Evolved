@@ -384,7 +384,9 @@ async function loadDomainKnobRegistryForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ registry: DomainKnobValueRegistry | null; reasons: string[] }> {
-  if (!opts.privatePromptsRoot) return { registry: null, reasons: [] };
+  if (!opts.privatePromptsRoot || spec.layer === "macro") {
+    return { registry: null, reasons: [] };
+  }
   const path = domainKnobValueRegistryPath({
     privatePromptsRoot: opts.privatePromptsRoot,
     cohort: opts.cohort,
@@ -404,7 +406,9 @@ async function loadPromptGovernanceRegistryForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ registry: PromptGovernanceValueRegistry | null; reasons: string[] }> {
-  if (!opts.privatePromptsRoot) return { registry: null, reasons: [] };
+  if (!opts.privatePromptsRoot || spec.layer === "macro") {
+    return { registry: null, reasons: [] };
+  }
   const path = promptGovernanceValueRegistryPath({
     privatePromptsRoot: opts.privatePromptsRoot,
     cohort: opts.cohort,
@@ -424,7 +428,7 @@ async function loadPromptIrForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ reasons: string[] }> {
-  if (!opts.privatePromptsRoot) return { reasons: [] };
+  if (!opts.privatePromptsRoot || spec.layer === "macro") return { reasons: [] };
   const path = promptIrPathForSpec({
     privatePromptsRoot: opts.privatePromptsRoot,
     spec,

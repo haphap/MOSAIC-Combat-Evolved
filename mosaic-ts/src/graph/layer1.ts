@@ -3,8 +3,8 @@
  *
  * Topology:
  *
- *   START → central_bank → china → geopolitical → dollar → yield_curve
- *         → commodities → volatility → emerging_markets → news_sentiment
+ *   START → china → us_economy → central_bank → dollar → yield_curve
+ *         → commodities → geopolitical → volatility → market_breadth
  *         → institutional_flow → aggregate_l1 → END
  *
  * The 10 macro nodes run serially in a deterministic order. This keeps one
@@ -22,10 +22,10 @@ import { buildCentralBankNode } from "../agents/macro/central_bank.js";
 import { buildChinaNode } from "../agents/macro/china.js";
 import { buildCommoditiesNode } from "../agents/macro/commodities.js";
 import { buildDollarNode } from "../agents/macro/dollar.js";
-import { buildEmergingMarketsNode } from "../agents/macro/emerging_markets.js";
 import { buildGeopoliticalNode } from "../agents/macro/geopolitical.js";
 import { buildInstitutionalFlowNode } from "../agents/macro/institutional_flow.js";
-import { buildNewsSentimentNode } from "../agents/macro/news_sentiment.js";
+import { buildMarketBreadthNode } from "../agents/macro/market_breadth.js";
+import { buildUsEconomyNode } from "../agents/macro/us_economy.js";
 import { buildVolatilityNode } from "../agents/macro/volatility.js";
 import { buildYieldCurveNode } from "../agents/macro/yield_curve.js";
 import { DailyCycleState } from "../agents/state.js";
@@ -54,15 +54,15 @@ export interface BuildLayer1GraphDeps {
 
 /** Names of the 10 macro nodes in graph order. Exported for tests + 2D. */
 export const LAYER1_AGENT_NODES = [
-  "central_bank",
   "china",
-  "geopolitical",
+  "us_economy",
+  "central_bank",
   "dollar",
   "yield_curve",
   "commodities",
+  "geopolitical",
   "volatility",
-  "emerging_markets",
-  "news_sentiment",
+  "market_breadth",
   "institutional_flow",
 ] as const;
 
@@ -71,15 +71,15 @@ export const LAYER1_AGGREGATOR_NODE = "aggregate_l1" as const;
 /** Build (and compile) the Layer-1 subgraph. */
 export function buildLayer1Graph(deps: BuildLayer1GraphDeps) {
   const graph = new StateGraph(DailyCycleState)
-    .addNode("central_bank", buildCentralBankNode(deps))
     .addNode("china", buildChinaNode(deps))
-    .addNode("geopolitical", buildGeopoliticalNode(deps))
+    .addNode("us_economy", buildUsEconomyNode(deps))
+    .addNode("central_bank", buildCentralBankNode(deps))
     .addNode("dollar", buildDollarNode(deps))
     .addNode("yield_curve", buildYieldCurveNode(deps))
     .addNode("commodities", buildCommoditiesNode(deps))
+    .addNode("geopolitical", buildGeopoliticalNode(deps))
     .addNode("volatility", buildVolatilityNode(deps))
-    .addNode("emerging_markets", buildEmergingMarketsNode(deps))
-    .addNode("news_sentiment", buildNewsSentimentNode(deps))
+    .addNode("market_breadth", buildMarketBreadthNode(deps))
     .addNode("institutional_flow", buildInstitutionalFlowNode(deps))
     .addNode(LAYER1_AGGREGATOR_NODE, buildAggregateLayer1Node(deps));
 

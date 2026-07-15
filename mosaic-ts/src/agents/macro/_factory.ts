@@ -27,8 +27,8 @@
  */
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import type { StructuredToolInterface } from "@langchain/core/tools";
-import type { z } from "zod";
+import { type StructuredToolInterface, tool } from "@langchain/core/tools";
+import { z } from "zod";
 import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_release_canary_slo.js";
 import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
@@ -65,7 +65,9 @@ import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
 import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
-import type { MacroAgentOutput } from "../types.js";
+import type { MacroAgentId, MacroAgentOutput } from "../types.js";
+import { renderMacroRuntimeContract } from "./_contracts.js";
+import { roleSnapshotFromToolLoop, validateMacroSnapshotEchoes } from "./_semantic_validation.js";
 
 /**
  * Per-agent configuration for the Layer-1 factory. Each macro agent file
@@ -74,13 +76,13 @@ import type { MacroAgentOutput } from "../types.js";
  */
 export interface LayerOneAgentSpec<TOutput extends MacroAgentOutput> {
   /** Canonical agent ID, e.g. "central_bank". Must match the prompt filename. */
-  agentId: string;
+  agentId: MacroAgentId;
   /** Zod schema for the structured output. */
   schema: z.ZodType<TOutput>;
   /** Schema field names; surfaced to the structured-output extractor prompt. */
   fieldNames: ReadonlyArray<string>;
   /** Bridge tools this agent will call during phase 1. */
-  requiredTools: ReadonlyArray<string>;
+  requiredTools: readonly [string];
   /** Render structured output as readable prose for state inspection / logs. */
   render: (output: TOutput) => string;
   /**
@@ -197,14 +199,22 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
               ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
             });
           }
+          systemPrompt = `${systemPrompt}\n\n${renderMacroRuntimeContract(
+            spec.agentId,
+            language === "en" ? "en" : "zh",
+          )}`;
 
           // Phase 0b: pull the agent's tools from the bridge (with backtest
           // context attached so date-bound tools clamp end_date correctly).
-          const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
+          const bridgeTools = await pickBridgeTools(deps.api, spec.requiredTools, {
             ...(state.mode === "backtest" && state.as_of_date
               ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
               : {}),
           });
+          const tools =
+            deps.llmHandle.provider === "fake"
+              ? [buildFakeRoleSnapshotTool(spec.agentId, spec.requiredTools[0], state.as_of_date)]
+              : bridgeTools;
 
           // Phase 1: tool-bound free-form analysis loop.
           const userContext = buildUserContext(state, spec.agentId);
@@ -224,6 +234,13 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
             tools: tools as StructuredToolInterface[],
             systemMessage: systemPrompt,
             initialMessages: [new HumanMessage(evidenceUserContext)],
+            initialToolCalls: [
+              {
+                name: spec.requiredTools[0],
+                args: { as_of_date: state.as_of_date },
+              },
+            ],
+            allowModelToolCalls: false,
             ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
             ...(spec.maxLoops !== undefined ? { maxLoops: spec.maxLoops } : {}),
             onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
@@ -249,6 +266,13 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
             : defaultExtractorSystem(spec, language);
+          const roleSnapshot = roleSnapshotFromToolLoop({
+            agent: spec.agentId,
+            asOfDate: state.as_of_date,
+            messages: loopResult.messages,
+            requiredTool: spec.requiredTools[0],
+            toolStatuses: loopResult.toolStatuses,
+          });
           const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
             schema: spec.schema,
@@ -267,8 +291,8 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
             stage: "agent_run",
             runId: state.trace_id || state.as_of_date || "current_run",
             evidenceSnapshot: runtimeEvidence,
-            validate: (output) =>
-              validateStrictAgentOutput({
+            validate: (output) => {
+              const base = validateStrictAgentOutput({
                 output,
                 schema: spec.schema,
                 agent: spec.agentId,
@@ -276,7 +300,19 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                 runtimeEvidence,
                 knobSnapshot,
                 toolStatuses: loopResult.toolStatuses,
-              }),
+                allowUncertaintyOnly: output.direction === "NEUTRAL" && output.strength === 0,
+              });
+              return {
+                output: base.output,
+                issues: [
+                  ...base.issues,
+                  ...roleSnapshot.issues,
+                  ...(roleSnapshot.snapshot
+                    ? validateMacroSnapshotEchoes(output, roleSnapshot.snapshot)
+                    : []),
+                ],
+              };
+            },
             signal,
           });
 
@@ -311,6 +347,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
             validatorIds: [
               `${spec.agentId}.structured_output.v1`,
               "evidence_claim_graph_v1",
+              "macro_snapshot_semantics_v1",
               "research_knobs_runtime_v1",
             ],
           });
@@ -383,6 +420,67 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
   };
 }
 
+/**
+ * Deterministic private-data substitute used only by ``--fake-llm`` structural
+ * smoke runs. Production and real-model runs always execute the bridge tool and
+ * remain fail-closed when the role snapshot is unavailable.
+ */
+function buildFakeRoleSnapshotTool(
+  agent: MacroAgentId,
+  name: string,
+  asOfDate: string,
+): StructuredToolInterface {
+  return tool(
+    async () =>
+      JSON.stringify(
+        agent === "market_breadth"
+          ? {
+              schema_version: "market_breadth_snapshot_v1",
+              as_of_date: asOfDate,
+              advance_decline_balance: 0,
+              above_ma20_pct: 0.5,
+              above_ma60_pct: 0.5,
+              new_high_low_20d_balance: 0,
+              turnover_expansion_pct: 0.5,
+              return_dispersion: 0,
+              top_decile_turnover_share: 0.1,
+              eligible_count: 1,
+              observed_count: 1,
+              coverage_ratio: 1,
+              breadth_composite: 0,
+              breadth_composite_change_20d: 0,
+              breadth_composite_q40_252d: 0,
+              breadth_composite_q60_252d: 0,
+              concentration_q20_252d: 0.1,
+              concentration_q80_252d: 0.1,
+              breadth_state: "MIXED",
+              concentration_state: "NORMAL",
+              methodology: { fixture: "fake_llm_structural_smoke" },
+              evidence_id: "fake-market-breadth-snapshot",
+              snapshot_hash: "0".repeat(64),
+            }
+          : {
+              schema_version: "macro_role_snapshot_v1",
+              role: agent,
+              as_of_date: asOfDate,
+              observations: [],
+              events: [],
+              source_policy: {
+                primary: "tushare",
+                us_revision_source: "ALFRED/official fixed map",
+                implicit_fallback: false,
+              },
+              snapshot_hash: "0".repeat(64),
+            },
+      ),
+    {
+      name,
+      description: "Deterministic role snapshot for --fake-llm structural smoke runs.",
+      schema: z.object({ as_of_date: z.string() }),
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers (exported for tests + 2D layer factories)
 // ---------------------------------------------------------------------------
@@ -403,10 +501,9 @@ export function buildUserContext(state: DailyCycleStateType, agentId: string): s
     `* as_of_date: ${date}\n` +
     `* mode:       ${mode}\n` +
     `* cohort:     ${cohort}\n\n` +
-    `Use get_rke_research_context only as report-derived research prior. ` +
-    `It is not a live signal and cannot raise confidence unless current data ` +
-    `tools confirm it. Run the required tools, gather current data, and write ` +
-    `your analysis.`
+    `The runtime will collect the single role-scoped snapshot at exactly this as_of_date. ` +
+    `Analyze only that frozen result and the visible evidence catalog; do not request a ` +
+    `different date or any additional tool.`
   );
 }
 
@@ -425,8 +522,15 @@ function defaultExtractorSystem<TOutput extends MacroAgentOutput>(
     `Only emit values supported by the analysis text; never invent numbers. ` +
     `If a field cannot be supported by the text, use the most conservative valid value ` +
     `(prefer NEUTRAL stances, 0 numeric values, 'unknown' for date windows, ` +
-    `confidence ≤ 0.4), while still producing a complete analysis. Include claims and ` +
-    `top-level claim_refs using only its evidence_id and allowed research rule ids. ` +
+    `confidence ≤ 0.4), while still producing a complete analysis. Give every claim a unique ` +
+    `claim_id. Top-level claim_refs must contain only claim_id values present in claims; ` +
+    `evidence_id values belong only in evidence_refs and allowed rule ids belong only in ` +
+    `research_rule_refs inside each claim. Every non-uncertainty claim must cite at least one ` +
+    `exact evidence_id from the visible catalog. Every inference claim must also cite at least ` +
+    `one exact allowed research rule id; otherwise change it to factual or uncertainty as ` +
+    `supported by the analysis. Never leave either required reference array empty. The ` +
+    `direction/strength invariant is exact: NEUTRAL always has strength 0, while SUPPORTIVE ` +
+    `or ADVERSE always has strength from 1 through 5. ` +
     lang
   );
 }

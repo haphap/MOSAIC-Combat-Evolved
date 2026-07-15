@@ -12,6 +12,7 @@ import type {
   MungerOutput,
   SemiconductorOutput,
 } from "../src/agents/types.js";
+import { macroOutput } from "./helpers/macro.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const MARKET_HASH = `sha256:${"2".repeat(64)}`;
@@ -294,20 +295,17 @@ describe("runtime evidence snapshots", () => {
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
     const raw: CentralBankOutput = {
-      agent: "central_bank",
-      stance: "NEUTRAL",
-      key_rate_change_bps: 0,
-      qe_qt_balance_change: "No verified balance change",
-      next_window: "unknown",
-      key_drivers: ["Current market evidence is neutral"],
-      confidence: 0.4,
+      ...macroOutput("central_bank", {
+        key_drivers: ["Current market evidence is neutral"],
+        confidence: 0.4,
+      }),
       claim_refs: ["claim-macro-1"],
       claims: [
         {
           claim_id: "claim-macro-1",
           claim_type: "inference",
           statement: "Current evidence supports a neutral policy stance.",
-          structured_conclusion: { stance: "NEUTRAL" },
+          structured_conclusion: { direction: "NEUTRAL", strength: 0 },
           evidence_refs: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
@@ -316,15 +314,7 @@ describe("runtime evidence snapshots", () => {
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): CentralBankOutput => ({
-        agent: "central_bank",
-        stance: "NEUTRAL",
-        key_rate_change_bps: 0,
-        qe_qt_balance_change: "fallback",
-        next_window: "unknown",
-        key_drivers: ["fallback"],
-        confidence: 0,
-      }),
+      (): CentralBankOutput => macroOutput("central_bank", { confidence: 0 }),
       runtime,
     );
 
