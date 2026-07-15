@@ -209,6 +209,8 @@ class TestScorecardScorePending:
                 "layer1_outputs": {
                     "dollar": {
                         "agent": "dollar",
+                        "direction": "SUPPORTIVE",
+                        "strength": 5,
                         "dxy_trend": "WEAKENING",
                         "confidence": 0.6,
                     }

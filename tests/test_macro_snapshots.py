@@ -71,6 +71,20 @@ def test_future_release_or_vintage_is_rejected(field):
         validate_role_snapshot(bad, "china", "2024-06-30")
 
 
+@pytest.mark.parametrize("field", ["released_at", "vintage_at"])
+def test_next_china_local_day_is_rejected_even_when_utc_date_matches(field):
+    bad = payload(observations=[observation(**{field: "2024-07-01T07:00:00+08:00"})])
+    with pytest.raises(DataVendorUnavailable, match="future macro observation"):
+        validate_role_snapshot(bad, "china", "2024-06-30")
+
+
+@pytest.mark.parametrize("field", ["released_at", "vintage_at"])
+def test_release_and_vintage_require_explicit_timezone(field):
+    bad = payload(observations=[observation(**{field: "2024-06-12T01:30:00"})])
+    with pytest.raises(DataVendorUnavailable, match="timezone offset"):
+        validate_role_snapshot(bad, "china", "2024-06-30")
+
+
 def test_unregistered_alfred_series_has_no_implicit_fallback():
     bad = payload(
         role="us_economy",
@@ -84,6 +98,18 @@ def test_unregistered_alfred_series_has_no_implicit_fallback():
         "CPIAUCSL",
         "PCEPI",
     }
+
+
+def test_role_snapshot_rejects_cross_role_series():
+    bad = payload(role="central_bank", observations=[observation(series_id="cn_cpi")])
+    with pytest.raises(DataVendorUnavailable, match="outside the central_bank snapshot contract"):
+        validate_role_snapshot(bad, "central_bank", "2024-06-30")
+
+
+def test_alfred_revision_series_is_us_economy_only():
+    bad = payload(observations=[observation(series_id="GDPC1", source="ALFRED")])
+    with pytest.raises(DataVendorUnavailable, match="not permitted for role china"):
+        validate_role_snapshot(bad, "china", "2024-06-30")
 
 
 def test_news_events_are_only_available_to_china_and_geopolitical():

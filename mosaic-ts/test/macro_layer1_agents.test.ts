@@ -161,6 +161,54 @@ describe("macro snapshot semantic validation", () => {
     ).toEqual([expect.objectContaining({ reason_code: "SNAPSHOT_NUMERIC_MISMATCH" })]);
   });
 
+  it("rejects fabricated numerics without an explicit snapshot reference", () => {
+    const baseClaim = macroOutput("geopolitical").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const output = macroOutput("geopolitical", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: { price_impact_pct: 37 },
+        },
+      ],
+    });
+    expect(
+      validateMacroSnapshotEchoes(output, {
+        schema_version: "macro_role_snapshot_v1",
+        role: "geopolitical",
+        as_of_date: "2026-07-15",
+        observations: [],
+      }),
+    ).toEqual([expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_REQUIRED" })]);
+  });
+
+  it("rejects unknown references and percentages hidden in prose", () => {
+    const baseClaim = macroOutput("geopolitical").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const output = macroOutput("geopolitical", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: {
+            evidence_id: "missing:event",
+            description: "estimated impact=37%",
+          },
+        },
+      ],
+    });
+    expect(
+      validateMacroSnapshotEchoes(output, {
+        schema_version: "macro_role_snapshot_v1",
+        role: "geopolitical",
+        as_of_date: "2026-07-15",
+        observations: [],
+      }),
+    ).toEqual([
+      expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_UNKNOWN" }),
+      expect.objectContaining({ reason_code: "PERCENTAGE_MUST_BE_NUMERIC_SNAPSHOT_ECHO" }),
+    ]);
+  });
+
   it("allows assessment scores that are not observation echoes", () => {
     const baseClaim = macroOutput("china").claims[0];
     if (!baseClaim) throw new Error("macro fixture claim missing");

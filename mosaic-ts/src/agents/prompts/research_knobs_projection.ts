@@ -299,6 +299,7 @@ export function upsertRuntimeEvidenceContract(
   text: string,
   spec: RuntimeAgentSpec,
   language: "zh" | "en",
+  opts: { includeResearchKnobDetails?: boolean } = {},
 ): string {
   if (!spec.fieldNames.includes("claims")) return text;
   const outputFields = spec.fieldNames.map((field) => `\`${field}\``).join(", ");
@@ -315,8 +316,12 @@ export function upsertRuntimeEvidenceContract(
           "Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。",
           `输出字段包括：${outputFields}。`,
           `必需 runtime tools：${requiredTools || "(none)"}。`,
-          `本 agent 的 domain knob card ids：${domainCardIds || "(none)"}。`,
-          `Knob influence 审计字段：${influenceFields}。`,
+          ...(opts.includeResearchKnobDetails === false
+            ? []
+            : [
+                `本 agent 的 domain knob card ids：${domainCardIds || "(none)"}。`,
+                `Knob influence 审计字段：${influenceFields}。`,
+              ]),
           "必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 " +
             "`evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 " +
             "`research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、" +
@@ -329,8 +334,12 @@ export function upsertRuntimeEvidenceContract(
           "Runtime supplies the only valid evidence catalog and research rule ids for this invocation.",
           `Output fields include: ${outputFields}.`,
           `Required runtime tools: ${requiredTools || "(none)"}.`,
-          `Domain knob card ids for this agent: ${domainCardIds || "(none)"}.`,
-          `Knob influence audit fields: ${influenceFields}.`,
+          ...(opts.includeResearchKnobDetails === false
+            ? []
+            : [
+                `Domain knob card ids for this agent: ${domainCardIds || "(none)"}.`,
+                `Knob influence audit fields: ${influenceFields}.`,
+              ]),
           "Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog " +
             "`evidence_id` values through `evidence_refs`; every inference claim must also cite an " +
             "allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, " +

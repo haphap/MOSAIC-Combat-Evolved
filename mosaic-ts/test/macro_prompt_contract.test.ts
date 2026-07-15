@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseResearchKnobsPrompt } from "../src/agents/helpers/research_knobs.js";
 import { MACRO_AGENT_IDS, MACRO_ROLE_CONTRACTS } from "../src/agents/macro/_contracts.js";
 
 const root = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default", "macro");
@@ -55,19 +54,31 @@ describe("generated bundled macro prompts", () => {
   it.each(MACRO_AGENT_IDS)("binds %s to one role-scoped tool and common schema", (agent) => {
     for (const language of ["zh", "en"] as const) {
       const text = prompt(agent, language);
-      const parsed = parseResearchKnobsPrompt(text);
-      const tools = Object.values(parsed.knobs.evidence_registry).flatMap((entry) =>
-        entry.tool ? [entry.tool] : [],
-      );
+      const tools = [...new Set(text.match(/\bget_[a-z0-9_]+\b/g) ?? [])];
       expect(tools).toEqual(MACRO_ROLE_CONTRACTS[agent].requiredTools);
-      expect(parsed.body).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
-      expect(parsed.body).toContain("direction");
-      expect(parsed.body).toContain("strength");
-      expect(parsed.body).toContain("claim_refs");
-      expect(parsed.body).not.toContain("```json");
-      expect(parsed.body).not.toContain("retail_sentiment_score");
-      expect(parsed.body).not.toContain("contrarian_flag");
-      expect(parsed.body).not.toMatch(/required tools[^\n]*(get_news|get_caixin|get_xueqiu)/i);
+      expect(text).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
+      expect(text).toContain("direction");
+      expect(text).toContain("strength");
+      expect(text).toContain("claim_refs");
+      expect(text).not.toContain("```json");
+      expect(text).not.toContain("```research-knobs");
+      expect(text).not.toMatch(/domain knob|knob influence/i);
+      expect(text).not.toContain("retail_sentiment_score");
+      expect(text).not.toContain("contrarian_flag");
+      expect(text).not.toMatch(/required tools[^\n]*(get_news|get_caixin|get_xueqiu)/i);
+    }
+  });
+
+  it("keeps every public bundled prompt free of research-knob internals", () => {
+    const bundledRoot = resolve(process.cwd(), "..", "prompts", "mosaic");
+    const files = readdirSync(bundledRoot, { recursive: true, encoding: "utf8" }).filter((file) =>
+      file.endsWith(".md"),
+    );
+    expect(files).toHaveLength(50);
+    for (const file of files) {
+      const text = readFileSync(join(bundledRoot, file), "utf8");
+      expect(text).not.toContain("```research-knobs");
+      expect(text).not.toMatch(/domain knob|knob influence/i);
     }
   });
 

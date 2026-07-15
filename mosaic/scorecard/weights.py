@@ -285,7 +285,11 @@ def _collect_macro_candidates(
 
     by_agent: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        if row.get("raw_macro_score_5d") is None or row.get("agent") not in MACRO_AGENTS:
+        if (
+            row.get("raw_macro_score_5d") is None
+            or row.get("agent") not in MACRO_AGENTS
+            or row.get("label_source_status") != "primary"
+        ):
             continue
         by_agent.setdefault(row["agent"], []).append(row)
 

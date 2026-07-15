@@ -45,7 +45,11 @@ def compare_label_sources(
     """
     from mosaic.dataflows.calendar import next_trading_day, previous_trading_day
     from mosaic.scorecard.macro_labels import BENCHMARK_FALLBACK_LABEL
-    from mosaic.scorecard.scorer import MacroScorer, _fetch_close
+    from mosaic.scorecard.scorer import (
+        MacroScorer,
+        RequiredMacroLabelUnavailable,
+        _fetch_close,
+    )
     from mosaic.scorecard.store import PendingMacroRow
 
     last_trading_day = previous_trading_day(today, 0)
@@ -83,12 +87,20 @@ def compare_label_sources(
         bench_ret = (b5 - b0) / b0
         row = PendingMacroRow(
             id=int(r["id"]), cohort=cohort, agent=r["agent"], date=d0,
-            vote=int(r["vote"]), confidence=r["confidence"], influence_weight_equal=None,
+            vote=int(r["vote"]), signal=r.get("signal"), confidence=r["confidence"],
+            influence_weight_equal=None,
         )
         bf = bench_scorer._benchmark_label_fields(
             row=row, bench_ret=bench_ret, label_type="benchmark_5d", label_source_status="primary",
         )
-        af = full_scorer._agent_specific_label_fields(row=row, bench_ret=bench_ret, t_5d=t5)
+        try:
+            af = full_scorer._agent_specific_label_fields(
+                row=row,
+                bench_ret=bench_ret,
+                t_5d=t5,
+            )
+        except RequiredMacroLabelUnavailable:
+            continue
         if af is None:
             af = full_scorer._benchmark_label_fields(
                 row=row, bench_ret=bench_ret,

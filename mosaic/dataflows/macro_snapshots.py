@@ -10,9 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .exceptions import DataVendorUnavailable
 
@@ -47,6 +48,77 @@ _NEWS_SOURCES = {"tushare.major_news", "official_policy_document"}
 _NEWS_ROLES = {"china", "geopolitical"}
 _PIT_STATUS = "AVAILABLE_AS_OF"
 _OBSERVATION_SOURCE_ROOTS = {"tushare", "official"}
+_A_SHARE_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+# Role boundaries are enforced at the snapshot boundary, not left to prompt
+# compliance. Prefixes describe canonical private-cache series families; the
+# exact set covers vendor identifiers that cannot carry a descriptive prefix.
+ROLE_SERIES_PREFIXES: dict[str, tuple[str, ...]] = {
+    "china": ("cn_", "china_"),
+    "us_economy": ("us_",),
+    "central_bank": (
+        "pboc_",
+        "fed_",
+        "central_bank_",
+        "policy_divergence_",
+        "liquidity_",
+        "cn_growth_summary",
+        "cn_price_summary",
+        "cn_credit_summary",
+        "us_growth_summary",
+        "us_price_summary",
+        "us_employment_summary",
+        "us_demand_summary",
+    ),
+    "yield_curve": (
+        "cn_curve_",
+        "us_curve_",
+        "cn_real_yield_",
+        "us_real_yield_",
+        "money_market_",
+        "credit_condition_",
+        "rates_credit_",
+    ),
+    "dollar": ("broad_dollar_", "rmb_", "cny_", "fx_"),
+    "commodities": (
+        "commodity_",
+        "energy_",
+        "oil_",
+        "industrial_metal_",
+        "copper_",
+        "gold_",
+        "inventory_",
+        "term_structure_",
+    ),
+    "geopolitical": (
+        "geopolitical_",
+        "sanction_",
+        "trade_restriction_",
+        "supply_chain_risk_",
+        "event_severity_",
+    ),
+    "volatility": (
+        "vix_",
+        "us_implied_vol_",
+        "china_realized_vol_",
+        "realized_vol_",
+        "cross_market_stress_",
+    ),
+    "institutional_flow": (
+        "market_flow_",
+        "sector_rotation_",
+        "etf_share_",
+        "crowding_",
+        "institutional_flow_",
+        "lhb_",
+    ),
+}
+
+ROLE_EXACT_SERIES_IDS: dict[str, frozenset[str]] = {
+    "yield_curve": frozenset({"DGS1", "DGS2", "DGS5", "DGS10", "DGS30"}),
+    "dollar": frozenset({"DTWEXBGS", "USDCNH", "USDCNY"}),
+    "volatility": frozenset({"VIXCLS"}),
+}
 
 
 def _parse_datetime(value: Any, field: str) -> datetime:
@@ -58,7 +130,7 @@ def _parse_datetime(value: Any, field: str) -> datetime:
     except ValueError as exc:
         raise DataVendorUnavailable(f"macro snapshot {field} is not ISO-8601: {value!r}") from exc
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        raise DataVendorUnavailable(f"macro snapshot {field} must include a timezone offset")
     return parsed.astimezone(timezone.utc)
 
 
@@ -67,7 +139,17 @@ def _as_of_end(as_of_date: str) -> datetime:
         parsed = date.fromisoformat(as_of_date)
     except ValueError as exc:
         raise DataVendorUnavailable(f"as_of_date must be YYYY-MM-DD, got {as_of_date!r}") from exc
-    return datetime(parsed.year, parsed.month, parsed.day, 23, 59, 59, tzinfo=timezone.utc)
+    local_end = datetime.combine(parsed, time.max, tzinfo=_A_SHARE_TIMEZONE)
+    return local_end.astimezone(timezone.utc)
+
+
+def _series_allowed_for_role(role: str, series_id: Any) -> bool:
+    if not isinstance(series_id, str) or not series_id.strip():
+        return False
+    normalized = series_id.strip()
+    if normalized.upper() in ROLE_EXACT_SERIES_IDS.get(role, frozenset()):
+        return True
+    return normalized.casefold().startswith(ROLE_SERIES_PREFIXES.get(role, ()))
 
 
 def snapshot_cache_root() -> Path:
@@ -124,12 +206,18 @@ def _validate_observation(role: str, row: Any, cutoff: datetime) -> dict[str, An
     source_root = source.split(".", 1)[0]
     if source != "ALFRED" and source_root not in _OBSERVATION_SOURCE_ROOTS:
         raise DataVendorUnavailable(f"unapproved macro observation source: {source!r}")
+    if source == "ALFRED" and role != "us_economy":
+        raise DataVendorUnavailable(f"ALFRED revision series is not permitted for role {role}")
     if role == "us_economy" and source == "ALFRED":
         allowed = {mapping["series_id"] for mapping in ALFRED_SERIES_MAP.values()}
         if row.get("series_id") not in allowed:
             raise DataVendorUnavailable(
                 f"unregistered ALFRED series rejected: {row.get('series_id')!r}"
             )
+    elif not _series_allowed_for_role(role, row.get("series_id")):
+        raise DataVendorUnavailable(
+            f"series {row.get('series_id')!r} is outside the {role} snapshot contract"
+        )
     return {field: row[field] for field in required}
 
 
@@ -226,6 +314,8 @@ __all__ = [
     "ALFRED_SERIES_MAP",
     "MACRO_SNAPSHOT_SCHEMA_VERSION",
     "ROLE_SNAPSHOT_NAMES",
+    "ROLE_EXACT_SERIES_IDS",
+    "ROLE_SERIES_PREFIXES",
     "load_role_snapshot",
     "mark_legacy_macro_output",
     "render_role_snapshot",

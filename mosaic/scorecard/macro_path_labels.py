@@ -123,6 +123,10 @@ PRIMARY_LABEL_CONFIGS: dict[str, MacroPathLabelConfig] = {
         label_type="market_breadth_confirmation_5d",
         path_kind="breadth_confirmation",
         primary_symbols=(),
+        # The deterministic label is already the required 50/50 combination.
+        # A generic drawdown penalty would count a negative two-point synthetic
+        # path twice while leaving a positive path unchanged.
+        drawdown_penalty_lambda=0.0,
         source_description=(
             "50% subsequent breadth-composite change + 50% PIT equal-weight "
             "A-share return relative to benchmark"
@@ -188,7 +192,7 @@ def compute_drawdown_aware_path_label(
     *,
     label_type: str,
     closes: list[float],
-    vote: int,
+    vote: float,
     confidence: float,
     neutral_band: float,
     vol_scale: float,
@@ -213,7 +217,7 @@ def compute_drawdown_aware_path_label(
     vol_scale = max(float(vol_scale), 1e-9)
     norm_move = _clip(path_metric / vol_scale, -3.0, 3.0)
     if vote != 0:
-        raw = confidence * int(vote) * norm_move
+        raw = confidence * float(vote) * norm_move
     else:
         raw = confidence * ((neutral_band / vol_scale) - abs(norm_move))
     return MacroPathOutcome(
@@ -226,7 +230,7 @@ def compute_drawdown_aware_path_label(
         path_metric_5d=path_metric,
         benchmark_return_5d=benchmark_return_5d,
         realized_label=realised,
-        hit_5d=1 if int(vote) == realised else 0,
+        hit_5d=1 if (1 if vote > 0 else -1 if vote < 0 else 0) == realised else 0,
         raw_macro_score_5d=raw,
         source_series_id=source_series_id,
     )

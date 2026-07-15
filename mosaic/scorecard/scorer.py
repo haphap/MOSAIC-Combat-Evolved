@@ -36,6 +36,10 @@ HORIZON_5D = 5
 HORIZON_21D = 21
 
 
+class RequiredMacroLabelUnavailable(RuntimeError):
+    """Raised when a role-matched label must not degrade to a benchmark proxy."""
+
+
 def _benchmark_ticker() -> str:
     return os.getenv("MOSAIC_BENCHMARK_TICKER", DEFAULT_BENCHMARK).strip() or DEFAULT_BENCHMARK
 
@@ -557,8 +561,10 @@ def _fetch_macro_label_closes(
                 config.orientation,
                 config.drawdown_penalty_lambda,
             )
-        except DataVendorUnavailable:
-            pass
+        except DataVendorUnavailable as exc:
+            raise RequiredMacroLabelUnavailable(
+                f"market breadth confirmation unavailable: {exc}"
+            ) from exc
 
     return (
         _fallback_benchmark_closes(benchmark, start_iso, end_iso, bench_ret),
@@ -587,7 +593,7 @@ def _max_drawdown(closes: list[float]) -> float:
 
 def _score_directional_move(
     *,
-    vote: int,
+    signal: float,
     confidence: float,
     directional_return: float,
     vol_scale: float,
@@ -598,8 +604,8 @@ def _score_directional_move(
         -_MACRO_MOVE_CLAMP,
         _MACRO_MOVE_CLAMP,
     )
-    if vote != 0:
-        return confidence * vote * norm_move
+    if signal != 0:
+        return confidence * signal * norm_move
     neutral_band_norm = neutral_band / vol_scale
     return confidence * (neutral_band_norm - abs(norm_move))
 
@@ -671,7 +677,7 @@ class MacroScorer:
         realized = 1 if bench_ret > band else (-1 if bench_ret < -band else 0)
         conf = float(row.confidence) if row.confidence is not None else 0.0
         raw = _score_directional_move(
-            vote=int(row.vote),
+            signal=float(row.signal if row.signal is not None else row.vote),
             confidence=conf,
             directional_return=bench_ret,
             vol_scale=self._vol_scale(row.date),
@@ -723,7 +729,7 @@ class MacroScorer:
             outcome = compute_drawdown_aware_path_label(
                 label_type=spec.label_type,
                 closes=closes,
-                vote=int(row.vote),
+                vote=float(row.signal if row.signal is not None else row.vote),
                 confidence=conf,
                 neutral_band=self.neutral_band,
                 vol_scale=self._vol_scale(row.date),
@@ -759,7 +765,7 @@ class MacroScorer:
                 directional_return = bench_ret
             conf = float(row.confidence) if row.confidence is not None else 0.0
             raw = _score_directional_move(
-                vote=int(row.vote),
+                signal=float(row.signal if row.signal is not None else row.vote),
                 confidence=conf,
                 directional_return=directional_return,
                 vol_scale=self._vol_scale(row.date),
@@ -826,11 +832,32 @@ class MacroScorer:
                 continue
 
             bench_ret = (b5 - b0) / b0
-            fields = self._agent_specific_label_fields(
-                row=row,
-                bench_ret=bench_ret,
-                t_5d=t_5d,
-            )
+            try:
+                fields = self._agent_specific_label_fields(
+                    row=row,
+                    bench_ret=bench_ret,
+                    t_5d=t_5d,
+                )
+            except RequiredMacroLabelUnavailable:
+                from mosaic.scorecard.macro_labels import primary_label_for_agent
+
+                spec = primary_label_for_agent(
+                    row.agent, full_label_sources_enabled=self.full_label_sources_enabled
+                )
+                self.store.update_macro_scoring(
+                    row.id,
+                    {
+                        "label_type": (
+                            spec.label_type if spec is not None else "market_breadth_confirmation_5d"
+                        ),
+                        "label_source_status": "missing",
+                        "source_series_id": "market_breadth:required_label_unavailable",
+                        "influence_weight_equal": row.influence_weight_equal,
+                        "scored_at": today,
+                    },
+                )
+                outcome["macro_skipped_missing"] += 1
+                continue
             if fields is None and self.agent_specific_labels_enabled:
                 from mosaic.scorecard.macro_labels import BENCHMARK_FALLBACK_LABEL
 

@@ -315,6 +315,7 @@ CREATE TABLE IF NOT EXISTS macro_signals (
     agent TEXT NOT NULL,
     date TEXT NOT NULL,                          -- YYYY-MM-DD (signal as-of date)
     vote INTEGER NOT NULL CHECK (vote IN (-1, 0, 1)),
+    signal REAL,                              -- direction_sign * strength / 5
     confidence REAL,
     raw_output_json TEXT,                        -- original structured macro output
     consensus_stance TEXT,                       -- Layer 1 aggregate stance that day
@@ -428,6 +429,7 @@ class PendingMacroRow:
     agent: str
     date: str
     vote: int
+    signal: Optional[float]
     confidence: Optional[float]
     influence_weight_equal: Optional[float]
 
@@ -671,45 +673,66 @@ def _sharpe(values: list[float]) -> Optional[float]:
 
 
 def _macro_vote(agent: str, out: dict[str, Any]) -> int:
-    """Map a macro agent's structured output to a directional vote in {-1,0,+1}.
-
-    Canonical mapping — must match the TS aggregator's ``voteForAgent``.
-    """
+    """Map a current macro output to its directional sign for hit-rate reporting."""
     if agent not in MACRO_AGENTS:
         return 0
     direction = out.get("direction")
     return 1 if direction == "SUPPORTIVE" else (-1 if direction == "ADVERSE" else 0)
 
 
-def _macro_consensus_score(votes: Iterable[tuple[int, Optional[float]]]) -> float:
-    weighted_sum = 0.0
-    total_weight = 0.0
-    for vote, confidence in votes:
-        conf = float(confidence) if confidence is not None else 0.0
-        weighted_sum += int(vote) * conf
-        total_weight += conf
-    return weighted_sum / total_weight if total_weight > 0 else 0.0
+def _macro_signal(agent: str, out: dict[str, Any]) -> float:
+    """Return the canonical TypeScript-compatible signal s_i in [-1, 1]."""
+    if agent not in MACRO_AGENTS:
+        return 0.0
+    direction = out.get("direction")
+    strength = out.get("strength")
+    if direction not in {"SUPPORTIVE", "NEUTRAL", "ADVERSE"}:
+        raise ValueError(f"invalid macro direction for {agent}: {direction!r}")
+    if not isinstance(strength, int) or isinstance(strength, bool) or strength not in range(6):
+        raise ValueError(f"invalid macro strength for {agent}: {strength!r}")
+    if direction == "NEUTRAL" and strength != 0:
+        raise ValueError(f"NEUTRAL requires strength=0 for {agent}")
+    if direction != "NEUTRAL" and strength == 0:
+        raise ValueError(f"non-neutral direction requires strength in 1..5 for {agent}")
+    return _macro_vote(agent, out) * strength / 5.0
 
 
 def _macro_equal_weight_influence(
     rows: list[dict[str, Any]],
-) -> dict[str, float]:
+) -> dict[str, Optional[float]]:
     """Equal-Darwinian-weight leave-one-out influence for Layer 1 diagnostics.
 
-    This intentionally mirrors the current Layer-1 formula
-    ``sum(vote*confidence)/sum(confidence)`` with every macro agent's
-    Darwinian weight fixed at 1.0. It must not read updated Darwinian weights,
-    otherwise influence could feed back into the weight update loop.
+    Formal aggregation rejects partial role sets, so influence is unavailable
+    unless all ten current agents are present. For a complete set, each agent's
+    marginal effect is measured by setting only its reliability to zero while
+    retaining the six fixed group denominators and Darwinian weight 1.0.
     """
-    vote_conf = [
-        (int(r["vote"]), r.get("confidence"))
-        for r in rows
-    ]
-    with_agent = _macro_consensus_score(vote_conf)
-    out: dict[str, float] = {}
-    for idx, row in enumerate(rows):
-        without = _macro_consensus_score([vc for j, vc in enumerate(vote_conf) if j != idx])
-        out[str(row["agent"])] = abs(with_agent - without)
+    agents = [str(row["agent"]) for row in rows]
+    if len(rows) != len(MACRO_AGENTS) or set(agents) != MACRO_AGENTS:
+        return {agent: None for agent in agents}
+
+    from mosaic.scorecard.macro_aggregation import aggregate_macro_transmissions
+
+    outputs: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        agent = str(row["agent"])
+        signal = float(row["signal"])
+        strength = int(round(abs(signal) * 5))
+        outputs[agent] = {
+            "agent": agent,
+            "direction": (
+                "SUPPORTIVE" if signal > 0 else "ADVERSE" if signal < 0 else "NEUTRAL"
+            ),
+            "strength": strength,
+            "confidence": float(row.get("confidence") or 0.0),
+        }
+    with_agent = float(aggregate_macro_transmissions(outputs)["score"])
+    out: dict[str, Optional[float]] = {}
+    for agent in agents:
+        without = {key: dict(value) for key, value in outputs.items()}
+        without[agent]["confidence"] = 0.0
+        without_score = float(aggregate_macro_transmissions(without)["score"])
+        out[agent] = abs(with_agent - without_score)
     return out
 
 
@@ -748,12 +771,14 @@ def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]
         if agent not in MACRO_AGENTS or not isinstance(out, dict):
             continue
         conf = out.get("confidence")
+        signal = _macro_signal(agent, out)
         rows.append(
             {
                 "cohort": cohort,
                 "agent": agent,
                 "date": date,
                 "vote": _macro_vote(agent, out),
+                "signal": signal,
                 "confidence": float(conf) if conf is not None else None,
                 "raw_output_json": json.dumps(out, ensure_ascii=False),
                 "consensus_stance": consensus_stance,
@@ -847,6 +872,7 @@ class ScorecardStore:
             self._ensure_column(conn, "backtest_runs", "prompt_sha256", "TEXT")
             self._ensure_column(conn, "backtest_runs", "code_commit_hash", "TEXT")
             self._ensure_column(conn, "macro_signals", "influence_weight_equal", "REAL")
+            self._ensure_column(conn, "macro_signals", "signal", "REAL")
             self._ensure_column(conn, "macro_signals", "effective_macro_score_5d", "REAL")
             self._ensure_column(conn, "macro_signals", "terminal_return_5d", "REAL")
             self._ensure_column(conn, "macro_signals", "max_drawdown_5d", "REAL")
@@ -1033,16 +1059,17 @@ class ScorecardStore:
             conn.executemany(
                 """
                 INSERT INTO macro_signals (
-                    cohort, agent, date, vote, confidence, raw_output_json,
+                    cohort, agent, date, vote, signal, confidence, raw_output_json,
                     consensus_stance, consensus_score, influence_weight_equal,
                     prompt_repo_id, prompt_sha256, day_outcome_status, backtest_run_id
                 ) VALUES (
-                    :cohort, :agent, :date, :vote, :confidence, :raw_output_json,
+                    :cohort, :agent, :date, :vote, :signal, :confidence, :raw_output_json,
                     :consensus_stance, :consensus_score, :influence_weight_equal,
                     :prompt_repo_id, :prompt_sha256, :day_outcome_status, :backtest_run_id
                 )
                 ON CONFLICT(cohort, agent, date) DO UPDATE SET
                     vote = excluded.vote,
+                    signal = excluded.signal,
                     confidence = excluded.confidence,
                     raw_output_json = excluded.raw_output_json,
                     consensus_stance = excluded.consensus_stance,
@@ -1062,7 +1089,7 @@ class ScorecardStore:
     ) -> list[PendingMacroRow]:
         """Macro signals with scored_at IS NULL (and date <= before_date)."""
         sql = (
-            "SELECT id, cohort, agent, date, vote, confidence, influence_weight_equal "
+            "SELECT id, cohort, agent, date, vote, signal, confidence, influence_weight_equal "
             "FROM macro_signals "
             "WHERE scored_at IS NULL AND day_outcome_status = 'accepted'"
         )
@@ -1078,7 +1105,8 @@ class ScorecardStore:
             return [
                 PendingMacroRow(
                     id=r["id"], cohort=r["cohort"], agent=r["agent"],
-                    date=r["date"], vote=r["vote"], confidence=r["confidence"],
+                    date=r["date"], vote=r["vote"], signal=r["signal"],
+                    confidence=r["confidence"],
                     influence_weight_equal=r["influence_weight_equal"],
                 )
                 for r in conn.execute(sql, params).fetchall()
@@ -1093,7 +1121,7 @@ class ScorecardStore:
     ) -> list[dict[str, Any]]:
         """Return raw macro signal rows, regardless of scoring status."""
         sql = (
-            "SELECT id, cohort, agent, date, vote, confidence, label_type, "
+            "SELECT id, cohort, agent, date, vote, signal, confidence, label_type, "
             "       label_source_status, label_value_5d, benchmark_return_5d, "
             "       terminal_return_5d, max_drawdown_5d, realized_volatility_5d, "
             "       path_metric_5d, source_series_id, realized_label, hit_5d, raw_macro_score_5d, "
@@ -1133,7 +1161,7 @@ class ScorecardStore:
     def list_macro_skill(self, cohort: str, since: Optional[str] = None) -> list[dict[str, Any]]:
         """Aggregate scored macro signals per agent (autoresearch macro skill)."""
         sql = (
-            "SELECT agent, vote, hit_5d, raw_macro_score_5d, effective_macro_score_5d, "
+            "SELECT agent, vote, signal, hit_5d, raw_macro_score_5d, effective_macro_score_5d, "
             "influence_weight_equal, label_type, label_source_status, date "
             "FROM macro_signals WHERE cohort = ? AND scored_at IS NOT NULL "
             "AND day_outcome_status = 'accepted'"

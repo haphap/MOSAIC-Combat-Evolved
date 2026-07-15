@@ -12,11 +12,14 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 import { redactSensitiveText } from "../../security/redaction.js";
 import {
   assertResearchKnobsParity,
   buildResearchKnobsSnapshot,
+  type ParsedResearchKnobsPrompt,
   parseResearchKnobsPrompt,
+  type ResearchKnobs,
   type ResearchKnobsSnapshot,
   type RuntimeSourceStatus,
 } from "../helpers/research_knobs.js";
@@ -82,6 +85,7 @@ export interface PromptReleaseRuntimeAssignment {
 const cache = new Map<string, string>();
 const knobsCache = new Map<string, LoadPromptWithKnobsResult>();
 const knobsSourceCache = new Map<string, ParsedPromptPair>();
+const bundledDefaultKnobsCache = new Map<string, ResearchKnobs>();
 
 function releasePinnedPairCacheIdentity(pair: ReleasePinnedPromptPair): string {
   return JSON.stringify([
@@ -103,6 +107,7 @@ export function clearPromptCache(): void {
   cache.clear();
   knobsCache.clear();
   knobsSourceCache.clear();
+  bundledDefaultKnobsCache.clear();
   clearReleasePromptCache();
 }
 
@@ -368,8 +373,16 @@ async function loadParsedPromptPair(
   }
   if (pinnedPair) {
     const result = {
-      zhParsed: parseResearchKnobsPrompt(pinnedPair.zh),
-      enParsed: parseResearchKnobsPrompt(pinnedPair.en),
+      zhParsed: await parsePromptKnobsSource({
+        text: pinnedPair.zh,
+        agent: opts.agent,
+        allowBundledDefault: pinnedPair.source === "bundled_fallback",
+      }),
+      enParsed: await parsePromptKnobsSource({
+        text: pinnedPair.en,
+        agent: opts.agent,
+        allowBundledDefault: pinnedPair.source === "bundled_fallback",
+      }),
       paths: pinnedPair.paths,
     };
     if (!opts.noCache) knobsSourceCache.set(sourceCacheKey, result);
@@ -386,10 +399,56 @@ async function loadParsedPromptPair(
     ]);
   }
   const result = {
-    zhParsed: parseResearchKnobsPrompt(zh.text),
-    enParsed: parseResearchKnobsPrompt(en.text),
+    zhParsed: await parsePromptKnobsSource({
+      text: zh.text,
+      agent: opts.agent,
+      allowBundledDefault: !isPrivatePromptPath(zh.path, privateRoot),
+    }),
+    enParsed: await parsePromptKnobsSource({
+      text: en.text,
+      agent: opts.agent,
+      allowBundledDefault: !isPrivatePromptPath(en.path, privateRoot),
+    }),
     paths: { zh: zh.path, en: en.path },
   };
   if (!opts.noCache) knobsSourceCache.set(sourceCacheKey, result);
   return result;
+}
+
+async function parsePromptKnobsSource(input: {
+  text: string;
+  agent: string;
+  allowBundledDefault: boolean;
+}): Promise<ParsedResearchKnobsPrompt> {
+  const fences = [...input.text.matchAll(/```research-knobs\s*\n([\s\S]*?)```/g)];
+  if (fences.length !== 0 || !input.allowBundledDefault) {
+    return parseResearchKnobsPrompt(input.text);
+  }
+  return {
+    body: input.text.trim(),
+    knobs: await bundledDefaultResearchKnobs(input.agent),
+  };
+}
+
+async function bundledDefaultResearchKnobs(agent: string): Promise<ResearchKnobs> {
+  const cached = bundledDefaultKnobsCache.get(agent);
+  if (cached) return cached;
+  // Dynamic imports avoid a static loader -> runtime spec -> agent factory ->
+  // loader cycle. Bundled prompts intentionally contain only readable role
+  // instructions; the default policy projection remains runtime-owned.
+  const [{ buildRuntimeResearchKnobs }, { RUNTIME_AGENT_SPEC_BY_AGENT }] = await Promise.all([
+    import("./research_knobs_projection.js"),
+    import("./runtime_agent_spec.js"),
+  ]);
+  const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(agent);
+  if (!spec) throw new Error(`runtime spec missing for bundled prompt agent ${agent}`);
+  const knobs = buildRuntimeResearchKnobs(spec);
+  bundledDefaultKnobsCache.set(agent, knobs);
+  return knobs;
+}
+
+function isPrivatePromptPath(path: string, privateRoot: string): boolean {
+  if (!privateRoot || !isAbsolute(path)) return false;
+  const rel = relative(resolve(privateRoot), resolve(path));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }

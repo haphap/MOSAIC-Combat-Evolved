@@ -323,6 +323,23 @@ def test_drawdown_aware_label_requires_two_points_and_penalises_path():
     assert choppy.path_metric_5d < smooth.path_metric_5d
 
 
+def test_breadth_combined_score_is_not_penalised_as_a_second_drawdown():
+    config = PRIMARY_LABEL_CONFIGS["market_breadth_confirmation_5d"]
+    outcome = compute_drawdown_aware_path_label(
+        label_type=config.label_type,
+        closes=[1.0, 0.9],
+        vote=-1.0,
+        confidence=1.0,
+        neutral_band=0.005,
+        vol_scale=0.1,
+        source_series_id="market_breadth:test",
+        drawdown_penalty_lambda=config.drawdown_penalty_lambda,
+    )
+    assert config.drawdown_penalty_lambda == 0.0
+    assert outcome.terminal_return_5d == pytest.approx(-0.1)
+    assert outcome.path_metric_5d == pytest.approx(-0.1)
+
+
 def test_relative_and_basket_path_helpers():
     relative = compute_relative_path_label([100.0, 104.0], [100.0, 101.0])
     assert relative == pytest.approx([1.0, 1.03])
@@ -498,7 +515,16 @@ def test_p6_integration_ingest_score_skill_select(tmp_path):
          patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]), \
          patch("mosaic.scorecard.scorer._fetch_instrument_series", lambda *a: [100, 101, 102]), \
          patch("mosaic.scorecard.scorer._fetch_benchmark_series_dated", lambda *a: dated), \
-         patch("mosaic.scorecard.scorer._fetch_instrument_series_dated", lambda *a: dated):
+         patch("mosaic.scorecard.scorer._fetch_instrument_series_dated", lambda *a: dated), \
+         patch("mosaic.dataflows.market_breadth.load_market_breadth_inputs", return_value=object()), \
+         patch(
+             "mosaic.dataflows.market_breadth.compute_forward_breadth_confirmation",
+             return_value={
+                 "breadth_composite_change_5d": 0.01,
+                 "equal_weight_relative_return_5d": 0.01,
+                 "combined_score_5d": 0.01,
+             },
+         ):
         out = MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending(
             "cohort_default", "2024-02-01"
         )

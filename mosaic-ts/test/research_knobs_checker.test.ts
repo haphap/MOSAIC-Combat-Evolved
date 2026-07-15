@@ -209,7 +209,7 @@ describe("checkResearchKnobsPrompts", () => {
     }
   });
 
-  it("fails enabled agents without a research-knobs fence", async () => {
+  it("synthesizes bundled knobs and still rejects an incomplete prompt body", async () => {
     writePrompt(fake.root, "central_bank", "macro", "zh", "# central_bank zh");
     writePrompt(fake.root, "central_bank", "macro", "en", "# central_bank en");
 
@@ -222,7 +222,9 @@ describe("checkResearchKnobsPrompts", () => {
     expect(report.ready).toBe(false);
     const row = report.rows.find((item) => item.agent === "central_bank");
     expect(row?.status).toBe("failed");
-    expect(row?.reasons.join("\n")).toContain("expected exactly one research-knobs fence");
+    expect(row?.reasons).toContain(
+      "required_tool_missing_from_prompt_body:get_central_bank_snapshot",
+    );
   });
 
   it("supports an explicit per-stage enablement gate for multi-stage CIO", async () => {
@@ -310,7 +312,7 @@ describe("checkResearchKnobsPrompts", () => {
     );
   });
 
-  it("fails when prompt prose omits knob influence declaration fields", async () => {
+  it("does not expose knob influence declaration fields in prompt prose", async () => {
     const spec = specForAgent("central_bank");
     const knobs = buildRuntimeResearchKnobs(spec);
     for (const lang of ["zh", "en"] as const) {
@@ -332,10 +334,8 @@ describe("checkResearchKnobsPrompts", () => {
       enabledAgents: new Set(["central_bank"]),
     });
 
-    expect(report.ready).toBe(false);
-    expect(report.rows.find((item) => item.agent === "central_bank")?.reasons).toContain(
-      "knob_influence_field_missing_from_prompt_body:declared_knob_influence_ids",
-    );
+    expect(report.ready).toBe(true);
+    expect(report.rows.find((item) => item.agent === "central_bank")?.reasons).toEqual([]);
   });
 
   it("does not depend on stale handwritten output field lists", async () => {

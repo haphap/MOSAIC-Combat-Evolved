@@ -14,7 +14,9 @@ interface Target {
   cohorts: string[];
 }
 
-const targets = parseTargets(process.argv.slice(2));
+const args = process.argv.slice(2);
+const hideResearchKnobs = args.includes("--hide-research-knobs");
+const targets = parseTargets(args.filter((arg) => arg !== "--hide-research-knobs"));
 if (targets.length === 0) {
   throw new Error("usage: generate_macro_prompts.ts <prompts/mosaic root>:<cohort,...> [...]");
 }
@@ -33,8 +35,7 @@ for (const target of targets) {
       const knobs = buildRuntimeResearchKnobs(spec);
       for (const language of ["zh", "en"] as const) {
         const base = [
-          renderResearchKnobsFence(knobs),
-          "",
+          ...(hideResearchKnobs ? [] : [renderResearchKnobsFence(knobs), ""]),
           language === "zh" ? `# ${agent} — Layer-1 宏观传导` : `# ${agent} — Layer-1 macro transmission`,
           "",
           renderMacroRuntimeContract(agent, language),
@@ -42,7 +43,9 @@ for (const target of targets) {
           language === "zh" ? commonZh(agent) : commonEn(agent),
           "",
         ].join("\n");
-        const prompt = upsertRuntimeEvidenceContract(base, spec, language);
+        const prompt = upsertRuntimeEvidenceContract(base, spec, language, {
+          includeResearchKnobDetails: !hideResearchKnobs,
+        });
         writeFileSync(join(macroDir, `${agent}.${language}.md`), prompt, "utf8");
       }
     }

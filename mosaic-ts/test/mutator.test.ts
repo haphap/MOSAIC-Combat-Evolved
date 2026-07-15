@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  parseResearchKnobsPrompt,
   type ResearchKnobs,
   renderResearchKnobsFence,
 } from "../src/agents/helpers/research_knobs.js";
@@ -1636,10 +1635,15 @@ describe("mutate", () => {
     expect(m.governance_registry_update?.content).toContain(
       '"last_mutation_id": "KM-generic-test"',
     );
-    expect(m.bundled_prompt_update.zh_prompt).toContain("cap: 0.5");
-    expect(m.bundled_prompt_update.en_prompt).toContain("cap: 0.5");
-    expect(parseResearchKnobsPrompt(m.bundled_prompt_update.zh_prompt).knobs).toEqual(
-      parseResearchKnobsPrompt(m.zh_prompt).knobs,
+    expect(m.bundled_prompt_update.zh_prompt).not.toContain("```research-knobs");
+    expect(m.bundled_prompt_update.en_prompt).not.toContain("```research-knobs");
+    expect(m.bundled_prompt_update.zh_prompt).not.toContain("cap: 0.5");
+    expect(m.bundled_prompt_update.en_prompt).not.toContain("cap: 0.5");
+    expect(m.bundled_prompt_update.zh_prompt).toMatch(
+      /<!-- runtime-policy-hash:sha256:[0-9a-f]{64} -->/,
+    );
+    expect(m.bundled_prompt_update.en_prompt).toMatch(
+      /<!-- runtime-policy-hash:sha256:[0-9a-f]{64} -->/,
     );
   });
 

@@ -85,7 +85,6 @@ export function validateMacroSnapshotEchoes(
   const observations = Array.isArray(snapshot.observations)
     ? snapshot.observations.filter(isRecord)
     : [];
-  const snapshotNumericByKey = collectNumericValues(snapshot);
 
   for (const [claimIndex, claim] of output.claims.entries()) {
     inspectConclusion(
@@ -108,9 +107,13 @@ export function validateMacroSnapshotEchoes(
       return;
     }
     if (!isRecord(value)) return;
-    const observation = resolveSnapshotRecord(value, observations, snapshot) ?? referenced;
+    const resolvedObservation = resolveSnapshotRecord(value, observations, snapshot);
     const declaresSnapshotReference =
       typeof value.evidence_id === "string" || typeof value.series_id === "string";
+    const observation = declaresSnapshotReference ? resolvedObservation : referenced;
+    if (declaresSnapshotReference && !resolvedObservation) {
+      issues.push(issue("SNAPSHOT_REFERENCE_UNKNOWN", path));
+    }
     for (const [key, item] of Object.entries(value)) {
       const itemPath = `${path}.${key}`;
       if (typeof item === "number") {
@@ -130,35 +133,17 @@ export function validateMacroSnapshotEchoes(
             issues.push(issue("UNSUPPORTED_NUMERIC_ECHO", itemPath));
           }
         } else if (declaresSnapshotReference) {
-          if (!matchesAnySnapshotNumeric(key, item, observations, snapshot)) {
-            issues.push(issue("UNSUPPORTED_NUMERIC_ECHO", itemPath));
-          }
+          issues.push(issue("UNSUPPORTED_NUMERIC_ECHO", itemPath));
         } else {
-          const allowed = snapshotNumericByKey.get(key) ?? [];
-          if (allowed.length > 0 && !allowed.some((candidate) => Object.is(candidate, item))) {
-            issues.push(issue("SNAPSHOT_NUMERIC_MISMATCH", itemPath));
-          }
+          issues.push(issue("SNAPSHOT_REFERENCE_REQUIRED", itemPath));
         }
+      } else if (typeof item === "string" && /[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*%/.test(item)) {
+        issues.push(issue("PERCENTAGE_MUST_BE_NUMERIC_SNAPSHOT_ECHO", itemPath));
       } else {
         inspectConclusion(item, itemPath, observation);
       }
     }
   }
-}
-
-function matchesAnySnapshotNumeric(
-  key: string,
-  value: number,
-  observations: ReadonlyArray<SnapshotRecord>,
-  snapshot: SnapshotRecord,
-): boolean {
-  for (const record of [...observations, snapshot]) {
-    const canonicalKey = SNAPSHOT_NUMERIC_ALIASES[key] ?? key;
-    if (Object.is(record[canonicalKey], value)) return true;
-    if (matchesDerivedSnapshotValue(key, value, record)) return true;
-    if (Object.values(record).some((candidate) => Object.is(candidate, value))) return true;
-  }
-  return false;
 }
 
 function matchesDerivedSnapshotValue(
@@ -204,27 +189,6 @@ function resolveSnapshotRecord(
     if (match) return match;
   }
   return null;
-}
-
-function collectNumericValues(
-  value: unknown,
-  result = new Map<string, number[]>(),
-): Map<string, number[]> {
-  if (Array.isArray(value)) {
-    for (const item of value) collectNumericValues(item, result);
-    return result;
-  }
-  if (!isRecord(value)) return result;
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item === "number") {
-      const values = result.get(key) ?? [];
-      values.push(item);
-      result.set(key, values);
-    } else {
-      collectNumericValues(item, result);
-    }
-  }
-  return result;
 }
 
 function isRecord(value: unknown): value is SnapshotRecord {

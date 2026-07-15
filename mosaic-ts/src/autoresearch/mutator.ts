@@ -1745,8 +1745,9 @@ export async function mutateResearchKnobs(
     loadPrompt({ agent, cohort, language: "zh", promptsRoot: bundledRoot, noCache: true }),
     loadPrompt({ agent, cohort, language: "en", promptsRoot: bundledRoot, noCache: true }),
   ]);
-  const bundledZh = parseResearchKnobsPrompt(bundledZhPrompt);
-  const bundledEn = parseResearchKnobsPrompt(bundledEnPrompt);
+  const bundledPrompts = bootstrapResearchKnobsPrompts(agent, bundledZhPrompt, bundledEnPrompt);
+  const bundledZh = parseResearchKnobsPrompt(bundledPrompts.zhPrompt);
+  const bundledEn = parseResearchKnobsPrompt(bundledPrompts.enPrompt);
   assertResearchKnobsParity(bundledZh.knobs, bundledEn.knobs);
   if (
     JSON.stringify(canonicalResearchKnobs(zh.knobs)) !==
@@ -1793,8 +1794,8 @@ export async function mutateResearchKnobs(
   }
   const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, knobMutation);
   const bundledAssembled = applyKnobPatchesToPromptPair(
-    bundledZhPrompt,
-    bundledEnPrompt,
+    bundledPrompts.zhPrompt,
+    bundledPrompts.enPrompt,
     knobMutation,
   );
   if (
@@ -1803,6 +1804,8 @@ export async function mutateResearchKnobs(
   ) {
     throw new PromptInvariantError("private and bundled candidate projections do not match");
   }
+  const publishedBundledZh = publishBundledPolicyHash(bundledZhPrompt, bundledAssembled.knobs);
+  const publishedBundledEn = publishBundledPolicyHash(bundledEnPrompt, bundledAssembled.knobs);
   let domainRegistryUpdate: ResearchKnobPromptMutation["domain_registry_update"];
   let governanceRegistryUpdate: ResearchKnobPromptMutation["governance_registry_update"];
   if (domainPaths.length > 0) {
@@ -1891,20 +1894,29 @@ export async function mutateResearchKnobs(
     ...(domainRegistryUpdate ? { domain_registry_update: domainRegistryUpdate } : {}),
     ...(governanceRegistryUpdate ? { governance_registry_update: governanceRegistryUpdate } : {}),
     bundled_prompt_update: {
-      zh_prompt: bundledAssembled.zh_prompt,
-      en_prompt: bundledAssembled.en_prompt,
+      zh_prompt: publishedBundledZh,
+      en_prompt: publishedBundledEn,
       prompt_file_hashes: {
         zh: {
           old_sha256: hashText(bundledZhPrompt),
-          new_sha256: hashText(bundledAssembled.zh_prompt),
+          new_sha256: hashText(publishedBundledZh),
         },
         en: {
           old_sha256: hashText(bundledEnPrompt),
-          new_sha256: hashText(bundledAssembled.en_prompt),
+          new_sha256: hashText(publishedBundledEn),
         },
       },
     },
   };
+}
+
+function publishBundledPolicyHash(prompt: string, knobs: ResearchKnobs): string {
+  const body = prompt
+    .replace(RESEARCH_KNOBS_FENCE_RE, "")
+    .replace(/\n*<!-- runtime-policy-hash:sha256:[0-9a-f]{64} -->\s*$/u, "")
+    .trimEnd();
+  const policyHash = hashText(JSON.stringify(canonicalResearchKnobs(knobs)));
+  return `${body}\n\n<!-- runtime-policy-hash:${policyHash} -->\n`;
 }
 
 function hashText(value: string): string {
