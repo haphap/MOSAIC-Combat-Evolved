@@ -35,8 +35,12 @@ const KNOB_INFLUENCE_FIELDS = {
     .describe("Optional short rationale for declared knob influence ids."),
   claims: z
     .array(LlmResearchClaimSchema)
-    .optional()
+    .min(1)
     .describe("Claim declarations referencing only runtime-provided evidence ids."),
+  claim_refs: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe("Claim ids supporting the top-level decision conclusion."),
 };
 
 const CLAIM_REFS = z
@@ -45,6 +49,11 @@ const CLAIM_REFS = z
   .optional()
   .describe("Claim ids supporting this output entry; required by the enabled evidence gate.");
 
+const REQUIRED_CLAIM_REFS = z
+  .array(z.string().min(1))
+  .min(1)
+  .describe("Claim ids supporting this CIO decision entry.");
+
 // ---------------------------------------------------------------------------
 // 1. cro
 // ---------------------------------------------------------------------------
@@ -52,6 +61,7 @@ const CLAIM_REFS = z
 export const CroSchema = z
   .object({
     agent: z.literal("cro"),
+    review_disposition: z.enum(["REVIEW_ACTIONS", "NO_OBJECTION", "BLOCK_ALL"]),
     rejected_picks: z
       .array(
         z.object({
@@ -103,6 +113,21 @@ export const CroSchema = z
       "raises objections. Empty rejected_picks is allowed when the upstream is clean.",
   )
   .superRefine((value, ctx) => {
+    const actionCount = value.rejected_picks.length + (value.required_adjustments?.length ?? 0);
+    if (value.review_disposition === "NO_OBJECTION" && actionCount !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["review_disposition"],
+        message: "NO_OBJECTION requires no rejected picks or required adjustments",
+      });
+    }
+    if (value.review_disposition !== "NO_OBJECTION" && actionCount === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["review_disposition"],
+        message: "REVIEW_ACTIONS/BLOCK_ALL requires at least one structured review action",
+      });
+    }
     addDuplicateTickerIssues(value.rejected_picks, "rejected_picks", ctx);
     addDuplicateTickerIssues(value.required_adjustments ?? [], "required_adjustments", ctx);
     for (const [index, adjustment] of (value.required_adjustments ?? []).entries()) {
@@ -151,12 +176,14 @@ export const CroSchema = z
   });
 
 export const CRO_FIELD_NAMES = [
+  "review_disposition",
   "rejected_picks",
   "correlated_risks",
   "black_swan_scenarios",
   "required_adjustments",
   "confidence",
   "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -166,6 +193,7 @@ export const CRO_FIELD_NAMES = [
 export const AlphaDiscoverySchema = z
   .object({
     agent: z.literal("alpha_discovery"),
+    discovery_disposition: z.enum(["CANDIDATES", "NONE_FOUND"]),
     novel_picks: z
       .array(
         z.object({
@@ -189,12 +217,27 @@ export const AlphaDiscoverySchema = z
     confidence: z.number().min(0).max(1),
     ...KNOB_INFLUENCE_FIELDS,
   })
+  .superRefine((value, ctx) => {
+    if ((value.discovery_disposition === "CANDIDATES") !== value.novel_picks.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["discovery_disposition"],
+        message: "CANDIDATES requires novel_picks; empty novel_picks requires NONE_FOUND",
+      });
+    }
+  })
   .describe(
     "Layer-4 alpha discovery — finds picks that fall between superinvestor philosophies. " +
       "Empty novel_picks is the most common outcome and is fine.",
   );
 
-export const ALPHA_DISCOVERY_FIELD_NAMES = ["novel_picks", "confidence", "claims"] as const;
+export const ALPHA_DISCOVERY_FIELD_NAMES = [
+  "discovery_disposition",
+  "novel_picks",
+  "confidence",
+  "claims",
+  "claim_refs",
+] as const;
 
 // ---------------------------------------------------------------------------
 // 3. autonomous_execution
@@ -203,6 +246,7 @@ export const ALPHA_DISCOVERY_FIELD_NAMES = ["novel_picks", "confidence", "claims
 export const AutonomousExecutionSchema = z
   .object({
     agent: z.literal("autonomous_execution"),
+    execution_disposition: z.enum(["TRADES", "NO_DELTA", "BLOCKED"]),
     trades: z
       .array(
         z.object({
@@ -274,6 +318,20 @@ export const AutonomousExecutionSchema = z
       "Darwinian weights are stubbed at uniform = 1/N until Phase 3 scorecard lands.",
   )
   .superRefine((value, ctx) => {
+    if (value.execution_disposition === "TRADES" && value.trades.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["execution_disposition"],
+        message: "TRADES requires at least one trade",
+      });
+    }
+    if (value.execution_disposition !== "TRADES" && value.trades.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["execution_disposition"],
+        message: "NO_DELTA/BLOCKED requires an empty trades array",
+      });
+    }
     addDuplicateTickerIssues(value.trades, "trades", ctx);
     addDuplicateTickerIssues(value.execution_checks ?? [], "execution_checks", ctx);
     for (const [index, check] of (value.execution_checks ?? []).entries()) {
@@ -305,10 +363,12 @@ export const AutonomousExecutionSchema = z
   });
 
 export const AUTONOMOUS_EXECUTION_FIELD_NAMES = [
+  "execution_disposition",
   "trades",
   "execution_checks",
   "confidence",
   "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -323,8 +383,8 @@ const POSITION_REVIEW_SCHEMA = z.object({
   thesis_status: z.enum(["intact", "weakened", "broken", "expired"]),
   risk_flags: z.array(z.string().min(1)),
   confidence: z.number().min(0).max(1),
-  review_source: z.enum(["llm", "runtime_safety_fallback"]).optional(),
-  claim_refs: CLAIM_REFS,
+  review_source: z.literal("llm").optional(),
+  claim_refs: REQUIRED_CLAIM_REFS,
 });
 
 const DISSENT_REF_SCHEMA = z.object({
@@ -336,6 +396,9 @@ const DISSENT_REF_SCHEMA = z.object({
 
 const CIO_BASE_SCHEMA = z.object({
   agent: z.literal("cio"),
+  decision_disposition: z.enum(["TARGET_PORTFOLIO", "HOLD_CURRENT", "ALL_CASH"]),
+  decision_reason: z.string().min(1),
+  decision_claim_refs: REQUIRED_CLAIM_REFS,
   portfolio_actions: z
     .array(
       z.object({
@@ -361,16 +424,23 @@ const CIO_BASE_SCHEMA = z.object({
             "Empty when CIO matches autonomous_execution; non-empty when CIO overrides " +
               "(must explain why).",
           ),
-        claim_refs: CLAIM_REFS,
+        claim_refs: REQUIRED_CLAIM_REFS,
       }),
     )
     .max(15),
   confidence: z.number().min(0).max(1),
   ...KNOB_INFLUENCE_FIELDS,
+  claims: z
+    .array(LlmResearchClaimSchema)
+    .min(1)
+    .describe("CIO must explain both actions and intentional cash decisions with evidence claims."),
 });
 
 function validateCioWeights(
-  val: { portfolio_actions: Array<{ ticker: string; target_weight: number }> },
+  val: {
+    decision_disposition: "TARGET_PORTFOLIO" | "HOLD_CURRENT" | "ALL_CASH";
+    portfolio_actions: Array<{ ticker: string; target_weight: number }>;
+  },
   ctx: z.RefinementCtx,
 ): void {
   addDuplicateTickerIssues(val.portfolio_actions, "portfolio_actions", ctx);
@@ -379,6 +449,23 @@ function validateCioWeights(
     ctx.addIssue({
       code: "custom",
       message: `portfolio_actions target_weight sum ${total.toFixed(6)} exceeds 1.0 + epsilon; reduce allocations.`,
+    });
+  }
+  if (val.decision_disposition === "TARGET_PORTFOLIO" && val.portfolio_actions.length === 0) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["decision_disposition"],
+      message: "TARGET_PORTFOLIO requires a complete non-empty target portfolio",
+    });
+  }
+  if (
+    val.decision_disposition === "ALL_CASH" &&
+    val.portfolio_actions.some((action) => action.target_weight > 1e-9)
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["portfolio_actions"],
+      message: "ALL_CASH actions must target zero weight",
     });
   }
 }
@@ -438,11 +525,15 @@ export const CioFinalSchema = CIO_BASE_SCHEMA.extend({
   .describe("CIO final target with structured CRO/execution dissent references.");
 
 export const CIO_FIELD_NAMES = [
+  "decision_disposition",
+  "decision_reason",
+  "decision_claim_refs",
   "portfolio_actions",
   "position_reviews",
   "dissent_refs",
   "confidence",
   "claims",
+  "claim_refs",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -450,13 +541,27 @@ export const CIO_FIELD_NAMES = [
 // ---------------------------------------------------------------------------
 
 type _GuardEqShape<T, U> = T extends U ? (U extends T ? true : never) : never;
+type _GuardAssignable<T, U> = T extends U ? true : never;
 
-const _croCheck: _GuardEqShape<z.infer<typeof CroSchema>, CroOutput> = true;
-const _alphaCheck: _GuardEqShape<z.infer<typeof AlphaDiscoverySchema>, AlphaDiscoveryOutput> = true;
-const _autoCheck: _GuardEqShape<z.infer<typeof AutonomousExecutionSchema>, AutoExecOutput> = true;
-const _cioCheck: _GuardEqShape<z.infer<typeof CioSchema>, CioOutput> = true;
-const _cioProposalCheck: _GuardEqShape<z.infer<typeof CioProposalSchema>, CioProposalOutput> = true;
-const _cioFinalCheck: _GuardEqShape<z.infer<typeof CioFinalSchema>, CioFinalOutput> = true;
+const _croCheck: _GuardAssignable<z.infer<typeof CroSchema>, CroOutput> = true;
+const _alphaCheck: _GuardAssignable<
+  z.infer<typeof AlphaDiscoverySchema>,
+  AlphaDiscoveryOutput
+> = true;
+const _autoCheck: _GuardAssignable<
+  z.infer<typeof AutonomousExecutionSchema>,
+  AutoExecOutput
+> = true;
+// Runtime CIO extraction is intentionally stricter than the state interface:
+// persisted legacy/fallback states may omit evidence fields, but fresh model
+// output must include them so post-extraction evidence validation cannot erase
+// an otherwise valid action silently.
+const _cioCheck: _GuardAssignable<z.infer<typeof CioSchema>, CioOutput> = true;
+const _cioProposalCheck: _GuardAssignable<
+  z.infer<typeof CioProposalSchema>,
+  CioProposalOutput
+> = true;
+const _cioFinalCheck: _GuardAssignable<z.infer<typeof CioFinalSchema>, CioFinalOutput> = true;
 
 void _croCheck;
 void _alphaCheck;

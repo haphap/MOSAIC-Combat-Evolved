@@ -10,10 +10,10 @@
  *      - Run ``runAgentToolLoop`` until the model emits a tool-call-free
  *        response or maxLoops is reached
  *
- *   2. **Structured extraction**
- *      - Feed the analysis text into ``invokeStructuredOrFreetext`` with the
- *        agent's Zod schema; on failure fall back to free-text mode and
- *        finally to a confidence=0 conservative stub
+ *   2. **Strict structured extraction**
+ *      - Validate every answer against the Zod schema, frozen evidence,
+ *        research knobs, and domain semantics, with at most three repairs.
+ *      - Reject the stage when the repair budget is exhausted.
  *
  * Each Layer-1 macro agent file declares a ``LayerOneAgentSpec<TOutput>``
  * and a ``build<Agent>Node = (deps) => buildLayerOneAgentNode(spec, deps)``.
@@ -33,12 +33,11 @@ import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_rele
 import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import { invokeStrictStructured } from "../helpers/agent_run_contract.js";
 import {
-  attachDeterministicFallbackClaimGraph,
   buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
-  selectOutputByClaimEvidence,
 } from "../helpers/evidence_runtime.js";
 import {
   type AgentCanaryEventContext,
@@ -47,15 +46,12 @@ import {
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
 import {
-  applyResearchKnobCapsWithFallback,
-  assertResearchKnobCappedOutputSchema,
-  formatResearchKnobAuditFields,
   isResearchKnobsStageEnabled,
+  type ResearchKnobCapAudit,
   type ResearchKnobsSnapshot,
   type ToolStatus,
 } from "../helpers/research_knobs.js";
 import {
-  AgentTimeoutError,
   buildLlmCall,
   formatAgentEvent,
   formatDurationMs,
@@ -66,7 +62,7 @@ import {
   withAgentTimeout,
 } from "../helpers/runtime.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
-import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
+import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
 import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { MacroAgentOutput } from "../types.js";
@@ -87,14 +83,6 @@ export interface LayerOneAgentSpec<TOutput extends MacroAgentOutput> {
   requiredTools: ReadonlyArray<string>;
   /** Render structured output as readable prose for state inspection / logs. */
   render: (output: TOutput) => string;
-  /**
-   * Conservative output emitted when both structured extraction and free-text
-   * fallback fail. Should set ``confidence = 0`` so the L1 aggregator can
-   * downweight the run. ``analysisText`` is whatever the loop produced
-   * (possibly empty) — useful for surfacing partial context in
-   * ``key_drivers`` or ``qe_qt_balance_change``-style fields.
-   */
-  fallback: (analysisText: string) => TOutput;
   /**
    * Optional structured-only sentences in the phase-1 system prompt. If
    * any prompt lines only make sense in structured-output mode, list them
@@ -139,7 +127,6 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
-    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
     let canaryContext: AgentCanaryEventContext | null = null;
     let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
@@ -229,7 +216,6 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                 knobSnapshot,
               })
             : null;
-          fallbackRuntimeEvidence = runtimeEvidence;
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
@@ -251,7 +237,6 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
               knobSnapshot,
               toolStatuses: loopResult.toolStatuses,
             });
-            fallbackRuntimeEvidence = runtimeEvidence;
           }
           canaryToolStatuses = loopResult.toolStatuses;
 
@@ -264,7 +249,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
             : defaultExtractorSystem(spec, language);
-          const extractor = await invokeStructuredOrFreetext<TOutput>({
+          const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
             schema: spec.schema,
             messages: [
@@ -278,51 +263,49 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                   .join("\n\n"),
               ),
             ],
-            render: spec.render,
-            agentName: spec.agentId,
-            structuredOnlySentences: spec.structuredOnlySentences ?? [],
-            onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
+            agent: spec.agentId,
+            stage: "agent_run",
+            runId: state.trace_id || state.as_of_date || "current_run",
+            evidenceSnapshot: runtimeEvidence,
+            validate: (output) =>
+              validateStrictAgentOutput({
+                output,
+                schema: spec.schema,
+                agent: spec.agentId,
+                stage: "agent_run",
+                runtimeEvidence,
+                knobSnapshot,
+                toolStatuses: loopResult.toolStatuses,
+              }),
             signal,
           });
 
           // Phase 3: assemble state update.
-          const rawOutput = extractor.structured ?? spec.fallback(loopResult.analysisText);
-          const claimSelection = runtimeEvidence
-            ? selectOutputByClaimEvidence(rawOutput, () => spec.fallback(""), runtimeEvidence)
-            : null;
-          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
-          const capped = knobSnapshot
-            ? applyResearchKnobCapsWithFallback(
-                claimSelectedOutput,
-                () => spec.fallback(""),
-                knobSnapshot,
-                { toolStatuses: loopResult.toolStatuses },
-              )
-            : null;
-          let output = capped
-            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
-            : claimSelectedOutput;
-          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
-            output = attachDeterministicFallbackClaimGraph(
-              output,
-              runtimeEvidence,
-              claimSelection?.rejectionReasons ?? [],
-              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
-            ).output;
-          }
+          const output = extractor.output;
+          const repairPromptTokens = extractor.audit.attempts.reduce(
+            (sum, attempt) => sum + attempt.prompt_tokens,
+            0,
+          );
+          const repairCompletionTokens = extractor.audit.attempts.reduce(
+            (sum, attempt) => sum + attempt.completion_tokens,
+            0,
+          );
           const llmCall = buildLlmCall(spec.agentId, structuredHandle, {
-            promptTokens: loopResult.promptTokens + extractor.usage.promptTokens,
-            completionTokens: loopResult.completionTokens + extractor.usage.completionTokens,
+            promptTokens: loopResult.promptTokens + repairPromptTokens,
+            completionTokens: loopResult.completionTokens + repairCompletionTokens,
           });
+          llmCall.agent_run_audit = extractor.audit;
           const canaryEvent = buildAgentPromptCanaryEvent({
             context: canaryContext,
             agent: spec.agentId,
             stage: "agent_run",
             startedAt,
-            structuredAccepted: extractor.structured !== null,
-            claimGraphAccepted: claimSelection?.rawOutputAccepted ?? true,
+            structuredAccepted: true,
+            claimGraphAccepted: true,
             knobSnapshot,
-            knobAudit: capped?.audit ?? null,
+            knobAudit:
+              (output as TOutput & { verified_knob_audit?: ResearchKnobCapAudit })
+                .verified_knob_audit ?? null,
             toolStatuses: loopResult.toolStatuses,
             output,
             validatorIds: [
@@ -348,15 +331,14 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
                 loopResult.completionTokens,
                 loopResult.llmElapsedMs,
               ),
-              `source=${extractor.structured ? "structured" : "fallback"}`,
+              `source=${extractor.audit.output_source}`,
               ...(runtimeEvidence
                 ? [
                     `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
-                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
-                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                    "claim_output=accepted",
+                    "claim_rejections=0",
                   ]
                 : []),
-              ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
           );
@@ -370,61 +352,6 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
         `L1 ${spec.agentId}`,
       );
     } catch (err) {
-      if (err instanceof AgentTimeoutError) {
-        if (
-          isResearchKnobsStageEnabled(
-            spec.agentId,
-            "agent_run",
-            undefined,
-            state.active_cohort || "cohort_default",
-          ) &&
-          !fallbackRuntimeEvidence
-        ) {
-          throw err;
-        }
-        const fallback = spec.fallback("");
-        const output = fallbackRuntimeEvidence
-          ? attachDeterministicFallbackClaimGraph(
-              fallback,
-              fallbackRuntimeEvidence,
-              ["agent_timeout"],
-              "AGENT_TIMEOUT",
-            ).output
-          : fallback;
-        const canaryEvent = buildAgentPromptCanaryEvent({
-          context: canaryContext,
-          agent: spec.agentId,
-          stage: "agent_run",
-          startedAt,
-          structuredAccepted: false,
-          claimGraphAccepted: false,
-          knobSnapshot: canaryKnobSnapshot,
-          knobAudit: null,
-          toolStatuses: canaryToolStatuses,
-          output,
-          validatorIds: [
-            `${spec.agentId}.structured_output.v1`,
-            "evidence_claim_graph_v1",
-            "research_knobs_runtime_v1",
-          ],
-          forceFallback: true,
-        });
-        const llmCall = buildLlmCall(spec.agentId, structuredHandle);
-        if (canaryEvent) {
-          llmCall.prompt_canary_event = canaryEvent;
-          await persistPromptReleaseCanaryEvents([canaryEvent]);
-        }
-        onLog(
-          formatAgentEvent("timeout", "L1", spec.agentId, [
-            `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
-            summarizeAgentOutput(output),
-          ]),
-        );
-        return {
-          layer1_outputs: { [spec.agentId]: output },
-          llm_calls: [llmCall],
-        };
-      }
       onLog(
         formatAgentEvent("error", "L1", spec.agentId, [
           `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -494,12 +421,11 @@ function defaultExtractorSystem<TOutput extends MacroAgentOutput>(
   return (
     `You are a structured-output extractor for the ${spec.agentId} agent. ` +
     `The user message contains a free-form analysis written by a previous LLM call. ` +
-    `Read it carefully and populate the required ${spec.agentId} schema fields ` +
-    `(${spec.fieldNames.join(", ")}). ` +
+    `Read it carefully and populate every field in the runtime-supplied JSON Schema. ` +
     `Only emit values supported by the analysis text; never invent numbers. ` +
     `If a field cannot be supported by the text, use the most conservative valid value ` +
     `(prefer NEUTRAL stances, 0 numeric values, 'unknown' for date windows, ` +
-    `confidence ≤ 0.4). When a runtime evidence catalog is present, include claims and ` +
+    `confidence ≤ 0.4), while still producing a complete analysis. Include claims and ` +
     `top-level claim_refs using only its evidence_id and allowed research rule ids. ` +
     lang
   );

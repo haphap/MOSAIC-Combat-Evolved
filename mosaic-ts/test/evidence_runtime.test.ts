@@ -237,6 +237,7 @@ describe("runtime evidence snapshots", () => {
     expect(evidenceId).toBeDefined();
     const raw: CioOutput = {
       agent: "cio",
+      decision_claim_refs: ["claim-1"],
       portfolio_actions: [
         {
           ticker: "600519.SH",
@@ -268,6 +269,11 @@ describe("runtime evidence snapshots", () => {
 
     expect(selected.rawOutputAccepted).toBe(true);
     expect(selected.graph.recommendation_claim_refs).toEqual([
+      {
+        output_id: "recommendation:0:cio",
+        output_type: "recommendation",
+        claim_refs: ["claim-1"],
+      },
       {
         output_id: "portfolio_action:0:600519.SH",
         output_type: "portfolio_action",
@@ -470,6 +476,7 @@ describe("runtime evidence snapshots", () => {
     });
     const raw: CioOutput = {
       agent: "cio",
+      decision_claim_refs: ["claim-1"],
       portfolio_actions: [
         {
           ticker: "600519.SH",

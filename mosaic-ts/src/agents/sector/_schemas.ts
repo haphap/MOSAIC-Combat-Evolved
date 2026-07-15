@@ -39,11 +39,7 @@ const SECTOR_PICK = z.object({
       "Short rationale (≤ 50 chars) tying the pick to a concrete macro / policy / flow signal.",
     ),
   conviction: z.number().min(0).max(1).describe("[0, 1] strength of conviction."),
-  claim_refs: z
-    .array(z.string().min(1))
-    .min(1)
-    .optional()
-    .describe("Claim ids supporting this candidate."),
+  claim_refs: z.array(z.string().min(1)).min(1).describe("Claim ids supporting this candidate."),
 });
 
 const KEY_DRIVERS = z
@@ -71,12 +67,11 @@ const KNOB_INFLUENCE_FIELDS = {
     .describe("Optional short rationale for declared knob influence ids."),
   claims: z
     .array(LlmResearchClaimSchema)
-    .optional()
+    .min(1)
     .describe("Claim declarations referencing only runtime-provided evidence ids."),
   claim_refs: z
     .array(z.string().min(1))
     .min(1)
-    .optional()
     .describe("Claim ids supporting the top-level sector recommendation."),
 };
 
@@ -85,6 +80,7 @@ function buildStandardSectorSchema<L extends string>(literal: L) {
   return z
     .object({
       agent: z.literal(literal),
+      selection_disposition: z.enum(["CANDIDATES", "NO_QUALIFIED_CANDIDATES"]),
       longs: z
         .array(SECTOR_PICK)
         .max(10)
@@ -98,6 +94,17 @@ function buildStandardSectorSchema<L extends string>(literal: L) {
       key_drivers: KEY_DRIVERS,
       confidence: CONFIDENCE,
       ...KNOB_INFLUENCE_FIELDS,
+    })
+    .superRefine((value, ctx) => {
+      const hasCandidates = value.longs.length + value.shorts.length > 0;
+      if ((value.selection_disposition === "CANDIDATES") !== hasCandidates) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["selection_disposition"],
+          message:
+            "CANDIDATES requires at least one long/short; empty arrays require NO_QUALIFIED_CANDIDATES",
+        });
+      }
     })
     .describe(
       `Layer-2 sector pick output for ${literal}. Picks must reference tickers from ` +
@@ -119,6 +126,7 @@ export const FinancialsSchema = buildStandardSectorSchema("financials");
 export const STANDARD_SECTOR_FIELD_NAMES = [
   "longs",
   "shorts",
+  "selection_disposition",
   "sector_score",
   "key_drivers",
   "confidence",
@@ -186,7 +194,7 @@ export const RELATIONSHIP_MAPPER_FIELD_NAMES = [
 // Type-check guards
 // ---------------------------------------------------------------------------
 
-type _GuardEqShape<T, U> = T extends U ? (U extends T ? true : never) : never;
+type _GuardEqShape<T, U> = T extends U ? true : never;
 
 const _semiCheck: _GuardEqShape<z.infer<typeof SemiconductorSchema>, SemiconductorOutput> = true;
 const _energyCheck: _GuardEqShape<z.infer<typeof EnergySchema>, EnergyOutput> = true;

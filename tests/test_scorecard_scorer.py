@@ -21,6 +21,7 @@ def _sample_state(date: str = "2024-06-24") -> dict:
     return {
         "active_cohort": "cohort_default",
         "as_of_date": date,
+        "day_outcome_status": "accepted",
         "layer1_outputs": {},
         "layer2_outputs": {},
         "layer3_outputs": {},

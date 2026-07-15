@@ -61,6 +61,37 @@ SAMPLE_ACTIONS = [
 ]
 
 
+def accepted_audits() -> list[dict]:
+    return [
+        {
+            "agent": f"agent_{index}",
+            "stage": f"stage_{index}",
+            "status": "accepted",
+            "output_source": "structured_primary",
+            "attempt_count": 1,
+            "repair_count": 0,
+            "stop_reason": "accepted",
+        }
+        for index in range(26)
+    ]
+
+
+def append_accepted(
+    store: ScorecardStore,
+    run_id: int,
+    trade_date: str,
+    actions: list[dict],
+    disposition: str = "TARGET_PORTFOLIO",
+) -> int:
+    return store.append_backtest_actions(
+        run_id,
+        trade_date,
+        actions,
+        agent_run_audits=accepted_audits(),
+        decision_disposition=disposition,
+    )
+
+
 # ===========================================================================
 # Store-level tests
 # ===========================================================================
@@ -163,7 +194,7 @@ class TestBacktestStore:
             end_date="2024-03-31",
             prompt_commit_hash="abc123",
         )
-        n = tmp_store.append_backtest_actions(run_id, "2024-02-15", SAMPLE_ACTIONS)
+        n = append_accepted(tmp_store, run_id, "2024-02-15", SAMPLE_ACTIONS)
         assert n == 2
 
         actions = tmp_store.get_backtest_actions(run_id)
@@ -179,17 +210,17 @@ class TestBacktestStore:
             end_date="2024-03-31",
             prompt_commit_hash="abc123",
         )
-        tmp_store.append_backtest_actions(run_id, "2024-02-15", SAMPLE_ACTIONS)
+        append_accepted(tmp_store, run_id, "2024-02-15", SAMPLE_ACTIONS)
         # Re-append with modified target_weight — should UPDATE, not duplicate
         modified = [{**SAMPLE_ACTIONS[0], "target_weight": 0.5}]
-        tmp_store.append_backtest_actions(run_id, "2024-02-15", modified)
+        append_accepted(tmp_store, run_id, "2024-02-15", modified)
 
         actions = tmp_store.get_backtest_actions(run_id, trade_date="2024-02-15")
-        assert len(actions) == 2  # not 3
+        assert len(actions) == 1
         first = next(a for a in actions if a["ticker"] == "688981.SH")
         assert first["target_weight"] == pytest.approx(0.5)
 
-    def test_filters_invalid_actions(self, tmp_store: ScorecardStore):
+    def test_rejects_invalid_actions(self, tmp_store: ScorecardStore):
         run_id = tmp_store.create_backtest_run(
             cohort="cohort_default",
             start_date="2024-01-01",
@@ -202,8 +233,18 @@ class TestBacktestStore:
             {"ticker": "Y", "action": "MAYBE", "target_weight": 0.5},  # invalid action
             {"ticker": "Z", "action": "BUY", "target_weight": "x"},  # non-numeric
         ]
-        n = tmp_store.append_backtest_actions(run_id, "2024-02-15", bad_actions)
-        assert n == 1  # only the X row survived filtering
+        with pytest.raises(ValueError, match="non-empty ticker"):
+            append_accepted(tmp_store, run_id, "2024-02-15", bad_actions)
+
+    def test_legacy_unverified_actions_are_excluded(self, tmp_store: ScorecardStore):
+        run_id = tmp_store.create_backtest_run(
+            cohort="cohort_default",
+            start_date="2024-01-01",
+            end_date="2024-03-31",
+            prompt_commit_hash="legacy",
+        )
+        tmp_store.append_backtest_actions(run_id, "2024-02-15", SAMPLE_ACTIONS)
+        assert tmp_store.get_backtest_actions(run_id) == []
 
     def test_complete_run_sets_completed_at(self, tmp_store: ScorecardStore):
         run_id = tmp_store.create_backtest_run(
@@ -216,6 +257,7 @@ class TestBacktestStore:
         assert run is not None
         assert run["completed_at"] is None
 
+        append_accepted(tmp_store, run_id, "2024-02-15", [], "ALL_CASH")
         tmp_store.complete_backtest_run(run_id)
         run2 = tmp_store.get_backtest_run(run_id)
         assert run2 is not None
@@ -294,6 +336,8 @@ class TestBacktestHandlers:
                 "run_id": run_id,
                 "trade_date": "2024-02-15",
                 "actions": SAMPLE_ACTIONS,
+                "agent_run_audits": accepted_audits(),
+                "decision_disposition": "TARGET_PORTFOLIO",
             },
         )
         assert result == {"appended": 2}
@@ -329,6 +373,7 @@ class TestBacktestHandlers:
             end_date="2024-03-31",
             prompt_commit_hash="abc",
         )
+        append_accepted(patched_store, run_id, "2024-02-15", [], "ALL_CASH")
         result = dispatch("backtest.complete_run", {"run_id": run_id})
         assert result == {"ok": True}
 
@@ -339,8 +384,8 @@ class TestBacktestHandlers:
             end_date="2024-03-31",
             prompt_commit_hash="abc",
         )
-        patched_store.append_backtest_actions(run_id, "2024-02-15", SAMPLE_ACTIONS)
-        patched_store.append_backtest_actions(run_id, "2024-02-22", SAMPLE_ACTIONS)
+        append_accepted(patched_store, run_id, "2024-02-15", SAMPLE_ACTIONS)
+        append_accepted(patched_store, run_id, "2024-02-22", SAMPLE_ACTIONS)
         result = dispatch("backtest.get_run", {"run_id": run_id})
         assert result["run_id"] == run_id if "run_id" in result else result["id"] == run_id
         assert result["action_count"] == 4
@@ -357,7 +402,8 @@ class TestBacktestHandlers:
             end_date="2024-03-31",
             prompt_commit_hash="abc",
         )
-        patched_store.append_backtest_actions(
+        append_accepted(
+            patched_store,
             run_id,
             "2024-02-15",
             [
@@ -377,7 +423,8 @@ class TestBacktestHandlers:
                 },
             ],
         )
-        patched_store.append_backtest_actions(
+        append_accepted(
+            patched_store,
             run_id,
             "2024-02-22",
             [

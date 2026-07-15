@@ -32,6 +32,21 @@ from mosaic.scorecard import ScorecardStore
 _HAS_QLIB = importlib.util.find_spec("qlib") is not None
 
 
+def _accepted_audits() -> list[dict]:
+    return [
+        {
+            "agent": f"agent_{index}",
+            "stage": f"stage_{index}",
+            "status": "accepted",
+            "output_source": "structured_primary",
+            "attempt_count": 1,
+            "repair_count": 0,
+            "stop_reason": "accepted",
+        }
+        for index in range(26)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Symbol conversion
 # ---------------------------------------------------------------------------
@@ -83,6 +98,8 @@ def populated_store(tmp_path: Path) -> tuple[ScorecardStore, int]:
             {"ticker": "688981.SH", "action": "BUY", "target_weight": 0.4},
             {"ticker": "600519.SH", "action": "BUY", "target_weight": 0.3},
         ],
+        agent_run_audits=_accepted_audits(),
+        decision_disposition="TARGET_PORTFOLIO",
     )
     store.append_backtest_actions(
         run_id,
@@ -91,6 +108,8 @@ def populated_store(tmp_path: Path) -> tuple[ScorecardStore, int]:
             {"ticker": "688981.SH", "action": "BUY", "target_weight": 0.5},
             {"ticker": "002371.SZ", "action": "BUY", "target_weight": 0.2},
         ],
+        agent_run_audits=_accepted_audits(),
+        decision_disposition="TARGET_PORTFOLIO",
     )
     return store, run_id
 

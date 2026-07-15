@@ -321,7 +321,7 @@ export function upsertRuntimeEvidenceContract(
             "`evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 " +
             "`research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、" +
             "position decision、portfolio action、risk adjustment 或 execution check 都必须用 " +
-            "`claim_refs` 引用支持它的 claim。证据不足时输出 conservative fallback 与 uncertainty " +
+            "`claim_refs` 引用支持它的 claim。证据不足时输出有证据支持的显式空 disposition 与 uncertainty " +
             "claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。",
         ]
       : [
@@ -335,8 +335,8 @@ export function upsertRuntimeEvidenceContract(
             "`evidence_id` values through `evidence_refs`; every inference claim must also cite an " +
             "allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, " +
             "position decision, portfolio action, risk adjustment, or execution check must use " +
-            "`claim_refs` to cite its supporting claim. When evidence is insufficient, emit the " +
-            "conservative fallback and an uncertainty claim; never invent evidence ids, fingerprints, " +
+            "`claim_refs` to cite its supporting claim. When evidence is insufficient, emit an " +
+            "evidence-backed explicit empty disposition and an uncertainty claim; never invent evidence ids, fingerprints, " +
             "rule ids, or cross-run references.",
         ];
   const block = [

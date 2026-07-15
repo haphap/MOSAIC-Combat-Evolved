@@ -25,7 +25,6 @@ export const consumerSpec: LayerTwoAgentSpec<ConsumerOutput> = {
   fieldNames: STANDARD_SECTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderConsumer,
-  fallback: fallbackConsumer,
 };
 
 export function buildConsumerNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {

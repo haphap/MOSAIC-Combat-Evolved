@@ -29,7 +29,6 @@ export const energySpec: LayerTwoAgentSpec<EnergyOutput> = {
   fieldNames: STANDARD_SECTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderEnergy,
-  fallback: fallbackEnergy,
 };
 
 export function buildEnergyNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {

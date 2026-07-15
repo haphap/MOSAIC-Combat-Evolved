@@ -39,7 +39,6 @@ export const croSpec: LayerFourAgentSpec<CroOutput> = {
   requiredTools: REQUIRED_TOOLS,
   buildUserContext,
   render: renderCro,
-  fallback: fallbackCro,
 };
 
 export function buildCroNode(deps: LayerFourAgentDeps): LayerFourAgentNode {

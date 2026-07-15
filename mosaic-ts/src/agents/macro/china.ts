@@ -41,7 +41,6 @@ export const chinaSpec: LayerOneAgentSpec<ChinaOutput> = {
   requiredTools: REQUIRED_TOOLS,
   maxLoops: 3,
   render: renderChina,
-  fallback: fallbackChinaOutput,
 };
 
 // ---------------------------------------------------------------------------

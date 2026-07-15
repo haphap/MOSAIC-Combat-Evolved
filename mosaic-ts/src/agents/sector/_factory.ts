@@ -14,7 +14,7 @@
  *
  * Otherwise the factory follows the same two-phase semantics:
  *   Phase 1: tool-bound free-form analysis loop.
- *   Phase 2: structured extraction via invokeStructuredOrFreetext.
+ *   Phase 2: strict structured extraction with a bounded repair budget.
  *
  * relationship_mapper agent uses this same factory — the schema is
  * different but the orchestration is identical.
@@ -27,12 +27,11 @@ import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_rele
 import type { BridgeApi, BridgeToolFactoryOptions, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import { invokeStrictStructured } from "../helpers/agent_run_contract.js";
 import {
-  attachDeterministicFallbackClaimGraph,
   buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
-  selectOutputByClaimEvidence,
 } from "../helpers/evidence_runtime.js";
 import {
   type AgentCanaryEventContext,
@@ -42,15 +41,12 @@ import {
 } from "../helpers/prompt_canary.js";
 import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
 import {
-  applyResearchKnobCapsWithFallback,
-  assertResearchKnobCappedOutputSchema,
-  formatResearchKnobAuditFields,
   isResearchKnobsStageEnabled,
+  type ResearchKnobCapAudit,
   type ResearchKnobsSnapshot,
   type ToolStatus,
 } from "../helpers/research_knobs.js";
 import {
-  AgentTimeoutError,
   buildLlmCall,
   formatAgentEvent,
   formatDurationMs,
@@ -61,10 +57,10 @@ import {
   withAgentTimeout,
 } from "../helpers/runtime.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
-import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
+import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
 import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
-import type { RegimeSignal, SectorAgentOutput } from "../types.js";
+import type { SectorAgentOutput } from "../types.js";
 
 export interface LayerTwoAgentSpec<TOutput extends SectorAgentOutput> {
   agentId: string;
@@ -72,7 +68,6 @@ export interface LayerTwoAgentSpec<TOutput extends SectorAgentOutput> {
   fieldNames: ReadonlyArray<string>;
   requiredTools: ReadonlyArray<string>;
   render: (output: TOutput) => string;
-  fallback: (analysisText: string, regime: RegimeSignal | null) => TOutput;
   structuredOnlySentences?: ReadonlyArray<string>;
   buildExtractorSystem?: (lang: LoaderLanguage) => string;
 }
@@ -100,7 +95,6 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
-    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
     let canaryContext: AgentCanaryEventContext | null = null;
     let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
@@ -199,7 +193,6 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 knobSnapshot,
               })
             : null;
-          fallbackRuntimeEvidence = runtimeEvidence;
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
@@ -222,7 +215,6 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
               knobSnapshot,
               toolStatuses: loopResult.toolStatuses,
             });
-            fallbackRuntimeEvidence = runtimeEvidence;
           }
           canaryToolStatuses = loopResult.toolStatuses;
 
@@ -235,7 +227,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
             : defaultExtractorSystem(spec, language);
-          const extractor = await invokeStructuredOrFreetext<TOutput>({
+          const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
             schema: spec.schema,
             messages: [
@@ -249,55 +241,51 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                   .join("\n\n"),
               ),
             ],
-            render: spec.render,
-            agentName: spec.agentId,
-            structuredOnlySentences: spec.structuredOnlySentences ?? [],
-            onLog: (msg) => onLog(formatAgentEvent("phase", "L2", spec.agentId, [msg])),
+            agent: spec.agentId,
+            stage: "agent_run",
+            runId: state.trace_id || state.as_of_date || "current_run",
+            evidenceSnapshot: runtimeEvidence,
+            validate: (output) =>
+              validateStrictAgentOutput({
+                output,
+                schema: spec.schema,
+                agent: spec.agentId,
+                stage: "agent_run",
+                runtimeEvidence,
+                knobSnapshot,
+                toolStatuses: loopResult.toolStatuses,
+              }),
+            isAcceptedEmpty: (output) =>
+              "selection_disposition" in output &&
+              output.selection_disposition === "NO_QUALIFIED_CANDIDATES",
             signal,
           });
 
-          const rawOutput =
-            extractor.structured ?? spec.fallback(loopResult.analysisText, state.layer1_consensus);
-          const claimSelection = runtimeEvidence
-            ? selectOutputByClaimEvidence(
-                rawOutput,
-                () => spec.fallback("", state.layer1_consensus),
-                runtimeEvidence,
-              )
-            : null;
-          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
-          const capped = knobSnapshot
-            ? applyResearchKnobCapsWithFallback(
-                claimSelectedOutput,
-                () => spec.fallback("", state.layer1_consensus),
-                knobSnapshot,
-                { toolStatuses: loopResult.toolStatuses },
-              )
-            : null;
-          let output = capped
-            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
-            : claimSelectedOutput;
-          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
-            output = attachDeterministicFallbackClaimGraph(
-              output,
-              runtimeEvidence,
-              claimSelection?.rejectionReasons ?? [],
-              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
-            ).output;
-          }
+          const output = extractor.output;
+          const repairPromptTokens = extractor.audit.attempts.reduce(
+            (sum, attempt) => sum + attempt.prompt_tokens,
+            0,
+          );
+          const repairCompletionTokens = extractor.audit.attempts.reduce(
+            (sum, attempt) => sum + attempt.completion_tokens,
+            0,
+          );
           const llmCall = buildLlmCall(spec.agentId, structuredHandle, {
-            promptTokens: loopResult.promptTokens + extractor.usage.promptTokens,
-            completionTokens: loopResult.completionTokens + extractor.usage.completionTokens,
+            promptTokens: loopResult.promptTokens + repairPromptTokens,
+            completionTokens: loopResult.completionTokens + repairCompletionTokens,
           });
+          llmCall.agent_run_audit = extractor.audit;
           const canaryEvent = buildAgentPromptCanaryEvent({
             context: canaryContext,
             agent: spec.agentId,
             stage: "agent_run",
             startedAt,
-            structuredAccepted: extractor.structured !== null,
-            claimGraphAccepted: claimSelection?.rawOutputAccepted ?? true,
+            structuredAccepted: true,
+            claimGraphAccepted: true,
             knobSnapshot,
-            knobAudit: capped?.audit ?? null,
+            knobAudit:
+              (output as TOutput & { verified_knob_audit?: ResearchKnobCapAudit })
+                .verified_knob_audit ?? null,
             toolStatuses: loopResult.toolStatuses,
             output,
             validatorIds: [
@@ -323,15 +311,14 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 loopResult.completionTokens,
                 loopResult.llmElapsedMs,
               ),
-              `source=${extractor.structured ? "structured" : "fallback"}`,
+              `source=${extractor.audit.output_source}`,
               ...(runtimeEvidence
                 ? [
                     `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
-                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
-                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                    "claim_output=accepted",
+                    "claim_rejections=0",
                   ]
                 : []),
-              ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
           );
@@ -345,61 +332,6 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
         `L2 ${spec.agentId}`,
       );
     } catch (err) {
-      if (err instanceof AgentTimeoutError) {
-        if (
-          isResearchKnobsStageEnabled(
-            spec.agentId,
-            "agent_run",
-            undefined,
-            state.active_cohort || "cohort_default",
-          ) &&
-          !fallbackRuntimeEvidence
-        ) {
-          throw err;
-        }
-        const fallback = spec.fallback("", state.layer1_consensus);
-        const output = fallbackRuntimeEvidence
-          ? attachDeterministicFallbackClaimGraph(
-              fallback,
-              fallbackRuntimeEvidence,
-              ["agent_timeout"],
-              "AGENT_TIMEOUT",
-            ).output
-          : fallback;
-        const canaryEvent = buildAgentPromptCanaryEvent({
-          context: canaryContext,
-          agent: spec.agentId,
-          stage: "agent_run",
-          startedAt,
-          structuredAccepted: false,
-          claimGraphAccepted: false,
-          knobSnapshot: canaryKnobSnapshot,
-          knobAudit: null,
-          toolStatuses: canaryToolStatuses,
-          output,
-          validatorIds: [
-            `${spec.agentId}.structured_output.v1`,
-            "evidence_claim_graph_v1",
-            "research_knobs_runtime_v1",
-          ],
-          forceFallback: true,
-        });
-        const llmCall = buildLlmCall(spec.agentId, structuredHandle);
-        if (canaryEvent) {
-          llmCall.prompt_canary_event = canaryEvent;
-          await persistPromptReleaseCanaryEvents([canaryEvent]);
-        }
-        onLog(
-          formatAgentEvent("timeout", "L2", spec.agentId, [
-            `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
-            summarizeAgentOutput(output),
-          ]),
-        );
-        return {
-          layer2_outputs: { [spec.agentId]: output },
-          llm_calls: [llmCall],
-        };
-      }
       onLog(
         formatAgentEvent("error", "L2", spec.agentId, [
           `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -529,10 +461,11 @@ function defaultExtractorSystem<TOutput extends SectorAgentOutput>(
       : "Reply in Chinese. Numbers stay numeric; do not wrap them in 中文括号.";
   return (
     `You are a structured-output extractor for the ${spec.agentId} sector agent. ` +
-    `The user message contains a free-form analysis. Populate the required ${spec.agentId} ` +
-    `schema fields (${spec.fieldNames.join(", ")}). Only emit values supported by the ` +
+    `The user message contains a free-form analysis. Populate every field in the ` +
+    `runtime-supplied JSON Schema. Only emit values supported by the ` +
     `analysis text; never invent ticker codes or net-flow numbers. If a field cannot be ` +
-    `supported, leave longs/shorts empty, sector_score=0, confidence ≤ 0.4. ` +
+    `supported, use NO_QUALIFIED_CANDIDATES with empty longs/shorts, sector_score=0, ` +
+    `confidence ≤ 0.4, and evidence-backed conclusion claims. ` +
     `When a runtime evidence catalog is present, include claims, top-level claim_refs, ` +
     `and per-pick claim_refs using only its evidence_id and allowed research rule ids. ` +
     lang

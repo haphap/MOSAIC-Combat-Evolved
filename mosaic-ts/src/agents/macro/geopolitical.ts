@@ -27,7 +27,6 @@ export const geopoliticalSpec: LayerOneAgentSpec<GeopoliticalOutput> = {
   fieldNames: GEOPOLITICAL_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderGeopolitical,
-  fallback: fallbackGeopolitical,
 };
 
 export function buildGeopoliticalNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

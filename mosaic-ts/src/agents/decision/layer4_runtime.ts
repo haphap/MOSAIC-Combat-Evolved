@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { attachRuntimeOwnedFallbackClaims } from "../helpers/evidence_runtime.js";
 import type { RuntimeSourceStatus } from "../helpers/research_knobs.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
@@ -241,29 +240,19 @@ export function freezeCioProposal(
   const positionsByTicker = new Map(
     state.current_positions.positions.map((position) => [position.ticker, position]),
   );
-  let selectedProposal = proposal;
-  let explicitReviews = isCioProposalOutput(selectedProposal)
+  const selectedProposal = proposal;
+  const explicitReviews = isCioProposalOutput(selectedProposal)
     ? selectedProposal.position_reviews
     : [];
-  let actions: PortfolioAction[];
-  try {
-    if (selectedProposal.verified_claim_audit?.raw_output_accepted === false) {
-      throw new Layer4RuntimeContractError("CIO proposal evidence graph was rejected");
-    }
-    actions = validatedCandidateActions(
-      state,
-      selectedProposal,
-      explicitReviews,
-      positionsByTicker,
-    );
-  } catch (error) {
-    if (!(error instanceof Layer4RuntimeContractError)) throw error;
-    selectedProposal = buildConservativeCioProposalFallback(state, proposal, [error.message]);
-    explicitReviews = selectedProposal.position_reviews ?? [];
-    actions = selectedProposal.portfolio_actions.map((action) =>
-      normalizeCandidateAction(action, positionsByTicker.get(action.ticker)),
-    );
+  if (selectedProposal.verified_claim_audit?.raw_output_accepted === false) {
+    throw new Layer4RuntimeContractError("CIO proposal evidence graph was rejected");
   }
+  const actions = validatedCandidateActions(
+    state,
+    selectedProposal,
+    explicitReviews,
+    positionsByTicker,
+  );
   const positionReviews = buildPositionReviewState(
     runId,
     "pending_candidate_hash",
@@ -325,18 +314,8 @@ export function freezeCroReview(
   if (!candidate) {
     throw new Layer4RuntimeContractError("cro_review requires frozen candidate_target_state");
   }
-  let frozenOutput = isConservativeCroFallback(output)
-    ? buildConservativeCroFallback(candidate, output)
-    : output;
-  try {
-    validateCroOutput(candidate, frozenOutput);
-  } catch (error) {
-    if (frozenOutput.confidence === 0 || !(error instanceof Layer4RuntimeContractError)) {
-      throw error;
-    }
-    frozenOutput = buildConservativeCroFallback(candidate, output, [error.message]);
-    validateCroOutput(candidate, frozenOutput);
-  }
+  const frozenOutput = output;
+  validateCroOutput(candidate, frozenOutput);
   const payload = {
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
@@ -370,18 +349,8 @@ export function freezeExecutionFeasibility(
   if (croReview.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash) {
     throw new Layer4RuntimeContractError("execution_feasibility L4 snapshot hash mismatch");
   }
-  let frozenOutput = isConservativeExecutionFallback(output)
-    ? buildConservativeExecutionFallback(candidate, output)
-    : output;
-  try {
-    validateExecutionOutput(candidate, frozenOutput);
-  } catch (error) {
-    if (frozenOutput.confidence === 0 || !(error instanceof Layer4RuntimeContractError)) {
-      throw error;
-    }
-    frozenOutput = buildConservativeExecutionFallback(candidate, output, [error.message]);
-    validateExecutionOutput(candidate, frozenOutput);
-  }
+  const frozenOutput = output;
+  validateExecutionOutput(candidate, frozenOutput);
   const payload = {
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
@@ -409,7 +378,6 @@ export function freezeFinalTarget(
   state: DailyCycleStateType,
   output: CioOutput,
   validatorHashes: ReadonlyArray<string>,
-  opts: { allowRuntimeSafetyFallback?: boolean } = {},
 ): FinalTargetState {
   const runtime = runtimeStateForLayer4(state);
   const candidate = runtime.candidate_target_state;
@@ -429,7 +397,7 @@ export function freezeFinalTarget(
   ) {
     throw new Layer4RuntimeContractError("final_target_state cross-stage hash mismatch");
   }
-  validateFinalTargetEnvelope(state, output, opts);
+  validateFinalTargetEnvelope(state, output);
   const payload = {
     run_id: state.trace_id || state.as_of_date || "current_run",
     cohort: state.active_cohort || "cohort_default",
@@ -506,11 +474,7 @@ export function buildPortfolioSummary(input: {
   };
 }
 
-export function validateFinalTargetEnvelope(
-  state: DailyCycleStateType,
-  output: CioOutput,
-  opts: { allowRuntimeSafetyFallback?: boolean } = {},
-): void {
+export function validateFinalTargetEnvelope(state: DailyCycleStateType, output: CioOutput): void {
   const runtime = runtimeStateForLayer4(state);
   const candidate = runtime.candidate_target_state;
   const croReview = runtime.cro_review_state;
@@ -575,9 +539,6 @@ export function validateFinalTargetEnvelope(
 
   const adjustments = croReview.output.required_adjustments ?? [];
   const adjustmentByTicker = new Map(adjustments.map((item) => [item.ticker, item]));
-  const runtimeFallback =
-    opts.allowRuntimeSafetyFallback === true &&
-    output.portfolio_actions.every((action) => action.review_source === "runtime_safety_fallback");
   for (const candidateAction of candidate.portfolio_actions) {
     const finalAction = finalByTicker.get(candidateAction.ticker);
     const finalWeight = finalAction?.target_weight ?? 0;
@@ -588,7 +549,7 @@ export function validateFinalTargetEnvelope(
     }
     const adjustment = adjustmentByTicker.get(candidateAction.ticker);
     if (adjustment) assertFinalTargetHonorsCroAdjustment(finalWeight, adjustment);
-    if (Math.abs(finalWeight - candidateAction.target_weight) <= 1e-9 || runtimeFallback) {
+    if (Math.abs(finalWeight - candidateAction.target_weight) <= 1e-9) {
       continue;
     }
     if (!adjustment) {
@@ -700,47 +661,6 @@ function validatedCandidateActions(
   return actions.map((action) => ({ ...action, review_source: "llm" }));
 }
 
-function buildConservativeCioProposalFallback(
-  state: DailyCycleStateType,
-  sourceOutput: CioOutput,
-  rejectionReasons: ReadonlyArray<string>,
-): CioProposalOutput {
-  const positions =
-    state.current_positions.snapshot_status === "loaded" ? state.current_positions.positions : [];
-  const portfolio_actions = positions.map((position) => runtimeSafetyHold(position));
-  const position_reviews = positions.map(
-    (position): PositionReview => ({
-      ticker: position.ticker,
-      decision: "HOLD",
-      target_weight: position.current_weight,
-      reason: "runtime fallback preserved current exposure after invalid CIO proposal",
-      thesis_status: "weakened",
-      risk_flags: ["cio_proposal_rejected"],
-      confidence: 0,
-      review_source: "runtime_safety_fallback",
-    }),
-  );
-  const fallback: CioProposalOutput = {
-    ...sourceOutput,
-    portfolio_actions,
-    position_reviews,
-    confidence: 0,
-    runtime_fallback_audit: {
-      fallback_factory_id: "portfolio.cio_proposal.no_new_risk.v1",
-      fallback_factory_version: "1",
-      reason_codes: ["CIO_PROPOSAL_SEMANTIC_REJECTED"],
-    },
-  };
-  return attachRuntimeOwnedFallbackClaims({
-    output: fallback,
-    sourceOutput,
-    stage: "cio_proposal",
-    fallbackReasonCode: "CIO_PROPOSAL_SEMANTIC_FALLBACK",
-    rejectionReasons,
-    statement: "Runtime rejected the CIO proposal and preserved only current exposure.",
-  });
-}
-
 function assertCandidateActionSemantics(action: PortfolioAction): void {
   const currentWeight = action.current_weight ?? 0;
   const deltaWeight = action.delta_weight ?? action.target_weight - currentWeight;
@@ -796,69 +716,6 @@ function normalizeCandidateAction(
     delta_weight: action.target_weight - currentWeight,
     position_decision: action.position_decision ?? inferPositionDecision(action),
   };
-}
-
-function isConservativeCroFallback(output: CroOutput): boolean {
-  return (
-    output.verified_claim_audit?.raw_output_accepted === false ||
-    (output.confidence === 0 &&
-      output.rejected_picks.length === 0 &&
-      (output.required_adjustments?.length ?? 0) === 0)
-  );
-}
-
-function buildConservativeCroFallback(
-  candidate: CandidateTargetState,
-  sourceOutput: CroOutput,
-  rejectionReasons: ReadonlyArray<string> = ["cro_review_not_accepted"],
-): CroOutput {
-  const rejected_picks: CroOutput["rejected_picks"] = [];
-  const required_adjustments: NonNullable<CroOutput["required_adjustments"]> = [];
-  for (const action of candidate.portfolio_actions) {
-    const currentWeight = action.current_weight ?? 0;
-    const deltaWeight = action.target_weight - currentWeight;
-    if (deltaWeight <= 1e-9) continue;
-    if (currentWeight <= 1e-9) {
-      rejected_picks.push({
-        ticker: action.ticker,
-        reason: "CRO fallback cannot approve a new risk position",
-      });
-      required_adjustments.push({
-        ticker: action.ticker,
-        adjustment: "VETO",
-        max_target_weight: 0,
-        reason: "CRO fallback vetoed unreviewed new exposure",
-      });
-    } else {
-      required_adjustments.push({
-        ticker: action.ticker,
-        adjustment: "CAP_WEIGHT",
-        max_target_weight: currentWeight,
-        reason: "CRO fallback capped unreviewed added exposure at current weight",
-      });
-    }
-  }
-  const fallback: CroOutput = {
-    ...sourceOutput,
-    rejected_picks,
-    required_adjustments,
-    correlated_risks: [],
-    black_swan_scenarios: [],
-    confidence: 0,
-    runtime_fallback_audit: {
-      fallback_factory_id: "portfolio.cro_review.no_new_risk.v1",
-      fallback_factory_version: "1",
-      reason_codes: ["CRO_REVIEW_SEMANTIC_REJECTED"],
-    },
-  };
-  return attachRuntimeOwnedFallbackClaims({
-    output: fallback,
-    sourceOutput,
-    stage: "cro_review",
-    fallbackReasonCode: "CRO_SEMANTIC_FALLBACK",
-    rejectionReasons,
-    statement: "Runtime denied new or increased risk because CRO review was unavailable.",
-  });
 }
 
 function validateCroOutput(candidate: CandidateTargetState, output: CroOutput): void {
@@ -934,49 +791,6 @@ function validateCroOutput(candidate: CandidateTargetState, output: CroOutput): 
         break;
     }
   }
-}
-
-function isConservativeExecutionFallback(output: AutoExecOutput): boolean {
-  return (
-    output.verified_claim_audit?.raw_output_accepted === false ||
-    (output.confidence === 0 &&
-      output.trades.length === 0 &&
-      (output.execution_checks?.length ?? 0) === 0)
-  );
-}
-
-function buildConservativeExecutionFallback(
-  candidate: CandidateTargetState,
-  sourceOutput: AutoExecOutput,
-  rejectionReasons: ReadonlyArray<string> = ["execution_feasibility_not_accepted"],
-): AutoExecOutput {
-  const fallback: AutoExecOutput = {
-    ...sourceOutput,
-    trades: [],
-    execution_checks: candidate.portfolio_actions
-      .filter((action) => Math.abs(action.delta_weight ?? 0) > 1e-9)
-      .map((action) => ({
-        ticker: action.ticker,
-        status: "blocked" as const,
-        estimated_cost_bps: 0,
-        max_executable_delta_weight: 0,
-        reason: "execution fallback blocked an unverified target delta",
-      })),
-    confidence: 0,
-    runtime_fallback_audit: {
-      fallback_factory_id: "portfolio.execution_feasibility.block_all.v1",
-      fallback_factory_version: "1",
-      reason_codes: ["EXECUTION_FEASIBILITY_SEMANTIC_REJECTED"],
-    },
-  };
-  return attachRuntimeOwnedFallbackClaims({
-    output: fallback,
-    sourceOutput,
-    stage: "execution_feasibility",
-    fallbackReasonCode: "EXECUTION_SEMANTIC_FALLBACK",
-    rejectionReasons,
-    statement: "Runtime blocked target deltas because execution feasibility was unavailable.",
-  });
 }
 
 function validateExecutionOutput(candidate: CandidateTargetState, output: AutoExecOutput): void {
@@ -1103,25 +917,6 @@ function assertUniqueTickers(entries: ReadonlyArray<{ ticker: string }>, label: 
   }
 }
 
-function runtimeSafetyHold(position: CurrentPosition): PortfolioAction {
-  return {
-    ticker: position.ticker,
-    action: "HOLD",
-    ...(position.sector ? { sector: position.sector } : {}),
-    position_decision: "HOLD",
-    current_weight: position.current_weight,
-    target_weight: position.current_weight,
-    delta_weight: 0,
-    holding_period: "1M",
-    position_decision_reason:
-      "position omitted from a valid CIO review; runtime preserved current target",
-    thesis_status: "intact",
-    risk_flags: ["position_review_missing"],
-    dissent_notes: "",
-    review_source: "runtime_safety_fallback",
-  };
-}
-
 function buildPositionReviewState(
   runId: string,
   candidateTargetHash: string,
@@ -1136,28 +931,15 @@ function buildPositionReviewState(
     .filter((action) => currentTickers.has(action.ticker))
     .map((action): PositionReview => {
       const explicit = explicitByTicker.get(action.ticker);
-      if (action.review_source !== "runtime_safety_fallback" && explicit) {
-        return { ...explicit, review_source: "llm" };
+      if (!explicit || !reviewMatchesAction(explicit, action)) {
+        throw new Layer4RuntimeContractError(
+          `${action.ticker}: current position lacks an explicit matching model review`,
+        );
       }
-      return {
-        ticker: action.ticker,
-        decision: "HOLD",
-        target_weight: action.target_weight,
-        reason: action.position_decision_reason ?? "position target lacks a valid explicit review",
-        thesis_status: action.thesis_status ?? "weakened",
-        risk_flags: [...(action.risk_flags ?? ["position_review_missing"])],
-        confidence: 0,
-        review_source: "runtime_safety_fallback",
-      };
+      return { ...explicit, review_source: "llm" };
     });
-  const llmReviewedTickers = reviews
-    .filter((review) => review.review_source === "llm")
-    .map((review) => review.ticker)
-    .sort();
-  const fallbackTickers = reviews
-    .filter((review) => review.review_source === "runtime_safety_fallback")
-    .map((review) => review.ticker)
-    .sort();
+  const llmReviewedTickers = reviews.map((review) => review.ticker).sort();
+  const fallbackTickers: string[] = [];
   const payload = {
     run_id: runId,
     candidate_target_hash: candidateTargetHash,

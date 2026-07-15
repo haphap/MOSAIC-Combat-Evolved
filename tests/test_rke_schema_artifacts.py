@@ -46,6 +46,7 @@ REQUIRED_SCHEMA_FILES = {
     "prompt_ir_runtime_contract_v1.schema.json",
     "domain_knob_catalog_v1.schema.json",
     "runtime_agent_manifest_v1.schema.json",
+    "runtime_agent_manifest_v2.schema.json",
     "domain_knob_evaluation_contract_v1.schema.json",
     "evidence_claim_graph_v1.schema.json",
     "prompt_mutation_transaction_v1.schema.json",

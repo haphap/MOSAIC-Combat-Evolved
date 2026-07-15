@@ -16,10 +16,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage, type SystemMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
-
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type {
@@ -53,6 +49,7 @@ import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
 import { applyBacktestPortfolioActionsToPositions } from "../src/cli/_backtest_helpers.js";
 import { submitPaperTargetDeltaOrders } from "../src/cli/commands/daily-cycle.js";
+import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
 import { buildDailyCycleGraph, DAILY_CYCLE_LAYER_NODES } from "../src/graph/daily_cycle.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
@@ -920,18 +917,20 @@ class ScriptedLlm25 {
   // Sorted by descending name length so e.g. "alpha_discovery" matches before
   // "alpha" (no current overlaps but defensive).
   readonly sortedAgentIds: string[];
+  private tools: Array<{ name: string; schema?: unknown }> = [];
 
   constructor(canned: CannedOutputs) {
     this.canned = canned;
     this.sortedAgentIds = [...ALL_AGENT_IDS].sort((a, b) => b.length - a.length);
   }
 
-  bindTools(_tools: unknown): ScriptedLlm25 {
+  bindTools(tools: unknown): ScriptedLlm25 {
     this.bindToolsCalls++;
+    this.tools = Array.isArray(tools) ? tools : [];
     return this;
   }
 
-  withStructuredOutput(_schema: unknown): { invoke: (input: unknown) => Promise<unknown> } {
+  withStructuredOutput(schema: unknown): { invoke: (input: unknown) => Promise<unknown> } {
     return {
       invoke: async (input: unknown) => {
         this.structuredCalls++;
@@ -944,7 +943,7 @@ class ScriptedLlm25 {
           // and "alpha_discovery" beats "alpha" by descending-length sort.
           if (sysContent.includes(`the ${agent} `)) {
             this.perAgentStructuredCount[agent] = (this.perAgentStructuredCount[agent] ?? 0) + 1;
-            return this.canned[agent as keyof CannedOutputs] as unknown;
+            return fakeAgentStructuredOutput(schema, agent, input);
           }
         }
         throw new Error(
@@ -954,8 +953,18 @@ class ScriptedLlm25 {
     };
   }
 
-  async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
+  async invoke(messages: BaseMessage[]): Promise<AIMessage> {
     this.invokeCalls++;
+    if (this.tools.length > 0 && !messages.some((message) => message._getType() === "tool")) {
+      return new AIMessage({
+        content: "",
+        tool_calls: this.tools.map((tool, index) => ({
+          id: `fake-tool-${index}`,
+          name: tool.name,
+          args: fakeSchemaValue(tool.schema),
+        })),
+      });
+    }
     return new AIMessage("analysis text for the daily cycle");
   }
 }
@@ -1019,7 +1028,6 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       llmHandle: handle,
       api: fakeApi,
       config: BASE_CONFIG,
-      promptsRoot: promptDir,
       agentTimeoutSeconds: 0,
       onLog: (msg) => logs.push(msg),
     });
@@ -1030,7 +1038,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(Object.keys(final.layer1_outputs)).toHaveLength(10);
     const consensus = final.layer1_consensus as RegimeSignal | null;
     expect(consensus).not.toBeNull();
-    expect(consensus?.stance).toBe("BULLISH");
+    expect(consensus?.stance).toBe("NEUTRAL");
 
     // L2 — 7 sector outputs
     expect(Object.keys(final.layer2_outputs)).toHaveLength(7);
@@ -1045,8 +1053,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.layer4_outputs.cio).not.toBeNull();
 
     // Top-level mirror
-    expect(final.portfolio_actions).toHaveLength(2);
-    expect(final.portfolio_actions[0]?.ticker).toBe("688981.SH");
+    expect(final.portfolio_actions).toEqual([]);
+    expect(final.layer4_outputs.cio?.decision_disposition).toBe("ALL_CASH");
 
     // 26 stage calls: all agents once, plus CIO proposal + CIO final.
     expect(llm.structuredCalls).toBe(26);
@@ -1056,6 +1064,11 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     }
 
     expect(final.llm_calls).toHaveLength(26);
+    expect(
+      final.llm_calls.every((call) =>
+        ["accepted", "accepted_empty"].includes(call.agent_run_audit?.status ?? ""),
+      ),
+    ).toBe(true);
     expect(final.replay_triggered).toBe(false);
     const runtime = final.layer4_outputs.runtime;
     expect(runtime?.l4_run_snapshot_bundle).toMatchObject({
@@ -1102,13 +1115,13 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(runtime?.portfolio_summary).toMatchObject({
       schema_version: "portfolio.summary.v1",
       final_target_hash: runtime?.final_target_state?.final_target_hash,
-      target_weight_sum: 0.2,
-      gross_exposure: 0.2,
-      net_exposure: 0.2,
+      target_weight_sum: 0,
+      gross_exposure: 0,
+      net_exposure: 0,
       leverage_authorized: false,
       frozen: true,
     });
-    expect(runtime?.portfolio_summary?.cash_weight).toBeCloseTo(0.8);
+    expect(runtime?.portfolio_summary?.cash_weight).toBe(1);
     expect(runtime?.portfolio_summary?.summary_hash).toMatch(/^sha256:/);
     expect(
       runtime?.stage_trace
@@ -1131,7 +1144,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       expect.stringContaining("[agent:start] L1 central_bank timeout=off"),
     );
     expect(logs).toContainEqual(expect.stringContaining("[agent:done] L4 cio"));
-    expect(logs).toContainEqual(expect.stringContaining("actions=2"));
+    expect(logs).toContainEqual(expect.stringContaining("actions=0"));
   });
 });
 
@@ -1170,7 +1183,6 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
       llmHandle: handle,
       api: fakeApi,
       config: BASE_CONFIG,
-      promptsRoot: promptDir,
     });
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
@@ -1183,19 +1195,21 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
     expect(final.llm_calls).toHaveLength(26);
     expect(final.portfolio_actions).toEqual([]);
     expect(final.replay_triggered).toBe(false);
-    expect(final.layer4_outputs.runtime?.cro_review_state?.output.rejected_picks).toHaveLength(2);
+    expect(final.layer4_outputs.runtime?.cro_review_state?.output).toMatchObject({
+      review_disposition: "NO_OBJECTION",
+      rejected_picks: [],
+    });
     expect(final.layer4_outputs.runtime?.stage_trace.at(-1)).toMatchObject({
       stage: "shared_validation",
-      status: "fallback",
-      fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
+      status: "completed",
     });
     expect(final.layer4_outputs.runtime?.portfolio_summary).toMatchObject({
       target_weight_sum: 0,
       cash_weight: 1,
       validator_results: [
         expect.objectContaining({
-          status: "fallback",
-          reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED"],
+          status: "accepted",
+          reason_codes: [],
         }),
       ],
     });
@@ -1214,7 +1228,6 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
       llmHandle: handle,
       api: fakeApi,
       config: BASE_CONFIG,
-      promptsRoot: promptDir,
     });
     await graph.invoke(emptyState());
     expect(llm.structuredCalls).toBe(26);

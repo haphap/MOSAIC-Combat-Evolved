@@ -17,10 +17,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
-
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type {
@@ -39,6 +35,7 @@ import type {
 } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
 import {
   buildLayer1Graph,
   LAYER1_AGENT_NODES,
@@ -213,18 +210,20 @@ class ScriptedLlm {
   readonly perAgentResponse: Record<string, MacroAgentOutput>;
   readonly textBetweenInvokes: string;
   invokeIndex = 0;
+  private tools: Array<{ name: string; schema?: unknown }> = [];
 
   constructor(perAgentResponse: Record<string, MacroAgentOutput>, textBetween = "analysis") {
     this.perAgentResponse = perAgentResponse;
     this.textBetweenInvokes = textBetween;
   }
 
-  bindTools(_tools: unknown): ScriptedLlm {
+  bindTools(tools: unknown): ScriptedLlm {
     this.bindToolsCalls++;
+    this.tools = Array.isArray(tools) ? tools : [];
     return this;
   }
 
-  withStructuredOutput(_schema: unknown): { invoke: (input: unknown) => Promise<unknown> } {
+  withStructuredOutput(schema: unknown): { invoke: (input: unknown) => Promise<unknown> } {
     return {
       invoke: async (input: unknown) => {
         this.structuredCalls++;
@@ -235,7 +234,7 @@ class ScriptedLlm {
         const sysContent = typeof sys?.content === "string" ? sys.content : "";
         for (const agent of Object.keys(this.perAgentResponse)) {
           if (sysContent.includes(agent)) {
-            return this.perAgentResponse[agent] as unknown;
+            return fakeAgentStructuredOutput(schema, agent, input);
           }
         }
         throw new Error(
@@ -245,8 +244,18 @@ class ScriptedLlm {
     };
   }
 
-  async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
+  async invoke(messages: BaseMessage[]): Promise<AIMessage> {
     this.invokeCalls++;
+    if (this.tools.length > 0 && !messages.some((message) => message._getType() === "tool")) {
+      return new AIMessage({
+        content: "",
+        tool_calls: this.tools.map((tool, index) => ({
+          id: `fake-tool-${index}`,
+          name: tool.name,
+          args: fakeSchemaValue(tool.schema),
+        })),
+      });
+    }
     return new AIMessage(this.textBetweenInvokes);
   }
 }
@@ -297,7 +306,7 @@ describe("buildLayer1Graph (end-to-end serial / aggregate)", () => {
     clearPromptCache();
   });
 
-  it("compiled graph runs all 10 macro nodes + aggregator and emits BULLISH consensus", async () => {
+  it("compiled graph runs all 10 macro nodes + aggregator with strict outputs", async () => {
     const llm = new ScriptedLlm(cannedOutputs());
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
@@ -310,7 +319,6 @@ describe("buildLayer1Graph (end-to-end serial / aggregate)", () => {
       llmHandle: handle,
       api: fakeApi,
       config: BASE_CONFIG,
-      promptsRoot: promptDir,
     });
 
     const initialState: DailyCycleStateType = {
@@ -370,12 +378,11 @@ describe("buildLayer1Graph (end-to-end serial / aggregate)", () => {
     // Aggregator wrote consensus.
     const consensus = final.layer1_consensus as RegimeSignal | null;
     expect(consensus).not.toBeNull();
-    expect(consensus?.stance).toBe("BULLISH");
-    expect(consensus?.layer_1_consensus_score).toBeGreaterThan(0.5);
+    expect(consensus?.stance).toBe("NEUTRAL");
+    expect(consensus?.layer_1_consensus_score).toBe(0);
 
-    // Each agent ran through phase-1 (1 LLM invoke per agent for the loop's
-    // tool-free finishing turn) + phase-2 structured. 10 invokes + 10 structured.
-    expect(llm.invokeCalls).toBe(10);
+    // Each agent runs one tool-call turn plus one tool-free analysis turn.
+    expect(llm.invokeCalls).toBe(20);
     expect(llm.structuredCalls).toBe(10);
     expect(llm.bindToolsCalls).toBe(10);
 

@@ -45,12 +45,12 @@ def _load_agents_by_layer() -> dict[str, tuple[str, ...]]:
         Path(__file__).resolve().parents[3]
         / "registry"
         / "prompt_checks"
-        / "runtime_agent_manifest_v1.json"
+        / "runtime_agent_manifest_v2.json"
     )
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("runtime agent manifest is invalid")
-    if payload.get("schema_version") != "runtime_agent_manifest_v1":
+    if payload.get("schema_version") != "runtime_agent_manifest_v2":
         raise RuntimeError("runtime agent manifest schema version is invalid")
     layers = ("macro", "sector", "superinvestor", "decision")
     grouped: dict[str, list[str]] = {layer: [] for layer in layers}

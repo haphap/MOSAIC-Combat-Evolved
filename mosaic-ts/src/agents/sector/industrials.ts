@@ -25,7 +25,6 @@ export const industrialsSpec: LayerTwoAgentSpec<IndustrialsOutput> = {
   fieldNames: STANDARD_SECTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderIndustrials,
-  fallback: fallbackIndustrials,
 };
 
 export function buildIndustrialsNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {

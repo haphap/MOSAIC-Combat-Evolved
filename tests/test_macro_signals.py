@@ -23,6 +23,7 @@ def _state(outputs: dict, date: str = "2024-01-02", cohort: str = "cohort_defaul
     return {
         "active_cohort": cohort,
         "as_of_date": date,
+        "day_outcome_status": "accepted",
         "layer1_outputs": outputs,
         "layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
     }

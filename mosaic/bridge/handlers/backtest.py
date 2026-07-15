@@ -122,9 +122,19 @@ def backtest_append_actions(params: dict[str, Any]) -> dict[str, Any]:
     actions = params.get("actions")
     if not isinstance(actions, list):
         raise RpcError(INVALID_PARAMS, "'actions' must be an array")
+    audits = params.get("agent_run_audits")
+    if not isinstance(audits, list) or len(audits) != 26:
+        raise RpcError(INVALID_PARAMS, "'agent_run_audits' must contain all 26 stages")
+    decision_disposition = params.get("decision_disposition")
+    if decision_disposition not in ("TARGET_PORTFOLIO", "HOLD_CURRENT", "ALL_CASH"):
+        raise RpcError(INVALID_PARAMS, "invalid or missing 'decision_disposition'")
     try:
         n = _store().append_backtest_actions(
-            run_id=run_id, trade_date=trade_date, actions=actions
+            run_id=run_id,
+            trade_date=trade_date,
+            actions=actions,
+            agent_run_audits=audits,
+            decision_disposition=decision_disposition,
         )
     except Exception as exc:
         raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
@@ -229,12 +239,20 @@ def backtest_record_failed_days(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(failures, list):
         raise RpcError(INVALID_PARAMS, "'failures' must be a list of {date, error}")
     pairs: list[tuple[str, str]] = []
+    audits_by_date: dict[str, dict[str, Any]] = {}
     for item in failures:
         if not isinstance(item, dict) or not isinstance(item.get("date"), str):
             raise RpcError(INVALID_PARAMS, "each failure needs a string 'date'")
         pairs.append((item["date"], str(item.get("error", ""))))
+        audit = item.get("agent_run_audit")
+        if audit is not None:
+            if not isinstance(audit, dict):
+                raise RpcError(INVALID_PARAMS, "'agent_run_audit' must be an object")
+            audits_by_date[item["date"]] = audit
     try:
-        n = _store().record_backtest_failed_days(run_id, pairs)
+        n = _store().record_backtest_failed_days(
+            run_id, pairs, agent_run_audits_by_date=audits_by_date
+        )
     except Exception as exc:
         raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
     return {"recorded": n}

@@ -46,7 +46,8 @@ class TestJanusHandlers(unittest.TestCase):
         with self.store._connect() as conn:
             conn.execute(
                 "INSERT INTO recommendations (cohort, agent, ticker, date, action, "
-                "conviction, target_weight_pct) VALUES (?,?,?,?,?,?,?)",
+                "conviction, target_weight_pct, day_outcome_status) "
+                "VALUES (?,?,?,?,?,?,?, 'accepted')",
                 (cohort, "cio", ticker, date, action, None, twp),
             )
 

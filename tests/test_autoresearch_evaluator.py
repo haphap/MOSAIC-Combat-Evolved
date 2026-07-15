@@ -16,6 +16,21 @@ from mosaic.autoresearch.evaluator import (
 from mosaic.scorecard.store import ScorecardStore
 
 
+def _complete_accepted_run(store: ScorecardStore, run_id: int) -> None:
+    audits = [
+        {"agent": f"agent_{index}", "stage": "primary", "status": "accepted"}
+        for index in range(26)
+    ]
+    store.append_backtest_actions(
+        run_id,
+        "2020-07-01",
+        [],
+        agent_run_audits=audits,
+        decision_disposition="ALL_CASH",
+    )
+    store.complete_backtest_run(run_id)
+
+
 class TestEnsureBaselineRun(unittest.TestCase):
     """Tests for ensure_baseline_run: cache hit vs. needs_fill."""
 
@@ -55,7 +70,7 @@ class TestEnsureBaselineRun(unittest.TestCase):
             end_date="2021-02-18",
             prompt_commit_hash="abc123",
         )
-        self.store.complete_backtest_run(run_id)
+        _complete_accepted_run(self.store, run_id)
         result = ensure_baseline_run(
             self.store, "euphoria_2021", "2020-07-01", "2021-02-18", "abc123"
         )
@@ -69,7 +84,7 @@ class TestEnsureBaselineRun(unittest.TestCase):
             end_date="2021-02-18",
             prompt_commit_hash="abc123",
         )
-        self.store.complete_backtest_run(run_id)
+        _complete_accepted_run(self.store, run_id)
         # Different commit hash.
         result = ensure_baseline_run(
             self.store, "euphoria_2021", "2020-07-01", "2021-02-18", "def456"
@@ -87,7 +102,7 @@ class TestEnsureBaselineRun(unittest.TestCase):
             prompt_sha256="f" * 64,
             code_commit_hash="c" * 40,
         )
-        self.store.complete_backtest_run(run_id)
+        _complete_accepted_run(self.store, run_id)
 
         result = ensure_baseline_run(
             self.store,
@@ -112,7 +127,7 @@ class TestEnsureBaselineRun(unittest.TestCase):
             prompt_sha256="f" * 64,
             code_commit_hash="c" * 40,
         )
-        self.store.complete_backtest_run(run_id)
+        _complete_accepted_run(self.store, run_id)
 
         result = ensure_baseline_run(
             self.store,
@@ -300,7 +315,7 @@ class TestComputeDelta(unittest.TestCase):
             end_date="2021-02-18",
             prompt_commit_hash=base_commit,
         )
-        self.store.complete_backtest_run(run_id)
+        _complete_accepted_run(self.store, run_id)
 
         with self.assertRaises(ValueError) as ctx:
             compute_delta(self.store, version_id, self.config)

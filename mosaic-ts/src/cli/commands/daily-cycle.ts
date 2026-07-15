@@ -21,6 +21,7 @@ import type { BaseMessage } from "@langchain/core/messages";
 import { AIMessage } from "@langchain/core/messages";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
 import { buildPositionAuditToolStatusSummary } from "../../agents/helpers/position_audit.js";
 import {
   formatDurationMs,
@@ -28,6 +29,7 @@ import {
   resolveAgentTimeoutMs,
 } from "../../agents/helpers/runtime.js";
 import { formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
+import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import { type DailyCycleStateType, emptyCurrentPositions } from "../../agents/state.js";
 import type {
@@ -36,6 +38,7 @@ import type {
   PortfolioAction,
   PositionAudit,
 } from "../../agents/types.js";
+import { assertAcceptedDailyCycle } from "../../backtest/decision_health.js";
 import {
   BridgeApi,
   BridgeClient,
@@ -47,6 +50,7 @@ import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 import { pad } from "../_format.js";
+import { fakeAgentStructuredOutput, fakeSchemaValue } from "../fake_agent_output.js";
 import { applyPromptSourceOverrides } from "../prompt-source.js";
 
 interface DailyCycleOptions {
@@ -152,6 +156,17 @@ export function registerDailyCycle(program: Command): void {
           console.log(pc.dim(`  ${redactSensitiveText(msg)}`));
         };
         const currentPositions = await loadDailyCycleCurrentPositions(opts, api);
+        await assertStructuredOutputCapability(llmHandle.llm);
+        const promptSource = await api.promptsPreflight({ cohort, langs: ["zh", "en"] });
+        if (!promptSource.ready) {
+          throw new Error(
+            `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
+          );
+        }
+        await assertRuntimePromptPreflight({
+          cohort,
+          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+        });
 
         const graph = buildDailyCycleGraph({
           llmHandle,
@@ -196,6 +211,7 @@ export function registerDailyCycle(program: Command): void {
         );
         const t0 = Date.now();
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
+        assertAcceptedDailyCycle(final);
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
         if (opts.paperExecuteDeltas) {
           const finalTarget = final.layer4_outputs.runtime?.final_target_state;
@@ -360,7 +376,7 @@ function printCycleSummary(state: DailyCycleStateType, elapsed: string): void {
 
   console.log(pc.cyan("\n=== portfolio_actions (final) ==="));
   printPositionAudit(state);
-  printPortfolioTable(state.portfolio_actions);
+  printPortfolioTable(state.portfolio_actions, state.layer4_outputs.cio?.decision_disposition);
 
   console.log(pc.dim(`\ntotal=${state.llm_calls.length} llm calls, elapsed=${elapsed}s`));
 }
@@ -384,9 +400,16 @@ function printPositionAudit(state: DailyCycleStateType): void {
   }
 }
 
-function printPortfolioTable(actions: PortfolioAction[]): void {
+function printPortfolioTable(
+  actions: PortfolioAction[],
+  decisionDisposition?: "TARGET_PORTFOLIO" | "HOLD_CURRENT" | "ALL_CASH",
+): void {
   if (actions.length === 0) {
-    console.log(pc.dim("(empty — holding 100% cash)"));
+    console.log(
+      decisionDisposition === "ALL_CASH"
+        ? pc.dim("(accepted ALL_CASH — holding 100% cash)")
+        : pc.red("(FAILED_NO_DECISION — empty portfolio actions without accepted ALL_CASH)"),
+    );
     return;
   }
   const totalWeight = actions.reduce((s, a) => s + a.target_weight, 0);
@@ -840,35 +863,36 @@ function sha256Json(value: unknown): string {
 // Fake LLM for --fake-llm mode
 // ---------------------------------------------------------------------------
 
-/**
- * A minimal mock that returns a non-tool-calling response for every invoke.
- * Each agent's structured-output extractor will fail → factory falls back
- * to the agent's ``fallback()`` (zero-conviction outputs). The cycle still
- * runs end-to-end and validates wiring. With a loaded current-position
- * fixture, the CIO fallback emits conservative HOLD reviews for those
- * positions; otherwise portfolio_actions stays empty.
- *
- * For LLM-driven structured outputs we use the test-style canned responses
- * — see ``test/daily_cycle.test.ts``. Reusing that here would couple the
- * CLI to test fixtures, so this fake stays minimal.
- */
+/** Schema-driven fake used only to validate the complete strict-contract wiring. */
 class FakeChatModel {
-  bindTools(_tools: unknown): FakeChatModel {
+  private tools: Array<{ name: string; schema?: unknown }> = [];
+
+  bindTools(tools: unknown): FakeChatModel {
+    this.tools = Array.isArray(tools) ? tools : [];
     return this;
   }
-  withStructuredOutput(_schema: unknown): { invoke: () => Promise<unknown> } {
-    // Throwing forces invokeStructuredOrFreetext to return null and the
-    // factory to call the agent's fallback().
+  withStructuredOutput(
+    schema: unknown,
+    options?: { name?: string },
+  ): { invoke: (messages: unknown) => Promise<unknown> } {
     return {
-      invoke: async () => {
-        throw new Error("--fake-llm: structured output unavailable, fallback");
-      },
+      invoke: async (messages) => ({
+        parsed: fakeAgentStructuredOutput(schema, options?.name ?? "fake_agent", messages),
+      }),
     };
   }
-  async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
-    return new AIMessage(
-      "(--fake-llm) skipping LLM analysis; agent will fall back to default zero-conviction output.",
-    );
+  async invoke(messages: BaseMessage[]): Promise<AIMessage> {
+    if (this.tools.length > 0 && !messages.some((message) => message._getType() === "tool")) {
+      return new AIMessage({
+        content: "",
+        tool_calls: this.tools.map((tool, index) => ({
+          id: `fake-tool-${index}`,
+          name: tool.name,
+          args: fakeSchemaValue(tool.schema),
+        })),
+      });
+    }
+    return new AIMessage("(--fake-llm) deterministic analysis for strict structured smoke output.");
   }
 }
 

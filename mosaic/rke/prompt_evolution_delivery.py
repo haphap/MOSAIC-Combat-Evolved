@@ -22,7 +22,7 @@ COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v2"
 Status = Literal["pass", "fail", "blocked"]
 
 PROMPT_CHECK_DIR = Path("registry/prompt_checks")
-RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v1.json"
+RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v2.json"
 DOMAIN_CATALOG_PATH = PROMPT_CHECK_DIR / "domain_knob_catalog_v1.json"
 EVALUATION_CONTRACT_PATH = (
     PROMPT_CHECK_DIR / "domain_knob_evaluation_contract_v1.json"
@@ -54,7 +54,7 @@ DELIVERY_INPUT_PATHS = (
     Path("schemas/prompt_evolution_delivery_status_v1.schema.json"),
     Path("schemas/prompt_evolution_performance_budget_v1.schema.json"),
     Path("schemas/prompt_token_budget_manifest_v1.schema.json"),
-    Path("schemas/runtime_agent_manifest_v1.schema.json"),
+    Path("schemas/runtime_agent_manifest_v2.schema.json"),
 )
 
 CHECK_IDS = (

@@ -35,7 +35,6 @@ export const semiconductorSpec: LayerTwoAgentSpec<SemiconductorOutput> = {
   fieldNames: STANDARD_SECTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderSemiconductor,
-  fallback: fallbackSemiconductor,
 };
 
 export function buildSemiconductorNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {

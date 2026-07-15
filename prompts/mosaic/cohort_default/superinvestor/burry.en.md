@@ -317,6 +317,7 @@ research-knobs:
       - key_drivers
       - philosophy_note
       - picks
+      - selection_disposition
     must_not_cover:
       - final_portfolio_sizing
       - sector_coverage
@@ -372,7 +373,7 @@ Core rules:
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `picks`, `philosophy_note`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
+Output fields include: `picks`, `selection_disposition`, `philosophy_note`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
 
 Required runtime tools: `get_rke_research_context`, `get_stock_research`, `get_fundamentals`, `get_income_statement`, `get_cashflow`, `get_balance_sheet`, `get_stock_data`.
 
@@ -380,6 +381,6 @@ Domain knob card ids for this agent: `valuation_mispricing_threshold`, `distress
 
 Knob influence audit fields: `declared_knob_influence_ids`, `declared_influence_rationale`.
 
-Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit the conservative fallback and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
+Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit an evidence-backed explicit empty disposition and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
 
 <!-- runtime-evidence-contract:end -->

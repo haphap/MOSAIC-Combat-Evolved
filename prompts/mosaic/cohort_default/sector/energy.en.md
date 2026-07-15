@@ -354,6 +354,7 @@ research-knobs:
       - key_drivers
       - longs
       - sector_score
+      - selection_disposition
       - shorts
     must_not_cover:
       - final_portfolio_sizing
@@ -442,7 +443,7 @@ Read Oil & gas + Coal + Utilities (power / gas) and produce concrete long / shor
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `longs`, `shorts`, `sector_score`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
+Output fields include: `longs`, `shorts`, `selection_disposition`, `sector_score`, `key_drivers`, `confidence`, `claims`, `claim_refs`.
 
 Required runtime tools: `get_rke_research_context`, `get_industry_policy_digest`, `get_broker_research`, `get_etf_holdings`, `get_stock_data`, `get_indicators`, `get_industry_moneyflow`.
 
@@ -450,6 +451,6 @@ Domain knob card ids for this agent: `oil_price_transmission_weight`, `coal_pric
 
 Knob influence audit fields: `declared_knob_influence_ids`, `declared_influence_rationale`.
 
-Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit the conservative fallback and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
+Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit an evidence-backed explicit empty disposition and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
 
 <!-- runtime-evidence-contract:end -->

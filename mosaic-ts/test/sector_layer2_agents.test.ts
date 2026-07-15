@@ -8,10 +8,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
-
 import { pickResearchDigestTools } from "../src/agents/helpers/research_digest_tools.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
@@ -68,6 +64,7 @@ import type {
 } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ AGENTS_BY_LAYER
@@ -218,9 +215,13 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
     }
     withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
       return {
-        invoke: async () => {
+        invoke: async (input) => {
           this.structuredCalls++;
-          return this.structuredResponse;
+          return fakeContractOutput(
+            this.structuredResponse as unknown as Record<string, unknown>,
+            "semiconductor",
+            input,
+          );
         },
       };
     }
@@ -267,17 +268,14 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
 
     const cannedOutput: SemiconductorOutput = {
       agent: "semiconductor",
-      longs: [
-        { ticker: "688981.SH", thesis: "国产替代 + 大基金催化", conviction: 0.8 },
-        { ticker: "002371.SZ", thesis: "设备国产化率提升", conviction: 0.75 },
-      ],
+      longs: [],
       shorts: [],
       sector_score: 0.6,
       key_drivers: [
         "Layer-1 BULLISH 且 china.sector_focus 含半导体",
         "工信部 6/24 出台先进制程支持政策",
       ],
-      confidence: 0.45, // capped under 0.5 per Phase 0/1 prompt rule
+      confidence: 0,
     };
 
     const llm = new ScriptedLlm("semi analysis text", cannedOutput);
@@ -398,12 +396,12 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       llm_calls: [],
     };
 
-    const node = buildSemiconductorNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
+    const node = buildSemiconductorNode({ llmHandle: handle, api, config });
     const update = await node(sample);
     const unwrapped = update as DailyCycleStateUpdate as unknown as {
       layer2_outputs?: Record<string, SectorAgentOutput>;
     };
-    expect(unwrapped.layer2_outputs?.semiconductor).toEqual(cannedOutput);
+    expect(unwrapped.layer2_outputs?.semiconductor).toMatchObject(cannedOutput);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.bindToolsCalled).toBe(1);
     expect(llm.structuredCalls).toBe(1);

@@ -1,11 +1,7 @@
-import { attachRuntimeOwnedFallbackClaims } from "../helpers/evidence_runtime.js";
 import { buildPositionAuditToolStatusSummary } from "../helpers/position_audit.js";
 import type { ResearchKnobsSnapshot } from "../helpers/research_knobs.js";
 import type {
-  CandidateTargetState,
-  CioFinalOutput,
   CioOutput,
-  CroReviewState,
   CurrentPositionsSnapshot,
   PortfolioAction,
   PositionAudit,
@@ -24,126 +20,6 @@ export class PositionActionValidationError extends Error {
 
 const DEFAULT_MAX_SINGLE_NAME_WEIGHT = 0.12;
 const DEFAULT_MAX_SECTOR_WEIGHT = 0.3;
-
-export function buildConservativeCioFinalFallback(opts: {
-  sourceOutput: CioOutput;
-  currentPositions: CurrentPositionsSnapshot;
-  candidate: CandidateTargetState;
-  croReview: CroReviewState;
-  knobSnapshot?: ResearchKnobsSnapshot | null;
-  sharedPolicyValues?: Readonly<Record<string, unknown>>;
-  rejectionReasons: ReadonlyArray<string>;
-}): CioFinalOutput {
-  const stopLossPct = thresholdNumber(
-    opts.knobSnapshot,
-    opts.sharedPolicyValues,
-    "stop_loss_pct",
-    -0.08,
-  );
-  const maxSingleNameWeight = thresholdNumber(
-    opts.knobSnapshot,
-    opts.sharedPolicyValues,
-    "max_single_name_weight",
-    DEFAULT_MAX_SINGLE_NAME_WEIGHT,
-  );
-  const maxSectorWeight = thresholdNumber(
-    opts.knobSnapshot,
-    opts.sharedPolicyValues,
-    "max_sector_weight",
-    DEFAULT_MAX_SECTOR_WEIGHT,
-  );
-  const candidateByTicker = new Map(
-    opts.candidate.portfolio_actions.map((action) => [action.ticker, action]),
-  );
-  const adjustmentByTicker = new Map(
-    (opts.croReview.output.required_adjustments ?? []).map((adjustment) => [
-      adjustment.ticker,
-      adjustment,
-    ]),
-  );
-  const targetByTicker = new Map<string, number>();
-  for (const position of opts.currentPositions.positions) {
-    const candidateAction = candidateByTicker.get(position.ticker);
-    let target = Math.min(position.current_weight, candidateAction?.target_weight ?? 0);
-    const adjustment = adjustmentByTicker.get(position.ticker);
-    if (adjustment?.adjustment === "VETO") target = 0;
-    if (
-      (adjustment?.adjustment === "CAP_WEIGHT" || adjustment?.adjustment === "REDUCE_WEIGHT") &&
-      adjustment.max_target_weight !== undefined
-    ) {
-      target = Math.min(target, adjustment.max_target_weight);
-    }
-    if (position.unrealized_pnl_pct <= stopLossPct) target = 0;
-    targetByTicker.set(position.ticker, Math.min(target, maxSingleNameWeight));
-  }
-  applyFallbackSectorCaps(opts.currentPositions, targetByTicker, maxSectorWeight);
-  const totalTarget = [...targetByTicker.values()].reduce((sum, weight) => sum + weight, 0);
-  if (totalTarget > 1) {
-    const scale = 1 / totalTarget;
-    for (const [ticker, target] of targetByTicker.entries()) {
-      targetByTicker.set(ticker, target * scale);
-    }
-  }
-
-  const portfolioActions = opts.currentPositions.positions.map((position): PortfolioAction => {
-    const candidateAction = candidateByTicker.get(position.ticker);
-    const targetWeight = targetByTicker.get(position.ticker) ?? 0;
-    const isExit = targetWeight <= 1e-9;
-    const isReduce = !isExit && targetWeight < position.current_weight - 1e-9;
-    const riskFlags = [
-      "shared_validation_fallback",
-      ...(position.unrealized_pnl_pct <= stopLossPct ? ["stop_loss_required_exit"] : []),
-      ...(candidateAction ? [] : ["candidate_coverage_missing"]),
-    ];
-    return {
-      ticker: position.ticker,
-      action: isExit ? "SELL" : isReduce ? "REDUCE" : "HOLD",
-      ...(position.sector ? { sector: position.sector } : {}),
-      position_decision: isExit ? "EXIT" : isReduce ? "REDUCE" : "HOLD",
-      current_weight: position.current_weight,
-      target_weight: targetWeight,
-      delta_weight: targetWeight - position.current_weight,
-      holding_period: candidateAction?.holding_period ?? "1M",
-      position_decision_reason: isExit
-        ? "runtime safety fallback required exit or zero-risk target"
-        : isReduce
-          ? "runtime safety fallback retained only validated reduced exposure"
-          : "runtime safety fallback preserved current exposure",
-      thesis_status: isExit ? "broken" : "weakened",
-      risk_flags: riskFlags,
-      review_source: "runtime_safety_fallback",
-      dissent_notes: "",
-    };
-  });
-  const dissent_refs = [...adjustmentByTicker.keys()]
-    .filter((ticker) => candidateByTicker.has(ticker))
-    .sort()
-    .map((ticker) => ({
-      ticker,
-      source: "cro_review" as const,
-      source_hash: opts.croReview.review_hash,
-      reason: "runtime fallback applied the frozen CRO adjustment",
-    }));
-  const fallback: CioFinalOutput = {
-    agent: "cio",
-    portfolio_actions: portfolioActions,
-    dissent_refs,
-    confidence: 0,
-    runtime_fallback_audit: {
-      fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
-      fallback_factory_version: "1",
-      reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED"],
-    },
-  };
-  return attachRuntimeOwnedFallbackClaims({
-    output: fallback,
-    sourceOutput: opts.sourceOutput,
-    stage: "cio_final",
-    fallbackReasonCode: "SHARED_VALIDATION_REJECTED",
-    rejectionReasons: opts.rejectionReasons,
-    statement: "Runtime rejected the CIO final target and selected a no-new-risk target.",
-  });
-}
 
 export function validateCioPositionActions(opts: {
   output: CioOutput;
@@ -567,32 +443,6 @@ function assertEveryCurrentPositionReviewed(
     throw new PositionActionValidationError(
       `current_positions missing from portfolio_actions/position_reviews: ${missing.join(",")}`,
     );
-  }
-}
-
-function applyFallbackSectorCaps(
-  currentPositions: CurrentPositionsSnapshot,
-  targetByTicker: Map<string, number>,
-  maxSectorWeight: number,
-): void {
-  if (maxSectorWeight >= 1) return;
-  const tickersBySector = new Map<string, string[]>();
-  for (const position of currentPositions.positions) {
-    if (!position.sector) {
-      targetByTicker.set(position.ticker, 0);
-      continue;
-    }
-    const tickers = tickersBySector.get(position.sector) ?? [];
-    tickers.push(position.ticker);
-    tickersBySector.set(position.sector, tickers);
-  }
-  for (const tickers of tickersBySector.values()) {
-    const total = tickers.reduce((sum, ticker) => sum + (targetByTicker.get(ticker) ?? 0), 0);
-    if (total <= maxSectorWeight || total <= 0) continue;
-    const scale = maxSectorWeight / total;
-    for (const ticker of tickers) {
-      targetByTicker.set(ticker, (targetByTicker.get(ticker) ?? 0) * scale);
-    }
   }
 }
 

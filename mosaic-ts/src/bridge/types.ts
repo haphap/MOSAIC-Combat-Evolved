@@ -12,6 +12,7 @@
  * ``client.call(method, params)``.
  */
 
+import type { LlmCallRecord } from "../agents/types.js";
 import type { BridgeClient } from "./client.js";
 
 /** JSON Schema as produced by Pydantic v2 `model_json_schema()`. */
@@ -1707,11 +1708,15 @@ export class BridgeApi {
     runId: number,
     tradeDate: string,
     actions: BacktestActionInput[],
+    agentRunAudits: NonNullable<LlmCallRecord["agent_run_audit"]>[],
+    decisionDisposition: "TARGET_PORTFOLIO" | "HOLD_CURRENT" | "ALL_CASH",
   ): Promise<{ appended: number }> {
     return this.client.call<{ appended: number }>("backtest.append_actions", {
       run_id: runId,
       trade_date: tradeDate,
       actions,
+      agent_run_audits: agentRunAudits,
+      decision_disposition: decisionDisposition,
     });
   }
 
@@ -1737,7 +1742,11 @@ export class BridgeApi {
   // R-A3: stage-1 failed-day tracking.
   backtestRecordFailedDays(
     runId: number,
-    failures: Array<{ date: string; error: string }>,
+    failures: Array<{
+      date: string;
+      error: string;
+      agent_run_audit?: NonNullable<LlmCallRecord["agent_run_audit"]>;
+    }>,
   ): Promise<{ recorded: number }> {
     return this.client.call<{ recorded: number }>("backtest.record_failed_days", {
       run_id: runId,

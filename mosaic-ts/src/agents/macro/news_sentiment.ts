@@ -28,7 +28,6 @@ export const newsSentimentSpec: LayerOneAgentSpec<NewsSentimentOutput> = {
   requiredTools: REQUIRED_TOOLS,
   maxLoops: 3,
   render: renderNewsSentiment,
-  fallback: fallbackNewsSentiment,
 };
 
 export function buildNewsSentimentNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

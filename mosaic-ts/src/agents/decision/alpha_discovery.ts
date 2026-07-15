@@ -41,7 +41,6 @@ export const alphaDiscoverySpec: LayerFourAgentSpec<AlphaDiscoveryOutput> = {
   requiredTools: REQUIRED_TOOLS,
   buildUserContext,
   render: renderAlphaDiscovery,
-  fallback: fallbackAlphaDiscovery,
 };
 
 export function buildAlphaDiscoveryNode(deps: LayerFourAgentDeps): LayerFourAgentNode {

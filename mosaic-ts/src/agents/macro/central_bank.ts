@@ -40,7 +40,6 @@ export const centralBankSpec: LayerOneAgentSpec<CentralBankOutput> = {
   fieldNames: CENTRAL_BANK_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderCentralBank,
-  fallback: fallbackOutputFromText,
 };
 
 // ---------------------------------------------------------------------------

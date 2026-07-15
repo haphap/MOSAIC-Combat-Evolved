@@ -25,7 +25,6 @@ export const biotechSpec: LayerTwoAgentSpec<BiotechOutput> = {
   fieldNames: STANDARD_SECTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderBiotech,
-  fallback: fallbackBiotech,
 };
 
 export function buildBiotechNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {

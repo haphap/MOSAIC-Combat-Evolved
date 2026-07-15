@@ -30,7 +30,6 @@ export const druckenmillerSpec: LayerThreeAgentSpec<DruckenmillerOutput> = {
   fieldNames: SUPERINVESTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderDruckenmiller,
-  fallback: fallbackDruckenmiller,
 };
 
 export function buildDruckenmillerNode(deps: LayerThreeAgentDeps): LayerThreeAgentNode {

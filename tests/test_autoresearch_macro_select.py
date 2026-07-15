@@ -30,6 +30,7 @@ def _add_scored_macro(store, agent, raw, date="2024-02-01", effective=None, infl
         {
             "active_cohort": _COHORT,
             "as_of_date": date,
+            "day_outcome_status": "accepted",
             "layer1_outputs": {agent: {"agent": agent, "confidence": 0.5}},
             "layer1_consensus": {},
         }

@@ -53,6 +53,15 @@ def _sample_state(date: str = "2024-06-24") -> dict:
     return {
         "active_cohort": "cohort_default",
         "as_of_date": date,
+        "day_outcome_status": "accepted",
+        "agent_run_audits": [
+            {
+                "agent": f"agent_{index}",
+                "stage": "primary",
+                "status": "accepted",
+            }
+            for index in range(26)
+        ],
         "layer1_outputs": {},
         "layer2_outputs": {},
         "layer3_outputs": {
@@ -125,6 +134,41 @@ class TestScorecardAppend:
         assert excinfo.value.code == -32602
         assert "as_of_date" in excinfo.value.message
 
+    def test_rejects_missing_agent_stage_audits(self, tmp_store):
+        state = _sample_state()
+        state.pop("agent_run_audits")
+        with pytest.raises(RpcError) as excinfo:
+            dispatch("scorecard.append", {"state": state})
+        assert excinfo.value.code == -32602
+        assert "26 unique accepted" in excinfo.value.message
+
+    def test_backtest_requires_matching_accepted_day(self, tmp_store):
+        state = _sample_state()
+        run_id = tmp_store.create_backtest_run(
+            cohort="cohort_default",
+            start_date=state["as_of_date"],
+            end_date=state["as_of_date"],
+            prompt_commit_hash="strict-contract-test",
+        )
+        state.update(
+            mode="backtest",
+            backtest_run_id=run_id,
+            decision_disposition="TARGET_PORTFOLIO",
+        )
+        with pytest.raises(RpcError) as excinfo:
+            dispatch("scorecard.append", {"state": state})
+        assert "matching accepted backtest day" in excinfo.value.message
+
+        actions = state["layer4_outputs"]["cio"]["portfolio_actions"]
+        tmp_store.append_backtest_actions(
+            run_id,
+            state["as_of_date"],
+            actions,
+            agent_run_audits=state["agent_run_audits"],
+            decision_disposition="TARGET_PORTFOLIO",
+        )
+        assert dispatch("scorecard.append", {"state": state})["ingested"] == 2
+
 
 # ===========================================================================
 # scorecard.score_pending
@@ -161,6 +205,7 @@ class TestScorecardScorePending:
             {
                 "active_cohort": "cohort_default",
                 "as_of_date": d0,
+                "day_outcome_status": "accepted",
                 "layer1_outputs": {
                     "dollar": {
                         "agent": "dollar",
@@ -236,6 +281,7 @@ class TestScorecardListSkill:
                 state = {
                     "active_cohort": "cohort_default",
                     "as_of_date": date_iso,
+                    "day_outcome_status": "accepted",
                     "layer1_outputs": {},
                     "layer2_outputs": {},
                     "layer3_outputs": {},
@@ -306,6 +352,7 @@ class TestScorecardListSkill:
             state = {
                 "active_cohort": "cohort_default",
                 "as_of_date": d.isoformat(),
+                "day_outcome_status": "accepted",
                 "layer1_outputs": {},
                 "layer2_outputs": {},
                 "layer3_outputs": {},
@@ -377,8 +424,9 @@ class TestDarwinianCompute:
             with tmp_store._connect() as conn:
                 conn.execute(
                     "INSERT INTO recommendations("
-                    "cohort, agent, ticker, date, action, alpha_5d, scored_at"
-                    ") VALUES (?, ?, ?, '2024-07-01', 'BUY', ?, '2024-07-08')",
+                    "cohort, agent, ticker, date, action, alpha_5d, scored_at, "
+                    "day_outcome_status) VALUES (?, ?, ?, '2024-07-01', 'BUY', ?, "
+                    "'2024-07-08', 'accepted')",
                     ("cohort_default", agent, f"{agent[:4].upper()}.SH", 0.1 - idx * 0.01),
                 )
 
@@ -507,7 +555,8 @@ class TestSignalsRpc:
         with store._connect() as conn:
             conn.executemany(
                 "INSERT INTO recommendations(cohort,agent,ticker,date,action,"
-                "target_weight_pct,forward_return_5d,scored_at) VALUES (?,?,?,?,?,?,?,?)",
+                "target_weight_pct,forward_return_5d,scored_at,day_outcome_status) "
+                "VALUES (?,?,?,?,?,?,?,?, 'accepted')",
                 [
                     ("cohort_default", "cio", "510300.SH", "2024-06-25", "BUY", 30.0, None, None),
                     ("cohort_default", "cio", "510300.SH", "2024-06-10", "BUY", 30.0, 0.03, "x"),

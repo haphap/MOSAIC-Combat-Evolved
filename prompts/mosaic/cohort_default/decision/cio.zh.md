@@ -147,7 +147,7 @@ research-knobs:
         - positive
       horizon: 20d
       id: decision.cio.policy.001
-      target_variable: portfolio_actions
+      target_variable: decision_disposition
     - allowed_outputs:
         - better
         - neutral
@@ -1207,7 +1207,11 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - claim_refs
       - claims
+      - decision_claim_refs
+      - decision_disposition
+      - decision_reason
       - dissent_refs
       - portfolio_actions
       - position_reviews
@@ -1245,29 +1249,15 @@ research-knobs:
 
 ## 输出 schema
 
-```json
-{
-  "agent": "cio",
-  "portfolio_actions": [
-    {
-      "ticker": "<>",
-      "action": "BUY|SELL|HOLD|REDUCE",
-      "target_weight": <0-1>,
-      "holding_period": "1W|1M|3M|6M|1Y|5Y+",
-      "dissent_notes": "<空 = 跟随 auto_exec | 非空 = 解释 override>"
-    }
-  ],
-  "confidence": <0-1>
-}
-```
+以运行时附加的 JSON Schema 为唯一字段与约束来源；不得使用手写字段表。
 
 ## 写作约束
 
 * CIO 的 `confidence` 是整个 daily cycle 的"最终把握"，应≤ 上层平均值。
   即使 4 位 superinvestor 都 confidence ≥ 0.7，cro 提了一个有效 black_swan，
   CIO 应该至少 -0.1。
-* `portfolio_actions = []` 表示 100% cash —— 仅在 regime BEARISH + cro
-  flag 重大风险 + 上游 confidence ≤ 0.4 时使用。
+* 只有 `decision_disposition = ALL_CASH` 且结论证据有效时才表示 100% cash。
+  空仓时 `portfolio_actions` 才可为空；有持仓时必须逐项 SELL/EXIT 到零。
 * override 多次时（dissent_notes 非空 ≥ 3 次），**confidence ≤ 0.5**——
   说明你和 auto_exec 严重分歧，整个 cycle 不确定性高。
 * 不要写 markdown 标题或 bullet 之外的解释，输出会被结构化抽取器解析。
@@ -1278,7 +1268,7 @@ research-knobs:
 
 Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。
 
-输出字段包括：`portfolio_actions`, `position_reviews`, `dissent_refs`, `confidence`, `claims`。
+输出字段包括：`decision_disposition`, `decision_reason`, `decision_claim_refs`, `portfolio_actions`, `position_reviews`, `dissent_refs`, `confidence`, `claims`, `claim_refs`。
 
 必需 runtime tools：`get_rke_research_context`。
 
@@ -1286,6 +1276,6 @@ Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids
 
 Knob influence 审计字段：(none)。
 
-必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 `evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 `research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、position decision、portfolio action、risk adjustment 或 execution check 都必须用 `claim_refs` 引用支持它的 claim。证据不足时输出 conservative fallback 与 uncertainty claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。
+必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 `evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 `research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、position decision、portfolio action、risk adjustment 或 execution check 都必须用 `claim_refs` 引用支持它的 claim。证据不足时输出有证据支持的显式空 disposition 与 uncertainty claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。
 
 <!-- runtime-evidence-contract:end -->

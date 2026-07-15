@@ -28,7 +28,6 @@ export const dollarSpec: LayerOneAgentSpec<DollarOutput> = {
   fieldNames: DOLLAR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderDollar,
-  fallback: fallbackDollar,
 };
 
 export function buildDollarNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

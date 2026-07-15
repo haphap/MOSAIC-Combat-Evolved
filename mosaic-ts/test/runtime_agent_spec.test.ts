@@ -68,11 +68,11 @@ describe("stage-aware runtime agent manifest", () => {
     }
   });
 
-  it("registers a deterministic fallback factory for every stage", () => {
+  it("registers exactly three structured repair attempts and no fallback factory", () => {
     for (const spec of RUNTIME_AGENT_SPECS) {
       for (const stage of spec.stages) {
-        expect(stage.fallbackFactoryId).toBe(`${spec.promptIrAgentId}.${stage.stage}.fallback`);
-        expect(stage.fallbackFactoryVersion).toBe("1");
+        expect(stage.maxRepairAttempts).toBe(3);
+        expect(stage).not.toHaveProperty("fallbackFactoryId");
       }
     }
   });
@@ -86,7 +86,7 @@ describe("stage-aware runtime agent manifest", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
     const committed = JSON.parse(
       readFileSync(
-        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v1.json"),
+        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v2.json"),
         "utf-8",
       ),
     );

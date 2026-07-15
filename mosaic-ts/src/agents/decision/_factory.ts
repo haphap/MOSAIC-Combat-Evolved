@@ -33,13 +33,16 @@ import {
 import type { LlmHandle } from "../../llm/factory.js";
 import { formatMirofishContext } from "../../mirofish/context.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import {
+  type AgentContractIssue,
+  type AgentRunAudit,
+  invokeStrictStructured,
+} from "../helpers/agent_run_contract.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
-  attachDeterministicFallbackClaimGraph,
   buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
-  selectOutputByClaimEvidence,
 } from "../helpers/evidence_runtime.js";
 import {
   type AgentCanaryEventContext,
@@ -48,16 +51,13 @@ import {
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
 import {
-  applyResearchKnobCapsWithFallback,
-  assertResearchKnobCappedOutputSchema,
-  formatResearchKnobAuditFields,
   isResearchKnobsStageEnabled,
+  type ResearchKnobCapAudit,
   type ResearchKnobsSnapshot,
   type RuntimeSourceStatus,
   type ToolStatus,
 } from "../helpers/research_knobs.js";
 import {
-  AgentTimeoutError,
   buildLlmCall,
   extractLlmTokenUsage,
   formatAgentEvent,
@@ -69,7 +69,7 @@ import {
   withAgentTimeout,
 } from "../helpers/runtime.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
-import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
+import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
 import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
@@ -86,13 +86,16 @@ import type {
 import { validateAutonomousExecutionActions } from "./execution_validator.js";
 import {
   assertL4RunSnapshotStage,
+  freezeCioProposal,
   freezeCroReview,
   freezeExecutionFeasibility,
   layer4PromptSourceHash,
   runtimeStateForLayer4,
   stableRuntimeHash,
   updateLayer4Runtime,
+  validateFinalTargetEnvelope,
 } from "./layer4_runtime.js";
+import { validateCioPositionActions } from "./position_validator.js";
 
 /** Union of the 4 Layer-4 outputs handled by this factory. */
 export type Layer4AgentOutput = CroOutput | AlphaDiscoveryOutput | AutoExecOutput | CioOutput;
@@ -112,7 +115,6 @@ export interface LayerFourAgentSpec<TOutput extends Layer4AgentOutput> {
   /** Bridge tools this decision agent may call during synthesis. */
   requiredTools?: ReadonlyArray<string>;
   render: (output: TOutput) => string;
-  fallback: (analysisText: string) => TOutput;
   structuredOnlySentences?: ReadonlyArray<string>;
   buildExtractorSystem?: (lang: LoaderLanguage) => string;
 }
@@ -150,7 +152,6 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
-    let fallbackRuntimeEvidence: RuntimeEvidenceSnapshot | null = null;
     let canaryContext: AgentCanaryEventContext | null = null;
     let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
@@ -251,7 +252,6 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 knobSnapshot,
               })
             : null;
-          fallbackRuntimeEvidence = runtimeEvidence;
           const evidenceAugmentedContext = runtimeEvidence
             ? `${augmentedContext}\n\n${runtimeEvidence.visibleCatalog}`
             : augmentedContext;
@@ -298,7 +298,6 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 knobSnapshot,
                 toolStatuses,
               });
-              fallbackRuntimeEvidence = runtimeEvidence;
             }
           } else {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
@@ -324,7 +323,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
             : defaultExtractorSystem(spec, language);
-          const extractor = await invokeStructuredOrFreetext<TOutput>({
+          const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
             schema: spec.schema,
             messages: [
@@ -335,54 +334,86 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                   .join("\n\n"),
               ),
             ],
-            render: spec.render,
-            agentName: spec.agentId,
-            structuredOnlySentences: spec.structuredOnlySentences ?? [],
-            onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
+            agent: spec.agentId,
+            stage: spec.runtimeStage,
+            runId: state.trace_id || state.as_of_date || "current_run",
+            evidenceSnapshot: runtimeEvidence,
+            validate: (candidate) => {
+              let validated = validateStrictAgentOutput({
+                output: candidate,
+                schema: spec.schema,
+                agent: spec.agentId,
+                stage: spec.runtimeStage,
+                runtimeEvidence,
+                knobSnapshot,
+                toolStatuses,
+                currentPositions: state.current_positions,
+              });
+              if (
+                validated.issues.length === 0 &&
+                spec.stateUpdateField === "autonomous_execution"
+              ) {
+                try {
+                  validated = {
+                    output: validateAutonomousExecutionActions({
+                      output: validated.output as unknown as AutoExecOutput,
+                      knobSnapshot,
+                    }) as TOutput,
+                    issues: [],
+                  };
+                } catch (error) {
+                  const executionIssue: AgentContractIssue = {
+                    validator: "decision.autonomous_execution.action_validator.v1",
+                    reason_code: "EXECUTION_SEMANTIC_REJECTED",
+                    json_path: "$.trades",
+                    message: error instanceof Error ? error.message : String(error),
+                  };
+                  validated = { output: validated.output, issues: [executionIssue] };
+                }
+              }
+              if (validated.issues.length === 0) {
+                try {
+                  validateLayer4StageSemantics(spec, state, validated.output);
+                } catch (error) {
+                  validated = {
+                    output: validated.output,
+                    issues: [
+                      {
+                        validator: `decision.${spec.runtimeStage}.semantic_validator.v1`,
+                        reason_code: "L4_SEMANTIC_REJECTED",
+                        json_path: "$",
+                        message: error instanceof Error ? error.message : String(error),
+                      },
+                    ],
+                  };
+                }
+              }
+              return validated;
+            },
+            isAcceptedEmpty: (candidate) => isAcceptedEmptyDecision(candidate),
             signal,
           });
-          promptTokens += extractor.usage.promptTokens;
-          completionTokens += extractor.usage.completionTokens;
+          promptTokens += extractor.audit.attempts.reduce(
+            (sum, attempt) => sum + attempt.prompt_tokens,
+            0,
+          );
+          completionTokens += extractor.audit.attempts.reduce(
+            (sum, attempt) => sum + attempt.completion_tokens,
+            0,
+          );
 
-          const rawOutput = extractor.structured ?? spec.fallback(analysisText);
-          const claimSelection = runtimeEvidence
-            ? selectOutputByClaimEvidence(rawOutput, () => spec.fallback(""), runtimeEvidence)
-            : null;
-          const claimSelectedOutput = claimSelection?.output ?? rawOutput;
-          const capped = knobSnapshot
-            ? applyResearchKnobCapsWithFallback(
-                claimSelectedOutput,
-                () => spec.fallback(""),
-                knobSnapshot,
-                { toolStatuses },
-              )
-            : null;
-          let output = capped
-            ? assertResearchKnobCappedOutputSchema(capped.output, spec.schema, spec.agentId)
-            : claimSelectedOutput;
-          if (runtimeEvidence && capped?.audit.output_selection === "deterministic_fallback") {
-            output = attachDeterministicFallbackClaimGraph(
-              output,
-              runtimeEvidence,
-              claimSelection?.rejectionReasons ?? [],
-              capped.audit.fallback_reason_code ?? "UNSUPPORTED_KNOB_INFLUENCE",
-            ).output;
-          }
-          if (spec.stateUpdateField === "autonomous_execution") {
-            output = validateAutonomousExecutionActions({
-              output: output as unknown as AutoExecOutput,
-              knobSnapshot,
-            }) as TOutput;
-          }
+          const output = extractor.output;
           const canaryEvent = buildAgentPromptCanaryEvent({
             context: canaryContext,
             agent: spec.agentId,
             stage: spec.runtimeStage,
             startedAt,
-            structuredAccepted: extractor.structured !== null,
-            claimGraphAccepted: claimSelection?.rawOutputAccepted ?? true,
+            structuredAccepted: true,
+            claimGraphAccepted: true,
             knobSnapshot,
-            knobAudit: capped?.audit ?? null,
+            knobAudit:
+              (output as TOutput & { verified_knob_audit?: ResearchKnobCapAudit })
+                .verified_knob_audit ?? null,
             toolStatuses,
             output,
             validatorIds: [
@@ -403,15 +434,14 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               `tool_cache_hits=${toolCacheHits}`,
               `tool_executions=${toolExecutions}`,
               ...formatTokenMetricFields(promptTokens, completionTokens, llmElapsedMs),
-              `source=${extractor.structured ? "structured" : "fallback"}`,
+              `source=${extractor.audit.output_source}`,
               ...(runtimeEvidence
                 ? [
                     `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
-                    `claim_output=${claimSelection?.rawOutputAccepted ? "accepted" : "fallback"}`,
-                    `claim_rejections=${claimSelection?.rejectionReasons.length ?? 0}`,
+                    "claim_output=accepted",
+                    "claim_rejections=0",
                   ]
                 : []),
-              ...(capped ? formatResearchKnobAuditFields(capped.audit) : []),
               summarizeAgentOutput(output),
             ]),
           );
@@ -424,6 +454,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               state,
               knobSnapshot,
               canaryEvent,
+              audit: extractor.audit,
             },
           );
         },
@@ -431,58 +462,6 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
         `L4 ${spec.agentId}`,
       );
     } catch (err) {
-      if (err instanceof AgentTimeoutError) {
-        if (
-          isResearchKnobsStageEnabled(
-            spec.agentId,
-            spec.runtimeStage,
-            undefined,
-            state.active_cohort || "cohort_default",
-          ) &&
-          !fallbackRuntimeEvidence
-        ) {
-          throw err;
-        }
-        const fallback = spec.fallback("");
-        const output = fallbackRuntimeEvidence
-          ? attachDeterministicFallbackClaimGraph(
-              fallback,
-              fallbackRuntimeEvidence,
-              ["agent_timeout"],
-              "AGENT_TIMEOUT",
-            ).output
-          : fallback;
-        const canaryEvent = buildAgentPromptCanaryEvent({
-          context: canaryContext,
-          agent: spec.agentId,
-          stage: spec.runtimeStage,
-          startedAt,
-          structuredAccepted: false,
-          claimGraphAccepted: false,
-          knobSnapshot: canaryKnobSnapshot,
-          knobAudit: null,
-          toolStatuses: canaryToolStatuses,
-          output,
-          validatorIds: [
-            `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
-            "evidence_claim_graph_v1",
-            "research_knobs_runtime_v1",
-          ],
-          forceFallback: true,
-        });
-        if (canaryEvent) await persistPromptReleaseCanaryEvents([canaryEvent]);
-        onLog(
-          formatAgentEvent("timeout", "L4", spec.agentId, [
-            `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
-            summarizeAgentOutput(output),
-          ]),
-        );
-        return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle), {
-          state,
-          knobSnapshot: null,
-          canaryEvent,
-        });
-      }
       onLog(
         formatAgentEvent("error", "L4", spec.agentId, [
           `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
@@ -512,6 +491,46 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
       throw err;
     }
   };
+}
+
+function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+  state: DailyCycleStateType,
+  output: TOutput,
+): void {
+  const runtime = runtimeStateForLayer4(state);
+  const runId = state.trace_id || state.as_of_date || "current_run";
+  if (spec.runtimeStage === "cio_proposal") {
+    freezeCioProposal(state, output as unknown as CioOutput);
+    return;
+  }
+  if (spec.runtimeStage === "cro_review") {
+    freezeCroReview(runId, runtime.candidate_target_state, output as unknown as CroOutput);
+    return;
+  }
+  if (spec.runtimeStage === "execution_feasibility") {
+    freezeExecutionFeasibility(
+      runId,
+      runtime.candidate_target_state,
+      runtime.cro_review_state,
+      output as unknown as AutoExecOutput,
+      runtime.resolved_source_statuses,
+      state.as_of_date || "live",
+    );
+    return;
+  }
+  if (spec.runtimeStage === "cio_final") {
+    const validated = validateCioPositionActions({
+      output: output as unknown as CioOutput,
+      currentPositions: state.current_positions,
+      knobSnapshot: runtime.cio_final_knob_snapshot,
+      sharedPolicyValues: activeKnobValuesFromUpstreamDecisionAgents(state.layer4_outputs),
+    });
+    validateFinalTargetEnvelope(
+      { ...state, layer4_outputs: { ...state.layer4_outputs, cio: validated.output } },
+      validated.output,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -773,12 +792,14 @@ function defaultExtractorSystem<TOutput extends Layer4AgentOutput>(
       : "Reply in Chinese. Numbers stay numeric; do not wrap them in 中文括号.";
   return (
     `You are a structured-output extractor for the ${spec.agentId} Layer-4 decision agent. ` +
-    `The user message contains a free-form analysis. Populate the required ${spec.agentId} ` +
-    `schema fields (${spec.fieldNames.join(", ")}). Cite only tickers / numbers that appeared ` +
-    `in the analysis text; never invent. If the analysis is missing key inputs (e.g. cio ` +
-    `with no autonomous_execution trades to act on), return the conservative fallback ` +
-    `(empty arrays / confidence ≤ 0.3). When a runtime evidence catalog is present, include ` +
+    `The user message contains a free-form analysis. Populate every field in the ` +
+    `runtime-supplied JSON Schema. Cite only tickers / numbers that appeared ` +
+    `in the analysis text; never invent. If evidence supports no action, select the explicit ` +
+    `schema disposition for an evidence-backed empty conclusion; never return an unclassified ` +
+    `empty array. When a runtime evidence catalog is present, include ` +
     `claims and per-entry claim_refs using only its evidence_id and allowed research rule ids. ` +
+    `For cio, every non-empty portfolio_actions entry requires claim_refs and at least one ` +
+    `supporting claim; omitting either is a schema failure, not a valid cash decision. ` +
     lang
   );
 }
@@ -791,9 +812,11 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
     state: DailyCycleStateType;
     knobSnapshot: ResearchKnobsSnapshot | null;
     canaryEvent: PromptReleaseCanaryEvent | null;
+    audit: AgentRunAudit;
   },
 ): DailyCycleStateUpdate {
   if (opts.canaryEvent) llmCall.prompt_canary_event = opts.canaryEvent;
+  llmCall.agent_run_audit = opts.audit;
   const currentRuntime = runtimeStateForLayer4(opts.state);
   const runId = opts.state.trace_id || opts.state.as_of_date || "current_run";
   const mode = spec.stateWriteMode ?? "agent_output";
@@ -897,41 +920,29 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   };
 }
 
+function isAcceptedEmptyDecision(output: Layer4AgentOutput): boolean {
+  if ("review_disposition" in output) return output.review_disposition === "NO_OBJECTION";
+  if ("discovery_disposition" in output) return output.discovery_disposition === "NONE_FOUND";
+  if ("execution_disposition" in output) {
+    return (
+      output.execution_disposition === "NO_DELTA" || output.execution_disposition === "BLOCKED"
+    );
+  }
+  return (
+    "decision_disposition" in output &&
+    output.decision_disposition === "ALL_CASH" &&
+    output.portfolio_actions.length === 0
+  );
+}
+
 function stageResultTrace<TOutput extends Layer4AgentOutput>(
-  spec: LayerFourAgentSpec<TOutput>,
-  output: TOutput,
+  _spec: LayerFourAgentSpec<TOutput>,
+  _output: TOutput,
 ): Pick<
   Layer4RuntimeTraceEntry,
   "status" | "reason_codes" | "fallback_factory_id" | "fallback_factory_version"
 > {
-  const runtimeFallback = output.runtime_fallback_audit;
-  if (runtimeFallback) {
-    return {
-      status: "fallback",
-      reason_codes: [...runtimeFallback.reason_codes],
-      fallback_factory_id: runtimeFallback.fallback_factory_id,
-      fallback_factory_version: runtimeFallback.fallback_factory_version,
-    };
-  }
-  const audit = (output as { verified_knob_audit?: { fallback_reason_code?: unknown } | undefined })
-    .verified_knob_audit;
-  const knobFallbackReason =
-    typeof audit?.fallback_reason_code === "string" ? audit.fallback_reason_code : null;
-  const claimAudit = (
-    output as {
-      verified_claim_audit?: { fallback_reason_code?: unknown } | undefined;
-    }
-  ).verified_claim_audit;
-  const claimFallbackReason =
-    typeof claimAudit?.fallback_reason_code === "string" ? claimAudit.fallback_reason_code : null;
-  const fallbackReason = knobFallbackReason ?? claimFallbackReason;
-  if (output.confidence > 0 && !fallbackReason) return { status: "completed" };
-  return {
-    status: "fallback",
-    reason_codes: [fallbackReason ?? "AGENT_CONSERVATIVE_FALLBACK"],
-    fallback_factory_id: `decision.${spec.agentId}.${spec.runtimeStage}.fallback`,
-    fallback_factory_version: "1",
-  };
+  return { status: "completed" };
 }
 
 function layer4InputHashes(

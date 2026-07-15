@@ -338,7 +338,7 @@ describe("checkResearchKnobsPrompts", () => {
     );
   });
 
-  it("fails evidence-enabled decision prompts without per-output claim refs", async () => {
+  it("does not depend on stale handwritten output field lists", async () => {
     const spec = specForAgent("cio");
     const knobs = buildRuntimeResearchKnobs(spec);
     for (const lang of ["zh", "en"] as const) {
@@ -360,10 +360,7 @@ describe("checkResearchKnobsPrompts", () => {
       enabledAgentStages: new Set(["cio:cio_proposal"]),
     });
 
-    expect(report.ready).toBe(false);
-    expect(
-      report.rows.find((item) => item.agent === "cio" && item.stage === "cio_proposal")?.reasons,
-    ).toContain("formal_evidence_field_missing_from_prompt_body:claim_refs");
+    expect(report.ready).toBe(true);
   });
 
   it("fails stale projections that no longer match generated runtime knobs", async () => {

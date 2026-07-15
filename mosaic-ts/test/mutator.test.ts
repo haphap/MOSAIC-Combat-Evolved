@@ -1500,10 +1500,13 @@ function makeLegacyDecisionRoot(): FakeRoot {
   const root = join(repoRoot, "prompts", "mosaic");
   const dir = join(root, "cohort_default", "decision");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "cio.zh.md"), "# zh legacy cio body\n", "utf-8");
-  writeFileSync(join(dir, "cio.en.md"), "# en legacy cio body\n", "utf-8");
   const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "cio");
   if (!spec) throw new Error("cio runtime spec missing");
+  const canonicalFence = renderResearchKnobsFence(buildRuntimeResearchKnobs(spec));
+  const driftedFence = canonicalFence.replace("stale_thesis_days: 20", "stale_thesis_days: 25");
+  if (driftedFence === canonicalFence) throw new Error("cio drift fixture target missing");
+  writeFileSync(join(dir, "cio.zh.md"), `${driftedFence}\n\n# zh cio body\n`, "utf-8");
+  writeFileSync(join(dir, "cio.en.md"), `${driftedFence}\n\n# en cio body\n`, "utf-8");
   const registryPath = join(repoRoot, "registry", "domain_knobs", "cohort_default", "cio.json");
   mkdirSync(join(repoRoot, "registry", "domain_knobs", "cohort_default"), { recursive: true });
   writeFileSync(
@@ -1640,33 +1643,19 @@ describe("mutate", () => {
     );
   });
 
-  it("bootstraps legacy prompts before a fake-llm domain knob patch", async () => {
+  it("rejects a private prompt whose base projection drifted from bundled", async () => {
     fake.cleanup();
     fake = makeLegacyDecisionRoot();
 
-    const m = await mutateResearchKnobs({
-      cohort: "cohort_default",
-      agent: "cio",
-      promptsRoot: fake.root,
-      mutationId: "KM-domain-test",
-      fakeLlm: true,
-      deps: { llm: llmReturning({}) as never, api: fakeApi() },
-    });
-
-    const patchPath = m.knob_mutation.knob_patches[0]?.path ?? "";
-    expect(m.modification_summary).toContain("knob patch:");
-    expect(patchPath.endsWith("/learnable_parameters/mirofish_override_hurdle/value")).toBe(true);
-    expect(m.zh_prompt.match(/```research-knobs/g)).toHaveLength(1);
-    expect(m.en_prompt.match(/```research-knobs/g)).toHaveLength(1);
-    expect(m.zh_prompt).toContain("mirofish_override_hurdle");
-    expect(m.en_prompt).toContain("mirofish_override_hurdle");
-    expect(parseResearchKnobsPrompt(m.zh_prompt).knobs.agent).toBe("decision.cio");
-    expect(m.domain_registry_update).toMatchObject({
-      relative_path: "registry/domain_knobs/cohort_default/cio.json",
-    });
-    expect(m.domain_registry_update?.content).toContain('"last_mutation_id": "KM-domain-test"');
-    expect(parseResearchKnobsPrompt(m.bundled_prompt_update.zh_prompt).knobs).toEqual(
-      parseResearchKnobsPrompt(m.zh_prompt).knobs,
-    );
+    await expect(
+      mutateResearchKnobs({
+        cohort: "cohort_default",
+        agent: "cio",
+        promptsRoot: fake.root,
+        mutationId: "KM-domain-test",
+        fakeLlm: true,
+        deps: { llm: llmReturning({}) as never, api: fakeApi() },
+      }),
+    ).rejects.toThrow(/private and bundled base prompt projections do not match/);
   });
 });

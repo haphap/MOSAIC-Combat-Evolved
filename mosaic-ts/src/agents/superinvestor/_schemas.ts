@@ -40,11 +40,7 @@ const SUPER_PICK = z.object({
     ),
   conviction: z.number().min(0).max(1).describe("[0, 1] strength of conviction."),
   holding_period: HOLDING_PERIOD,
-  claim_refs: z
-    .array(z.string().min(1))
-    .min(1)
-    .optional()
-    .describe("Claim ids supporting this candidate."),
+  claim_refs: z.array(z.string().min(1)).min(1).describe("Claim ids supporting this candidate."),
 });
 
 const KEY_DRIVERS = z
@@ -66,12 +62,11 @@ const KNOB_INFLUENCE_FIELDS = {
     .describe("Optional short rationale for declared knob influence ids."),
   claims: z
     .array(LlmResearchClaimSchema)
-    .optional()
+    .min(1)
     .describe("Claim declarations referencing only runtime-provided evidence ids."),
   claim_refs: z
     .array(z.string().min(1))
     .min(1)
-    .optional()
     .describe("Claim ids supporting the top-level philosophy recommendation."),
 };
 
@@ -79,6 +74,7 @@ function buildSuperinvestorSchema<L extends string>(literal: L) {
   return z
     .object({
       agent: z.literal(literal),
+      selection_disposition: z.enum(["CANDIDATES", "NO_QUALIFIED_CANDIDATES"]),
       picks: z
         .array(SUPER_PICK)
         .min(0)
@@ -98,6 +94,15 @@ function buildSuperinvestorSchema<L extends string>(literal: L) {
       confidence: CONFIDENCE,
       ...KNOB_INFLUENCE_FIELDS,
     })
+    .superRefine((value, ctx) => {
+      if ((value.selection_disposition === "CANDIDATES") !== value.picks.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["selection_disposition"],
+          message: "CANDIDATES requires picks; empty picks require NO_QUALIFIED_CANDIDATES",
+        });
+      }
+    })
     .describe(`Layer-3 superinvestor (${literal}) philosophy-filtered picks.`);
 }
 
@@ -112,6 +117,7 @@ export const AckmanSchema = buildSuperinvestorSchema("ackman");
 
 export const SUPERINVESTOR_FIELD_NAMES = [
   "picks",
+  "selection_disposition",
   "philosophy_note",
   "key_drivers",
   "confidence",
@@ -123,7 +129,7 @@ export const SUPERINVESTOR_FIELD_NAMES = [
 // Type-check guards
 // ---------------------------------------------------------------------------
 
-type _GuardEqShape<T, U> = T extends U ? (U extends T ? true : never) : never;
+type _GuardEqShape<T, U> = T extends U ? true : never;
 
 const _drCheck: _GuardEqShape<z.infer<typeof DruckenmillerSchema>, DruckenmillerOutput> = true;
 const _muCheck: _GuardEqShape<z.infer<typeof MungerSchema>, MungerOutput> = true;

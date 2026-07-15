@@ -116,7 +116,7 @@ research-knobs:
         - positive
       horizon: 20d
       id: decision.cio.policy.001
-      target_variable: portfolio_actions
+      target_variable: decision_disposition
     - allowed_outputs:
         - better
         - neutral
@@ -1176,7 +1176,11 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - claim_refs
       - claims
+      - decision_claim_refs
+      - decision_disposition
+      - decision_reason
       - dissent_refs
       - portfolio_actions
       - position_reviews
@@ -1248,21 +1252,7 @@ single target contract consumed by paper trading / live execution.
 
 ## Output schema
 
-```json
-{
-  "agent": "cio",
-  "portfolio_actions": [
-    {
-      "ticker": "<>",
-      "action": "BUY|SELL|HOLD|REDUCE",
-      "target_weight": <0-1>,
-      "holding_period": "1W|1M|3M|6M|1Y|5Y+",
-      "dissent_notes": "<empty = follow auto_exec | non-empty = explain override>"
-    }
-  ],
-  "confidence": <0-1>
-}
-```
+Treat the runtime-appended JSON Schema as the sole source of fields and constraints; do not use a hand-maintained field table.
 
 ## Writing constraints
 
@@ -1270,8 +1260,9 @@ single target contract consumed by paper trading / live execution.
   should be ≤ the average of upstream layers. Even when all 4
   superinvestors are ≥ 0.7, if cro raised one valid black_swan CIO
   should be at least -0.1 below upstream average.
-* `portfolio_actions = []` means 100% cash — only when BEARISH regime +
-  cro flagged a major risk + upstream confidence ≤ 0.4.
+* Only an evidence-valid `decision_disposition = ALL_CASH` means 100% cash.
+  `portfolio_actions` may be empty only when the current portfolio is empty;
+  otherwise emit one SELL/EXIT-to-zero action per current position.
 * When override count is high (dissent_notes non-empty ≥ 3 times),
   **confidence ≤ 0.5** — large divergence with auto_exec means high
   cycle uncertainty.
@@ -1284,7 +1275,7 @@ single target contract consumed by paper trading / live execution.
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `portfolio_actions`, `position_reviews`, `dissent_refs`, `confidence`, `claims`.
+Output fields include: `decision_disposition`, `decision_reason`, `decision_claim_refs`, `portfolio_actions`, `position_reviews`, `dissent_refs`, `confidence`, `claims`, `claim_refs`.
 
 Required runtime tools: `get_rke_research_context`.
 
@@ -1292,6 +1283,6 @@ Domain knob card ids for this agent: `stale_thesis_days`, `rebalance_drift_pct`,
 
 Knob influence audit fields: (none).
 
-Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit the conservative fallback and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
+Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit an evidence-backed explicit empty disposition and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
 
 <!-- runtime-evidence-contract:end -->

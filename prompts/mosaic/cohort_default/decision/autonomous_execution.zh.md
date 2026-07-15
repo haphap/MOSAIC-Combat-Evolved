@@ -151,7 +151,7 @@ research-knobs:
         - positive
       horizon: 20d
       id: decision.autonomous_execution.policy.001
-      target_variable: trades
+      target_variable: execution_disposition
     - allowed_outputs:
         - better
         - neutral
@@ -585,8 +585,10 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - claim_refs
       - claims
       - execution_checks
+      - execution_disposition
       - trades
     must_not_cover:
       - report_outcome_labeling
@@ -631,7 +633,7 @@ research-knobs:
 
 Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids。
 
-输出字段包括：`trades`, `execution_checks`, `confidence`, `claims`。
+输出字段包括：`execution_disposition`, `trades`, `execution_checks`, `confidence`, `claims`, `claim_refs`。
 
 必需 runtime tools：`get_rke_research_context`。
 
@@ -639,6 +641,6 @@ Runtime 提供本次调用唯一有效的 evidence catalog 与 research rule ids
 
 Knob influence 审计字段：(none)。
 
-必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 `evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 `research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、position decision、portfolio action、risk adjustment 或 execution check 都必须用 `claim_refs` 引用支持它的 claim。证据不足时输出 conservative fallback 与 uncertainty claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。
+必须输出 `claims` 与 `claim_refs`。每个非 uncertainty claim 必须通过 `evidence_refs` 引用 catalog 中的 `evidence_id`；每个 inference claim 还必须通过 `research_rule_refs` 引用允许的 rule id。所有 recommendation、candidate、pick、position decision、portfolio action、risk adjustment 或 execution check 都必须用 `claim_refs` 引用支持它的 claim。证据不足时输出有证据支持的显式空 disposition 与 uncertainty claim，不得伪造 evidence id、fingerprint、rule id 或跨 run 引用。
 
 <!-- runtime-evidence-contract:end -->

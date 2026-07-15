@@ -34,7 +34,6 @@ export const emergingMarketsSpec: LayerOneAgentSpec<EmergingMarketsOutput> = {
   fieldNames: EMERGING_MARKETS_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderEmergingMarkets,
-  fallback: fallbackEmergingMarkets,
 };
 
 export function buildEmergingMarketsNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

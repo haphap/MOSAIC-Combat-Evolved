@@ -112,18 +112,6 @@ const RUNTIME_SOURCE_ALIASES: Readonly<Record<string, string>> = {
   upstream_context: "upstream_agent_outputs",
 };
 
-const MACRO_OUTPUT_AGENTS = new Set([
-  "central_bank",
-  "geopolitical",
-  "china",
-  "dollar",
-  "yield_curve",
-  "commodities",
-  "volatility",
-  "emerging_markets",
-  "news_sentiment",
-  "institutional_flow",
-]);
 const SECTOR_PICK_AGENTS = new Set([
   "semiconductor",
   "energy",
@@ -259,6 +247,68 @@ export function selectOutputByClaimEvidence<T>(
     rawGraph.reasons,
     "CLAIM_EVIDENCE_GRAPH_REJECTED",
   );
+}
+
+/** Pure validation path used by strict production runs. It never substitutes output. */
+export function validateOutputByClaimEvidence<T>(
+  rawOutput: T,
+  runtime: RuntimeEvidenceSnapshot,
+): ClaimGraphSelection<T> {
+  const rawGraph = claimGraphFromOutput(rawOutput, runtime);
+  if (!rawGraph.graph) {
+    return {
+      output: rawOutput,
+      graph: emptyClaimGraph(runtime),
+      rawOutputAccepted: false,
+      rejectionReasons: rawGraph.reasons,
+    };
+  }
+  const validation = validateClaimEvidenceGraph(rawGraph.graph, {
+    expectedRunId: runtime.runId,
+    expectedSnapshotHash: runtime.snapshotHash,
+    runtimeOwnedEvidenceById: runtime.evidenceById,
+    requiredOutputIds: rawGraph.requiredOutputIds,
+    ...(isExplicitEmptyDisposition(rawOutput)
+      ? { allowUncertaintyOnlyOutputIds: rawGraph.requiredOutputIds }
+      : {}),
+    allowedResearchRuleIds: runtime.allowedResearchRuleIds,
+  });
+  if (!validation.accepted) {
+    return {
+      output: rawOutput,
+      graph: rawGraph.graph,
+      rawOutputAccepted: false,
+      rejectionReasons: validation.reasons,
+    };
+  }
+  return {
+    output: attachVerifiedClaimEnvelope(rawOutput, rawGraph.graph, {
+      raw_output_accepted: true,
+      rejection_reasons: [],
+    }),
+    graph: rawGraph.graph,
+    rawOutputAccepted: true,
+    rejectionReasons: [],
+  };
+}
+
+function isExplicitEmptyDisposition(output: unknown): boolean {
+  if (output === null || typeof output !== "object" || Array.isArray(output)) return false;
+  const record = output as Record<string, unknown>;
+  return ["NO_QUALIFIED_CANDIDATES", "NO_OBJECTION", "NONE_FOUND", "NO_DELTA", "BLOCKED"].some(
+    (value) => Object.values(record).includes(value),
+  );
+}
+
+function emptyClaimGraph(runtime: RuntimeEvidenceSnapshot): ClaimEvidenceGraph {
+  return {
+    schema_version: "evidence_claim_graph_v1",
+    run_id: runtime.runId,
+    snapshot_hash: runtime.snapshotHash,
+    evidence_ledger: runtime.evidenceLedger,
+    claims: [],
+    recommendation_claim_refs: [],
+  };
 }
 
 export function attachDeterministicFallbackClaimGraph<T>(
@@ -458,16 +508,12 @@ function outputClaimReferences(
                 : [];
   const references: RecommendationClaimReference[] = [];
   const requiredOutputIds = new Set<string>();
-  if (
-    MACRO_OUTPUT_AGENTS.has(agent) ||
-    SECTOR_PICK_AGENTS.has(agent) ||
-    SUPERINVESTOR_AGENTS.has(agent) ||
-    agent === "relationship_mapper"
-  ) {
+  if (agent !== "unknown") {
     const outputId = `recommendation:0:${agent}`;
     requiredOutputIds.add(outputId);
-    const claimRefs = Array.isArray(record.claim_refs)
-      ? record.claim_refs.filter((claimId): claimId is string => typeof claimId === "string")
+    const authoredRefs = agent === "cio" ? record.decision_claim_refs : record.claim_refs;
+    const claimRefs = Array.isArray(authoredRefs)
+      ? authoredRefs.filter((claimId): claimId is string => typeof claimId === "string")
       : [];
     if (claimRefs.length > 0) {
       references.push({
@@ -540,6 +586,7 @@ function withFallbackClaimRefs<T>(output: T, claimId: string): T {
   if (output === null || typeof output !== "object" || Array.isArray(output)) return output;
   const record = { ...(output as Record<string, unknown>) };
   record.claim_refs = [claimId];
+  if (record.agent === "cio") record.decision_claim_refs = [claimId];
   record.claims = [
     {
       claim_id: claimId,

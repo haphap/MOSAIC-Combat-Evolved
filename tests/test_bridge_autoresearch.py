@@ -758,6 +758,7 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
         state = {
             "active_cohort": "euphoria_2021",
             "as_of_date": d0,
+            "day_outcome_status": "accepted",
             "prompt_repo_id": "private",
             "prompt_sha256": "f" * 64,
             "layer1_outputs": {
@@ -845,6 +846,20 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
             code_commit_hash="c" * 40,
         )
         for run_id in (base_run, wrong_repo_mod_run, private_mod_run):
+            self.store.append_backtest_actions(
+                run_id,
+                start,
+                [],
+                agent_run_audits=[
+                    {
+                        "agent": f"agent_{index}",
+                        "stage": "primary",
+                        "status": "accepted",
+                    }
+                    for index in range(26)
+                ],
+                decision_disposition="ALL_CASH",
+            )
             self.store.complete_backtest_run(run_id)
 
         seen_run_ids = []

@@ -84,8 +84,46 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
     state = params.get("state")
     if not isinstance(state, dict):
         raise RpcError(INVALID_PARAMS, "'state' must be an object")
+    audits = state.get("agent_run_audits")
+    audit_keys = {
+        (audit.get("agent"), audit.get("stage"))
+        for audit in audits or []
+        if isinstance(audit, dict)
+    }
+    if (
+        not isinstance(audits, list)
+        or len(audits) != 26
+        or len(audit_keys) != 26
+        or any(
+            not isinstance(audit, dict)
+            or audit.get("status") not in ("accepted", "accepted_empty")
+            for audit in audits
+        )
+    ):
+        raise RpcError(
+            INVALID_PARAMS,
+            "scorecard append requires 26 unique accepted agent-stage audits",
+        )
+    if state.get("day_outcome_status") != "accepted":
+        raise RpcError(INVALID_PARAMS, "scorecard append requires an accepted day outcome")
     try:
         store = _store()
+        if state.get("mode") == "backtest":
+            run_id = state.get("backtest_run_id")
+            trade_date = state.get("as_of_date")
+            if (
+                not isinstance(run_id, int)
+                or isinstance(run_id, bool)
+                or not isinstance(trade_date, str)
+                or not store.is_backtest_day_accepted(
+                    run_id,
+                    trade_date,
+                    state.get("decision_disposition"),
+                )
+            ):
+                raise ValueError(
+                    "backtest scorecard append requires the matching accepted backtest day"
+                )
         n = store.append_from_state(state)
         macro_n = store.append_macro_signals_from_state(state)
     except ValueError as exc:

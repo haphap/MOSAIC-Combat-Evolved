@@ -27,6 +27,7 @@ def _sample_state(date: str = "2024-06-24", cohort: str = "cohort_default") -> d
     return {
         "active_cohort": cohort,
         "as_of_date": date,
+        "day_outcome_status": "accepted",
         "mode": "live",
         "trace_id": "test",
         "layer1_outputs": {
@@ -529,9 +530,28 @@ class TestSignalsAndWinRate:
         with store._connect() as conn:
             conn.executemany(
                 "INSERT INTO recommendations(cohort,agent,ticker,date,action,"
-                "target_weight_pct,forward_return_5d,scored_at) VALUES (?,?,?,?,?,?,?,?)",
+                "target_weight_pct,forward_return_5d,scored_at,day_outcome_status) "
+                "VALUES (?,?,?,?,?,?,?,?, 'accepted')",
                 rows,
             )
+
+    def test_legacy_unverified_rows_are_invisible_to_consumers(
+        self, store: ScorecardStore
+    ):
+        state = _sample_state()
+        state.pop("day_outcome_status")
+        store.append_from_state(state)
+        with store._connect() as conn:
+            row_id = conn.execute(
+                "SELECT id FROM recommendations WHERE agent = 'cio' LIMIT 1"
+            ).fetchone()["id"]
+        store.update_scoring(row_id, 0.03, None, 0.02, "2024-07-01")
+
+        assert store.list_pending("cohort_default") == []
+        assert store.list_scored("cohort_default") == []
+        assert store.list_recommendations("cohort_default") == []
+        assert store.get_latest_cio_actions("cohort_default")["actions"] == []
+        assert store.compute_win_rate("cohort_default") == []
 
     def test_latest_cio_actions_picks_most_recent_date(self, store: ScorecardStore):
         self._insert(
