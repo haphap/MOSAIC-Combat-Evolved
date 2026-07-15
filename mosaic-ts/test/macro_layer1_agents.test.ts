@@ -20,10 +20,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
-
 import {
   buildCommoditiesNode,
   commoditiesSpec,
@@ -78,6 +74,7 @@ import type { DailyCycleStateType } from "../src/agents/state.js";
 import type { GeopoliticalOutput, LlmCallRecord, MacroAgentOutput } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ AGENTS_BY_LAYER
@@ -249,10 +246,14 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
     }
     withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
       return {
-        invoke: async () => {
+        invoke: async (input) => {
           this.structuredCalls++;
           if (this.structuredResponse === null) throw new Error("no canned response");
-          return this.structuredResponse;
+          return fakeContractOutput(
+            this.structuredResponse as unknown as Record<string, unknown>,
+            "geopolitical",
+            input,
+          );
         },
       };
     }
@@ -398,13 +399,13 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
       llm_calls: [],
     };
 
-    const node = buildGeopoliticalNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
+    const node = buildGeopoliticalNode({ llmHandle: handle, api, config });
     const update = await node(sample);
     const unwrapped = update as unknown as {
       layer1_outputs?: Record<string, MacroAgentOutput>;
       llm_calls?: LlmCallRecord[];
     };
-    expect(unwrapped.layer1_outputs?.geopolitical).toEqual(canned);
+    expect(unwrapped.layer1_outputs?.geopolitical).toMatchObject(canned);
     expect(unwrapped.llm_calls?.[0]?.agent).toBe("geopolitical");
     expect(llm.invokeCalls.length).toBe(2);
     expect(llm.bindToolsCalled).toBe(1);

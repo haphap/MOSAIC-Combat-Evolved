@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Runtime Agent Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "runtime_agent_count",
+    "runtime_stage_count",
+    "default_cohort",
+    "research_knobs_cohort_enablement",
+    "canonical_l4_sequence",
+    "agents"
+  ],
+  "properties": {
+    "schema_version": { "const": "runtime_agent_manifest_v2" },
+    "runtime_agent_count": { "const": 25 },
+    "runtime_stage_count": { "const": 26 },
+    "default_cohort": { "const": "cohort_default" },
+    "research_knobs_cohort_enablement": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cohort", "enabled_agent_stages", "legacy_agent_stages"],
+        "properties": {
+          "cohort": { "type": "string", "minLength": 1 },
+          "enabled_agent_stages": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "legacy_agent_stages": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    "canonical_l4_sequence": {
+      "const": [
+        "alpha_discovery",
+        "cio_proposal",
+        "cro_review",
+        "execution_feasibility",
+        "cio_final"
+      ]
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 25,
+      "maxItems": 25,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent",
+          "layer",
+          "prompt_ir_agent_id",
+          "required_tools",
+          "output_schema_fields",
+          "stages"
+        ],
+        "properties": {
+          "agent": { "type": "string", "minLength": 1 },
+          "layer": { "enum": ["macro", "sector", "superinvestor", "decision"] },
+          "prompt_ir_agent_id": { "type": "string", "minLength": 1 },
+          "required_tools": { "type": "array", "items": { "type": "string" } },
+          "output_schema_fields": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stage",
+                "enablement",
+                "output_schema_ref",
+                "max_repair_attempts",
+                "required_source_ids",
+                "produced_source_ids"
+              ],
+              "properties": {
+                "stage": {
+                  "enum": [
+                    "agent_run",
+                    "alpha_discovery",
+                    "cio_proposal",
+                    "cro_review",
+                    "execution_feasibility",
+                    "cio_final"
+                  ]
+                },
+                "enablement": { "const": "enabled" },
+                "output_schema_ref": { "type": "string", "minLength": 1 },
+                "max_repair_attempts": { "const": 3 },
+                "required_source_ids": { "type": "array", "items": { "type": "string" } },
+                "produced_source_ids": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

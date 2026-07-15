@@ -21,7 +21,17 @@
 
 import type { Command } from "commander";
 import pc from "picocolors";
+import {
+  type AgentRunAudit,
+  AgentRunContractError,
+  assertStructuredOutputCapability,
+} from "../../agents/helpers/agent_run_contract.js";
+import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
+import {
+  assertAcceptedDailyCycle,
+  requireDecisionDisposition,
+} from "../../backtest/decision_health.js";
 import type { BacktestActionInput } from "../../bridge/index.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
@@ -187,11 +197,22 @@ export function registerBacktestFill(program: Command): void {
           vetoThreshold,
           ...(effectivePromptsRoot ? { promptsRoot: effectivePromptsRoot } : {}),
         });
+        await assertStructuredOutputCapability(llmHandle.llm);
+        const promptSource = await api.promptsPreflight({ cohort, langs: ["zh", "en"] });
+        if (!promptSource.ready) {
+          throw new Error(
+            `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
+          );
+        }
+        await assertRuntimePromptPreflight({
+          cohort,
+          ...(effectivePromptsRoot ? { promptsRoot: effectivePromptsRoot } : {}),
+        });
 
         let completed = 0;
         const totalStart = Date.now();
         let totalActions = 0;
-        const errors: Array<{ date: string; err: string }> = [];
+        const errors: Array<{ date: string; err: string; audit?: AgentRunAudit }> = [];
         const succeededDates: string[] = [];
         const firstState = makeInitialState(cohort, opts.start);
         let currentPositions = firstState.current_positions;
@@ -204,6 +225,7 @@ export function registerBacktestFill(program: Command): void {
             initialState.current_positions = currentPositions;
             initialState.layer4_outputs.previous_target_state = previousTarget;
             const final = (await graph.invoke(initialState)) as DailyCycleStateType;
+            assertAcceptedDailyCycle(final);
 
             const actions = (final.portfolio_actions ?? []).map((a) => ({
               ticker: a.ticker,
@@ -213,7 +235,15 @@ export function registerBacktestFill(program: Command): void {
               ...(a.dissent_notes ? { dissent_notes: a.dissent_notes } : {}),
             })) satisfies BacktestActionInput[];
 
-            await api.backtestAppendActions(runId, tradeDate, actions);
+            await api.backtestAppendActions(
+              runId,
+              tradeDate,
+              actions,
+              final.llm_calls.flatMap((call) =>
+                call.agent_run_audit ? [call.agent_run_audit] : [],
+              ),
+              requireDecisionDisposition(final),
+            );
             currentPositions = applyBacktestPortfolioActionsToPositions(
               currentPositions,
               final.portfolio_actions ?? [],
@@ -226,7 +256,11 @@ export function registerBacktestFill(program: Command): void {
             const msg = redactSensitiveText((err as Error).message, [
               ...(effectivePromptsRoot ? [effectivePromptsRoot] : []),
             ]);
-            errors.push({ date: tradeDate, err: msg });
+            errors.push({
+              date: tradeDate,
+              err: msg,
+              ...(err instanceof AgentRunContractError ? { audit: err.audit } : {}),
+            });
           }
 
           completed += 1;
@@ -246,7 +280,11 @@ export function registerBacktestFill(program: Command): void {
         if (errors.length > 0) {
           await api.backtestRecordFailedDays(
             runId,
-            errors.map((e) => ({ date: e.date, error: e.err })),
+            errors.map((e) => ({
+              date: e.date,
+              error: e.err,
+              ...(e.audit ? { agent_run_audit: e.audit } : {}),
+            })),
           );
         }
         // One bridge call: clearing succeeded days already returns the

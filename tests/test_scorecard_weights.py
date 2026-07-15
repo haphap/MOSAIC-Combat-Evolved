@@ -42,6 +42,7 @@ def _seed_scored_row(
     state = {
         "active_cohort": cohort,
         "as_of_date": date_iso,
+        "day_outcome_status": "accepted",
         "layer4_outputs": {
             "cro": None,
             "alpha_discovery": None,

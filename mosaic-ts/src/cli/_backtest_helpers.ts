@@ -15,7 +15,7 @@
 
 import { createHash } from "node:crypto";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { AIMessage } from "@langchain/core/messages";
+import { AIMessage } from "@langchain/core/messages";
 import {
   missingPreviousTargetState,
   previousTargetStateFromFinal,
@@ -28,30 +28,51 @@ import {
 import type { ClosedPosition, CurrentPositionsSnapshot, PortfolioAction } from "../agents/types.js";
 import type { BridgeApi } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
+import { fakeAgentStructuredOutput, fakeSchemaValue } from "./fake_agent_output.js";
 
-/** Structural interface that ``FakeChatModel`` satisfies just enough for
- *  the daily-cycle's invokeStructuredOrFreetext path to fall back. */
+/** Structural interface used by deterministic strict-contract smoke runs. */
 export interface FakeLlmShim {
   bindTools(tools: unknown): FakeLlmShim;
-  withStructuredOutput(schema: unknown): {
-    invoke: () => Promise<unknown>;
+  withStructuredOutput(
+    schema: unknown,
+    options?: { name?: string },
+  ): {
+    invoke: (messages: unknown) => Promise<unknown>;
   };
-  invoke(messages: unknown): Promise<{ content: string }>;
+  invoke(messages: unknown): Promise<AIMessage>;
 }
 
 class FakeChatModel implements FakeLlmShim {
-  bindTools(_tools: unknown): FakeChatModel {
+  private tools: Array<{ name: string; schema?: unknown }> = [];
+
+  bindTools(tools: unknown): FakeChatModel {
+    this.tools = Array.isArray(tools) ? tools : [];
     return this;
   }
-  withStructuredOutput(_schema: unknown): { invoke: () => Promise<unknown> } {
+  withStructuredOutput(
+    schema: unknown,
+    options?: { name?: string },
+  ): { invoke: (messages: unknown) => Promise<unknown> } {
     return {
-      invoke: async () => {
-        throw new Error("--fake-llm: structured output unavailable, fallback");
-      },
+      invoke: async (messages) => ({
+        parsed: fakeAgentStructuredOutput(schema, options?.name ?? "fake_agent", messages),
+      }),
     };
   }
-  async invoke(_messages: unknown): Promise<{ content: string }> {
-    return { content: "(--fake-llm) fallback" };
+  async invoke(messages: unknown): Promise<AIMessage> {
+    const hasToolResult =
+      Array.isArray(messages) && messages.some((message) => message?._getType?.() === "tool");
+    if (this.tools.length > 0 && !hasToolResult) {
+      return new AIMessage({
+        content: "",
+        tool_calls: this.tools.map((tool, index) => ({
+          id: `fake-tool-${index}`,
+          name: tool.name,
+          args: fakeSchemaValue(tool.schema),
+        })),
+      });
+    }
+    return new AIMessage("(--fake-llm) deterministic analysis");
   }
 }
 

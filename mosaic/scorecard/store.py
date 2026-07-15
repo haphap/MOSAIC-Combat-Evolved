@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS recommendations (
     dissent_notes TEXT,
     rationale_snapshot TEXT,
     replay_triggered INTEGER NOT NULL DEFAULT 0,  -- 1 = produced by a CRO-veto replay cycle (R-A1)
+    day_outcome_status TEXT NOT NULL DEFAULT 'legacy_unverified',
+    backtest_run_id INTEGER,
     forward_return_5d REAL,                     -- NULL until scored
     forward_return_21d REAL,
     alpha_5d REAL,
@@ -151,6 +153,30 @@ CREATE TABLE IF NOT EXISTS backtest_actions (
 
 CREATE INDEX IF NOT EXISTS idx_btactions_run_date
     ON backtest_actions(run_id, trade_date);
+
+CREATE TABLE IF NOT EXISTS agent_run_outcomes (
+    run_id INTEGER NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
+    trade_date TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('accepted', 'accepted_empty', 'rejected', 'timeout', 'error')),
+    output_source TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL,
+    repair_count INTEGER NOT NULL,
+    stop_reason TEXT NOT NULL,
+    audit_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, trade_date, agent, stage)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_day_outcomes (
+    run_id INTEGER NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
+    trade_date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('accepted', 'failed_no_decision', 'legacy_unverified')),
+    decision_disposition TEXT,
+    action_count INTEGER NOT NULL,
+    accepted_at TEXT,
+    PRIMARY KEY (run_id, trade_date)
+);
 
 -- R-A3: per-run record of trade days that failed during stage-1 fill, so an
 -- operator (or a future autoresearch auto-retry) can query what to re-run
@@ -309,6 +335,8 @@ CREATE TABLE IF NOT EXISTS macro_signals (
     effective_macro_score_5d REAL,               -- diagnostics (Phase 8)
     prompt_repo_id TEXT,
     prompt_sha256 TEXT,
+    day_outcome_status TEXT NOT NULL DEFAULT 'legacy_unverified',
+    backtest_run_id INTEGER,
     scored_at TEXT,                              -- NULL until the 5d window matures
     UNIQUE(cohort, agent, date)
 );
@@ -427,6 +455,12 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     # replay? Stamped on every row so the scorecard can segment first-pass vs
     # replayed recommendations.
     replay_flag = 1 if state.get("replay_triggered") else 0
+    day_outcome_status = (
+        "accepted" if state.get("day_outcome_status") == "accepted" else "legacy_unverified"
+    )
+    backtest_run_id = state.get("backtest_run_id")
+    if not isinstance(backtest_run_id, int) or isinstance(backtest_run_id, bool):
+        backtest_run_id = None
 
     rows: list[dict[str, Any]] = []
 
@@ -535,6 +569,8 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
 
     for row in rows:
         row["replay_triggered"] = replay_flag
+        row["day_outcome_status"] = day_outcome_status
+        row["backtest_run_id"] = backtest_run_id
         for key in (
             "current_weight_pct",
             "delta_weight_pct",
@@ -737,6 +773,12 @@ def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]
 
     prompt_repo_id = state.get("prompt_repo_id")
     prompt_sha256 = state.get("prompt_sha256")
+    day_outcome_status = (
+        "accepted" if state.get("day_outcome_status") == "accepted" else "legacy_unverified"
+    )
+    backtest_run_id = state.get("backtest_run_id")
+    if not isinstance(backtest_run_id, int) or isinstance(backtest_run_id, bool):
+        backtest_run_id = None
 
     rows: list[dict[str, Any]] = []
     for agent, out in (state.get("layer1_outputs") or {}).items():
@@ -755,6 +797,8 @@ def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]
                 "consensus_score": consensus_score,
                 "prompt_repo_id": prompt_repo_id,
                 "prompt_sha256": prompt_sha256,
+                "day_outcome_status": day_outcome_status,
+                "backtest_run_id": backtest_run_id,
             }
         )
     influence = _macro_equal_weight_influence(rows)
@@ -815,6 +859,8 @@ class ScorecardStore:
                 ("verified_knob_audit_json", "TEXT"),
                 ("decision_agent_audits_json", "TEXT"),
                 ("dissent_notes", "TEXT"),
+                ("day_outcome_status", "TEXT NOT NULL DEFAULT 'legacy_unverified'"),
+                ("backtest_run_id", "INTEGER"),
             ):
                 self._ensure_column(conn, "recommendations", column, ddl)
             self._ensure_column(conn, "prompt_versions", "prompt_repo_id", "TEXT")
@@ -844,6 +890,13 @@ class ScorecardStore:
             self._ensure_column(conn, "macro_signals", "realized_volatility_5d", "REAL")
             self._ensure_column(conn, "macro_signals", "path_metric_5d", "REAL")
             self._ensure_column(conn, "macro_signals", "source_series_id", "TEXT")
+            self._ensure_column(
+                conn,
+                "macro_signals",
+                "day_outcome_status",
+                "TEXT NOT NULL DEFAULT 'legacy_unverified'",
+            )
+            self._ensure_column(conn, "macro_signals", "backtest_run_id", "INTEGER")
             for column, ddl in (
                 ("layer", "TEXT"),
                 ("previous_weight", "REAL"),
@@ -893,7 +946,7 @@ class ScorecardStore:
                     thesis_status, risk_flags_json, declared_knob_influence_ids_json,
                     declared_influence_rationale, verified_knob_audit_json,
                     decision_agent_audits_json, dissent_notes, rationale_snapshot,
-                    replay_triggered
+                    replay_triggered, day_outcome_status, backtest_run_id
                 ) VALUES (
                     :cohort, :agent, :ticker, :date, :action, :conviction,
                     :target_weight_pct, :current_weight_pct, :delta_weight_pct,
@@ -901,7 +954,7 @@ class ScorecardStore:
                     :thesis_status, :risk_flags_json, :declared_knob_influence_ids_json,
                     :declared_influence_rationale, :verified_knob_audit_json,
                     :decision_agent_audits_json, :dissent_notes, :rationale_snapshot,
-                    :replay_triggered
+                    :replay_triggered, :day_outcome_status, :backtest_run_id
                 )
                 ON CONFLICT(cohort, agent, ticker, date) DO UPDATE SET
                     action = excluded.action,
@@ -920,7 +973,9 @@ class ScorecardStore:
                     decision_agent_audits_json = excluded.decision_agent_audits_json,
                     dissent_notes = excluded.dissent_notes,
                     rationale_snapshot = excluded.rationale_snapshot,
-                    replay_triggered = excluded.replay_triggered
+                    replay_triggered = excluded.replay_triggered,
+                    day_outcome_status = excluded.day_outcome_status,
+                    backtest_run_id = excluded.backtest_run_id
                 """,
                 rows,
             )
@@ -939,7 +994,7 @@ class ScorecardStore:
         """
         sql = (
             "SELECT id, cohort, agent, ticker, date, action FROM recommendations "
-            "WHERE scored_at IS NULL"
+            "WHERE scored_at IS NULL AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = []
         if cohort:
@@ -1017,11 +1072,11 @@ class ScorecardStore:
                 INSERT INTO macro_signals (
                     cohort, agent, date, vote, confidence, raw_output_json,
                     consensus_stance, consensus_score, influence_weight_equal,
-                    prompt_repo_id, prompt_sha256
+                    prompt_repo_id, prompt_sha256, day_outcome_status, backtest_run_id
                 ) VALUES (
                     :cohort, :agent, :date, :vote, :confidence, :raw_output_json,
                     :consensus_stance, :consensus_score, :influence_weight_equal,
-                    :prompt_repo_id, :prompt_sha256
+                    :prompt_repo_id, :prompt_sha256, :day_outcome_status, :backtest_run_id
                 )
                 ON CONFLICT(cohort, agent, date) DO UPDATE SET
                     vote = excluded.vote,
@@ -1031,7 +1086,9 @@ class ScorecardStore:
                     consensus_score = excluded.consensus_score,
                     influence_weight_equal = excluded.influence_weight_equal,
                     prompt_repo_id = excluded.prompt_repo_id,
-                    prompt_sha256 = excluded.prompt_sha256
+                    prompt_sha256 = excluded.prompt_sha256,
+                    day_outcome_status = excluded.day_outcome_status,
+                    backtest_run_id = excluded.backtest_run_id
                 """,
                 rows,
             )
@@ -1044,7 +1101,7 @@ class ScorecardStore:
         sql = (
             "SELECT id, cohort, agent, date, vote, confidence, influence_weight_equal "
             "FROM macro_signals "
-            "WHERE scored_at IS NULL"
+            "WHERE scored_at IS NULL AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = []
         if cohort:
@@ -1078,7 +1135,7 @@ class ScorecardStore:
             "       terminal_return_5d, max_drawdown_5d, realized_volatility_5d, "
             "       path_metric_5d, source_series_id, realized_label, hit_5d, raw_macro_score_5d, "
             "       influence_weight_equal, effective_macro_score_5d, scored_at "
-            "FROM macro_signals WHERE cohort = ?"
+            "FROM macro_signals WHERE cohort = ? AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = [cohort]
         if since_date:
@@ -1115,7 +1172,8 @@ class ScorecardStore:
         sql = (
             "SELECT agent, vote, hit_5d, raw_macro_score_5d, effective_macro_score_5d, "
             "influence_weight_equal, label_type, label_source_status, date "
-            "FROM macro_signals WHERE cohort = ? AND scored_at IS NOT NULL"
+            "FROM macro_signals WHERE cohort = ? AND scored_at IS NOT NULL "
+            "AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = [cohort]
         if since:
@@ -1196,7 +1254,8 @@ class ScorecardStore:
             "       path_metric_5d, source_series_id, realized_label, hit_5d, raw_macro_score_5d, "
             "       influence_weight_equal, effective_macro_score_5d, scored_at "
             "FROM macro_signals "
-            "WHERE cohort = ? AND scored_at IS NOT NULL AND raw_macro_score_5d IS NOT NULL"
+            "WHERE cohort = ? AND scored_at IS NOT NULL AND raw_macro_score_5d IS NOT NULL "
+            "AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = [cohort]
         if agent:
@@ -1441,7 +1500,7 @@ class ScorecardStore:
             "       target_weight_pct, forward_return_5d, forward_return_21d, "
             "       alpha_5d, scored_at "
             "FROM recommendations "
-            "WHERE cohort = ? AND alpha_5d IS NOT NULL"
+            "WHERE cohort = ? AND alpha_5d IS NOT NULL AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = [cohort]
         if agent:
@@ -1467,7 +1526,7 @@ class ScorecardStore:
         sql = (
             "SELECT id, cohort, agent, ticker, date, action, conviction, "
             "       target_weight_pct, rationale_snapshot FROM recommendations "
-            "WHERE cohort = ?"
+            "WHERE cohort = ? AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = [cohort]
         if agent:
@@ -1486,7 +1545,8 @@ class ScorecardStore:
         date the CIO produced any. Read-only."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT MAX(date) AS d FROM recommendations WHERE cohort = ? AND agent = 'cio'",
+                "SELECT MAX(date) AS d FROM recommendations WHERE cohort = ? AND agent = 'cio' "
+                "AND day_outcome_status = 'accepted'",
                 (cohort,),
             ).fetchone()
             latest = row["d"] if row else None
@@ -1500,6 +1560,7 @@ class ScorecardStore:
                 "       declared_influence_rationale, verified_knob_audit_json, "
                 "       decision_agent_audits_json, dissent_notes "
                 "FROM recommendations WHERE cohort = ? AND agent = 'cio' AND date = ? "
+                "AND day_outcome_status = 'accepted' "
                 "ORDER BY target_weight_pct DESC, ticker",
                 (cohort, latest),
             )
@@ -1514,7 +1575,8 @@ class ScorecardStore:
         forward return so a high rate on n=1 is visible as low-confidence."""
         sql = (
             "SELECT ticker, action, forward_return_5d FROM recommendations "
-            "WHERE cohort = ? AND agent = ? AND forward_return_5d IS NOT NULL"
+            "WHERE cohort = ? AND agent = ? AND forward_return_5d IS NOT NULL "
+            "AND day_outcome_status = 'accepted'"
         )
         params: list[Any] = [cohort, agent]
         if since_date:
@@ -1729,6 +1791,9 @@ class ScorecardStore:
         run_id: int,
         trade_date: str,
         actions: list[dict[str, Any]],
+        *,
+        agent_run_audits: Optional[list[dict[str, Any]]] = None,
+        decision_disposition: Optional[str] = None,
     ) -> int:
         """Insert (or upsert) per-trade-day portfolio_actions for a run.
 
@@ -1742,11 +1807,13 @@ class ScorecardStore:
             action = a.get("action")
             target_weight = a.get("target_weight")
             if not isinstance(ticker, str) or not ticker:
-                continue
+                raise ValueError("backtest action requires a non-empty ticker")
             if action not in ("BUY", "SELL", "HOLD", "REDUCE"):
-                continue
+                raise ValueError(f"{ticker}: invalid backtest action {action!r}")
             if not isinstance(target_weight, (int, float)):
-                continue
+                raise ValueError(f"{ticker}: target_weight must be numeric")
+            if not 0 <= float(target_weight) <= 1:
+                raise ValueError(f"{ticker}: target_weight must be within [0, 1]")
             rows.append(
                 {
                     "run_id": run_id,
@@ -1758,11 +1825,37 @@ class ScorecardStore:
                     "dissent_notes": _truncate(a.get("dissent_notes"), 500),
                 }
             )
-        if not rows:
-            return 0
+        audits = agent_run_audits or []
+        audit_keys = {(audit.get("agent"), audit.get("stage")) for audit in audits}
+        accepted = len(audits) == 26 and all(
+            audit.get("status") in ("accepted", "accepted_empty") for audit in audits
+        ) and len(audit_keys) == 26
+        if agent_run_audits is not None and not accepted:
+            raise ValueError("backtest day requires 26 unique accepted agent-stage audits")
+        if decision_disposition not in (
+            None,
+            "TARGET_PORTFOLIO",
+            "HOLD_CURRENT",
+            "ALL_CASH",
+        ):
+            raise ValueError("invalid decision_disposition")
+        if accepted and decision_disposition is None:
+            raise ValueError("accepted backtest day requires decision_disposition")
+        if decision_disposition == "TARGET_PORTFOLIO" and not rows:
+            raise ValueError("TARGET_PORTFOLIO requires portfolio actions")
+        if decision_disposition == "ALL_CASH" and any(
+            row["action"] != "SELL" or row["target_weight"] > 1e-9 for row in rows
+        ):
+            raise ValueError("ALL_CASH actions must be zero-target SELL exits")
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as conn:
-            conn.executemany(
-                """
+            conn.execute(
+                "DELETE FROM backtest_actions WHERE run_id = ? AND trade_date = ?",
+                (run_id, trade_date),
+            )
+            if rows:
+                conn.executemany(
+                    """
                 INSERT INTO backtest_actions (
                     run_id, trade_date, ticker, action,
                     target_weight, holding_period, dissent_notes
@@ -1775,8 +1868,57 @@ class ScorecardStore:
                     target_weight = excluded.target_weight,
                     holding_period = excluded.holding_period,
                     dissent_notes = excluded.dissent_notes
+                    """,
+                    rows,
+                )
+            conn.execute(
+                "DELETE FROM agent_run_outcomes WHERE run_id = ? AND trade_date = ?",
+                (run_id, trade_date),
+            )
+            if audits:
+                conn.executemany(
+                    """
+                    INSERT INTO agent_run_outcomes (
+                        run_id, trade_date, agent, stage, status, output_source,
+                        attempt_count, repair_count, stop_reason, audit_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            run_id,
+                            trade_date,
+                            audit.get("agent"),
+                            audit.get("stage"),
+                            audit.get("status"),
+                            audit.get("output_source", "none"),
+                            int(audit.get("attempt_count", 0)),
+                            int(audit.get("repair_count", 0)),
+                            audit.get("stop_reason", "unknown"),
+                            json.dumps(audit, ensure_ascii=False, sort_keys=True),
+                        )
+                        for audit in audits
+                    ],
+                )
+            # Written last in the same transaction: consumers only see a complete accepted day.
+            conn.execute(
+                """
+                INSERT INTO backtest_day_outcomes (
+                    run_id, trade_date, status, decision_disposition, action_count, accepted_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, trade_date) DO UPDATE SET
+                    status = excluded.status,
+                    decision_disposition = excluded.decision_disposition,
+                    action_count = excluded.action_count,
+                    accepted_at = excluded.accepted_at
                 """,
-                rows,
+                (
+                    run_id,
+                    trade_date,
+                    "accepted" if accepted else "legacy_unverified",
+                    decision_disposition,
+                    len(rows),
+                    now if accepted else None,
+                ),
             )
         return len(rows)
 
@@ -1786,6 +1928,23 @@ class ScorecardStore:
 
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as conn:
+            invalid = conn.execute(
+                "SELECT trade_date, status FROM backtest_day_outcomes "
+                "WHERE run_id = ? AND status <> 'accepted' ORDER BY trade_date LIMIT 1",
+                (run_id,),
+            ).fetchone()
+            if invalid:
+                raise ValueError(
+                    f"backtest day {invalid['trade_date']} is {invalid['status']}; "
+                    "run cannot be completed"
+                )
+            accepted_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM backtest_day_outcomes "
+                "WHERE run_id = ? AND status = 'accepted'",
+                (run_id,),
+            ).fetchone()["n"]
+            if accepted_count == 0:
+                raise ValueError("backtest run has no accepted day outcomes")
             conn.execute(
                 "UPDATE backtest_runs SET completed_at = ? WHERE id = ?",
                 (now, run_id),
@@ -1802,6 +1961,28 @@ class ScorecardStore:
             )
             row = cur.fetchone()
             return dict(row) if row else None
+
+    def is_backtest_day_accepted(
+        self,
+        run_id: int,
+        trade_date: str,
+        decision_disposition: Optional[str] = None,
+    ) -> bool:
+        """Return whether the strict backtest gate accepted this exact day."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT status, decision_disposition FROM backtest_day_outcomes "
+                "WHERE run_id = ? AND trade_date = ?",
+                (run_id, trade_date),
+            ).fetchone()
+            return bool(
+                row
+                and row["status"] == "accepted"
+                and (
+                    decision_disposition is None
+                    or row["decision_disposition"] == decision_disposition
+                )
+            )
 
     def list_backtest_runs(
         self,
@@ -1831,14 +2012,17 @@ class ScorecardStore:
         trade_date: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         sql = (
-            "SELECT trade_date, ticker, action, target_weight, holding_period, "
-            "       dissent_notes FROM backtest_actions WHERE run_id = ?"
+            "SELECT a.trade_date, a.ticker, a.action, a.target_weight, a.holding_period, "
+            "       a.dissent_notes FROM backtest_actions AS a "
+            "JOIN backtest_day_outcomes AS o "
+            "  ON o.run_id = a.run_id AND o.trade_date = a.trade_date "
+            "WHERE a.run_id = ? AND o.status = 'accepted'"
         )
         params: list[Any] = [run_id]
         if trade_date:
-            sql += " AND trade_date = ?"
+            sql += " AND a.trade_date = ?"
             params.append(trade_date)
-        sql += " ORDER BY trade_date, ticker"
+        sql += " ORDER BY a.trade_date, a.ticker"
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
@@ -1901,7 +2085,11 @@ class ScorecardStore:
     # ── backtest_failed_days (R-A3) ──────────────────────────────────────
 
     def record_backtest_failed_days(
-        self, run_id: int, failures: list[tuple[str, str]]
+        self,
+        run_id: int,
+        failures: list[tuple[str, str]],
+        *,
+        agent_run_audits_by_date: Optional[dict[str, dict[str, Any]]] = None,
     ) -> int:
         """Upsert ``(date, error)`` failures for ``run_id``. Idempotent on
         (run_id, date). Returns the number of rows written."""
@@ -1912,6 +2100,55 @@ class ScorecardStore:
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         rows = [(run_id, date, _truncate(error, 500) or "", now) for date, error in failures]
         with self._connect() as conn:
+            conn.executemany(
+                "DELETE FROM backtest_actions WHERE run_id = ? AND trade_date = ?",
+                [(run_id, date) for _, date, _, _ in rows],
+            )
+            conn.executemany(
+                "DELETE FROM agent_run_outcomes WHERE run_id = ? AND trade_date = ?",
+                [(run_id, date) for _, date, _, _ in rows],
+            )
+            audits_by_date = agent_run_audits_by_date or {}
+            for _, date, _, _ in rows:
+                audit = audits_by_date.get(date)
+                if not audit:
+                    continue
+                status = audit.get("status")
+                if status not in ("rejected", "timeout", "error"):
+                    raise ValueError("failed-day audit must have a terminal failure status")
+                conn.execute(
+                    """
+                    INSERT INTO agent_run_outcomes (
+                        run_id, trade_date, agent, stage, status, output_source,
+                        attempt_count, repair_count, stop_reason, audit_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        date,
+                        audit.get("agent"),
+                        audit.get("stage"),
+                        status,
+                        audit.get("output_source", "none"),
+                        int(audit.get("attempt_count", 0)),
+                        int(audit.get("repair_count", 0)),
+                        audit.get("stop_reason", "unknown"),
+                        json.dumps(audit, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+            conn.executemany(
+                """
+                INSERT INTO backtest_day_outcomes (
+                    run_id, trade_date, status, decision_disposition, action_count, accepted_at
+                ) VALUES (?, ?, 'failed_no_decision', NULL, 0, NULL)
+                ON CONFLICT(run_id, trade_date) DO UPDATE SET
+                    status = excluded.status,
+                    decision_disposition = NULL,
+                    action_count = 0,
+                    accepted_at = NULL
+                """,
+                [(run_id, date) for _, date, _, _ in rows],
+            )
             conn.executemany(
                 """
                 INSERT INTO backtest_failed_days (run_id, date, error, recorded_at)

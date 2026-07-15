@@ -113,7 +113,7 @@ research-knobs:
         - positive
       horizon: 20d
       id: decision.autonomous_execution.policy.001
-      target_variable: trades
+      target_variable: execution_disposition
     - allowed_outputs:
         - better
         - neutral
@@ -547,8 +547,10 @@ research-knobs:
     source: runtime_agent_spec_projection
   research_scope:
     must_cover:
+      - claim_refs
       - claims
       - execution_checks
+      - execution_disposition
       - trades
     must_not_cover:
       - report_outcome_labeling
@@ -632,7 +634,7 @@ size_pct + conviction).
 
 Runtime supplies the only valid evidence catalog and research rule ids for this invocation.
 
-Output fields include: `trades`, `execution_checks`, `confidence`, `claims`.
+Output fields include: `execution_disposition`, `trades`, `execution_checks`, `confidence`, `claims`, `claim_refs`.
 
 Required runtime tools: `get_rke_research_context`.
 
@@ -640,6 +642,6 @@ Domain knob card ids for this agent: `min_delta_trade_weight`, `slippage_cap`, `
 
 Knob influence audit fields: (none).
 
-Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit the conservative fallback and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
+Emit `claims` and `claim_refs`. Every non-uncertainty claim must cite catalog `evidence_id` values through `evidence_refs`; every inference claim must also cite an allowed rule through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit an evidence-backed explicit empty disposition and an uncertainty claim; never invent evidence ids, fingerprints, rule ids, or cross-run references.
 
 <!-- runtime-evidence-contract:end -->

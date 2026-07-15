@@ -30,7 +30,6 @@ export const volatilitySpec: LayerOneAgentSpec<VolatilityOutput> = {
   fieldNames: VOLATILITY_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderVolatility,
-  fallback: fallbackVolatility,
 };
 
 export function buildVolatilityNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

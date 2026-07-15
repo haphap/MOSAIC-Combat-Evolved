@@ -5,10 +5,18 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
 import { AGENTS_BY_LAYER, type Layer } from "../../agents/prompts/cohorts.js";
+import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
 import type { PreviousTargetState } from "../../agents/types.js";
 import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
+import {
+  assertAcceptedDailyCycle,
+  evaluateHistoricalDecisionHealth,
+  type HistoricalDecisionHealth,
+  requireDecisionDisposition,
+} from "../../backtest/decision_health.js";
 import {
   type ArmCheckpoint,
   type ArmEvaluation,
@@ -129,6 +137,9 @@ interface DailyOutput {
   actions: BacktestActionInput[];
   usage: LlmUsage;
   scorecardState: Record<string, unknown>;
+  decisionHealth: HistoricalDecisionHealth;
+  agentRunAudits: NonNullable<DailyCycleStateType["llm_calls"][number]["agent_run_audit"]>[];
+  decisionDisposition: "TARGET_PORTFOLIO" | "HOLD_CURRENT" | "ALL_CASH";
 }
 
 export function registerBacktestEvolve(program: Command): void {
@@ -223,6 +234,7 @@ async function runBacktestEvolution(opts: BacktestEvolveOptions): Promise<void> 
           baseUrl: `http://127.0.0.1:${resolution?.port ?? 8000}/v1`,
           useProviderSamplingDefaults: true,
         });
+    await assertStructuredOutputCapability(rawLlmHandle.llm);
     const llmHandle = opts.fakeLlm ? rawLlmHandle : serializeLlmHandle(rawLlmHandle);
     const baselineWorktree = await prepareGraph(api, llmHandle, config, baselineCommit, cohort);
     worktrees.set(baselineCommit, baselineWorktree);
@@ -314,9 +326,26 @@ async function runBacktestEvolution(opts: BacktestEvolveOptions): Promise<void> 
 
       const checkpointHash = sha256Json(checkpoint);
       const mainGraph = await getGraph(checkpoint.activePromptCommit);
-      const mainOutput = await invokeArm(mainGraph.graph, checkpoint.mainArm, cohort, tradeDate);
+      const mainOutput = await invokeArm(
+        mainGraph.graph,
+        checkpoint.mainArm,
+        cohort,
+        tradeDate,
+        checkpoint.decisionHealth?.consecutiveEmptyDecisionDays ?? 0,
+      );
+      failOnUnhealthyHistoricalDecision({
+        health: mainOutput.decisionHealth,
+        runDir,
+        tradingDayIndex: index,
+        checkpoint,
+      });
       const writes: DailyJournal["writes"] = [
-        { runId: checkpoint.mainBacktestRunId, actions: mainOutput.actions },
+        {
+          runId: checkpoint.mainBacktestRunId,
+          actions: mainOutput.actions,
+          agentRunAudits: mainOutput.agentRunAudits,
+          decisionDisposition: mainOutput.decisionDisposition,
+        },
       ];
       const candidateArms: DailyJournal["candidateArms"] = {};
       const usage: DailyJournal["usage"] = { main: mainOutput.usage };
@@ -342,8 +371,18 @@ async function runBacktestEvolution(opts: BacktestEvolveOptions): Promise<void> 
             ? candidate.runs.validationCandidate
             : candidate.runs.holdoutCandidate;
         writes.push(
-          { runId: baseRunId, actions: baseOutput.actions },
-          { runId: candidateRunId, actions: candidateOutput.actions },
+          {
+            runId: baseRunId,
+            actions: baseOutput.actions,
+            agentRunAudits: baseOutput.agentRunAudits,
+            decisionDisposition: baseOutput.decisionDisposition,
+          },
+          {
+            runId: candidateRunId,
+            actions: candidateOutput.actions,
+            agentRunAudits: candidateOutput.agentRunAudits,
+            decisionDisposition: candidateOutput.decisionDisposition,
+          },
         );
         candidateArms[candidate.id] = {
           baseArm: baseOutput.arm,
@@ -363,6 +402,7 @@ async function runBacktestEvolution(opts: BacktestEvolveOptions): Promise<void> 
         candidateArms,
         usage,
         scorecardState: mainOutput.scorecardState,
+        mainDecisionHealth: mainOutput.decisionHealth,
       };
       writeJsonAtomic(journalPath, journal);
       checkpoint = await applyDailyJournal(api, checkpoint, journal);
@@ -517,6 +557,7 @@ async function prepareGraph(
     ref: commit,
   });
   if (!worktree.prompts_root) throw new Error("private prompt worktree has no prompts_root");
+  await assertRuntimePromptPreflight({ cohort, promptsRoot: worktree.prompts_root });
   return {
     path: worktree.path,
     promptsRoot: worktree.prompts_root,
@@ -535,12 +576,14 @@ async function invokeArm(
   arm: ArmCheckpoint,
   cohort: string,
   tradeDate: string,
+  previousConsecutiveEmptyDays = 0,
 ): Promise<DailyOutput> {
   const initial = makeInitialState(cohort, tradeDate);
   initial.current_positions = arm.positions;
   initial.layer4_outputs.previous_target_state = arm.previousTarget;
   const started = Date.now();
   const final = (await graph.invoke(initial)) as DailyCycleStateType;
+  assertAcceptedDailyCycle(final);
   const actions = (final.portfolio_actions ?? []).map((action) => ({
     ticker: action.ticker,
     action: action.action,
@@ -565,6 +608,11 @@ async function invokeArm(
       costUsd: final.llm_calls.reduce((sum, call) => sum + call.cost_usd, 0),
       elapsedMs: Date.now() - started,
     },
+    decisionHealth: evaluateHistoricalDecisionHealth(final, previousConsecutiveEmptyDays),
+    agentRunAudits: final.llm_calls.flatMap((call) =>
+      call.agent_run_audit ? [call.agent_run_audit] : [],
+    ),
+    decisionDisposition: requireDecisionDisposition(final),
     scorecardState: {
       active_cohort: final.active_cohort,
       as_of_date: final.as_of_date,
@@ -588,12 +636,28 @@ async function applyDailyJournal(
     throw new Error("daily journal does not match checkpoint; refusing ambiguous recovery");
   }
   for (const write of journal.writes) {
-    await api.backtestAppendActions(write.runId, journal.tradeDate, write.actions);
+    await api.backtestAppendActions(
+      write.runId,
+      journal.tradeDate,
+      write.actions,
+      write.agentRunAudits,
+      write.decisionDisposition,
+    );
   }
-  await api.scorecardAppend(journal.scorecardState);
+  const mainWrite = journal.writes[0];
+  if (!mainWrite) throw new Error("daily journal is missing the main backtest write");
+  await api.scorecardAppend({
+    ...journal.scorecardState,
+    mode: "backtest",
+    backtest_run_id: mainWrite.runId,
+    agent_run_audits: mainWrite.agentRunAudits,
+    decision_disposition: mainWrite.decisionDisposition,
+    day_outcome_status: "accepted",
+  });
   await api.scorecardScorePending(checkpoint.cohort, journal.tradeDate);
   await api.darwinianCompute(checkpoint.cohort, journal.tradeDate);
   checkpoint.mainArm = journal.mainArm;
+  if (journal.mainDecisionHealth) checkpoint.decisionHealth = journal.mainDecisionHealth;
   checkpoint.mainUsage = addLlmUsage(checkpoint.mainUsage, journal.usage.main ?? EMPTY_LLM_USAGE);
   for (const [candidateId, arms] of Object.entries(journal.candidateArms)) {
     const candidate = checkpoint.candidates.find((item) => item.id === candidateId);
@@ -613,6 +677,29 @@ async function applyDailyJournal(
   }
   checkpoint.nextTradingDayIndex = journal.tradingDayIndex + 1;
   return checkpoint;
+}
+
+function failOnUnhealthyHistoricalDecision(opts: {
+  health: HistoricalDecisionHealth;
+  runDir: string;
+  tradingDayIndex: number;
+  checkpoint: EvolutionCheckpoint;
+}): void {
+  if (!opts.health.failureCode) return;
+  const diagnostic = {
+    schema_version: "mosaic.backtest_decision_failure.v1",
+    run_id: opts.checkpoint.runId,
+    trading_day_index: opts.tradingDayIndex,
+    active_prompt_commit: opts.checkpoint.activePromptCommit,
+    health: opts.health,
+  };
+  writeJsonAtomic(join(opts.runDir, "decision-failure.json"), diagnostic);
+  throw new Error(
+    `historical decision health failed on ${opts.health.tradeDate}: ` +
+      `${opts.health.failureCode}; upstream_candidates=${opts.health.upstreamCandidateCount} ` +
+      `positions=${opts.health.currentPositionCount} actions=${opts.health.actionCount} ` +
+      `fallback_reasons=${opts.health.fallbackReasonCodes.join(",") || "none"}`,
+  );
 }
 
 async function recoverDailyJournal(

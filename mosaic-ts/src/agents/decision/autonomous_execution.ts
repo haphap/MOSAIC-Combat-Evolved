@@ -95,7 +95,6 @@ export const autonomousExecutionSpec: LayerFourAgentSpec<AutoExecOutput> = {
   // get a working buildUserContext without bridge mocks.
   buildUserContext: buildUserContextSync,
   render: renderAutonomousExecution,
-  fallback: fallbackAutonomousExecution,
 };
 
 export function buildAutonomousExecutionNode(deps: LayerFourAgentDeps): LayerFourAgentNode {

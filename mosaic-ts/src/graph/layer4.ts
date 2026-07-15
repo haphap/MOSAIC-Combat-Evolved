@@ -40,11 +40,7 @@ import {
   updateLayer4Runtime,
   validateFinalTargetEnvelope,
 } from "../agents/decision/layer4_runtime.js";
-import {
-  buildConservativeCioFinalFallback,
-  PositionActionValidationError,
-  validateCioPositionActions,
-} from "../agents/decision/position_validator.js";
+import { validateCioPositionActions } from "../agents/decision/position_validator.js";
 import {
   type Layer4SourceResolutionStage,
   mergeRuntimeSourceStatuses,
@@ -292,66 +288,28 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
     knob_snapshot_hash: runtime.cio_final_knob_snapshot?.hash ?? null,
     shared_policy_values: sharedPolicyValues,
   });
-  let selectedOutput = output;
-  let fallbackRejectionReasons: string[] = [];
-  let validated: ReturnType<typeof validateCioPositionActions>;
-  try {
-    validated = validateCioPositionActions({
-      output: selectedOutput,
-      currentPositions: state.current_positions,
-      knobSnapshot: runtime.cio_final_knob_snapshot,
-      sharedPolicyValues,
-    });
-    const stateWithValidatedOutput: DailyCycleStateType = {
-      ...state,
-      layer4_outputs: { ...state.layer4_outputs, cio: validated.output },
-    };
-    validateFinalTargetEnvelope(stateWithValidatedOutput, validated.output);
-  } catch (error) {
-    if (
-      !(error instanceof PositionActionValidationError) &&
-      !(error instanceof Layer4RuntimeContractError)
-    ) {
-      throw error;
-    }
-    const candidate = runtime.candidate_target_state;
-    const croReview = runtime.cro_review_state;
-    if (!candidate || !croReview) throw error;
-    fallbackRejectionReasons = [error.message];
-    selectedOutput = buildConservativeCioFinalFallback({
-      sourceOutput: output,
-      currentPositions: state.current_positions,
-      candidate,
-      croReview,
-      knobSnapshot: runtime.cio_final_knob_snapshot,
-      sharedPolicyValues,
-      rejectionReasons: fallbackRejectionReasons,
-    });
-    validated = validateCioPositionActions({
-      output: selectedOutput,
-      currentPositions: state.current_positions,
-      knobSnapshot: runtime.cio_final_knob_snapshot,
-      sharedPolicyValues,
-    });
-  }
-  const finalValidationReasonCodes = classifyFinalValidationRejections(fallbackRejectionReasons);
+  const validated = validateCioPositionActions({
+    output,
+    currentPositions: state.current_positions,
+    knobSnapshot: runtime.cio_final_knob_snapshot,
+    sharedPolicyValues,
+  });
+  const preflightState: DailyCycleStateType = {
+    ...state,
+    layer4_outputs: { ...state.layer4_outputs, cio: validated.output },
+  };
+  validateFinalTargetEnvelope(preflightState, validated.output);
   const stateWithValidatedOutput: DailyCycleStateType = {
     ...state,
     layer4_outputs: { ...state.layer4_outputs, cio: validated.output },
   };
-  const finalTarget = freezeFinalTarget(
-    stateWithValidatedOutput,
-    validated.output,
-    [validatorHash],
-    { allowRuntimeSafetyFallback: fallbackRejectionReasons.length > 0 },
-  );
+  const finalTarget = freezeFinalTarget(stateWithValidatedOutput, validated.output, [
+    validatorHash,
+  ]);
   const portfolioSummary = buildPortfolioSummary({
     state,
     finalTarget,
-    validationStatus: fallbackRejectionReasons.length > 0 ? "fallback" : "accepted",
-    ...(fallbackRejectionReasons.length > 0
-      ? { reasonCodes: ["FINAL_TARGET_VALIDATION_REJECTED"] }
-      : {}),
+    validationStatus: "accepted",
   });
   const updatedRuntime = updateLayer4Runtime(
     runtime,
@@ -359,14 +317,7 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
     {
       stage: "shared_validation",
       operation: "validation",
-      status: fallbackRejectionReasons.length > 0 ? "fallback" : "completed",
-      ...(fallbackRejectionReasons.length > 0
-        ? {
-            reason_codes: ["FINAL_TARGET_VALIDATION_REJECTED", ...finalValidationReasonCodes],
-            fallback_factory_id: "portfolio.shared_validation.no_new_risk.v1",
-            fallback_factory_version: "1",
-          }
-        : {}),
+      status: "completed",
       input_hashes: {
         candidate_target_state: finalTarget.candidate_target_hash,
         cro_review_state: finalTarget.cro_review_hash,
@@ -385,26 +336,4 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
     position_audit: validated.position_audit,
     portfolio_actions: validated.output.portfolio_actions,
   };
-}
-
-function classifyFinalValidationRejections(messages: ReadonlyArray<string>): string[] {
-  const reasons = new Set<string>();
-  for (const message of messages) {
-    const lower = message.toLowerCase();
-    let classified = false;
-    if (lower.includes("duplicate")) {
-      reasons.add("DUPLICATE_ORDER_INTENT");
-      classified = true;
-    }
-    if (
-      ["exposure", "gross", "net", "cash", "weight", "long-only", "negative target"].some((token) =>
-        lower.includes(token),
-      )
-    ) {
-      reasons.add("EXPOSURE_BREACH");
-      classified = true;
-    }
-    if (!classified) reasons.add("ACTION_VALIDATOR_REJECTION");
-  }
-  return [...reasons].sort();
 }

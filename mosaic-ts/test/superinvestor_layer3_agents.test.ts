@@ -7,10 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
-
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
@@ -50,6 +46,7 @@ import type {
 } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ AGENTS_BY_LAYER
@@ -81,6 +78,7 @@ describe("each superinvestor spec wires the right factory inputs", () => {
       expect(spec.requiredTools.length).toBeGreaterThanOrEqual(1);
       expect(spec.fieldNames).toEqual([
         "picks",
+        "selection_disposition",
         "philosophy_note",
         "key_drivers",
         "confidence",
@@ -594,9 +592,13 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     }
     withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
       return {
-        invoke: async () => {
+        invoke: async (input) => {
           this.structuredCalls++;
-          return this.structuredResponse;
+          return fakeContractOutput(
+            this.structuredResponse as unknown as Record<string, unknown>,
+            "druckenmiller",
+            input,
+          );
         },
       };
     }
@@ -641,23 +643,10 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
 
     const canned: DruckenmillerOutput = {
       agent: "druckenmiller",
-      picks: [
-        {
-          ticker: "688981.SH",
-          thesis: "BULLISH + 半导体 sector_score 0.6 + 6/24 政策催化",
-          conviction: 0.7,
-          holding_period: "6M",
-        },
-        {
-          ticker: "600519.SH",
-          thesis: "consumer 配置防御",
-          conviction: 0.5,
-          holding_period: "1Y",
-        },
-      ],
+      picks: [],
       philosophy_note: "regime BULLISH 下 sector rotation 到半导体 + 防御性 quality 持仓",
       key_drivers: ["regime BULLISH", "半导体 catalyst", "consumer 防御"],
-      confidence: 0.6,
+      confidence: 0,
     };
 
     const llm = new ScriptedLlm("analysis text", canned);
@@ -761,12 +750,12 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
       llm_calls: [],
     };
 
-    const node = buildDruckenmillerNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
+    const node = buildDruckenmillerNode({ llmHandle: handle, api, config });
     const update = await node(sample);
     const unwrapped = update as DailyCycleStateUpdate as unknown as {
       layer3_outputs?: Record<string, SuperinvestorOutput>;
     };
-    expect(unwrapped.layer3_outputs?.druckenmiller).toEqual(canned);
+    expect(unwrapped.layer3_outputs?.druckenmiller).toMatchObject(canned);
     expect(llm.bindToolsCalled).toBe(1);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.structuredCalls).toBe(1);

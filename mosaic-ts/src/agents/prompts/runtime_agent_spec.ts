@@ -31,7 +31,7 @@ import {
   runtimeResearchKnobsStageEnablement,
 } from "./runtime_stage_enablement.js";
 
-export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v1";
+export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v2";
 
 export const RUNTIME_AGENT_STAGE_IDS = [
   "agent_run",
@@ -77,8 +77,7 @@ export interface RuntimeAgentStageSpec {
   stage: RuntimeAgentStageId;
   enablement: RuntimeStageEnablement;
   outputSchemaRef: string;
-  fallbackFactoryId: string;
-  fallbackFactoryVersion: string;
+  maxRepairAttempts: 3;
   requiredSourceIds: ReadonlyArray<string>;
   producedSourceIds: ReadonlyArray<string>;
 }
@@ -113,8 +112,7 @@ export interface RuntimeAgentManifestArtifact {
       stage: RuntimeAgentStageId;
       enablement: RuntimeStageEnablement;
       output_schema_ref: string;
-      fallback_factory_id: string;
-      fallback_factory_version: string;
+      max_repair_attempts: 3;
       required_source_ids: ReadonlyArray<string>;
       produced_source_ids: ReadonlyArray<string>;
     }>;
@@ -135,14 +133,13 @@ function stageSpec(
   requiredSourceIds: ReadonlyArray<string>,
   producedSourceIds: ReadonlyArray<string>,
   enablement: RuntimeStageEnablement,
-  promptIrAgentId: string,
+  _promptIrAgentId: string,
 ): RuntimeAgentStageSpec {
   return {
     stage,
     enablement,
     outputSchemaRef,
-    fallbackFactoryId: `${promptIrAgentId}.${stage}.fallback`,
-    fallbackFactoryVersion: "1",
+    maxRepairAttempts: 3,
     requiredSourceIds,
     producedSourceIds,
   };
@@ -373,8 +370,7 @@ export function buildRuntimeAgentManifestArtifact(
         stage: stage.stage,
         enablement: stage.enablement,
         output_schema_ref: stage.outputSchemaRef,
-        fallback_factory_id: stage.fallbackFactoryId,
-        fallback_factory_version: stage.fallbackFactoryVersion,
+        max_repair_attempts: stage.maxRepairAttempts,
         required_source_ids: [...stage.requiredSourceIds],
         produced_source_ids: [...stage.producedSourceIds],
       })),
@@ -421,9 +417,8 @@ export function validateRuntimeAgentManifestArtifact(
       if (seenStages.has(key)) reasons.push(`runtime_manifest_duplicate_stage:${key}`);
       seenStages.add(key);
       if (!stage.output_schema_ref) reasons.push(`runtime_manifest_output_schema_missing:${key}`);
-      if (!stage.fallback_factory_id || !stage.fallback_factory_version) {
-        reasons.push(`runtime_manifest_fallback_factory_missing:${key}`);
-      }
+      if (stage.max_repair_attempts !== 3)
+        reasons.push(`runtime_manifest_repair_budget_invalid:${key}`);
     }
   }
   const seenCohorts = new Set<string>();

@@ -26,7 +26,6 @@ export const commoditiesSpec: LayerOneAgentSpec<CommoditiesOutput> = {
   fieldNames: COMMODITIES_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderCommodities,
-  fallback: fallbackCommodities,
 };
 
 export function buildCommoditiesNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

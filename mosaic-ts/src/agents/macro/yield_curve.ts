@@ -27,7 +27,6 @@ export const yieldCurveSpec: LayerOneAgentSpec<YieldCurveOutput> = {
   fieldNames: YIELD_CURVE_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderYieldCurve,
-  fallback: fallbackYieldCurve,
 };
 
 export function buildYieldCurveNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

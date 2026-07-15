@@ -18,6 +18,7 @@ import {
   emptyLayer4RuntimeState,
   freezeCioProposal,
 } from "../src/agents/decision/layer4_runtime.js";
+import { AgentRunContractError } from "../src/agents/helpers/agent_run_contract.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type { AutoExecOutput, CioOutput, CroOutput } from "../src/agents/types.js";
@@ -210,7 +211,7 @@ describe("CIO MiroFish context injection", () => {
       config: baseConfig(),
       promptsRoot: promptDir,
     });
-    await node(state());
+    await expect(node(state())).rejects.toBeInstanceOf(AgentRunContractError);
     expect(api.mirofishGetContext).not.toHaveBeenCalled();
     expect(humanText(llm)).not.toContain("前瞻情景参考");
   });
@@ -225,7 +226,7 @@ describe("CIO MiroFish context injection", () => {
     const api = fakeApi(FULL);
     const config = { ...baseConfig(), mirofish: { inject_context: true } } as MosaicConfig;
     const node = buildCioNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
-    await node(state());
+    await expect(node(state())).rejects.toBeInstanceOf(AgentRunContractError);
     expect(api.mirofishGetContext).toHaveBeenCalledOnce();
     expect(api.mirofishGetContext).toHaveBeenCalledWith({ as_of_date: "2024-06-30" });
     expect(humanText(llm)).toContain("前瞻情景参考");
@@ -242,7 +243,7 @@ describe("CIO MiroFish context injection", () => {
     const api = fakeApi(null);
     const config = { ...baseConfig(), mirofish: { inject_context: true } } as MosaicConfig;
     const node = buildCioNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
-    await node(state());
+    await expect(node(state())).rejects.toBeInstanceOf(AgentRunContractError);
     expect(humanText(llm)).not.toContain("前瞻情景参考");
   });
 
@@ -264,7 +265,7 @@ describe("CIO MiroFish context injection", () => {
       promptsRoot: promptDir,
       onLog: (msg) => logs.push(msg),
     });
-    await node(state());
+    await expect(node(state())).rejects.toBeInstanceOf(AgentRunContractError);
     expect(humanText(llm)).not.toContain("前瞻情景参考");
     expect(logs.join("\n")).toContain("mirofish context disabled: missing as_of_date");
   });
@@ -286,7 +287,7 @@ describe("CIO MiroFish context injection", () => {
       promptsRoot: promptDir,
       onLog: (msg) => logs.push(msg),
     });
-    await node(state());
+    await expect(node(state())).rejects.toBeInstanceOf(AgentRunContractError);
     expect(humanText(llm)).not.toContain("前瞻情景参考");
     expect(logs.join("\n")).toContain("mirofish context disabled: as_of_date 2024-07-01");
   });
@@ -315,7 +316,7 @@ describe("CIO MiroFish context injection", () => {
       promptsRoot: promptDir,
       onLog: (msg) => logs.push(msg),
     });
-    await node(state());
+    await expect(node(state())).rejects.toBeInstanceOf(AgentRunContractError);
     expect(humanText(llm)).not.toContain("前瞻情景参考");
     expect(logs.join("\n")).toContain(
       "mirofish context disabled: missing required metadata scenario_count,horizon_days,context_hash,generator_version",
@@ -363,11 +364,11 @@ describe("CIO MiroFish context injection", () => {
       position_review_state: proposal.reviews,
       portfolio_exposure_state: proposal.exposure,
     };
-    const croUpdate = await buildCroNode(deps)(staged);
-    staged.layer4_outputs = { ...staged.layer4_outputs, ...croUpdate.layer4_outputs };
-    const executionUpdate = await buildAutonomousExecutionNode(deps)(staged);
-    staged.layer4_outputs = { ...staged.layer4_outputs, ...executionUpdate.layer4_outputs };
-    await buildCioNode(deps)(staged);
+    await expect(buildCroNode(deps)(staged)).rejects.toBeInstanceOf(AgentRunContractError);
+    await expect(buildAutonomousExecutionNode(deps)(staged)).rejects.toBeInstanceOf(
+      AgentRunContractError,
+    );
+    await expect(buildCioNode(deps)(staged)).rejects.toBeInstanceOf(AgentRunContractError);
 
     expect(api.mirofishGetContext).toHaveBeenCalledOnce();
     const renderedContexts = allHumanText(llm);

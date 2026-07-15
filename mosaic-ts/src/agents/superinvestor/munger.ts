@@ -25,7 +25,6 @@ export const mungerSpec: LayerThreeAgentSpec<MungerOutput> = {
   fieldNames: SUPERINVESTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderMunger,
-  fallback: fallbackMunger,
 };
 
 export function buildMungerNode(deps: LayerThreeAgentDeps): LayerThreeAgentNode {

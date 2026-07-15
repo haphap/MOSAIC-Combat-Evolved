@@ -63,6 +63,7 @@ def _add_macro_score(store: ScorecardStore, agent: str, raw: float, date: str = 
         {
             "active_cohort": COHORT,
             "as_of_date": date,
+            "day_outcome_status": "accepted",
             "layer1_outputs": {agent: {"agent": agent, "confidence": 0.5}},
             "layer1_consensus": {},
         }
@@ -92,8 +93,8 @@ def _add_recommendation_score(
     with store._connect() as conn:
         conn.execute(
             "INSERT INTO recommendations("
-            "cohort, agent, ticker, date, action, alpha_5d, scored_at"
-            ") VALUES (?, ?, ?, ?, 'BUY', ?, '2024-02-10')",
+            "cohort, agent, ticker, date, action, alpha_5d, scored_at, day_outcome_status"
+            ") VALUES (?, ?, ?, ?, 'BUY', ?, '2024-02-10', 'accepted')",
             (COHORT, agent, f"{agent[:4].upper()}.SH", date, alpha),
         )
 

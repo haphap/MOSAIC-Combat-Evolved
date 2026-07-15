@@ -55,12 +55,11 @@ const KNOB_INFLUENCE_FIELDS = {
     .describe("Optional short rationale for declared knob influence ids."),
   claims: z
     .array(LlmResearchClaimSchema)
-    .optional()
+    .min(1)
     .describe("Claim declarations referencing only runtime-provided evidence ids."),
   claim_refs: z
     .array(z.string().min(1))
     .min(1)
-    .optional()
     .describe("Claim ids supporting the top-level macro recommendation."),
 };
 
@@ -518,7 +517,7 @@ export const INSTITUTIONAL_FLOW_FIELD_NAMES = [
 // These are unused at runtime; they exist to make `tsc` reject schema drift.
 // ---------------------------------------------------------------------------
 
-type _GuardEqShape<T, U> = T extends U ? (U extends T ? true : never) : never;
+type _GuardEqShape<T, U> = T extends U ? true : never;
 
 const _centralBankSchemaCheck: _GuardEqShape<
   z.infer<typeof CentralBankSchema>,

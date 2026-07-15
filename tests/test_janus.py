@@ -23,7 +23,8 @@ def _add_cio(store: ScorecardStore, cohort, ticker, date, action, twp, ret5d=Non
     with store._connect() as conn:
         cur = conn.execute(
             "INSERT INTO recommendations (cohort, agent, ticker, date, action, "
-            "conviction, target_weight_pct) VALUES (?,?,?,?,?,?,?)",
+            "conviction, target_weight_pct, day_outcome_status) "
+            "VALUES (?,?,?,?,?,?,?, 'accepted')",
             (cohort, "cio", ticker, date, action, None, twp),
         )
         rid = cur.lastrowid

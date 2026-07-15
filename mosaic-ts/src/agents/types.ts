@@ -22,6 +22,7 @@
 
 import type { PromptReleaseCanaryEvent } from "../autoresearch/prompt_release_canary_slo.js";
 import type { ClaimEvidenceGraph, LlmResearchClaim } from "./evidence_contract.js";
+import type { AgentRunAudit } from "./helpers/agent_run_contract.js";
 import type {
   ResearchKnobsSnapshot,
   RuntimeSourceEvidenceObservation,
@@ -192,6 +193,7 @@ export interface SectorPick {
 
 export interface SectorAgentOutputBase extends KnobInfluenceDeclaration {
   agent: string;
+  selection_disposition?: "CANDIDATES" | "NO_QUALIFIED_CANDIDATES" | undefined;
   longs: SectorPick[];
   shorts: SectorPick[];
   /** [-1, 1], where +1 = max bullish on the sector. */
@@ -268,6 +270,7 @@ export interface SuperinvestorPick {
 
 export interface SuperinvestorOutput extends KnobInfluenceDeclaration {
   agent: "druckenmiller" | "munger" | "burry" | "ackman";
+  selection_disposition?: "CANDIDATES" | "NO_QUALIFIED_CANDIDATES" | undefined;
   picks: SuperinvestorPick[];
   /** Why these 3-5 names + macro/sector regime fit. */
   philosophy_note: string;
@@ -295,6 +298,7 @@ export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
 
 export interface CroOutput extends KnobInfluenceDeclaration {
   agent: "cro";
+  review_disposition?: "REVIEW_ACTIONS" | "NO_OBJECTION" | "BLOCK_ALL" | undefined;
   rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
   required_adjustments?:
     | Array<{
@@ -313,6 +317,7 @@ export interface CroOutput extends KnobInfluenceDeclaration {
 
 export interface AlphaDiscoveryOutput extends KnobInfluenceDeclaration {
   agent: "alpha_discovery";
+  discovery_disposition?: "CANDIDATES" | "NONE_FOUND" | undefined;
   novel_picks: Array<{
     ticker: string;
     why_missed_by_others: string;
@@ -324,6 +329,7 @@ export interface AlphaDiscoveryOutput extends KnobInfluenceDeclaration {
 
 export interface AutoExecOutput extends KnobInfluenceDeclaration {
   agent: "autonomous_execution";
+  execution_disposition?: "TRADES" | "NO_DELTA" | "BLOCKED" | undefined;
   trades: Array<{
     ticker: string;
     action: "BUY" | "SELL" | "HOLD" | "REDUCE";
@@ -381,6 +387,9 @@ export interface PortfolioAction {
 
 export interface CioOutput extends KnobInfluenceDeclaration {
   agent: "cio";
+  decision_disposition?: "TARGET_PORTFOLIO" | "HOLD_CURRENT" | "ALL_CASH" | undefined;
+  decision_reason?: string | undefined;
+  decision_claim_refs?: string[] | undefined;
   portfolio_actions: PortfolioAction[];
   position_reviews?: PositionReview[] | undefined;
   dissent_refs?: CioDissentReference[] | undefined;
@@ -680,6 +689,7 @@ export interface LlmCallRecord {
   /** Estimated USD cost; computed at the call site, may be 0 for local providers. */
   cost_usd: number;
   prompt_canary_event?: PromptReleaseCanaryEvent;
+  agent_run_audit?: AgentRunAudit;
 }
 
 // ============================================================ Convenience

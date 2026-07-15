@@ -72,7 +72,6 @@ export const cioProposalSpec: LayerFourAgentSpec<CioProposalOutput> = {
   requiredTools: REQUIRED_TOOLS,
   buildUserContext: buildProposalUserContext,
   render: renderCio,
-  fallback: fallbackCioProposal,
 };
 
 export const cioSpec: LayerFourAgentSpec<CioFinalOutput> = {
@@ -85,7 +84,6 @@ export const cioSpec: LayerFourAgentSpec<CioFinalOutput> = {
   requiredTools: REQUIRED_TOOLS,
   buildUserContext: buildFinalUserContext,
   render: renderCio,
-  fallback: fallbackCioFinal,
 };
 
 export function buildCioProposalNode(deps: LayerFourAgentDeps): LayerFourAgentNode {

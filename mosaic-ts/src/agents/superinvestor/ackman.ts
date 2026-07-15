@@ -25,7 +25,6 @@ export const ackmanSpec: LayerThreeAgentSpec<AckmanOutput> = {
   fieldNames: SUPERINVESTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderAckman,
-  fallback: fallbackAckman,
 };
 
 export function buildAckmanNode(deps: LayerThreeAgentDeps): LayerThreeAgentNode {

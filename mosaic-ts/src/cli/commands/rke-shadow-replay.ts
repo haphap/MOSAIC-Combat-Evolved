@@ -3,8 +3,11 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
+import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { buildDailyCycleRkeFootprintRows } from "../../agents/rke_footprints.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
+import { assertAcceptedDailyCycle } from "../../backtest/decision_health.js";
 import { BridgeClient, RpcError, BridgeApi as RuntimeBridgeApi } from "../../bridge/index.js";
 import { findRepoRoot } from "../../bridge/python.js";
 import type { BridgeApi, RkeDeliveryReadinessResult } from "../../bridge/types.js";
@@ -146,8 +149,13 @@ export async function runRkeShadowReplay(
   }
 
   const config = await api.configGet();
+  await assertRuntimePromptPreflight({
+    cohort,
+    ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+  });
   const promptPinsByAgent = buildPromptPinsByAgent(contractCheck.rows, config.output_language);
   const llmHandle = makeReplayLlmHandle(config, opts);
+  await assertStructuredOutputCapability(llmHandle.llm);
   const graph = buildDailyCycleGraph({
     llmHandle,
     api,
@@ -174,6 +182,7 @@ export async function runRkeShadowReplay(
     initialState.current_positions = currentPositions;
     initialState.layer4_outputs.previous_target_state = previousTarget;
     const final = (await graph.invoke(initialState)) as DailyCycleStateType;
+    assertAcceptedDailyCycle(final);
     currentPositions = applyBacktestPortfolioActionsToPositions(
       currentPositions,
       final.portfolio_actions,

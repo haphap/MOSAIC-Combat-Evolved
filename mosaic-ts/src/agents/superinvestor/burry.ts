@@ -25,7 +25,6 @@ export const burrySpec: LayerThreeAgentSpec<BurryOutput> = {
   fieldNames: SUPERINVESTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderBurry,
-  fallback: fallbackBurry,
 };
 
 export function buildBurryNode(deps: LayerThreeAgentDeps): LayerThreeAgentNode {

@@ -25,11 +25,23 @@ export const EvidenceLedgerEntrySchema = z
 export const ResearchClaimSchema = z
   .object({
     claim_id: z.string().min(1),
-    claim_type: z.enum(["fact", "inference", "uncertainty"]),
+    claim_type: z
+      .enum(["fact", "inference", "uncertainty"])
+      .describe(
+        "fact and inference require at least one exact runtime evidence_id; inference also requires at least one allowed research_rule_id. Use uncertainty only for an explicit uncertainty statement.",
+      ),
     statement: z.string().min(1),
     structured_conclusion: z.record(z.string(), z.unknown()),
-    evidence_refs: z.array(z.string().min(1)),
-    research_rule_refs: z.array(z.string().min(1)),
+    evidence_refs: z
+      .array(z.string().min(1))
+      .describe(
+        "Exact evidence_id values copied from the runtime-owned evidence catalog. Never invent ids. Must be non-empty for fact and inference claims.",
+      ),
+    research_rule_refs: z
+      .array(z.string().min(1))
+      .describe(
+        "Exact allowed_research_rule_ids copied from the runtime-owned catalog. Must be non-empty for inference claims.",
+      ),
     snapshot_hash: Sha256Schema,
   })
   .strict();

@@ -20,7 +20,13 @@
 import { writeFileSync } from "node:fs";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
+import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
+import {
+  assertAcceptedDailyCycle,
+  requireDecisionDisposition,
+} from "../../backtest/decision_health.js";
 import type {
   BacktestActionInput,
   BacktestMetricsResult,
@@ -197,6 +203,14 @@ async function fillStage1(
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
       });
+  await assertStructuredOutputCapability(llmHandle.llm);
+  const promptSource = await api.promptsPreflight({ cohort, langs: ["zh", "en"] });
+  if (!promptSource.ready) {
+    throw new Error(
+      `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
+    );
+  }
+  await assertRuntimePromptPreflight({ cohort });
 
   const tradeDays = await enumerateTradingDays(api, opts.start, opts.end);
   const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
@@ -229,7 +243,14 @@ async function fillStage1(
       ...(a.holding_period ? { holding_period: a.holding_period } : {}),
       ...(a.dissent_notes ? { dissent_notes: a.dissent_notes } : {}),
     })) satisfies BacktestActionInput[];
-    await api.backtestAppendActions(runId, tradeDate, actions);
+    assertAcceptedDailyCycle(final);
+    await api.backtestAppendActions(
+      runId,
+      tradeDate,
+      actions,
+      final.llm_calls.flatMap((call) => (call.agent_run_audit ? [call.agent_run_audit] : [])),
+      requireDecisionDisposition(final),
+    );
     currentPositions = applyBacktestPortfolioActionsToPositions(
       currentPositions,
       final.portfolio_actions ?? [],

@@ -26,7 +26,6 @@ export const relationshipMapperSpec: LayerTwoAgentSpec<RelationshipMapperOutput>
   fieldNames: RELATIONSHIP_MAPPER_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderRelationshipMapper,
-  fallback: fallbackRelationshipMapper,
 };
 
 export function buildRelationshipMapperNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {

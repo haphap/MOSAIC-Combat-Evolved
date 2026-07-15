@@ -26,7 +26,6 @@ export const financialsSpec: LayerTwoAgentSpec<FinancialsOutput> = {
   fieldNames: STANDARD_SECTOR_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
   render: renderFinancials,
-  fallback: fallbackFinancials,
 };
 
 export function buildFinancialsNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {

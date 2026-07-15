@@ -17,10 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
-
+import { AgentRunContractError } from "../src/agents/helpers/agent_run_contract.js";
 import {
   buildCentralBankNode,
   buildUserContext,
@@ -33,6 +30,7 @@ import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/s
 import type { CentralBankOutput, LlmCallRecord, MacroAgentOutput } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 /**
@@ -169,15 +167,18 @@ class ScriptedLlm {
   readonly responses: AIMessage[];
   readonly structuredResponse: CentralBankOutput | null;
   readonly structuredThrows: boolean;
+  readonly contractualize: boolean;
 
   constructor(opts: {
     responses: AIMessage[];
     structuredResponse?: CentralBankOutput | null;
     structuredThrows?: boolean;
+    contractualize?: boolean;
   }) {
     this.responses = [...opts.responses];
     this.structuredResponse = opts.structuredResponse ?? null;
     this.structuredThrows = opts.structuredThrows ?? false;
+    this.contractualize = opts.contractualize ?? true;
   }
 
   bindTools(_tools: unknown): ScriptedLlm {
@@ -192,12 +193,18 @@ class ScriptedLlm {
       throw new Error("structured output not supported");
     }
     return {
-      invoke: async (_input) => {
+      invoke: async (input) => {
         this.structuredCalls++;
         if (this.structuredResponse === null) {
           throw new Error("no structured response queued");
         }
-        return this.structuredResponse;
+        return this.contractualize
+          ? fakeContractOutput(
+              this.structuredResponse as unknown as Record<string, unknown>,
+              "central_bank",
+              input,
+            )
+          : this.structuredResponse;
       },
     };
   }
@@ -440,7 +447,6 @@ describe("buildCentralBankNode (vertical slice)", () => {
       llmHandle: makeScriptedHandle(llm),
       api,
       config: BASE_CONFIG,
-      promptsRoot: fakePrompts.root,
     });
 
     const update = await node(SAMPLE_STATE);
@@ -457,7 +463,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
 
     // State update writes the canned output.
     const out = unwrapUpdate(update);
-    expect(out.layer1_outputs?.central_bank).toEqual(cannedOutput);
+    expect(out.layer1_outputs?.central_bank).toMatchObject(cannedOutput);
     expect(out.llm_calls).toBeDefined();
     expect(out.llm_calls?.[0]?.agent).toBe("central_bank");
     expect(out.llm_calls?.[0]?.model).toBe("fake-model");
@@ -478,6 +484,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
         key_drivers: ["PBOC supportive"],
         confidence: 0.82,
       },
+      contractualize: false,
     });
     const logs: string[] = [];
     const node = buildCentralBankNode({
@@ -488,22 +495,10 @@ describe("buildCentralBankNode (vertical slice)", () => {
       onLog: (message) => logs.push(message),
     });
 
-    const update = await node(SAMPLE_STATE);
-
-    const output = unwrapUpdate(update).layer1_outputs?.central_bank as CentralBankOutput;
-    expect(output.confidence).toBe(0);
-    expect(output.verified_claim_audit).toMatchObject({
-      raw_output_accepted: false,
-      fallback_reason_code: "CLAIM_EVIDENCE_GRAPH_REJECTED",
-    });
-    expect(output.verified_claim_graph?.claims).toEqual([
-      expect.objectContaining({ claim_type: "uncertainty", evidence_refs: [] }),
-    ]);
+    await expect(node(SAMPLE_STATE)).rejects.toBeInstanceOf(AgentRunContractError);
     expect(String(llm.invokeCalls[0]?.[0]?.content)).toContain("Runtime Research Knobs Contract");
     expect(String(llm.invokeCalls[0]?.[1]?.content)).toContain("Runtime-owned evidence catalog");
-    expect(logs.join("\n")).toContain("fired_caps=missing_current_data");
-    expect(logs.join("\n")).toContain("knob_snapshot=sha256:");
-    expect(logs.join("\n")).toContain("claim_output=fallback");
+    expect(logs.join("\n")).toContain("rejected after");
   });
 
   it("forwards backtest context to the bridge when as_of_date is set", async () => {
@@ -537,10 +532,11 @@ describe("buildCentralBankNode (vertical slice)", () => {
       llmHandle: makeScriptedHandle(llm),
       api,
       config: BASE_CONFIG,
-      promptsRoot: fakePrompts.root,
     });
 
-    await node({ ...SAMPLE_STATE, mode: "backtest", as_of_date: "2024-06-24" });
+    await expect(
+      node({ ...SAMPLE_STATE, mode: "backtest", as_of_date: "2024-06-24" }),
+    ).rejects.toBeInstanceOf(AgentRunContractError);
 
     // Even though no tool got called (the LLM short-circuited with a final
     // text), pickBridgeTools embedded the backtest context for any tool that
@@ -549,7 +545,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
     expect(observedContext).toBeUndefined();
   });
 
-  it("falls back to fallbackOutputFromText when structured extractor throws and free-text loop yields nothing", async () => {
+  it("rejects when structured output is unsupported", async () => {
     const llm = new ScriptedLlm({
       responses: [
         // Loop returns empty content immediately (no tools needed).
@@ -565,14 +561,9 @@ describe("buildCentralBankNode (vertical slice)", () => {
       llmHandle: makeScriptedHandle(llm),
       api,
       config: BASE_CONFIG,
-      promptsRoot: fakePrompts.root,
     });
 
-    const update = await node(SAMPLE_STATE);
-    const out = unwrapUpdate(update).layer1_outputs?.central_bank as CentralBankOutput;
-    expect(out.confidence).toBe(0);
-    expect(out.stance).toBe("NEUTRAL");
-    expect(out.next_window).toBe("unknown");
+    await expect(node(SAMPLE_STATE)).rejects.toBeInstanceOf(AgentRunContractError);
   });
 
   it("CentralBankSchema rejects malformed outputs at the type boundary", async () => {

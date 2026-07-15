@@ -29,7 +29,6 @@ export const institutionalFlowSpec: LayerOneAgentSpec<InstitutionalFlowOutput> =
   requiredTools: REQUIRED_TOOLS,
   maxLoops: 3,
   render: renderInstitutionalFlow,
-  fallback: fallbackInstitutionalFlow,
 };
 
 export function buildInstitutionalFlowNode(deps: LayerOneAgentDeps): LayerOneAgentNode {

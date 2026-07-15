@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { AgentRunAudit } from "../agents/helpers/agent_run_contract.js";
 import { AGENTS_BY_LAYER, type Layer } from "../agents/prompts/cohorts.js";
 import type { CurrentPositionsSnapshot, PreviousTargetState } from "../agents/types.js";
 import type {
@@ -8,6 +9,7 @@ import type {
   DarwinianWeightTable,
   MacroSkillRow,
 } from "../bridge/types.js";
+import type { HistoricalDecisionHealth } from "./decision_health.js";
 
 export const EVOLUTION_CHECKPOINT_SCHEMA = "mosaic.backtest_evolution_checkpoint.v1" as const;
 
@@ -170,6 +172,7 @@ export interface EvolutionCheckpoint {
   lineage: PromptLineageEvent[];
   processedEvolutionMonths: string[];
   layerRotation: Record<Layer, number>;
+  decisionHealth?: HistoricalDecisionHealth;
   pendingEvolution?: PendingEvolution;
   completedAt?: string;
 }
@@ -188,11 +191,14 @@ export interface DailyJournal {
       holding_period?: string;
       dissent_notes?: string;
     }>;
+    agentRunAudits: AgentRunAudit[];
+    decisionDisposition: "TARGET_PORTFOLIO" | "HOLD_CURRENT" | "ALL_CASH";
   }>;
   mainArm: ArmCheckpoint;
   candidateArms: Record<string, { baseArm: ArmCheckpoint; candidateArm: ArmCheckpoint }>;
   usage: Record<string, LlmUsage>;
   scorecardState: Record<string, unknown>;
+  mainDecisionHealth?: HistoricalDecisionHealth;
 }
 
 export function validateEvolutionPolicy(policy: EvolutionPolicy): void {

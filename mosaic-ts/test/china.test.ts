@@ -11,10 +11,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
-
 import {
   buildChinaNode,
   ChinaSchema,
@@ -28,6 +24,7 @@ import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/s
 import type { ChinaOutput, LlmCallRecord, MacroAgentOutput } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ shared mocks
@@ -66,10 +63,14 @@ class ScriptedLlm {
   }
   withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
     return {
-      invoke: async (_input) => {
+      invoke: async (input) => {
         this.structuredCalls++;
         if (this.structuredResponse === null) throw new Error("no structured response queued");
-        return this.structuredResponse;
+        return fakeContractOutput(
+          this.structuredResponse as unknown as Record<string, unknown>,
+          "china",
+          input,
+        );
       },
     };
   }
@@ -202,6 +203,17 @@ describe("ChinaSchema", () => {
         risk_drivers: ["地方债"],
         key_drivers: ["国务院 6/24 发布产业政策"],
         confidence: 0.7,
+        claims: [
+          {
+            claim_id: "claim-policy",
+            claim_type: "fact",
+            statement: "Policy evidence supports the conclusion.",
+            structured_conclusion: { policy_direction: "PRO_GROWTH" },
+            evidence_refs: ["evidence-1"],
+            research_rule_refs: [],
+          },
+        ],
+        claim_refs: ["claim-policy"],
       }),
     ).not.toThrow();
   });
@@ -328,12 +340,11 @@ describe("buildChinaNode (vertical slice via factory)", () => {
       llmHandle: handle(llm),
       api,
       config: BASE_CONFIG,
-      promptsRoot: promptDir,
     });
     const update = await node(SAMPLE_STATE);
 
     const out = unwrap(update).layer1_outputs?.china as ChinaOutput;
-    expect(out).toEqual(canned);
+    expect(out).toMatchObject(canned);
     expect(unwrap(update).llm_calls?.[0]?.agent).toBe("china");
     // Two LLM invocations in tool loop + 1 structured = 3 (factory handles the third).
     expect(llm.invokeCalls.length).toBe(2);
