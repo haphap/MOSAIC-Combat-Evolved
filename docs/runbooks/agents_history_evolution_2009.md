@@ -74,7 +74,7 @@ card 不一致时会拒绝运行。
 `gpu_memory_utilization=0.85` 的 35B 渲染结果；因此旧机器即使仍残留 140K/0.90 preset，
 也不能启动新的 Agents run。
 
-从 2026-07-13 起，该 preset 的工作上下文固定为 `max_model_len=128000`，并使用
+当前 preset 的工作上下文固定为 `max_model_len=128000`，并使用
 `gpu_memory_utilization=0.85`，保留 `turboquant_4bit_nc`、`max_num_seqs=1`、
 `max_num_batched_tokens=2048` 和 MTP K=3。
 此前的 140K 配置在 Agents 满载时曾把 RTX 5090 D 显存推到 KDE 无法分配 NVKMS
@@ -103,10 +103,11 @@ rtk journalctl --user --since "10 minutes ago" _COMM=kwin_wayland \
   --no-pager
 ```
 
-128K/0.85 基准在服务空闲时应留下约 2.4 GiB 可用显存。上述单次检查不能证明负载期
-安全；每次真实 Agents smoke、扩展或恢复都必须通过
+旧显示拓扑下的 128K/0.82 在 20 个交易日负载中最低留下 1979 MiB 可用显存。5090
+当前不再承担显示输出，因此工作配置提升到 128K/0.85；每次真实 Agents smoke、扩展或
+恢复仍必须通过
 `scripts/run_with_kde_vram_guard.py` 启动。guard 每秒采样一次，要求全程至少保留
-1024 MiB；启动前或负载中低于门槛、`nvidia-smi` 采样失败，都会终止整个 Agents
+256 MiB；启动前或负载中低于门槛、`nvidia-smi` 采样失败或超时，都会终止整个 Agents
 进程组。命令结束后，guard 从本次精确启动时间检查新增 KWin/NVKMS 错误；无法读取
 journal 或发现新错误也会返回非零。CSV 及 `.summary.json` 写入 `.mosaic/` 私有证据，
 其中 `minimum_free_mib_observed` 是本次负载最低值。桌面主机不得使用
@@ -116,12 +117,10 @@ journal 或发现新错误也会返回非零。CSV 及 `.summary.json` 写入 `.
 后，由服务 owner 执行
 `rtk sndr down nvidia-qwen3.6-35b-a3b-nvfp4-5090`，不得在故障状态下继续运行。
 
-2026-07-13 验证回执：`history-2009-qwen35b-128k-smoke-v3` 使用 resolution
-`sha256:ba860c7d7be81c40db46475d40bd9d48f49eb7f159b03b38ba56d1bd49a54275`
-完成两个交易日并从 checkpoint 1 恢复到 checkpoint 2；累计 52 次计费调用、
-2,244,897 prompt tokens、142,031 completion tokens，模型耗时约 16 分 12 秒。
-抽样最低可用显存约 1.2 GiB，KDE 仍保持 3840x2160@60，且没有新增 KWin、NVKMS、
-HTTP 500、CUDA 或 traceback 错误。该 `.mosaic/` run 仅是私有本地验证证据，不提交。
+2026-07-14 验证回执：128K/0.82 完成 20 个交易日负载，
+累计 520 次模型调用、22,468,691 prompt tokens 和 1,326,271 completion tokens；
+最低可用显存 1979 MiB、峰值温度 69°C。guard 退出码为 0，未发现显存门槛违规、
+KDE/KWin/NVKMS 错误、CUDA OOM、NVIDIA Xid 或容器重启。该 `.mosaic/` 证据保持私有。
 
 ## 3. 静态验证
 
@@ -179,7 +178,7 @@ rtk pnpm --dir mosaic-ts dev backtest-evolve \
 ```bash
 rtk uv run python scripts/run_with_kde_vram_guard.py \
   --output .mosaic/backtests/history-2009-qwen35b/vram-smoke-3d.csv \
-  --minimum-free-mib 1024 \
+  --minimum-free-mib 256 \
   -- \
   rtk pnpm --dir mosaic-ts dev backtest-evolve \
     --start 2009-01-05 \
@@ -199,7 +198,7 @@ rtk uv run python scripts/run_with_kde_vram_guard.py \
 ```bash
 rtk uv run python scripts/run_with_kde_vram_guard.py \
   --output .mosaic/backtests/history-2009-qwen35b/vram-resume-17d.csv \
-  --minimum-free-mib 1024 \
+  --minimum-free-mib 256 \
   -- \
   rtk pnpm --dir mosaic-ts dev backtest-evolve \
     --start 2009-01-05 \
@@ -220,7 +219,7 @@ rtk uv run python scripts/run_with_kde_vram_guard.py \
 ```bash
 rtk uv run python scripts/run_with_kde_vram_guard.py \
   --output .mosaic/backtests/history-2009-qwen35b/vram-full-01.csv \
-  --minimum-free-mib 1024 \
+  --minimum-free-mib 256 \
   -- \
   rtk pnpm --dir mosaic-ts dev backtest-evolve \
     --start 2009-01-05 \
@@ -232,7 +231,7 @@ rtk uv run python scripts/run_with_kde_vram_guard.py \
 
 每次重启必须换一个新的 guard `--output` 文件名（例如递增 `vram-full-02.csv`）；guard
 拒绝覆盖既有证据。只有 `.summary.json` 中 `violation=null`、child return code 为 `0`、
-最低显存不小于 1024 MiB 且 KWin/NVKMS 匹配列表为空，才允许继续下一阶段。
+最低显存不小于 256 MiB 且 KWin/NVKMS 匹配列表为空，才允许继续下一阶段。
 
 所有日期严格顺序执行。主组合使用当前 active Prompt；每个候选拥有固定 base/candidate
 双臂、独立持仓状态和独立 qlib run。验证失败立即在历史账本中 revert；锁箱通过且

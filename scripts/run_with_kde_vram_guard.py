@@ -16,7 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-MINIMUM_FREE_MIB = 1024
+MINIMUM_FREE_MIB = 256
+GPU_QUERY_TIMEOUT_SECONDS = 5.0
 GUARD_EXIT_CODE = 2
 _KERNEL_ERRORS = ("Failed to allocate NVKMS memory for GEM object",)
 _KWIN_ERRORS = (
@@ -60,17 +61,21 @@ def parse_gpu_sample(output: str, *, timestamp: str | None = None) -> GpuSample:
     )
 
 
-def query_gpu(nvidia_smi: str) -> GpuSample:
-    result = subprocess.run(
-        [
-            nvidia_smi,
-            "--query-gpu=memory.used,memory.free,utilization.gpu,temperature.gpu",
-            "--format=csv,noheader,nounits",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+def query_gpu(nvidia_smi: str, *, timeout_seconds: float = GPU_QUERY_TIMEOUT_SECONDS) -> GpuSample:
+    try:
+        result = subprocess.run(
+            [
+                nvidia_smi,
+                "--query-gpu=memory.used,memory.free,utilization.gpu,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"nvidia-smi timed out after {timeout_seconds:g} seconds") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         raise RuntimeError(f"nvidia-smi failed ({result.returncode}): {detail}")
@@ -177,7 +182,9 @@ def run_guard(args: argparse.Namespace) -> int:
             writer = csv.DictWriter(stream, fieldnames=list(GpuSample.__dataclass_fields__))
             writer.writeheader()
             try:
-                sample = query_gpu(args.nvidia_smi)
+                sample = query_gpu(
+                    args.nvidia_smi, timeout_seconds=args.gpu_query_timeout_seconds
+                )
                 record(writer, stream, sample)
                 if sample.memory_free_mib < args.minimum_free_mib:
                     violation = "free_vram_below_threshold"
@@ -190,7 +197,10 @@ def run_guard(args: argparse.Namespace) -> int:
                     while process.poll() is None:
                         time.sleep(args.interval_seconds)
                         try:
-                            sample = query_gpu(args.nvidia_smi)
+                            sample = query_gpu(
+                                args.nvidia_smi,
+                                timeout_seconds=args.gpu_query_timeout_seconds,
+                            )
                         except (RuntimeError, ValueError) as exc:
                             violation = "gpu_sampling_failed"
                             error = str(exc)
@@ -277,6 +287,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True, help="private CSV evidence path")
     parser.add_argument("--minimum-free-mib", type=int, default=MINIMUM_FREE_MIB)
     parser.add_argument("--interval-seconds", type=float, default=1.0)
+    parser.add_argument(
+        "--gpu-query-timeout-seconds", type=float, default=GPU_QUERY_TIMEOUT_SECONDS
+    )
     parser.add_argument("--termination-grace-seconds", type=float, default=15.0)
     parser.add_argument("--nvidia-smi", default="nvidia-smi")
     parser.add_argument("--journalctl", default="journalctl")
@@ -292,6 +305,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--minimum-free-mib must be positive")
     if args.interval_seconds <= 0:
         parser.error("--interval-seconds must be positive")
+    if args.gpu_query_timeout_seconds <= 0:
+        parser.error("--gpu-query-timeout-seconds must be positive")
     if args.termination_grace_seconds < 0:
         parser.error("--termination-grace-seconds cannot be negative")
     try:

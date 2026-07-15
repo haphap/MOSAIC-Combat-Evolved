@@ -533,7 +533,7 @@ NVIDIA Qwen3.6 27B NVFP4 sndr service:
 - This service shares port `8000` with the 35B NVFP4 sndr service. Run only one
   of them at a time.
 
-Current 2026-07-13 sndr direct-launch presets:
+Current 2026-07-14 sndr direct-launch presets:
 
 - `nvidia-qwen3.6-35b-a3b-nvfp4-5090`: keep at `max_model_len=128000`,
   `--gpu-memory-utilization 0.85`, `--kv-cache-dtype turboquant_4bit_nc`,
@@ -541,17 +541,19 @@ Current 2026-07-13 sndr direct-launch presets:
   remains valid historical evidence, but a
   sustained Agents run at 140K exhausted NVKMS display-allocation headroom and
   broke the KDE Wayland output path. A 128K/0.90 probe was also rejected after
-  free VRAM fell to about 226 MiB during a long Agents request. The 128K/0.85
-  envelope is the operator default; it boots with about 2.4 GiB free at idle,
-  and the operational gate requires at least 1 GiB free under Agents load with
-  no new KWin/NVKMS display-allocation errors.
+  free VRAM fell to about 226 MiB during a long Agents request while the 5090
+  owned the display path. The old-topology 128K/0.82 validation completed 20
+  trading days and 520 model calls with 1979 MiB minimum free VRAM, 69°C peak
+  temperature, and no guard violation, OOM, Xid, container restart, or
+  KWin/NVKMS error. The 5090 no longer owns a display output, so 128K/0.85 is
+  now the operator default with a 256 MiB compute-card floor.
   The portable source is private repository
   `haphap/sndr-local-qwen36-configs`, pinned at tag
   `qwen35b-kde-128k-v2` (commit
   `2e038f2d0ec31c8721762ed017a0262b1057684c`). Its installer applies the
   required sndr compatibility patch and synchronizes the exact
   hardware/model/preset/profile files. MOSAIC Agents also rejects rendered
-  35B settings outside the 128K/0.85 envelope and sustained desktop runs must
+  35B settings outside the 128K/0.85 envelope and sustained runs must
   use the VRAM guard documented in
   `docs/runbooks/agents_history_evolution_2009.md`.
 - `nvidia-qwen3.6-27b-nvfp4-5090`: use `max_model_len=130000`,
