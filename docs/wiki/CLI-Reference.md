@@ -137,7 +137,9 @@ Stage-1 carry-over rebuilds `current_positions` from prior target weights and re
 For the resumable 2009→latest PIT walk-forward path, use `backtest-evolve` with a pinned
 private Prompt commit and a `.mosaic/` run directory. It resolves the current sndr
 `nvidia-qwen3.6-35b-a3b-nvfp4-5090` preset, keeps Fish context disabled, checkpoints every
-trading day, and evaluates monthly historical Prompt candidates in isolated private branches.
+trading day, rejects sndr settings outside the operational 128K/0.85 envelope, and evaluates
+monthly historical Prompt candidates in isolated private branches. Sustained real-model runs
+must use the runbook's VRAM guard so the 256 MiB compute-card floor is measured and enforced.
 See [2009 Agents historical evolution runbook](../runbooks/agents_history_evolution_2009.md).
 
 > The `--out` flag writes the metrics JSON. Full ATLAS-isomorphic artifacts (`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`) are produced by the `backtest.run_historical` **RPC** when called with a `results_dir` (see [Bridge RPC](Bridge-RPC.md)); not yet a `backtest` CLI flag.

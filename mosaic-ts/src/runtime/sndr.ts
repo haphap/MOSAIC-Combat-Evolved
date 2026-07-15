@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 
 export const QWEN_35B_NVFP4_PRESET = "nvidia-qwen3.6-35b-a3b-nvfp4-5090";
 export const QWEN_35B_SERVED_MODEL = "qwen3.6-35b-a3b-nvfp4";
+export const QWEN_35B_KDE_SAFE_MAX_MODEL_LEN = 128_000;
+export const QWEN_35B_KDE_SAFE_GPU_MEMORY_UTILIZATION = 0.85;
 
 export interface SndrPresetResolution {
   sndrVersion: string;
@@ -149,6 +151,18 @@ export function resolveQwen35bPreset(runner: CommandRunner = defaultRunner): Snd
     !withoutHash.imageRef
   ) {
     throw new Error("sndr 35B preset card and rendered launch disagree");
+  }
+  if (
+    withoutHash.maxModelLen !== QWEN_35B_KDE_SAFE_MAX_MODEL_LEN ||
+    withoutHash.gpuMemoryUtilization !== QWEN_35B_KDE_SAFE_GPU_MEMORY_UTILIZATION
+  ) {
+    throw new Error(
+      "sndr 35B preset violates the KDE-safe envelope: " +
+        `max_model_len=${withoutHash.maxModelLen} ` +
+        `gpu_memory_utilization=${withoutHash.gpuMemoryUtilization}; ` +
+        `expected ${QWEN_35B_KDE_SAFE_MAX_MODEL_LEN}/` +
+        `${QWEN_35B_KDE_SAFE_GPU_MEMORY_UTILIZATION}`,
+    );
   }
   return { ...withoutHash, hash: resolutionHash(withoutHash) };
 }
