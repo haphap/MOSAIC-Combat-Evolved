@@ -16,7 +16,7 @@
   "max_baseline_growth_ratio": 1.25,
   "runtime_manifest_hash": "sha256:65b7629200eee3b154aec91e7123bd954971dfa1a44381c7f87639c378567002",
   "source_commits": {
-    "private": "189c24b00fa58fc56fd43f5f9627f2ebd428d3d7",
+    "private": "9c98f1f60a44284df2f8bda2674693fcc4185744",
     "bundled": "09b1df0d2ff947ddfff299548b2186269ef3981f"
   },
   "baseline_manifest_hash": "sha256:9d413c195d53ad2aed5f3b9c60e05601938fab1ba1873eb6637bc3e4ec5c0936",
