@@ -13,6 +13,12 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import { parseResearchKnobsPrompt } from "../../agents/helpers/research_knobs.js";
 import {
+  MACRO_AGENT_IDS,
+  MACRO_PROMPT_COHORT_IDS,
+  type MacroPromptCohortId,
+  renderMacroPromptBody,
+} from "../../agents/macro/_contracts.js";
+import {
   findBundledPromptsRoot,
   findPrivatePromptsRoot,
   promptPath,
@@ -113,6 +119,13 @@ interface SyncResearchKnobsOpts {
   privatePromptsRoot?: string;
   promptsRoot?: string;
   agents?: string;
+  write?: boolean;
+}
+
+interface SyncMacroPromptsOpts {
+  cohorts?: string;
+  privatePromptsRoot?: string;
+  promptsRoot?: string;
   write?: boolean;
 }
 
@@ -464,6 +477,78 @@ export function registerPrompts(program: Command): void {
         console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
         process.exitCode = 1;
       }
+    });
+
+  prompts
+    .command("sync-macro-prompts")
+    .description("Rebuild bilingual Macro prompt bodies and generated contracts.")
+    .option("--private-prompts-root <path>", "Private prompts root to update")
+    .option("--prompts-root <path>", "Bundled prompts root to update")
+    .option(
+      "--cohorts <list>",
+      "Comma-separated cohort ids; '*' selects all eight (default cohort_default)",
+      "cohort_default",
+    )
+    .option("--write", "Write changes. Without this, only reports pending updates.", false)
+    .action(async (opts: SyncMacroPromptsOpts) => {
+      if (Boolean(opts.privatePromptsRoot) === Boolean(opts.promptsRoot)) {
+        throw new Error("exactly one of --private-prompts-root or --prompts-root is required");
+      }
+      const promptsRoot = opts.privatePromptsRoot ?? opts.promptsRoot;
+      if (!promptsRoot) throw new Error("prompt root is required");
+      const requested =
+        opts.cohorts === "*"
+          ? [...MACRO_PROMPT_COHORT_IDS]
+          : (opts.cohorts ?? "cohort_default")
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean);
+      const unknown = requested.filter(
+        (cohort) => !MACRO_PROMPT_COHORT_IDS.includes(cohort as MacroPromptCohortId),
+      );
+      if (unknown.length > 0) throw new Error(`unknown macro prompt cohorts: ${unknown.join(",")}`);
+      const cohorts = requested as MacroPromptCohortId[];
+      const specs = RUNTIME_AGENT_SPECS.filter((spec) =>
+        MACRO_AGENT_IDS.includes(spec.agent as (typeof MACRO_AGENT_IDS)[number]),
+      );
+      const changed: string[] = [];
+      for (const cohort of cohorts) {
+        for (const spec of specs) {
+          for (const language of ["zh", "en"] as const) {
+            const path = promptPath({
+              agent: spec.agent,
+              layer: "macro",
+              cohort,
+              language,
+              promptsRoot,
+            });
+            let next = renderMacroPromptBody(
+              spec.agent as (typeof MACRO_AGENT_IDS)[number],
+              language,
+              cohort,
+            );
+            if (opts.privatePromptsRoot) {
+              next = upsertResearchKnobsFence(next, buildRuntimeResearchKnobs(spec));
+            }
+            next = upsertRuntimeEvidenceContract(next, spec, language, {
+              includeResearchKnobDetails: Boolean(opts.privatePromptsRoot),
+            });
+            const current = await readFile(path, "utf-8").catch(() => "");
+            if (next === current) continue;
+            changed.push(path);
+            if (opts.write) {
+              await mkdir(dirname(path), { recursive: true });
+              await writeFile(path, next, "utf-8");
+            }
+          }
+        }
+      }
+      const label = opts.write ? "updated" : "pending";
+      console.log(`${label} macro prompt files: ${changed.length}`);
+      for (const path of changed.slice(0, 50)) {
+        console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
+      }
+      if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
     });
 
   prompts

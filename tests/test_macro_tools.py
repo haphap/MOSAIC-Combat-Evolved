@@ -141,6 +141,25 @@ _EXPECTED_TOOLS = {
         "optional": {"look_back_days", "industries"},
         "vendor_method": "get_industry_moneyflow",
     },
+    **{
+        name: {
+            "required": {"as_of_date"},
+            "optional": set(),
+            "vendor_method": name,
+        }
+        for name in (
+            "get_china_macro_snapshot",
+            "get_us_macro_snapshot",
+            "get_central_bank_snapshot",
+            "get_rates_credit_snapshot",
+            "get_fx_conditions_snapshot",
+            "get_commodity_conditions_snapshot",
+            "get_geopolitical_events_snapshot",
+            "get_volatility_snapshot",
+            "get_market_breadth_snapshot",
+            "get_market_positioning_snapshot",
+        )
+    },
 }
 
 
@@ -231,6 +250,41 @@ class TestDispatch:
         assert out == "<get_fred_series response>"
         assert patched_route["method"] == "get_fred_series"
         assert patched_route["args"] == ("FEDFUNDS", "2024-01-01", "2024-06-30")
+
+    @pytest.mark.parametrize(
+        ("tool_name", "role"),
+        [
+            ("get_china_macro_snapshot", "china"),
+            ("get_us_macro_snapshot", "us_economy"),
+            ("get_central_bank_snapshot", "central_bank"),
+            ("get_rates_credit_snapshot", "yield_curve"),
+            ("get_fx_conditions_snapshot", "dollar"),
+            ("get_commodity_conditions_snapshot", "commodities"),
+            ("get_geopolitical_events_snapshot", "geopolitical"),
+            ("get_volatility_snapshot", "volatility"),
+            ("get_market_positioning_snapshot", "institutional_flow"),
+        ],
+    )
+    def test_role_snapshot_invocation(self, monkeypatch, tool_name, role):
+        captured = {}
+
+        def fake_render(actual_role, as_of_date):
+            captured["args"] = (actual_role, as_of_date)
+            return "snapshot"
+
+        monkeypatch.setattr(macro_tools, "render_role_snapshot", fake_render)
+        assert getattr(macro_tools, tool_name).invoke({"as_of_date": "2024-06-30"}) == "snapshot"
+        assert captured["args"] == (role, "2024-06-30")
+
+    def test_market_breadth_snapshot_invocation(self, monkeypatch):
+        monkeypatch.setattr(
+            macro_tools,
+            "render_market_breadth_snapshot",
+            lambda as_of_date: f"breadth:{as_of_date}",
+        )
+        assert macro_tools.get_market_breadth_snapshot.invoke(
+            {"as_of_date": "2024-06-30"}
+        ) == "breadth:2024-06-30"
 
     def test_get_pboc_ops_with_default_lookback(self, patched_route):
         macro_tools.get_pboc_ops.invoke({"curr_date": "2024-06-30"})

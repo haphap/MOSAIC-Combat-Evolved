@@ -764,6 +764,8 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
             "layer1_outputs": {
                 "volatility": {
                     "agent": "volatility",
+                    "direction": "SUPPORTIVE",
+                    "strength": 5,
                     "regime_filter": "RISK_ON",
                     "confidence": 0.8,
                 }

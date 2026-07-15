@@ -4,15 +4,15 @@ export const DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT = "cohort_default";
 
 export const RUNTIME_RESEARCH_KNOBS_COHORT_STAGE_ENABLEMENT = {
   cohort_default: {
-    "central_bank:agent_run": "enabled",
-    "geopolitical:agent_run": "enabled",
     "china:agent_run": "enabled",
+    "us_economy:agent_run": "enabled",
+    "central_bank:agent_run": "enabled",
     "dollar:agent_run": "enabled",
     "yield_curve:agent_run": "enabled",
     "commodities:agent_run": "enabled",
+    "geopolitical:agent_run": "enabled",
     "volatility:agent_run": "enabled",
-    "emerging_markets:agent_run": "enabled",
-    "news_sentiment:agent_run": "enabled",
+    "market_breadth:agent_run": "enabled",
     "institutional_flow:agent_run": "enabled",
     "semiconductor:agent_run": "enabled",
     "energy:agent_run": "enabled",

@@ -23,6 +23,16 @@ from mosaic.scorecard.store import ScorecardStore
 
 DEFAULT_REL = "prompts/mosaic/cohort_default/macro/volatility.zh.md"
 BRANCH = "cohort/crisis_2008/auto/volatility/2008-09-15"
+_MACRO_SCHEMA_FIELDS = (
+    "direction",
+    "strength",
+    "horizon",
+    "channels",
+    "key_drivers",
+    "confidence",
+    "claims",
+    "claim_refs",
+)
 
 
 def dispatch(method: str, params: dict):
@@ -137,7 +147,11 @@ def _write_contract_prompt(
     lang: str = "zh",
     text: str | None = None,
 ) -> None:
-    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS[agent])
+    fields = (
+        _MACRO_SCHEMA_FIELDS
+        if layer == "macro"
+        else tuple(_prompts._AGENT_SCHEMA_FIELDS[agent])
+    )
     path = private_repo / "prompts" / "mosaic" / "cohort_default" / layer
     path.mkdir(parents=True, exist_ok=True)
     (path / f"{agent}.{lang}.md").write_text(
@@ -828,7 +842,7 @@ def test_contract_check_accepts_valid_private_prompts_by_layer(
 def test_contract_check_accepts_localized_zh_contract(repo: Path, tmp_path: Path, monkeypatch):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    fields = _MACRO_SCHEMA_FIELDS
     _write_contract_prompt(
         private_repo,
         text=_valid_zh_contract_prompt("volatility", "macro", fields),
@@ -867,7 +881,7 @@ def test_contract_check_blocks_research_knobs_bilingual_drift(
 ):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    fields = _MACRO_SCHEMA_FIELDS
     prompt = _valid_contract_prompt("volatility", "macro", fields)
     _write_contract_prompt(
         private_repo,
@@ -936,7 +950,7 @@ def test_formal_release_checks_include_research_knobs_status(
 ):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    fields = tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
+    fields = _MACRO_SCHEMA_FIELDS
     prompt = _valid_contract_prompt("volatility", "macro", fields)
     for lang in ("zh", "en"):
         _write_contract_prompt(
@@ -990,9 +1004,9 @@ def test_formal_release_checks_block_invalid_contract(
 def test_contract_check_blocks_missing_section(repo: Path, tmp_path: Path, monkeypatch):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    text = _valid_contract_prompt(
-        "volatility", "macro", tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
-    ).replace("## Privacy boundary", "## Privacy rules")
+    text = _valid_contract_prompt("volatility", "macro", _MACRO_SCHEMA_FIELDS).replace(
+        "## Privacy boundary", "## Privacy rules"
+    )
     _write_contract_prompt(private_repo, text=text)
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "bad contract prompt")
@@ -1007,19 +1021,27 @@ def test_contract_check_blocks_missing_section(repo: Path, tmp_path: Path, monke
 def test_contract_check_blocks_missing_schema_field(repo: Path, tmp_path: Path, monkeypatch):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    fields = tuple(f for f in _prompts._AGENT_SCHEMA_FIELDS["volatility"] if f != "vix_regime")
+    fields = tuple(
+        field
+        for field in _prompts._AGENT_SCHEMA_FIELDS["semiconductor"]
+        if field != "sector_score"
+    )
     _write_contract_prompt(
         private_repo,
-        text=_valid_contract_prompt("volatility", "macro", fields),
+        agent="semiconductor",
+        layer="sector",
+        text=_valid_contract_prompt("semiconductor", "sector", fields),
     )
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "schema drift prompt")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
 
-    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+    result = dispatch(
+        "prompts.contract_check", {"agents": ["semiconductor"], "langs": ["zh"]}
+    )
 
     assert result["ready"] is False
-    assert "schema_field_missing:vix_regime" in result["blocked_reasons"]
+    assert "schema_field_missing:sector_score" in result["blocked_reasons"]
 
 
 def test_contract_check_blocks_rke_prior_as_current_data(
@@ -1027,9 +1049,10 @@ def test_contract_check_blocks_rke_prior_as_current_data(
 ):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    text = _valid_contract_prompt(
-        "volatility", "macro", tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
-    ) + "\nRKE prior is current data."
+    text = (
+        _valid_contract_prompt("volatility", "macro", _MACRO_SCHEMA_FIELDS)
+        + "\nRKE prior is current data."
+    )
     _write_contract_prompt(private_repo, text=text)
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "unsafe rke prompt")
@@ -1067,9 +1090,7 @@ def test_contract_check_blocks_bilingual_category_drift(
 ):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    good = _valid_contract_prompt(
-        "volatility", "macro", tuple(_prompts._AGENT_SCHEMA_FIELDS["volatility"])
-    )
+    good = _valid_contract_prompt("volatility", "macro", _MACRO_SCHEMA_FIELDS)
     _write_contract_prompt(private_repo, lang="zh", text=good)
     _write_contract_prompt(private_repo, lang="en", text=good.replace("## Workflow", "## Steps"))
     _git(private_repo, "add", "prompts/mosaic")

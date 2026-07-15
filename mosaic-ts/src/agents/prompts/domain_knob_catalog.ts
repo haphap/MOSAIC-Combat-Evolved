@@ -245,15 +245,14 @@ const LOOKBACK_DOMAIN_KNOB_IDS = new Set([
   "liquidity_net_injection_window_days",
   "omo_mlf_freshness_days",
   "policy_confirmation_window_days",
-  "dxy_trend_window_days",
+  "surprise_window_days",
+  "broad_dollar_trend_window_days",
   "term_spread_window_days",
   "inventory_confirmation_window_days",
   "vol_amplification_window_days",
-  "hk_a_relative_strength_window_days",
-  "foreign_flow_confirmation_days",
   "event_decay_window_days",
-  "lhb_window_days",
-  "industry_moneyflow_window_days",
+  "market_flow_window_days",
+  "sector_rotation_window_days",
   "flow_persistence_days",
   "industry_moneyflow_days",
   "financial_statement_quarters",
@@ -578,13 +577,21 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "policy_confirmation_window_days",
     "a_share_beta_discount",
   ]),
+  us_economy: seeds([
+    "growth_weight",
+    "employment_weight",
+    "inflation_weight",
+    "demand_weight",
+    "surprise_window_days",
+    "a_share_external_demand_weight",
+  ]),
   dollar: seeds([
-    "dxy_trend_window_days",
-    "real_rate_weight",
-    "fed_pboc_divergence_threshold_bps",
+    "broad_dollar_trend_window_days",
+    "rmb_pressure_weight",
+    "fx_volatility_weight",
+    "onshore_offshore_spread_weight",
+    "a_share_fx_liquidity_weight",
     "dollar_pressure_cap",
-    "cn_us_spread_weight",
-    "em_flow_pressure_weight",
   ]),
   yield_curve: seeds([
     "term_spread_window_days",
@@ -600,39 +607,32 @@ const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
     "precious_metals_weight",
     "agriculture_weight",
     "inventory_confirmation_window_days",
-    "china_demand_weight",
+    "inflation_shock_transmission_weight",
   ]),
   volatility: seeds([
     "vix_weight",
-    "ivx_weight",
-    "realized_vol_weight",
+    "china_realized_vol_weight",
+    "cross_market_stress_weight",
     "risk_off_threshold",
     "vol_amplification_window_days",
     "volatility_cap",
   ]),
-  emerging_markets: seeds([
-    "em_etf_weight",
-    "hk_a_relative_strength_window_days",
-    "dxy_pressure_threshold",
-    "foreign_flow_confirmation_days",
-    "northbound_flow_weight",
-    "em_drawdown_cap",
-  ]),
-  news_sentiment: seeds([
-    "news_sentiment_scale",
-    "policy_semantic_weight",
-    "topic_filter_threshold",
-    "contrarian_threshold",
-    "xueqiu_replacement_weight",
-    "event_decay_window_days",
+  market_breadth: seeds([
+    "breadth_composite_weight",
+    "breadth_state_confirmation_weight",
+    "breadth_change_confirmation_weight",
+    "return_dispersion_weight",
+    "concentration_confirmation_weight",
+    "a_share_transmission_weight",
   ]),
   institutional_flow: seeds([
-    "lhb_window_days",
-    "industry_moneyflow_window_days",
-    "main_net_inflow_threshold",
-    "top_buyer_weight",
-    "null_flow_fallback_cap",
+    "market_flow_window_days",
+    "sector_rotation_window_days",
     "flow_persistence_days",
+    "main_net_inflow_threshold",
+    "etf_share_change_weight",
+    "crowding_confirmation_weight",
+    "null_flow_fallback_cap",
   ]),
   geopolitical: seeds([
     "risk_event_severity_threshold",
@@ -2149,11 +2149,11 @@ function valueRangeForId(
   if (id.includes("cap") || id.includes("discount") || id.includes("penalty")) {
     return { default: 0.25, min: 0, max: 0.75, step: 0.05 };
   }
-  if (id.includes("threshold") || id.includes("floor") || id.includes("min")) {
-    return { default: 0.6, min: 0, max: 1, step: 0.05 };
-  }
   if (id.includes("bps")) {
     return { default: 25, min: -200, max: 200, step: 5 };
+  }
+  if (id.includes("threshold") || id.includes("floor") || id.includes("min")) {
+    return { default: 0.6, min: 0, max: 1, step: 0.05 };
   }
   return { default: 0.2, min: 0, max: 1, step: 0.05 };
 }

@@ -1,0 +1,21 @@
+{
+  "outputs": {
+    "china": {"direction": "SUPPORTIVE", "strength": 5, "confidence": 1.0},
+    "us_economy": {"direction": "ADVERSE", "strength": 3, "confidence": 0.5},
+    "central_bank": {"direction": "NEUTRAL", "strength": 0, "confidence": 1.0},
+    "dollar": {"direction": "SUPPORTIVE", "strength": 5, "confidence": 1.0},
+    "yield_curve": {"direction": "ADVERSE", "strength": 5, "confidence": 1.0},
+    "commodities": {"direction": "NEUTRAL", "strength": 0, "confidence": 1.0},
+    "geopolitical": {"direction": "NEUTRAL", "strength": 0, "confidence": 1.0},
+    "volatility": {"direction": "SUPPORTIVE", "strength": 2, "confidence": 1.0},
+    "market_breadth": {"direction": "ADVERSE", "strength": 4, "confidence": 1.0},
+    "institutional_flow": {"direction": "NEUTRAL", "strength": 0, "confidence": 1.0}
+  },
+  "darwinian_weights": {
+    "china": 2.0,
+    "dollar": 2.0,
+    "yield_curve": 0.5
+  },
+  "expected_score": 0.3432098765432099,
+  "expected_stance": "BULLISH"
+}

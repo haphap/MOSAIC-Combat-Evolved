@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,9 @@ MACRO_AGENTS = [
     "yield_curve",
     "commodities",
     "volatility",
-    "emerging_markets",
+    "us_economy",
+    "market_breadth",
+    "institutional_flow",
 ]
 REC_AGENTS = [
     "semiconductor",
@@ -58,13 +61,27 @@ def test_default_config_enables_weight_rewrite():
     assert DEFAULT_CONFIG["darwinian"]["weight_rewrite_enabled"] is True
 
 
-def _add_macro_score(store: ScorecardStore, agent: str, raw: float, date: str = "2024-02-01"):
+def _add_macro_score(
+    store: ScorecardStore,
+    agent: str,
+    raw: float,
+    date: str = "2024-02-01",
+    *,
+    label_source_status: str = "primary",
+):
     store.append_macro_signals_from_state(
         {
             "active_cohort": COHORT,
             "as_of_date": date,
             "day_outcome_status": "accepted",
-            "layer1_outputs": {agent: {"agent": agent, "confidence": 0.5}},
+            "layer1_outputs": {
+                agent: {
+                    "agent": agent,
+                    "direction": "SUPPORTIVE",
+                    "strength": 5,
+                    "confidence": 0.5,
+                }
+            },
             "layer1_consensus": {},
         }
     )
@@ -76,8 +93,8 @@ def _add_macro_score(store: ScorecardStore, agent: str, raw: float, date: str = 
     store.update_macro_scoring(
         row_id,
         {
-            "label_type": "benchmark_fallback_5d",
-            "label_source_status": "fallback",
+            "label_type": "role_matched_test_5d",
+            "label_source_status": label_source_status,
             "raw_macro_score_5d": raw,
             "scored_at": "2024-02-10",
         },
@@ -101,7 +118,7 @@ def _add_recommendation_score(
 
 def test_evolutionary_weights_update_quartiles_and_bounds(tmp_path: Path):
     store = _store(tmp_path)
-    scores = [0.08, 0.07, 0.04, 0.02, -0.01, -0.02, -0.06, -0.08]
+    scores = [0.09, 0.08, 0.07, 0.04, 0.02, -0.01, -0.02, -0.04, -0.06, -0.08]
     for agent, score in zip(MACRO_AGENTS, scores):
         _add_macro_score(store, agent, score)
     store.upsert_darwinian_weights(
@@ -127,7 +144,7 @@ def test_evolutionary_weights_update_quartiles_and_bounds(tmp_path: Path):
 
     out = compute_weights(store, COHORT, "2024-02-10", config=_cfg())
 
-    assert out == {"written": 8, "agents_uniform_fallback": 6}
+    assert out == {"written": 10, "agents_uniform_fallback": 8}
     weights = store.get_darwinian_weights(COHORT, date="2024-02-10")
     assert weights[MACRO_AGENTS[0]]["weight"] == pytest.approx(2.5)
     assert weights[MACRO_AGENTS[0]]["quartile"] == 1
@@ -167,6 +184,82 @@ def test_evolutionary_weights_skip_small_macro_population(tmp_path: Path):
     assert weights["dollar"]["weight"] == pytest.approx(1.0)
     assert weights["dollar"]["update_action"] == "skipped"
     assert weights["dollar"]["quartile"] is None
+
+
+def test_macro_weight_stays_one_below_30_non_overlapping_samples(tmp_path: Path):
+    store = _store(tmp_path)
+    start = date(2024, 1, 1)
+    for index in range(145):
+        _add_macro_score(
+            store,
+            "market_breadth",
+            0.02,
+            (start + timedelta(days=index)).isoformat(),
+        )
+    store.upsert_darwinian_weights(
+        [
+            {
+                "cohort": COHORT,
+                "agent": "market_breadth",
+                "date": "2023-12-31",
+                "weight": 2.0,
+                "layer": "macro",
+                "rank_scope": "macro",
+            }
+        ]
+    )
+
+    compute_weights(
+        store,
+        COHORT,
+        "2024-06-01",
+        config=_cfg(
+            min_scored_observations_per_agent=30,
+            min_matured_agents_for_update=1,
+        ),
+    )
+
+    row = store.get_darwinian_weights(COHORT, "2024-06-01")["market_breadth"]
+    assert row["n_obs"] == 29
+    assert row["weight"] == 1.0
+    assert row["update_action"] == "skipped"
+
+
+def test_fallback_macro_labels_do_not_enter_darwinian_samples(tmp_path: Path):
+    store = _store(tmp_path)
+    _add_macro_score(
+        store,
+        "market_breadth",
+        0.9,
+        label_source_status="fallback",
+    )
+    store.upsert_darwinian_weights(
+        [
+            {
+                "cohort": COHORT,
+                "agent": "market_breadth",
+                "date": "2024-01-31",
+                "weight": 2.0,
+                "layer": "macro",
+                "rank_scope": "macro",
+            }
+        ]
+    )
+
+    compute_weights(
+        store,
+        COHORT,
+        "2024-02-10",
+        config=_cfg(
+            min_scored_observations_per_agent=1,
+            min_matured_agents_for_update=1,
+        ),
+    )
+
+    row = store.get_darwinian_weights(COHORT, "2024-02-10")["market_breadth"]
+    assert row["n_obs"] == 0
+    assert row["weight"] == 1.0
+    assert row["update_action"] == "skipped"
 
 
 def test_evolutionary_weights_share_table_for_recommendation_agents(tmp_path: Path):

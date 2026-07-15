@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Private point-in-time macro role snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "role", "as_of_date", "observations", "events", "source_policy", "snapshot_hash"],
+  "properties": {
+    "schema_version": {"const": "macro_role_snapshot_v1"},
+    "role": {"enum": ["china", "us_economy", "central_bank", "yield_curve", "dollar", "commodities", "geopolitical", "volatility", "institutional_flow"]},
+    "as_of_date": {"type": "string", "format": "date"},
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["series_id", "period_start", "period_end", "released_at", "vintage_at", "actual", "previous", "expected", "unit", "source", "pit_status", "evidence_id"],
+        "properties": {
+          "series_id": {"type": "string", "minLength": 1},
+          "period_start": {"type": "string", "minLength": 1},
+          "period_end": {"type": "string", "minLength": 1},
+          "released_at": {"type": "string", "format": "date-time"},
+          "vintage_at": {"type": "string", "format": "date-time"},
+          "actual": {"type": ["number", "string", "null"]},
+          "previous": {"type": ["number", "string", "null"]},
+          "expected": {"type": ["number", "string", "null"]},
+          "unit": {"type": "string", "minLength": 1},
+          "source": {
+            "type": "string",
+            "pattern": "^(tushare(?:\\..+)?|ALFRED|official(?:\\..+)?)$"
+          },
+          "pit_status": {"const": "AVAILABLE_AS_OF"},
+          "evidence_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event_id", "published_at", "source", "content_hash", "title", "evidence_id"],
+        "properties": {
+          "event_id": {"type": "string", "minLength": 1},
+          "published_at": {"type": "string", "format": "date-time"},
+          "source": {"enum": ["tushare.major_news", "official_policy_document"]},
+          "content_hash": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "evidence_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "source_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "us_revision_source", "implicit_fallback"],
+      "properties": {
+        "primary": {"const": "tushare"},
+        "us_revision_source": {"const": "ALFRED/official fixed map"},
+        "implicit_fallback": {"const": false}
+      }
+    },
+    "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -135,7 +135,7 @@ export async function checkResearchKnobsPrompts(opts: {
           ...registry.reasons,
           ...governance.reasons,
           ...promptIr.reasons,
-          ...validatePromptBodiesAgainstRuntimeSpec(loaded.bodies, spec, loaded.snapshot.knobs),
+          ...validatePromptBodiesAgainstRuntimeSpec(loaded.bodies, spec),
           ...validateLoadedKnobsAgainstRuntimeSpec(loaded.snapshot.knobs, spec, {
             cohort: opts.cohort,
             domainRegistry: registry.registry,
@@ -245,7 +245,6 @@ async function collectOrphanPromptRows(opts: {
 function validatePromptBodiesAgainstRuntimeSpec(
   bodies: { zh: string; en: string },
   spec: RuntimeAgentSpec,
-  knobs: ResearchKnobs,
 ): string[] {
   const combined = `${bodies.zh}\n${bodies.en}`;
   const reasons: string[] = [];
@@ -266,26 +265,7 @@ function validatePromptBodiesAgainstRuntimeSpec(
       }
     }
   }
-  if (hasPostRunDomainDependencies(knobs)) {
-    for (const field of ["declared_knob_influence_ids", "declared_influence_rationale"]) {
-      if (!combined.includes(field)) {
-        reasons.push(`knob_influence_field_missing_from_prompt_body:${field}`);
-      }
-    }
-  }
   return reasons;
-}
-
-function hasPostRunDomainDependencies(knobs: ResearchKnobs): boolean {
-  const metadata = knobs.projection_metadata?.domain_knob_catalog;
-  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) return false;
-  const cards = (metadata as Record<string, unknown>).cards;
-  if (!Array.isArray(cards)) return false;
-  return cards.some((card) => {
-    if (card === null || typeof card !== "object" || Array.isArray(card)) return false;
-    const dependencies = (card as Record<string, unknown>).evidence_dependencies;
-    return Array.isArray(dependencies) && dependencies.length > 0;
-  });
 }
 
 function validateLoadedKnobsAgainstRuntimeSpec(
@@ -384,7 +364,9 @@ async function loadDomainKnobRegistryForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ registry: DomainKnobValueRegistry | null; reasons: string[] }> {
-  if (!opts.privatePromptsRoot) return { registry: null, reasons: [] };
+  if (!opts.privatePromptsRoot || spec.layer === "macro") {
+    return { registry: null, reasons: [] };
+  }
   const path = domainKnobValueRegistryPath({
     privatePromptsRoot: opts.privatePromptsRoot,
     cohort: opts.cohort,
@@ -404,7 +386,9 @@ async function loadPromptGovernanceRegistryForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ registry: PromptGovernanceValueRegistry | null; reasons: string[] }> {
-  if (!opts.privatePromptsRoot) return { registry: null, reasons: [] };
+  if (!opts.privatePromptsRoot || spec.layer === "macro") {
+    return { registry: null, reasons: [] };
+  }
   const path = promptGovernanceValueRegistryPath({
     privatePromptsRoot: opts.privatePromptsRoot,
     cohort: opts.cohort,
@@ -424,7 +408,7 @@ async function loadPromptIrForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ reasons: string[] }> {
-  if (!opts.privatePromptsRoot) return { reasons: [] };
+  if (!opts.privatePromptsRoot || spec.layer === "macro") return { reasons: [] };
   const path = promptIrPathForSpec({
     privatePromptsRoot: opts.privatePromptsRoot,
     spec,

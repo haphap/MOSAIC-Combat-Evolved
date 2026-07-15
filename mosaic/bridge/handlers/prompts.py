@@ -146,66 +146,8 @@ _IMMUTABLE_GUARDRAIL_TOKENS = {
 _STANDARD_SECTOR_FIELDS = ("longs", "shorts", "sector_score", "key_drivers", "confidence")
 _SUPERINVESTOR_FIELDS = ("picks", "philosophy_note", "key_drivers", "confidence")
 _AGENT_SCHEMA_FIELDS: dict[str, tuple[str, ...]] = {
-    "central_bank": (
-        "stance",
-        "key_rate_change_bps",
-        "qe_qt_balance_change",
-        "next_window",
-        "key_drivers",
-        "confidence",
-    ),
-    "china": ("policy_direction", "sector_focus", "risk_drivers", "key_drivers", "confidence"),
-    "geopolitical": (
-        "escalation_level",
-        "hot_zones",
-        "trade_impact",
-        "key_drivers",
-        "confidence",
-    ),
-    "dollar": (
-        "dxy_trend",
-        "cny_pressure",
-        "dxy_cny_correlation",
-        "key_drivers",
-        "confidence",
-    ),
-    "yield_curve": (
-        "curve_shape",
-        "recession_signal",
-        "cn_us_spread_bps",
-        "key_drivers",
-        "confidence",
-    ),
-    "commodities": (
-        "oil_regime",
-        "metals_regime",
-        "ag_regime",
-        "china_demand_signal",
-        "key_drivers",
-        "confidence",
-    ),
-    "volatility": ("vix_regime", "ivx_regime", "regime_filter", "key_drivers", "confidence"),
-    "emerging_markets": (
-        "em_relative",
-        "hk_a_share_ratio",
-        "capital_flow",
-        "key_drivers",
-        "confidence",
-    ),
-    "news_sentiment": (
-        "retail_sentiment_score",
-        "hot_topics",
-        "contrarian_flag",
-        "key_drivers",
-        "confidence",
-    ),
-    "institutional_flow": (
-        "main_net_flow_cny",
-        "top_buyers",
-        "sectors_in_out",
-        "key_drivers",
-        "confidence",
-    ),
+    # Macro output fields are owned by the TypeScript Zod contract and injected
+    # at runtime. Keeping a second Python field table caused the two surfaces to drift.
     "semiconductor": _STANDARD_SECTOR_FIELDS,
     "energy": _STANDARD_SECTOR_FIELDS,
     "biotech": _STANDARD_SECTOR_FIELDS,

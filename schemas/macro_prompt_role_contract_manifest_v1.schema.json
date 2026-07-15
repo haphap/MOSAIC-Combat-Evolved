@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Macro Prompt Role Contract Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "private_prompt_repository",
+    "private_prompt_branch",
+    "private_prompt_commit",
+    "prompt_tree_sha256",
+    "cohort_count",
+    "prompt_count",
+    "languages",
+    "agents",
+    "legacy_agents"
+  ],
+  "properties": {
+    "schema_version": { "const": "macro_prompt_role_contract_manifest_v1" },
+    "private_prompt_repository": { "const": "haphap/MOSAIC-Prompts" },
+    "private_prompt_branch": { "const": "codex/macro-agent-role-contracts" },
+    "private_prompt_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "prompt_tree_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "cohort_count": { "const": 8 },
+    "prompt_count": { "const": 160 },
+    "languages": {
+      "const": ["en", "zh"]
+    },
+    "agents": {
+      "const": [
+        "china",
+        "us_economy",
+        "central_bank",
+        "dollar",
+        "yield_curve",
+        "commodities",
+        "geopolitical",
+        "volatility",
+        "market_breadth",
+        "institutional_flow"
+      ]
+    },
+    "legacy_agents": {
+      "const": [
+        { "agent": "emerging_markets", "status": "legacy_unverified" },
+        { "agent": "news_sentiment", "status": "legacy_unverified" }
+      ]
+    }
+  }
+}

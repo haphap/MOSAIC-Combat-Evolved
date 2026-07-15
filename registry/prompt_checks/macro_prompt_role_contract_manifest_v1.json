@@ -1,0 +1,26 @@
+{
+  "schema_version": "macro_prompt_role_contract_manifest_v1",
+  "private_prompt_repository": "haphap/MOSAIC-Prompts",
+  "private_prompt_branch": "codex/macro-agent-role-contracts",
+  "private_prompt_commit": "9c98f1f60a44284df2f8bda2674693fcc4185744",
+  "prompt_tree_sha256": "b638cefad6c71df9e0ca3d4f0c32607e4a7663b347765a75ed777a39ada2965d",
+  "cohort_count": 8,
+  "prompt_count": 160,
+  "languages": ["en", "zh"],
+  "agents": [
+    "china",
+    "us_economy",
+    "central_bank",
+    "dollar",
+    "yield_curve",
+    "commodities",
+    "geopolitical",
+    "volatility",
+    "market_breadth",
+    "institutional_flow"
+  ],
+  "legacy_agents": [
+    { "agent": "emerging_markets", "status": "legacy_unverified" },
+    { "agent": "news_sentiment", "status": "legacy_unverified" }
+  ]
+}

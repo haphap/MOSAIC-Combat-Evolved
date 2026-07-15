@@ -25,13 +25,9 @@ Empty / insufficient data fallback (plan §11.3 design decision #7):
     30 days of a cohort don't have Phase 3 weights perturbing the
     portfolio.
 
-Caveat (documented for Phase 4 autoresearch):
-
-    alpha_5d observations come from daily recommendations with
-    OVERLAPPING 5-day forward windows (today's window vs tomorrow's
-    differ by 4 of 5 days). This biases std(alpha_5d) downward and
-    therefore Sharpe upward. We accept the bias for MVP — Phase 4 can
-    switch to non-overlapping 5d windows or Newey-West variance.
+Macro ranking uses role-matched, non-overlapping five-day outcomes. Daily
+macro rows are ordered per role and sampled every fifth observation before the
+30-sample eligibility gate is evaluated.
 """
 
 from __future__ import annotations
@@ -281,19 +277,28 @@ def _collect_macro_candidates(
     today: str,
     min_obs: int,
 ) -> list[dict[str, Any]]:
-    since = _cutoff_date(today, CALENDAR_DAYS_30)
     try:
-        rows = store.list_scored_macro(cohort, since_date=since)
+        rows = store.list_scored_macro(cohort)
     except AttributeError:
         return []
+    from mosaic.scorecard.macro_aggregation import MACRO_AGENTS
+
     by_agent: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        if row.get("raw_macro_score_5d") is None:
+        if (
+            row.get("raw_macro_score_5d") is None
+            or row.get("agent") not in MACRO_AGENTS
+            or row.get("label_source_status") != "primary"
+        ):
             continue
         by_agent.setdefault(row["agent"], []).append(row)
 
     candidates: list[dict[str, Any]] = []
     for agent, recs in by_agent.items():
+        # One signal is emitted per trading day but each target spans five
+        # trading days. Selecting every fifth chronological row prevents
+        # overlapping outcomes from inflating the Darwinian sample count.
+        recs = sorted(recs, key=lambda row: row["date"])[::5]
         values = [
             float(r["raw_macro_score_5d"])
             for r in recs
@@ -329,7 +334,7 @@ def _compute_evolutionary_weights(
     top_multiplier = float(cfg.get("top_multiplier", TOP_MULTIPLIER))
     bottom_multiplier = float(cfg.get("bottom_multiplier", BOTTOM_MULTIPLIER))
     min_ranked = int(cfg.get("min_ranked_agents_per_scope", 8))
-    min_obs = int(cfg.get("min_scored_observations_per_agent", 10))
+    min_obs = int(cfg.get("min_scored_observations_per_agent", 30))
     min_macro_matured = int(cfg.get("min_matured_agents_for_update", 8))
 
     candidates = [
@@ -393,7 +398,11 @@ def _compute_evolutionary_weights(
             if agent not in previous:
                 fallback_count += 1
             quartile = quartiles.get(agent)
-            if not can_rank or quartile is None:
+            if int(candidate.get("n_obs") or 0) < min_obs:
+                weight = 1.0
+                update_action = "skipped"
+                quartile = None
+            elif not can_rank or quartile is None:
                 weight = prev_weight
                 update_action = "skipped"
             elif quartile == 1:

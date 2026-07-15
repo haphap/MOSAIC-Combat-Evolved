@@ -66,6 +66,7 @@ import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
 import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
 import type { LlmHandle } from "../src/llm/factory.js";
+import { macroOutput } from "./helpers/macro.js";
 
 // ============================================================ AGENTS_BY_LAYER
 
@@ -321,31 +322,21 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
     };
 
     // Pre-populate Layer-1 state — the factory must surface this in user context.
-    const cb: CentralBankOutput = {
-      agent: "central_bank",
-      stance: "ACCOMMODATIVE",
-      key_rate_change_bps: -10,
-      qe_qt_balance_change: "OMO +20B",
-      next_window: "2024-07-15",
-      key_drivers: ["d-cb"],
-      confidence: 0.7,
-    };
-    const cn: ChinaOutput = {
-      agent: "china",
-      policy_direction: "PRO_GROWTH",
-      sector_focus: ["半导体", "新质生产力"],
-      risk_drivers: ["地方债"],
+    const cb: CentralBankOutput = macroOutput("central_bank", {
+      direction: "SUPPORTIVE",
+      strength: 4,
+    });
+    const cn: ChinaOutput = macroOutput("china", {
+      direction: "SUPPORTIVE",
+      strength: 4,
+      channels: ["半导体", "新质生产力"],
       key_drivers: ["国务院 6/24 半导体扶持"],
-      confidence: 0.7,
-    };
-    const inf: InstitutionalFlowOutput = {
-      agent: "institutional_flow",
-      main_net_flow_cny: 12345,
-      top_buyers: ["中信"],
-      sectors_in_out: [{ sector: "semiconductor", net_amount_cny: 5000 }],
-      key_drivers: ["d-inf"],
-      confidence: 0.7,
-    };
+    });
+    const inf: InstitutionalFlowOutput = macroOutput("institutional_flow", {
+      direction: "SUPPORTIVE",
+      strength: 4,
+      channels: ["semiconductor rotation"],
+    });
     const regime: RegimeSignal = {
       stance: "BULLISH",
       confidence: 0.7,
@@ -419,22 +410,16 @@ describe("buildLayerTwoUserContext", () => {
       key_drivers: ["d1"],
       layer_1_consensus_score: 0.6,
     };
-    const china: ChinaOutput = {
-      agent: "china",
-      policy_direction: "PRO_GROWTH",
-      sector_focus: ["半导体"],
-      risk_drivers: ["地方债"],
-      key_drivers: ["d-cn"],
-      confidence: 0.7,
-    };
-    const inf: InstitutionalFlowOutput = {
-      agent: "institutional_flow",
-      main_net_flow_cny: 5000,
-      top_buyers: ["a"],
-      sectors_in_out: [{ sector: "semi", net_amount_cny: 3000 }],
-      key_drivers: ["d-inf"],
-      confidence: 0.7,
-    };
+    const china: ChinaOutput = macroOutput("china", {
+      direction: "SUPPORTIVE",
+      strength: 4,
+      channels: ["半导体"],
+    });
+    const inf: InstitutionalFlowOutput = macroOutput("institutional_flow", {
+      direction: "SUPPORTIVE",
+      strength: 3,
+      channels: ["semi rotation"],
+    });
     const state: DailyCycleStateType = {
       messages: [],
       active_cohort: "cohort_default",
@@ -480,9 +465,9 @@ describe("buildLayerTwoUserContext", () => {
     };
     const ctx = buildLayerTwoUserContext(state, "semiconductor");
     expect(ctx).toContain("BULLISH");
-    expect(ctx).toContain("PRO_GROWTH");
+    expect(ctx).toContain("SUPPORTIVE");
     expect(ctx).toContain("半导体");
-    expect(ctx).toContain("5000"); // main_net_flow_cny
+    expect(ctx).toContain("semi rotation");
     expect(ctx).toContain("semiconductor"); // agentId in header
   });
 

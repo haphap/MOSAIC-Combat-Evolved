@@ -19,20 +19,7 @@ import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
-import type {
-  CentralBankOutput,
-  ChinaOutput,
-  CommoditiesOutput,
-  DollarOutput,
-  EmergingMarketsOutput,
-  GeopoliticalOutput,
-  InstitutionalFlowOutput,
-  MacroAgentOutput,
-  NewsSentimentOutput,
-  RegimeSignal,
-  VolatilityOutput,
-  YieldCurveOutput,
-} from "../src/agents/types.js";
+import type { MacroAgentOutput, RegimeSignal } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
 import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
@@ -42,21 +29,22 @@ import {
   LAYER1_AGGREGATOR_NODE,
 } from "../src/graph/layer1.js";
 import type { LlmHandle } from "../src/llm/factory.js";
+import { macroOutput } from "./helpers/macro.js";
 
 // ============================================================ shape
 
 describe("LAYER1_AGENT_NODES + LAYER1_AGGREGATOR_NODE constants", () => {
   it("declares the canonical 10 macro nodes", () => {
     expect([...LAYER1_AGENT_NODES]).toEqual([
-      "central_bank",
       "china",
-      "geopolitical",
+      "us_economy",
+      "central_bank",
       "dollar",
       "yield_curve",
       "commodities",
+      "geopolitical",
       "volatility",
-      "emerging_markets",
-      "news_sentiment",
+      "market_breadth",
       "institutional_flow",
     ]);
   });
@@ -75,31 +63,16 @@ const TOOL_SCHEMA: JsonSchemaObject = {
 };
 
 const FAKE_TOOLS: ToolMetadata[] = [
-  "get_rke_research_context",
-  "get_pboc_ops",
-  "get_fred_series",
-  "get_yield_curve_cn",
-  "get_industry_policy",
-  "get_policy_uncertainty",
-  "get_property_data",
-  "get_us_china_spread",
-  "get_xueqiu_heat",
-  "get_lhb_ranking",
-  "get_usdcny",
-  "get_commodity_prices",
-  "get_ivx",
-  "get_realized_volatility",
-  "get_etf_indicator",
-  "get_fund_flow",
-  "get_stock_moneyflow",
-  "get_news",
-  "get_etf_price_data",
-  "get_etf_info",
-  "get_etf_nav",
-  "get_etf_universe",
-  "get_etf_holdings",
-  "get_caixin_sentiment",
-  "get_us_china_relations",
+  "get_china_macro_snapshot",
+  "get_us_macro_snapshot",
+  "get_central_bank_snapshot",
+  "get_fx_conditions_snapshot",
+  "get_rates_credit_snapshot",
+  "get_commodity_conditions_snapshot",
+  "get_geopolitical_events_snapshot",
+  "get_volatility_snapshot",
+  "get_market_breadth_snapshot",
+  "get_market_positioning_snapshot",
 ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
 
 /**
@@ -107,100 +80,12 @@ const FAKE_TOOLS: ToolMetadata[] = [
  * exercise different aggregator outcomes.
  */
 function cannedOutputs(): Record<string, MacroAgentOutput> {
-  const cb: CentralBankOutput = {
-    agent: "central_bank",
-    stance: "ACCOMMODATIVE",
-    key_rate_change_bps: -10,
-    qe_qt_balance_change: "OMO +20B",
-    next_window: "2024-07-15",
-    key_drivers: ["d-cb"],
-    confidence: 0.7,
-  };
-  const cn: ChinaOutput = {
-    agent: "china",
-    policy_direction: "PRO_GROWTH",
-    sector_focus: ["semi"],
-    risk_drivers: ["debt"],
-    key_drivers: ["d-cn"],
-    confidence: 0.7,
-  };
-  const geo: GeopoliticalOutput = {
-    agent: "geopolitical",
-    escalation_level: 1,
-    hot_zones: ["x"],
-    trade_impact: "x",
-    key_drivers: ["d-geo"],
-    confidence: 0.7,
-  };
-  const dlr: DollarOutput = {
-    agent: "dollar",
-    dxy_trend: "WEAKENING",
-    cny_pressure: "LOW",
-    dxy_cny_correlation: -70,
-    key_drivers: ["d-dlr"],
-    confidence: 0.7,
-  };
-  const yc: YieldCurveOutput = {
-    agent: "yield_curve",
-    curve_shape: "STEEPENING",
-    recession_signal: "GREEN",
-    cn_us_spread_bps: -150,
-    key_drivers: ["d-yc"],
-    confidence: 0.7,
-  };
-  const cmd: CommoditiesOutput = {
-    agent: "commodities",
-    oil_regime: "BACKWARDATION",
-    metals_regime: "RISK_ON",
-    ag_regime: "BALANCED",
-    china_demand_signal: "ACCELERATING",
-    key_drivers: ["d-cmd"],
-    confidence: 0.7,
-  };
-  const vol: VolatilityOutput = {
-    agent: "volatility",
-    vix_regime: "LOW",
-    ivx_regime: "LOW",
-    regime_filter: "RISK_ON",
-    key_drivers: ["d-vol"],
-    confidence: 0.7,
-  };
-  const em: EmergingMarketsOutput = {
-    agent: "emerging_markets",
-    em_relative: "OUTPERFORMING",
-    hk_a_share_ratio: 1.3,
-    capital_flow: "NET_INFLOW",
-    key_drivers: ["d-em"],
-    confidence: 0.7,
-  };
-  const ns: NewsSentimentOutput = {
-    agent: "news_sentiment",
-    retail_sentiment_score: 0.5,
-    hot_topics: ["x"],
-    contrarian_flag: false,
-    key_drivers: ["d-ns"],
-    confidence: 0.7,
-  };
-  const inf: InstitutionalFlowOutput = {
-    agent: "institutional_flow",
-    main_net_flow_cny: 5000,
-    top_buyers: ["x"],
-    sectors_in_out: [{ sector: "semi", net_amount_cny: 5000 }],
-    key_drivers: ["d-if"],
-    confidence: 0.7,
-  };
-  return {
-    central_bank: cb,
-    china: cn,
-    geopolitical: geo,
-    dollar: dlr,
-    yield_curve: yc,
-    commodities: cmd,
-    volatility: vol,
-    emerging_markets: em,
-    news_sentiment: ns,
-    institutional_flow: inf,
-  };
+  return Object.fromEntries(
+    LAYER1_AGENT_NODES.map((agent) => [
+      agent,
+      macroOutput(agent, { direction: "SUPPORTIVE", strength: 5 }),
+    ]),
+  ) as Record<string, MacroAgentOutput>;
 }
 
 class ScriptedLlm {
@@ -262,8 +147,31 @@ class ScriptedLlm {
 
 const fakeApi: BridgeApi = {
   toolsList: async () => FAKE_TOOLS,
-  toolsCall: async (name: string) => ({ text: `${name}_csv` }),
+  toolsCall: async (name: string) => ({ text: fakeSnapshot(name, "2024-06-24") }),
 } as unknown as BridgeApi;
+
+function fakeSnapshot(name: string, asOfDate: string): string {
+  const agent = LAYER1_AGENT_NODES.find((candidate) => MACRO_TOOL_BY_AGENT[candidate] === name);
+  return JSON.stringify({
+    schema_version:
+      agent === "market_breadth" ? "market_breadth_snapshot_v1" : "macro_role_snapshot_v1",
+    ...(agent !== "market_breadth" ? { role: agent } : {}),
+    as_of_date: asOfDate,
+  });
+}
+
+const MACRO_TOOL_BY_AGENT: Record<(typeof LAYER1_AGENT_NODES)[number], string> = {
+  china: "get_china_macro_snapshot",
+  us_economy: "get_us_macro_snapshot",
+  central_bank: "get_central_bank_snapshot",
+  dollar: "get_fx_conditions_snapshot",
+  yield_curve: "get_rates_credit_snapshot",
+  commodities: "get_commodity_conditions_snapshot",
+  geopolitical: "get_geopolitical_events_snapshot",
+  volatility: "get_volatility_snapshot",
+  market_breadth: "get_market_breadth_snapshot",
+  institutional_flow: "get_market_positioning_snapshot",
+};
 
 const BASE_CONFIG: MosaicConfig = {
   llm_provider: "fake",
@@ -381,10 +289,10 @@ describe("buildLayer1Graph (end-to-end serial / aggregate)", () => {
     expect(consensus?.stance).toBe("NEUTRAL");
     expect(consensus?.layer_1_consensus_score).toBe(0);
 
-    // Each agent runs one tool-call turn plus one tool-free analysis turn.
-    expect(llm.invokeCalls).toBe(20);
+    // Each agent receives its deterministic role snapshot before one analysis turn.
+    expect(llm.invokeCalls).toBe(10);
     expect(llm.structuredCalls).toBe(10);
-    expect(llm.bindToolsCalls).toBe(10);
+    expect(llm.bindToolsCalls).toBe(0);
 
     // 10 LlmCallRecord entries appended.
     expect(final.llm_calls).toHaveLength(10);

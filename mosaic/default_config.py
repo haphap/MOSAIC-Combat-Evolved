@@ -236,7 +236,7 @@ DEFAULT_CONFIG = {
         "top_multiplier": 1.05,
         "bottom_multiplier": 0.95,
         "min_ranked_agents_per_scope": 8,
-        "min_scored_observations_per_agent": 10,
+        "min_scored_observations_per_agent": 30,
         "min_matured_agents_for_update": 8,
     },
     # MiroFish forward-simulation (Plan §11.8 / §11.8.1). 'engine' selects the

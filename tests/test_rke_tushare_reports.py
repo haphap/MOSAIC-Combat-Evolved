@@ -827,14 +827,12 @@ def test_gold_candidate_claim_maps_date_macro_regimes_to_agents():
         "macro.yield_curve",
         "macro.china",
         "macro.dollar",
-        "macro.emerging_markets",
     )
     assert claim.mosaic_agent_trace["macro_agents"] == (
         "macro.central_bank",
         "macro.yield_curve",
         "macro.china",
         "macro.dollar",
-        "macro.emerging_markets",
     )
     assert claim.claim_regime_trace["as_of_date"] == "2026-01-02"
     assert set(claim.claim_regime_trace["macro"]) >= {

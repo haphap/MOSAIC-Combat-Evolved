@@ -1,428 +1,295 @@
-/**
- * Bulk smoke test for the 8 macro agents added in Plan §11.2 sub-step 2C.2.
- *
- * The factory itself was end-to-end tested via central_bank.test.ts and
- * china.test.ts. Here we only verify, for each new agent, that:
- *   (a) the spec declares the right agent ID + tools
- *   (b) the schema accepts a well-formed canonical output
- *   (c) the schema rejects the most common malformations (bad enum,
- *       empty arrays, out-of-range numerics)
- *   (d) the renderer + fallback produce non-empty strings
- *   (e) AGENTS_BY_LAYER.macro lists exactly the 10 agent IDs we have
- *
- * Plus one factory-driven end-to-end smoke for `geopolitical` (smallest
- * tool set — 2 tools), to confirm the factory picks up new specs without
- * any per-agent test scaffolding.
- */
+import { describe, expect, it } from "vitest";
+import {
+  MACRO_AGENT_IDS,
+  MACRO_COHORT_LENSES,
+  MACRO_OUTPUT_FIELD_NAMES,
+  MACRO_PROMPT_COHORT_IDS,
+  MACRO_ROLE_CONTRACTS,
+  renderMacroPromptBody,
+  renderMacroRuntimeContract,
+} from "../src/agents/macro/_contracts.js";
+import { validateMacroSnapshotEchoes } from "../src/agents/macro/_semantic_validation.js";
+import { centralBankSpec } from "../src/agents/macro/central_bank.js";
+import { chinaSpec } from "../src/agents/macro/china.js";
+import { commoditiesSpec } from "../src/agents/macro/commodities.js";
+import { dollarSpec } from "../src/agents/macro/dollar.js";
+import { geopoliticalSpec } from "../src/agents/macro/geopolitical.js";
+import { institutionalFlowSpec } from "../src/agents/macro/institutional_flow.js";
+import { marketBreadthSpec } from "../src/agents/macro/market_breadth.js";
+import { usEconomySpec } from "../src/agents/macro/us_economy.js";
+import { volatilitySpec } from "../src/agents/macro/volatility.js";
+import { yieldCurveSpec } from "../src/agents/macro/yield_curve.js";
+import type { MacroAgentId } from "../src/agents/types.js";
+import { macroOutput } from "./helpers/macro.js";
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  buildCommoditiesNode,
-  commoditiesSpec,
-  fallbackCommodities,
-  renderCommodities,
-} from "../src/agents/macro/commodities.js";
-import {
-  buildDollarNode,
+const specs = [
+  chinaSpec,
+  usEconomySpec,
+  centralBankSpec,
   dollarSpec,
-  fallbackDollar,
-  renderDollar,
-} from "../src/agents/macro/dollar.js";
-import {
-  buildEmergingMarketsNode,
-  emergingMarketsSpec,
-  fallbackEmergingMarkets,
-  renderEmergingMarkets,
-} from "../src/agents/macro/emerging_markets.js";
-import {
-  buildGeopoliticalNode,
-  fallbackGeopolitical,
-  geopoliticalSpec,
-  renderGeopolitical,
-} from "../src/agents/macro/geopolitical.js";
-import {
-  buildInstitutionalFlowNode,
-  fallbackInstitutionalFlow,
-  institutionalFlowSpec,
-  renderInstitutionalFlow,
-} from "../src/agents/macro/institutional_flow.js";
-import {
-  buildNewsSentimentNode,
-  fallbackNewsSentiment,
-  newsSentimentSpec,
-  renderNewsSentiment,
-} from "../src/agents/macro/news_sentiment.js";
-import {
-  buildVolatilityNode,
-  fallbackVolatility,
-  renderVolatility,
-  volatilitySpec,
-} from "../src/agents/macro/volatility.js";
-import {
-  buildYieldCurveNode,
-  fallbackYieldCurve,
-  renderYieldCurve,
   yieldCurveSpec,
-} from "../src/agents/macro/yield_curve.js";
-import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
-import { clearPromptCache } from "../src/agents/prompts/loader.js";
-import type { DailyCycleStateType } from "../src/agents/state.js";
-import type { GeopoliticalOutput, LlmCallRecord, MacroAgentOutput } from "../src/agents/types.js";
-import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
-import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
-import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
-import type { LlmHandle } from "../src/llm/factory.js";
+  commoditiesSpec,
+  geopoliticalSpec,
+  volatilitySpec,
+  marketBreadthSpec,
+  institutionalFlowSpec,
+];
 
-// ============================================================ AGENTS_BY_LAYER
+describe.each(specs)("$agentId macro role contract", (spec) => {
+  it("uses the shared schema and its single role-scoped snapshot tool", () => {
+    const parsed = spec.schema.parse(macroOutput(spec.agentId));
+    expect(parsed.agent).toBe(spec.agentId);
+    expect(spec.fieldNames).toEqual(MACRO_OUTPUT_FIELD_NAMES);
+    expect(spec.requiredTools).toEqual(MACRO_ROLE_CONTRACTS[spec.agentId].requiredTools);
+    expect(spec.requiredTools).toHaveLength(1);
+  });
 
-describe("AGENTS_BY_LAYER.macro", () => {
-  it("lists the canonical 10 macro agents from Plan §5.1", () => {
-    expect([...AGENTS_BY_LAYER.macro]).toEqual([
-      "central_bank",
-      "geopolitical",
-      "china",
-      "dollar",
-      "yield_curve",
-      "commodities",
-      "volatility",
-      "emerging_markets",
-      "news_sentiment",
-      "institutional_flow",
+  it("requires non-empty claims, conclusion refs, drivers, and channels", () => {
+    for (const field of ["claims", "claim_refs", "key_drivers", "channels"] as const) {
+      expect(spec.schema.safeParse({ ...macroOutput(spec.agentId), [field]: [] }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it("enforces direction-strength consistency", () => {
+    expect(
+      spec.schema.safeParse({
+        ...macroOutput(spec.agentId),
+        direction: "NEUTRAL",
+        strength: 1,
+      }).success,
+    ).toBe(false);
+    expect(
+      spec.schema.safeParse({
+        ...macroOutput(spec.agentId),
+        direction: "ADVERSE",
+        strength: 0,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("macro responsibility matrix", () => {
+  it("contains exactly the ten current roles and excludes both legacy roles", () => {
+    expect(specs.map((spec) => spec.agentId)).toEqual(MACRO_AGENT_IDS);
+    expect(MACRO_AGENT_IDS).not.toContain("emerging_markets");
+    expect(MACRO_AGENT_IDS).not.toContain("news_sentiment");
+  });
+
+  it.each(MACRO_AGENT_IDS)("generates immutable bilingual role/tool text for %s", (agent) => {
+    const zh = renderMacroRuntimeContract(agent, "zh");
+    const en = renderMacroRuntimeContract(agent, "en");
+    expect(zh).toContain(MACRO_ROLE_CONTRACTS[agent].requiredTools[0]);
+    expect(en).toContain(MACRO_ROLE_CONTRACTS[agent].requiredTools[0]);
+    expect(zh).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility.zh);
+    expect(en).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility.en);
+    expect(zh).not.toContain("```json");
+    expect(en).not.toContain("```json");
+  });
+
+  it("keeps cohort lenses distinct without changing role-scoped contracts", () => {
+    expect(
+      new Set(MACRO_PROMPT_COHORT_IDS.map((cohort) => MACRO_COHORT_LENSES[cohort].en)).size,
+    ).toBe(MACRO_PROMPT_COHORT_IDS.length);
+    expect(
+      new Set(MACRO_PROMPT_COHORT_IDS.map((cohort) => MACRO_COHORT_LENSES[cohort].zh)).size,
+    ).toBe(MACRO_PROMPT_COHORT_IDS.length);
+    for (const agent of MACRO_AGENT_IDS) {
+      for (const language of ["zh", "en"] as const) {
+        const bodies = MACRO_PROMPT_COHORT_IDS.map((cohort) =>
+          renderMacroPromptBody(agent, language, cohort),
+        );
+        expect(new Set(bodies).size, `${agent}:${language}`).toBe(MACRO_PROMPT_COHORT_IDS.length);
+        for (const [index, cohort] of MACRO_PROMPT_COHORT_IDS.entries()) {
+          expect(bodies[index]).toContain(MACRO_COHORT_LENSES[cohort][language]);
+          expect(bodies[index]).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
+        }
+      }
+      const zh = renderMacroPromptBody(agent, "zh", "cohort_default");
+      expect(zh).not.toMatch(/^## (Runtime|Analysis|Cohort|Prohibited)/m);
+      expect(zh).not.toContain("When evidence is insufficient");
+      expect(zh).not.toContain("Layer-1");
+    }
+  });
+
+  it("keeps news event evidence limited to China and geopolitical snapshots", () => {
+    const allowed = new Set<MacroAgentId>(["china", "geopolitical"]);
+    for (const agent of MACRO_AGENT_IDS) {
+      const text = [
+        MACRO_ROLE_CONTRACTS[agent].responsibility.zh,
+        ...MACRO_ROLE_CONTRACTS[agent].prohibited.zh,
+      ].join(" ");
+      if (!allowed.has(agent)) expect(text).not.toContain("新闻情绪票");
+    }
+  });
+});
+
+describe("macro snapshot semantic validation", () => {
+  it("accepts exact observation echoes and rejects altered values", () => {
+    const snapshot = {
+      schema_version: "macro_role_snapshot_v1",
+      role: "us_economy",
+      as_of_date: "2026-07-15",
+      observations: [
+        {
+          series_id: "CPIAUCSL",
+          evidence_id: "us-cpi-vintage",
+          actual: 3.2,
+          previous: 3.3,
+          expected: 3.1,
+        },
+      ],
+    };
+    const baseClaim = macroOutput("us_economy").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const exact = macroOutput("us_economy", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: { series_id: "CPIAUCSL", actual: 3.2, expected: 3.1 },
+        },
+      ],
+    });
+    expect(validateMacroSnapshotEchoes(exact, snapshot)).toEqual([]);
+    const altered = macroOutput("us_economy", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: { series_id: "CPIAUCSL", actual: 3.4 },
+        },
+      ],
+    });
+    expect(validateMacroSnapshotEchoes(altered, snapshot)).toEqual([
+      expect.objectContaining({ reason_code: "SNAPSHOT_NUMERIC_MISMATCH" }),
     ]);
   });
-});
 
-// ============================================================ spec sanity
-
-describe("each macro agent spec wires the right factory inputs", () => {
-  const cases = [
-    { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 3 },
-    { name: "dollar", spec: dollarSpec, expected_tools: 4 },
-    { name: "yield_curve", spec: yieldCurveSpec, expected_tools: 4 },
-    { name: "commodities", spec: commoditiesSpec, expected_tools: 3 },
-    { name: "volatility", spec: volatilitySpec, expected_tools: 5 },
-    { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 7 },
-    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 4 },
-    { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 4 },
-  ] as const;
-
-  for (const { name, spec, expected_tools } of cases) {
-    it(`${name}`, () => {
-      expect(spec.agentId).toBe(name);
-      expect(spec.requiredTools.length).toBe(expected_tools);
-      expect(spec.requiredTools).toContain("get_rke_research_context");
-      expect(spec.fieldNames.length).toBeGreaterThanOrEqual(4);
-      // Every spec must include `key_drivers` + `confidence` (Plan §11.2 2B-6
-      // contract for the L1 aggregator).
-      expect(spec.fieldNames).toContain("key_drivers");
-      expect(spec.fieldNames).toContain("confidence");
-    });
-  }
-});
-
-// ============================================================ render + fallback
-
-describe("renderers + fallbacks emit non-empty strings", () => {
-  it("geopolitical", () => {
-    const fb = fallbackGeopolitical("");
-    expect(fb.confidence).toBe(0);
-    expect(renderGeopolitical(fb).length).toBeGreaterThan(20);
-  });
-  it("dollar", () => {
-    const fb = fallbackDollar("");
-    expect(fb.confidence).toBe(0);
-    expect(renderDollar(fb).length).toBeGreaterThan(20);
-  });
-  it("yield_curve", () => {
-    const fb = fallbackYieldCurve("");
-    expect(fb.confidence).toBe(0);
-    expect(renderYieldCurve(fb).length).toBeGreaterThan(20);
-  });
-  it("commodities", () => {
-    const fb = fallbackCommodities("");
-    expect(fb.confidence).toBe(0);
-    expect(renderCommodities(fb).length).toBeGreaterThan(20);
-  });
-  it("volatility", () => {
-    const fb = fallbackVolatility("");
-    expect(fb.confidence).toBe(0);
-    expect(renderVolatility(fb).length).toBeGreaterThan(20);
-  });
-  it("emerging_markets", () => {
-    const fb = fallbackEmergingMarkets("");
-    expect(fb.confidence).toBe(0);
-    expect(renderEmergingMarkets(fb).length).toBeGreaterThan(20);
-  });
-  it("news_sentiment", () => {
-    const fb = fallbackNewsSentiment("");
-    expect(fb.confidence).toBe(0);
-    expect(renderNewsSentiment(fb).length).toBeGreaterThan(20);
-  });
-  it("institutional_flow", () => {
-    const fb = fallbackInstitutionalFlow("");
-    expect(fb.confidence).toBe(0);
-    expect(renderInstitutionalFlow(fb).length).toBeGreaterThan(20);
-  });
-});
-
-// ============================================================ schema rejects
-
-describe("schemas reject canonical malformations", () => {
-  it("geopoliticalSpec rejects out-of-range escalation_level", () => {
-    expect(() =>
-      geopoliticalSpec.schema.parse({
-        agent: "geopolitical",
-        escalation_level: 7, // > 5
-        hot_zones: ["x"],
-        trade_impact: "x",
-        key_drivers: ["d"],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("dollarSpec rejects dxy_cny_correlation > 100", () => {
-    expect(() =>
-      dollarSpec.schema.parse({
-        agent: "dollar",
-        dxy_trend: "STABLE",
-        cny_pressure: "MODERATE",
-        dxy_cny_correlation: 200, // > 100
-        key_drivers: ["d"],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("newsSentimentSpec rejects retail_sentiment_score outside [-1, 1]", () => {
-    expect(() =>
-      newsSentimentSpec.schema.parse({
-        agent: "news_sentiment",
-        retail_sentiment_score: 1.5,
-        hot_topics: ["x"],
-        contrarian_flag: false,
-        key_drivers: ["d"],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("institutionalFlowSpec rejects empty sectors_in_out", () => {
-    expect(() =>
-      institutionalFlowSpec.schema.parse({
-        agent: "institutional_flow",
-        main_net_flow_cny: 0,
-        top_buyers: ["x"],
-        sectors_in_out: [], // empty
-        key_drivers: ["d"],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-});
-
-// ============================================================ end-to-end via factory
-
-describe("buildGeopoliticalNode (factory smoke)", () => {
-  let promptDir: string;
-
-  class ScriptedLlm {
-    invokeCalls: BaseMessage[][] = [];
-    bindToolsCalled = 0;
-    structuredCalls = 0;
-    readonly responses: AIMessage[];
-    readonly structuredResponse: GeopoliticalOutput | null;
-    constructor(responses: AIMessage[], structured: GeopoliticalOutput) {
-      this.responses = [...responses];
-      this.structuredResponse = structured;
-    }
-    bindTools(_t: unknown): ScriptedLlm {
-      this.bindToolsCalled++;
-      return this;
-    }
-    withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
-      return {
-        invoke: async (input) => {
-          this.structuredCalls++;
-          if (this.structuredResponse === null) throw new Error("no canned response");
-          return fakeContractOutput(
-            this.structuredResponse as unknown as Record<string, unknown>,
-            "geopolitical",
-            input,
-          );
+  it("rejects invented breadth percentages", () => {
+    const baseClaim = macroOutput("market_breadth").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const output = macroOutput("market_breadth", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: {
+            evidence_id: "market_breadth:2026-07-15",
+            above_ma20_pct: 0.75,
+          },
         },
-      };
-    }
-    async invoke(messages: BaseMessage[]): Promise<AIMessage> {
-      this.invokeCalls.push(messages);
-      const next = this.responses.shift();
-      if (!next) throw new Error("ScriptedLlm exhausted");
-      return next;
-    }
-  }
-
-  beforeEach(() => {
-    promptDir = mkdtempSync(join(tmpdir(), "mosaic-geo-"));
-    const dir = join(promptDir, "cohort_default", "macro");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "geopolitical.zh.md"), "FAKE", "utf-8");
-    writeFileSync(join(dir, "geopolitical.en.md"), "FAKE", "utf-8");
-    clearPromptCache();
-  });
-  afterEach(() => {
-    rmSync(promptDir, { recursive: true, force: true });
-    clearPromptCache();
-  });
-
-  it("dispatches 2 tools and writes layer1_outputs.geopolitical", async () => {
-    const TOOL_SCHEMA: JsonSchemaObject = {
-      type: "object",
-      properties: { curr_date: { type: "string" } },
-      required: ["curr_date"],
-    };
-    const FAKE_TOOL_METADATAS: ToolMetadata[] = [
-      { name: "get_rke_research_context", description: "x", args_schema: TOOL_SCHEMA },
-      { name: "get_us_china_relations", description: "x", args_schema: TOOL_SCHEMA },
-      { name: "get_industry_policy", description: "x", args_schema: TOOL_SCHEMA },
-    ];
-    const canned: GeopoliticalOutput = {
-      agent: "geopolitical",
-      escalation_level: 3,
-      hot_zones: ["US-China semi exports"],
-      trade_impact: "半导体设备 -2% 风险溢价上升",
-      key_drivers: ["6/24 US BIS 新增 5 家中国实体清单", "半导体设备相关新闻强度+35%"],
-      confidence: 0.6,
-    };
-    const llm = new ScriptedLlm(
-      [
-        new AIMessage({
-          content: "",
-          tool_calls: [
-            {
-              id: "c1",
-              name: "get_us_china_relations",
-              args: { curr_date: "2024-06-24" },
-              type: "tool_call",
-            },
-            {
-              id: "c2",
-              name: "get_industry_policy",
-              args: { curr_date: "2024-06-24" },
-              type: "tool_call",
-            },
-          ],
-        }),
-        new AIMessage("BIS list expansion + relations index stress — escalation 3."),
       ],
-      canned,
-    );
+    });
+    expect(
+      validateMacroSnapshotEchoes(output, {
+        schema_version: "market_breadth_snapshot_v1",
+        as_of_date: "2026-07-15",
+        evidence_id: "market_breadth:2026-07-15",
+        above_ma20_pct: 0.7,
+      }),
+    ).toEqual([expect.objectContaining({ reason_code: "SNAPSHOT_NUMERIC_MISMATCH" })]);
+  });
 
-    const api = {
-      toolsList: async () => FAKE_TOOL_METADATAS,
-      toolsCall: async (name: string) => ({ text: `${name}_csv` }),
-    } as unknown as BridgeApi;
+  it("rejects fabricated numerics without an explicit snapshot reference", () => {
+    const baseClaim = macroOutput("geopolitical").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const output = macroOutput("geopolitical", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: { price_impact_pct: 37 },
+        },
+      ],
+    });
+    expect(
+      validateMacroSnapshotEchoes(output, {
+        schema_version: "macro_role_snapshot_v1",
+        role: "geopolitical",
+        as_of_date: "2026-07-15",
+        observations: [],
+      }),
+    ).toEqual([expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_REQUIRED" })]);
+  });
 
-    const config: MosaicConfig = {
-      llm_provider: "fake",
-      deep_think_llm: "fake",
-      quick_think_llm: "fake",
-      backend_url: null,
-      anthropic_base_url: null,
-      anthropic_effort: null,
-      output_language: "Chinese",
-      research_depth_name: "标准",
-      active_cohort: "cohort_default",
-      cohorts: { cohort_default: { start: "2000-01-01", end: "2099-12-31" } },
-      autoresearch: {
-        agent_mutation_cooldown_hours: 24,
-        keep_revert_lockout_days: 3,
-        keep_threshold_delta_sharpe: 0.1,
-        monthly_modification_cap_per_cohort: 100,
-        evaluation_horizon_trading_days: 5,
-      },
-      data_vendors: {},
-      tool_vendors: {},
-    };
+  it("rejects unknown references and percentages hidden in prose", () => {
+    const baseClaim = macroOutput("geopolitical").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const output = macroOutput("geopolitical", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: {
+            evidence_id: "missing:event",
+            description: "estimated impact=37%",
+          },
+        },
+      ],
+    });
+    expect(
+      validateMacroSnapshotEchoes(output, {
+        schema_version: "macro_role_snapshot_v1",
+        role: "geopolitical",
+        as_of_date: "2026-07-15",
+        observations: [],
+      }),
+    ).toEqual([
+      expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_UNKNOWN" }),
+      expect.objectContaining({ reason_code: "PERCENTAGE_MUST_BE_NUMERIC_SNAPSHOT_ECHO" }),
+    ]);
+  });
 
-    const handle: LlmHandle = {
-      llm: llm as unknown as LlmHandle["llm"],
-      provider: "fake",
-      model: "fake-model",
-      baseUrl: undefined,
-    };
+  it("allows assessment scores that are not observation echoes", () => {
+    const baseClaim = macroOutput("china").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const output = macroOutput("china", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: { direction: "supportive", strength: 3 },
+        },
+      ],
+    });
+    expect(
+      validateMacroSnapshotEchoes(output, {
+        schema_version: "macro_role_snapshot_v1",
+        role: "china",
+        as_of_date: "2026-07-15",
+        observations: [],
+      }),
+    ).toEqual([]);
+  });
 
-    const sample: DailyCycleStateType = {
-      messages: [],
-      active_cohort: "cohort_default",
-      as_of_date: "2024-06-24",
-      mode: "live",
-      trace_id: "test",
-      continuity_context: {},
-      lesson_context: {},
-      method_context: {},
-      layer1_outputs: {},
-      layer1_consensus: null,
-      layer2_outputs: {},
-      layer2_consensus: null,
-      layer3_outputs: {},
-      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
-      current_positions: {
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        position_snapshot_hash: "sha256:empty_positions",
-        positions: [],
-      },
-      position_reviews: [],
-      position_audit: {
-        position_snapshot_hash: "sha256:empty_positions",
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        positions_loaded: 0,
-        positions_reviewed: 0,
-        positions_unreviewed: 0,
-        hold_count: 0,
-        add_count: 0,
-        reduce_count: 0,
-        exit_count: 0,
-        stale_thesis_count: 0,
-        stop_loss_override_count: 0,
-        target_current_drift_count: 0,
-      },
-      portfolio_actions: [],
-      replay_triggered: false,
-      llm_calls: [],
-    };
-
-    const node = buildGeopoliticalNode({ llmHandle: handle, api, config });
-    const update = await node(sample);
-    const unwrapped = update as unknown as {
-      layer1_outputs?: Record<string, MacroAgentOutput>;
-      llm_calls?: LlmCallRecord[];
-    };
-    expect(unwrapped.layer1_outputs?.geopolitical).toMatchObject(canned);
-    expect(unwrapped.llm_calls?.[0]?.agent).toBe("geopolitical");
-    expect(llm.invokeCalls.length).toBe(2);
-    expect(llm.bindToolsCalled).toBe(1);
-    expect(llm.structuredCalls).toBe(1);
+  it("validates explicit aliases and deterministic surprise arithmetic", () => {
+    const baseClaim = macroOutput("central_bank").claims[0];
+    if (!baseClaim) throw new Error("macro fixture claim missing");
+    const output = macroOutput("central_bank", {
+      claims: [
+        {
+          ...baseClaim,
+          structured_conclusion: {
+            series_id: "smoke_central_bank",
+            observed_index_value: 0.3,
+            previous_value: 0.2,
+            expected_value: 0.25,
+            surprise: 0.05,
+          },
+        },
+      ],
+    });
+    expect(
+      validateMacroSnapshotEchoes(output, {
+        schema_version: "macro_role_snapshot_v1",
+        role: "central_bank",
+        as_of_date: "2026-07-15",
+        observations: [
+          {
+            series_id: "smoke_central_bank",
+            evidence_id: "smoke:central_bank:2026-06",
+            actual: 0.3,
+            previous: 0.2,
+            expected: 0.25,
+          },
+        ],
+      }),
+    ).toEqual([]);
   });
 });
-
-// Compile-time assertion: every macro builder exists. If 2D adds Layer-2
-// agents and accidentally drops a macro builder, this list is the canary.
-const _allMacroBuilders = {
-  geopolitical: buildGeopoliticalNode,
-  dollar: buildDollarNode,
-  yield_curve: buildYieldCurveNode,
-  commodities: buildCommoditiesNode,
-  volatility: buildVolatilityNode,
-  emerging_markets: buildEmergingMarketsNode,
-  news_sentiment: buildNewsSentimentNode,
-  institutional_flow: buildInstitutionalFlowNode,
-};
-void _allMacroBuilders;

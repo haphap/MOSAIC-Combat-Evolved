@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Deterministic PIT A-share market breadth snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "as_of_date", "advance_decline_balance", "above_ma20_pct",
+    "above_ma60_pct", "new_high_low_20d_balance", "turnover_expansion_pct",
+    "return_dispersion", "top_decile_turnover_share", "eligible_count", "observed_count",
+    "coverage_ratio", "breadth_composite", "breadth_composite_change_20d",
+    "breadth_composite_q40_252d", "breadth_composite_q60_252d", "concentration_q20_252d",
+    "concentration_q80_252d", "breadth_state", "concentration_state", "methodology",
+    "evidence_id", "snapshot_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "market_breadth_snapshot_v1"},
+    "as_of_date": {"type": "string", "format": "date"},
+    "advance_decline_balance": {"type": "number", "minimum": -1, "maximum": 1},
+    "above_ma20_pct": {"type": "number", "minimum": 0, "maximum": 1},
+    "above_ma60_pct": {"type": "number", "minimum": 0, "maximum": 1},
+    "new_high_low_20d_balance": {"type": "number", "minimum": -1, "maximum": 1},
+    "turnover_expansion_pct": {"type": "number", "minimum": 0, "maximum": 1},
+    "return_dispersion": {"type": "number", "minimum": 0},
+    "top_decile_turnover_share": {"type": "number", "minimum": 0, "maximum": 1},
+    "eligible_count": {"type": "integer", "minimum": 1},
+    "observed_count": {"type": "integer", "minimum": 1},
+    "coverage_ratio": {"type": "number", "minimum": 0.9, "maximum": 1},
+    "breadth_composite": {"type": "number", "minimum": -1, "maximum": 1},
+    "breadth_composite_change_20d": {"type": "number"},
+    "breadth_composite_q40_252d": {"type": "number"},
+    "breadth_composite_q60_252d": {"type": "number"},
+    "concentration_q20_252d": {"type": "number"},
+    "concentration_q80_252d": {"type": "number"},
+    "breadth_state": {"enum": ["BROADENING", "NARROWING", "MIXED"]},
+    "concentration_state": {"enum": ["HIGH", "LOW", "NORMAL"]},
+    "methodology": {"type": "object"},
+    "evidence_id": {"type": "string", "minLength": 1},
+    "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -580,6 +580,46 @@ describe("loadPrompt", () => {
     expect(out.snapshot.hash).toMatch(/^sha256:/);
   });
 
+  it("synthesizes runtime defaults for fence-free bundled prompts", async () => {
+    const promptsRoot = findBundledPromptsRoot();
+    expect(promptsRoot).not.toBeNull();
+    if (!promptsRoot) throw new Error("bundled prompts root missing");
+    const out = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      promptsRoot,
+      noCache: true,
+    });
+    const tools = Object.values(out.snapshot.knobs.evidence_registry).flatMap((entry) =>
+      entry.tool ? [entry.tool] : [],
+    );
+    expect(tools).toContain("get_central_bank_snapshot");
+    expect(out.prompt).not.toContain("```research-knobs");
+    expect(out.prompt).toContain("## Runtime Research Knobs Contract");
+  });
+
+  it("still rejects fence-free private prompt overlays", async () => {
+    for (const language of ["zh", "en"] as const) {
+      privateFake.putPrompt({
+        cohort: "cohort_default",
+        layer: "macro",
+        agent: "central_bank",
+        language,
+        body: `${language} private body without contract`,
+      });
+    }
+    await expect(
+      loadPromptWithKnobs({
+        agent: "central_bank",
+        cohort: "cohort_default",
+        stage: "agent_run",
+        privatePromptsRoot: privateFake.root,
+        noCache: true,
+      }),
+    ).rejects.toThrow("expected exactly one research-knobs fence");
+  });
+
   it("freezes the parsed prompt pair across stage-specific snapshot builds", async () => {
     for (const language of ["zh", "en"] as const) {
       fake.putPrompt({

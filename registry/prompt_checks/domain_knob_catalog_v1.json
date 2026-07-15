@@ -1338,852 +1338,6 @@
   "agents": [
     {
       "layer": "macro",
-      "agent": "central_bank",
-      "prompt_ir_agent": "macro.central_bank",
-      "min_mutable_domain_knobs": 6,
-      "card_count": 6,
-      "cards": [
-        {
-          "id": "easing_threshold_bps",
-          "owner_agent": "macro.central_bank",
-          "consumer_agents": [
-            "macro.central_bank"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/easing_threshold_bps/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.central_bank.easing_threshold_bps.primary",
-              "evidence_key": "pboc_ops",
-              "tool": "get_pboc_ops",
-              "metric_ids": [
-                "pboc_ops_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.central_bank.easing_threshold_bps.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate easing threshold bps for macro.central_bank prediction quality",
-          "prediction_target": "macro.central_bank.easing_threshold_bps.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "liquidity_net_injection_window_days",
-          "owner_agent": "macro.central_bank",
-          "consumer_agents": [
-            "macro.central_bank"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/liquidity_net_injection_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.central_bank.liquidity_net_injection_window_days.primary",
-              "evidence_key": "pboc_ops",
-              "tool": "get_pboc_ops",
-              "metric_ids": [
-                "pboc_ops_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.central_bank.liquidity_net_injection_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate liquidity net injection window days for macro.central_bank prediction quality",
-          "prediction_target": "macro.central_bank.liquidity_net_injection_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "omo_mlf_freshness_days",
-          "owner_agent": "macro.central_bank",
-          "consumer_agents": [
-            "macro.central_bank"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/omo_mlf_freshness_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.central_bank.omo_mlf_freshness_days.primary",
-              "evidence_key": "pboc_ops",
-              "tool": "get_pboc_ops",
-              "metric_ids": [
-                "pboc_ops_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.central_bank.omo_mlf_freshness_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate omo mlf freshness days for macro.central_bank prediction quality",
-          "prediction_target": "macro.central_bank.omo_mlf_freshness_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "pboc_fed_policy_weight",
-          "owner_agent": "macro.central_bank",
-          "consumer_agents": [
-            "macro.central_bank"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_fed_policy_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "derived_proxy",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.central_bank.pboc_fed_policy_weight.primary",
-              "evidence_key": "pboc_ops",
-              "tool": "get_pboc_ops",
-              "metric_ids": [
-                "pboc_ops_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "derived_proxy",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.central_bank.pboc_fed_policy_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate pboc fed policy weight for macro.central_bank prediction quality",
-          "prediction_target": "macro.central_bank.pboc_fed_policy_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "policy_conflict_cap",
-          "owner_agent": "macro.central_bank",
-          "consumer_agents": [
-            "macro.central_bank"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/policy_conflict_cap/value",
-          "type": "number",
-          "default": 0.25,
-          "min": 0,
-          "max": 0.75,
-          "step": 0.05,
-          "coverage_level": "derived_proxy",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.central_bank.policy_conflict_cap.primary",
-              "evidence_key": "pboc_ops",
-              "tool": "get_pboc_ops",
-              "metric_ids": [
-                "pboc_ops_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "derived_proxy",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.central_bank.policy_conflict_cap.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate policy conflict cap for macro.central_bank prediction quality",
-          "prediction_target": "macro.central_bank.policy_conflict_cap.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "tightening_threshold_bps",
-          "owner_agent": "macro.central_bank",
-          "consumer_agents": [
-            "macro.central_bank"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/tightening_threshold_bps/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.central_bank.tightening_threshold_bps.primary",
-              "evidence_key": "pboc_ops",
-              "tool": "get_pboc_ops",
-              "metric_ids": [
-                "pboc_ops_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.central_bank.tightening_threshold_bps.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate tightening threshold bps for macro.central_bank prediction quality",
-          "prediction_target": "macro.central_bank.tightening_threshold_bps.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        }
-      ]
-    },
-    {
-      "layer": "macro",
-      "agent": "geopolitical",
-      "prompt_ir_agent": "macro.geopolitical",
-      "min_mutable_domain_knobs": 6,
-      "card_count": 6,
-      "cards": [
-        {
-          "id": "conflict_weight",
-          "owner_agent": "macro.geopolitical",
-          "consumer_agents": [
-            "macro.geopolitical"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/conflict_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.geopolitical.conflict_weight.primary",
-              "evidence_key": "us_china_relations",
-              "tool": "get_us_china_relations",
-              "metric_ids": [
-                "us_china_relations_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.geopolitical.conflict_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate conflict weight for macro.geopolitical prediction quality",
-          "prediction_target": "macro.geopolitical.conflict_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "event_decay_window_days",
-          "owner_agent": "macro.geopolitical",
-          "consumer_agents": [
-            "macro.geopolitical"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/event_decay_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.geopolitical.event_decay_window_days.primary",
-              "evidence_key": "us_china_relations",
-              "tool": "get_us_china_relations",
-              "metric_ids": [
-                "us_china_relations_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.geopolitical.event_decay_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate event decay window days for macro.geopolitical prediction quality",
-          "prediction_target": "macro.geopolitical.event_decay_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "risk_event_severity_threshold",
-          "owner_agent": "macro.geopolitical",
-          "consumer_agents": [
-            "macro.geopolitical"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/risk_event_severity_threshold/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.geopolitical.risk_event_severity_threshold.primary",
-              "evidence_key": "us_china_relations",
-              "tool": "get_us_china_relations",
-              "metric_ids": [
-                "us_china_relations_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.geopolitical.risk_event_severity_threshold.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate risk event severity threshold for macro.geopolitical prediction quality",
-          "prediction_target": "macro.geopolitical.risk_event_severity_threshold.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "risk_off_override_threshold",
-          "owner_agent": "macro.geopolitical",
-          "consumer_agents": [
-            "macro.geopolitical"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/risk_off_override_threshold/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.geopolitical.risk_off_override_threshold.primary",
-              "evidence_key": "us_china_relations",
-              "tool": "get_us_china_relations",
-              "metric_ids": [
-                "us_china_relations_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.geopolitical.risk_off_override_threshold.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate risk off override threshold for macro.geopolitical prediction quality",
-          "prediction_target": "macro.geopolitical.risk_off_override_threshold.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "sanction_weight",
-          "owner_agent": "macro.geopolitical",
-          "consumer_agents": [
-            "macro.geopolitical"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/sanction_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.geopolitical.sanction_weight.primary",
-              "evidence_key": "us_china_relations",
-              "tool": "get_us_china_relations",
-              "metric_ids": [
-                "us_china_relations_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.geopolitical.sanction_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate sanction weight for macro.geopolitical prediction quality",
-          "prediction_target": "macro.geopolitical.sanction_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "supply_chain_weight",
-          "owner_agent": "macro.geopolitical",
-          "consumer_agents": [
-            "macro.geopolitical"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/supply_chain_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.geopolitical.supply_chain_weight.primary",
-              "evidence_key": "us_china_relations",
-              "tool": "get_us_china_relations",
-              "metric_ids": [
-                "us_china_relations_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.geopolitical.supply_chain_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate supply chain weight for macro.geopolitical prediction quality",
-          "prediction_target": "macro.geopolitical.supply_chain_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        }
-      ]
-    },
-    {
-      "layer": "macro",
       "agent": "china",
       "prompt_ir_agent": "macro.china",
       "min_mutable_domain_knobs": 6,
@@ -2213,10 +1367,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.china.a_share_beta_discount.primary",
-              "evidence_key": "industry_policy",
-              "tool": "get_industry_policy",
+              "evidence_key": "china_macro_snapshot",
+              "tool": "get_china_macro_snapshot",
               "metric_ids": [
-                "industry_policy_current"
+                "china_macro_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2282,10 +1436,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.china.consumption_weight.primary",
-              "evidence_key": "industry_policy",
-              "tool": "get_industry_policy",
+              "evidence_key": "china_macro_snapshot",
+              "tool": "get_china_macro_snapshot",
               "metric_ids": [
-                "industry_policy_current"
+                "china_macro_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2351,10 +1505,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.china.pmi_weight.primary",
-              "evidence_key": "industry_policy",
-              "tool": "get_industry_policy",
+              "evidence_key": "china_macro_snapshot",
+              "tool": "get_china_macro_snapshot",
               "metric_ids": [
-                "industry_policy_current"
+                "china_macro_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2420,10 +1574,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.china.policy_confirmation_window_days.primary",
-              "evidence_key": "industry_policy",
-              "tool": "get_industry_policy",
+              "evidence_key": "china_macro_snapshot",
+              "tool": "get_china_macro_snapshot",
               "metric_ids": [
-                "industry_policy_current"
+                "china_macro_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2489,10 +1643,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.china.property_cycle_weight.primary",
-              "evidence_key": "industry_policy",
-              "tool": "get_industry_policy",
+              "evidence_key": "china_macro_snapshot",
+              "tool": "get_china_macro_snapshot",
               "metric_ids": [
-                "industry_policy_current"
+                "china_macro_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2558,10 +1712,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.china.social_financing_weight.primary",
-              "evidence_key": "industry_policy",
-              "tool": "get_industry_policy",
+              "evidence_key": "china_macro_snapshot",
+              "tool": "get_china_macro_snapshot",
               "metric_ids": [
-                "industry_policy_current"
+                "china_macro_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2607,23 +1761,23 @@
     },
     {
       "layer": "macro",
-      "agent": "dollar",
-      "prompt_ir_agent": "macro.dollar",
+      "agent": "us_economy",
+      "prompt_ir_agent": "macro.us_economy",
       "min_mutable_domain_knobs": 6,
       "card_count": 6,
       "cards": [
         {
-          "id": "cn_us_spread_weight",
-          "owner_agent": "macro.dollar",
+          "id": "a_share_external_demand_weight",
+          "owner_agent": "macro.us_economy",
           "consumer_agents": [
-            "macro.dollar"
+            "macro.us_economy"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/cn_us_spread_weight/value",
+          "path": "/rule_packs/macro.us_economy.runtime.v1/rules/macro.us_economy.soft.001/learnable_parameters/a_share_external_demand_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -2635,11 +1789,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.cn_us_spread_weight.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "dependency_id": "macro.us_economy.a_share_external_demand_weight.primary",
+              "evidence_key": "us_macro_snapshot",
+              "tool": "get_us_macro_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "us_macro_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2652,7 +1806,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.cn_us_spread_weight.primary": {
+            "macro.us_economy.a_share_external_demand_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2661,8 +1815,923 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate cn us spread weight for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.cn_us_spread_weight.5d",
+          "learning_objective": "calibrate a share external demand weight for macro.us_economy prediction quality",
+          "prediction_target": "macro.us_economy.a_share_external_demand_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "demand_weight",
+          "owner_agent": "macro.us_economy",
+          "consumer_agents": [
+            "macro.us_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.us_economy.runtime.v1/rules/macro.us_economy.soft.001/learnable_parameters/demand_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.us_economy.demand_weight.primary",
+              "evidence_key": "us_macro_snapshot",
+              "tool": "get_us_macro_snapshot",
+              "metric_ids": [
+                "us_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.us_economy.demand_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate demand weight for macro.us_economy prediction quality",
+          "prediction_target": "macro.us_economy.demand_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "employment_weight",
+          "owner_agent": "macro.us_economy",
+          "consumer_agents": [
+            "macro.us_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.us_economy.runtime.v1/rules/macro.us_economy.soft.001/learnable_parameters/employment_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.us_economy.employment_weight.primary",
+              "evidence_key": "us_macro_snapshot",
+              "tool": "get_us_macro_snapshot",
+              "metric_ids": [
+                "us_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.us_economy.employment_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate employment weight for macro.us_economy prediction quality",
+          "prediction_target": "macro.us_economy.employment_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "growth_weight",
+          "owner_agent": "macro.us_economy",
+          "consumer_agents": [
+            "macro.us_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.us_economy.runtime.v1/rules/macro.us_economy.soft.001/learnable_parameters/growth_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.us_economy.growth_weight.primary",
+              "evidence_key": "us_macro_snapshot",
+              "tool": "get_us_macro_snapshot",
+              "metric_ids": [
+                "us_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.us_economy.growth_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate growth weight for macro.us_economy prediction quality",
+          "prediction_target": "macro.us_economy.growth_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "inflation_weight",
+          "owner_agent": "macro.us_economy",
+          "consumer_agents": [
+            "macro.us_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.us_economy.runtime.v1/rules/macro.us_economy.soft.001/learnable_parameters/inflation_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.us_economy.inflation_weight.primary",
+              "evidence_key": "us_macro_snapshot",
+              "tool": "get_us_macro_snapshot",
+              "metric_ids": [
+                "us_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.us_economy.inflation_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate inflation weight for macro.us_economy prediction quality",
+          "prediction_target": "macro.us_economy.inflation_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "surprise_window_days",
+          "owner_agent": "macro.us_economy",
+          "consumer_agents": [
+            "macro.us_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.us_economy.runtime.v1/rules/macro.us_economy.soft.001/learnable_parameters/surprise_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.us_economy.surprise_window_days.primary",
+              "evidence_key": "us_macro_snapshot",
+              "tool": "get_us_macro_snapshot",
+              "metric_ids": [
+                "us_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.us_economy.surprise_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate surprise window days for macro.us_economy prediction quality",
+          "prediction_target": "macro.us_economy.surprise_window_days.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "layer": "macro",
+      "agent": "central_bank",
+      "prompt_ir_agent": "macro.central_bank",
+      "min_mutable_domain_knobs": 6,
+      "card_count": 6,
+      "cards": [
+        {
+          "id": "easing_threshold_bps",
+          "owner_agent": "macro.central_bank",
+          "consumer_agents": [
+            "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/easing_threshold_bps/value",
+          "type": "number",
+          "default": 25,
+          "min": -200,
+          "max": 200,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.central_bank.easing_threshold_bps.primary",
+              "evidence_key": "central_bank_snapshot",
+              "tool": "get_central_bank_snapshot",
+              "metric_ids": [
+                "central_bank_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.central_bank.easing_threshold_bps.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate easing threshold bps for macro.central_bank prediction quality",
+          "prediction_target": "macro.central_bank.easing_threshold_bps.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "liquidity_net_injection_window_days",
+          "owner_agent": "macro.central_bank",
+          "consumer_agents": [
+            "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/liquidity_net_injection_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.central_bank.liquidity_net_injection_window_days.primary",
+              "evidence_key": "central_bank_snapshot",
+              "tool": "get_central_bank_snapshot",
+              "metric_ids": [
+                "central_bank_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.central_bank.liquidity_net_injection_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate liquidity net injection window days for macro.central_bank prediction quality",
+          "prediction_target": "macro.central_bank.liquidity_net_injection_window_days.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "omo_mlf_freshness_days",
+          "owner_agent": "macro.central_bank",
+          "consumer_agents": [
+            "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/omo_mlf_freshness_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.central_bank.omo_mlf_freshness_days.primary",
+              "evidence_key": "central_bank_snapshot",
+              "tool": "get_central_bank_snapshot",
+              "metric_ids": [
+                "central_bank_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.central_bank.omo_mlf_freshness_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate omo mlf freshness days for macro.central_bank prediction quality",
+          "prediction_target": "macro.central_bank.omo_mlf_freshness_days.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "pboc_fed_policy_weight",
+          "owner_agent": "macro.central_bank",
+          "consumer_agents": [
+            "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_fed_policy_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.central_bank.pboc_fed_policy_weight.primary",
+              "evidence_key": "central_bank_snapshot",
+              "tool": "get_central_bank_snapshot",
+              "metric_ids": [
+                "central_bank_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.central_bank.pboc_fed_policy_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate pboc fed policy weight for macro.central_bank prediction quality",
+          "prediction_target": "macro.central_bank.pboc_fed_policy_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "policy_conflict_cap",
+          "owner_agent": "macro.central_bank",
+          "consumer_agents": [
+            "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/policy_conflict_cap/value",
+          "type": "number",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.75,
+          "step": 0.05,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.central_bank.policy_conflict_cap.primary",
+              "evidence_key": "central_bank_snapshot",
+              "tool": "get_central_bank_snapshot",
+              "metric_ids": [
+                "central_bank_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.central_bank.policy_conflict_cap.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate policy conflict cap for macro.central_bank prediction quality",
+          "prediction_target": "macro.central_bank.policy_conflict_cap.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "tightening_threshold_bps",
+          "owner_agent": "macro.central_bank",
+          "consumer_agents": [
+            "macro.central_bank"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/tightening_threshold_bps/value",
+          "type": "number",
+          "default": 25,
+          "min": -200,
+          "max": 200,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.central_bank.tightening_threshold_bps.primary",
+              "evidence_key": "central_bank_snapshot",
+              "tool": "get_central_bank_snapshot",
+              "metric_ids": [
+                "central_bank_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.central_bank.tightening_threshold_bps.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate tightening threshold bps for macro.central_bank prediction quality",
+          "prediction_target": "macro.central_bank.tightening_threshold_bps.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "layer": "macro",
+      "agent": "dollar",
+      "prompt_ir_agent": "macro.dollar",
+      "min_mutable_domain_knobs": 6,
+      "card_count": 6,
+      "cards": [
+        {
+          "id": "a_share_fx_liquidity_weight",
+          "owner_agent": "macro.dollar",
+          "consumer_agents": [
+            "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/a_share_fx_liquidity_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.dollar.a_share_fx_liquidity_weight.primary",
+              "evidence_key": "fx_conditions_snapshot",
+              "tool": "get_fx_conditions_snapshot",
+              "metric_ids": [
+                "fx_conditions_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.dollar.a_share_fx_liquidity_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate a share fx liquidity weight for macro.dollar prediction quality",
+          "prediction_target": "macro.dollar.a_share_fx_liquidity_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "broad_dollar_trend_window_days",
+          "owner_agent": "macro.dollar",
+          "consumer_agents": [
+            "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/broad_dollar_trend_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.dollar.broad_dollar_trend_window_days.primary",
+              "evidence_key": "fx_conditions_snapshot",
+              "tool": "get_fx_conditions_snapshot",
+              "metric_ids": [
+                "fx_conditions_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.dollar.broad_dollar_trend_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate broad dollar trend window days for macro.dollar prediction quality",
+          "prediction_target": "macro.dollar.broad_dollar_trend_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -2705,10 +2774,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.dollar.dollar_pressure_cap.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "evidence_key": "fx_conditions_snapshot",
+              "tool": "get_fx_conditions_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "fx_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2751,76 +2820,7 @@
           "normalization": "none"
         },
         {
-          "id": "dxy_trend_window_days",
-          "owner_agent": "macro.dollar",
-          "consumer_agents": [
-            "macro.dollar"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/dxy_trend_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.dollar.dxy_trend_window_days.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
-              "metric_ids": [
-                "fred_series_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.dollar.dxy_trend_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate dxy trend window days for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.dxy_trend_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "em_flow_pressure_weight",
+          "id": "fx_volatility_weight",
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
@@ -2830,7 +2830,7 @@
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/em_flow_pressure_weight/value",
+          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fx_volatility_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -2842,11 +2842,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.em_flow_pressure_weight.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "dependency_id": "macro.dollar.fx_volatility_weight.primary",
+              "evidence_key": "fx_conditions_snapshot",
+              "tool": "get_fx_conditions_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "fx_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2859,7 +2859,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.em_flow_pressure_weight.primary": {
+            "macro.dollar.fx_volatility_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2868,8 +2868,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate em flow pressure weight for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.em_flow_pressure_weight.5d",
+          "learning_objective": "calibrate fx volatility weight for macro.dollar prediction quality",
+          "prediction_target": "macro.dollar.fx_volatility_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -2889,7 +2889,7 @@
           "normalization": "none"
         },
         {
-          "id": "fed_pboc_divergence_threshold_bps",
+          "id": "onshore_offshore_spread_weight",
           "owner_agent": "macro.dollar",
           "consumer_agents": [
             "macro.dollar"
@@ -2899,76 +2899,7 @@
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fed_pboc_divergence_threshold_bps/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.dollar.fed_pboc_divergence_threshold_bps.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
-              "metric_ids": [
-                "fred_series_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.dollar.fed_pboc_divergence_threshold_bps.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate fed pboc divergence threshold bps for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.fed_pboc_divergence_threshold_bps.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "real_rate_weight",
-          "owner_agent": "macro.dollar",
-          "consumer_agents": [
-            "macro.dollar"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/real_rate_weight/value",
+          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/onshore_offshore_spread_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -2980,11 +2911,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.real_rate_weight.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "dependency_id": "macro.dollar.onshore_offshore_spread_weight.primary",
+              "evidence_key": "fx_conditions_snapshot",
+              "tool": "get_fx_conditions_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "fx_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2997,7 +2928,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.real_rate_weight.primary": {
+            "macro.dollar.onshore_offshore_spread_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3006,8 +2937,77 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate real rate weight for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.real_rate_weight.5d",
+          "learning_objective": "calibrate onshore offshore spread weight for macro.dollar prediction quality",
+          "prediction_target": "macro.dollar.onshore_offshore_spread_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "rmb_pressure_weight",
+          "owner_agent": "macro.dollar",
+          "consumer_agents": [
+            "macro.dollar"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/rmb_pressure_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.dollar.rmb_pressure_weight.primary",
+              "evidence_key": "fx_conditions_snapshot",
+              "tool": "get_fx_conditions_snapshot",
+              "metric_ids": [
+                "fx_conditions_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.dollar.rmb_pressure_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate rmb pressure weight for macro.dollar prediction quality",
+          "prediction_target": "macro.dollar.rmb_pressure_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -3059,10 +3059,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.yield_curve.credit_spread_discount.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "rates_credit_snapshot",
+              "tool": "get_rates_credit_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "rates_credit_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3128,10 +3128,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.yield_curve.duration_risk_weight.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "rates_credit_snapshot",
+              "tool": "get_rates_credit_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "rates_credit_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3186,10 +3186,10 @@
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/flattening_threshold_bps/value",
           "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
+          "default": 25,
+          "min": -200,
+          "max": 200,
+          "step": 5,
           "coverage_level": "direct_tool",
           "activation_state": "active",
           "runtime_input_sources": [],
@@ -3197,10 +3197,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.yield_curve.flattening_threshold_bps.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "rates_credit_snapshot",
+              "tool": "get_rates_credit_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "rates_credit_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3255,10 +3255,10 @@
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/inversion_threshold_bps/value",
           "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
+          "default": 25,
+          "min": -200,
+          "max": 200,
+          "step": 5,
           "coverage_level": "direct_tool",
           "activation_state": "active",
           "runtime_input_sources": [],
@@ -3266,10 +3266,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.yield_curve.inversion_threshold_bps.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "rates_credit_snapshot",
+              "tool": "get_rates_credit_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "rates_credit_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3324,10 +3324,10 @@
           "projection_bucket": "thresholds",
           "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/steepening_threshold_bps/value",
           "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
+          "default": 25,
+          "min": -200,
+          "max": 200,
+          "step": 5,
           "coverage_level": "direct_tool",
           "activation_state": "active",
           "runtime_input_sources": [],
@@ -3335,10 +3335,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.yield_curve.steepening_threshold_bps.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "rates_credit_snapshot",
+              "tool": "get_rates_credit_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "rates_credit_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3404,10 +3404,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.yield_curve.term_spread_window_days.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "rates_credit_snapshot",
+              "tool": "get_rates_credit_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "rates_credit_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3482,10 +3482,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.commodities.agriculture_weight.primary",
-              "evidence_key": "commodity_prices",
-              "tool": "get_commodity_prices",
+              "evidence_key": "commodity_conditions_snapshot",
+              "tool": "get_commodity_conditions_snapshot",
               "metric_ids": [
-                "commodity_prices_current"
+                "commodity_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3528,75 +3528,6 @@
           "normalization": "none"
         },
         {
-          "id": "china_demand_weight",
-          "owner_agent": "macro.commodities",
-          "consumer_agents": [
-            "macro.commodities"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/china_demand_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.commodities.china_demand_weight.primary",
-              "evidence_key": "commodity_prices",
-              "tool": "get_commodity_prices",
-              "metric_ids": [
-                "commodity_prices_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.commodities.china_demand_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate china demand weight for macro.commodities prediction quality",
-          "prediction_target": "macro.commodities.china_demand_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
           "id": "industrial_metals_weight",
           "owner_agent": "macro.commodities",
           "consumer_agents": [
@@ -3620,10 +3551,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.commodities.industrial_metals_weight.primary",
-              "evidence_key": "commodity_prices",
-              "tool": "get_commodity_prices",
+              "evidence_key": "commodity_conditions_snapshot",
+              "tool": "get_commodity_conditions_snapshot",
               "metric_ids": [
-                "commodity_prices_current"
+                "commodity_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3666,6 +3597,75 @@
           "normalization": "none"
         },
         {
+          "id": "inflation_shock_transmission_weight",
+          "owner_agent": "macro.commodities",
+          "consumer_agents": [
+            "macro.commodities"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/inflation_shock_transmission_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.commodities.inflation_shock_transmission_weight.primary",
+              "evidence_key": "commodity_conditions_snapshot",
+              "tool": "get_commodity_conditions_snapshot",
+              "metric_ids": [
+                "commodity_conditions_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.commodities.inflation_shock_transmission_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate inflation shock transmission weight for macro.commodities prediction quality",
+          "prediction_target": "macro.commodities.inflation_shock_transmission_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
           "id": "inventory_confirmation_window_days",
           "owner_agent": "macro.commodities",
           "consumer_agents": [
@@ -3689,10 +3689,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.commodities.inventory_confirmation_window_days.primary",
-              "evidence_key": "commodity_prices",
-              "tool": "get_commodity_prices",
+              "evidence_key": "commodity_conditions_snapshot",
+              "tool": "get_commodity_conditions_snapshot",
               "metric_ids": [
-                "commodity_prices_current"
+                "commodity_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3758,10 +3758,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.commodities.oil_weight.primary",
-              "evidence_key": "commodity_prices",
-              "tool": "get_commodity_prices",
+              "evidence_key": "commodity_conditions_snapshot",
+              "tool": "get_commodity_conditions_snapshot",
               "metric_ids": [
-                "commodity_prices_current"
+                "commodity_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3827,10 +3827,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.commodities.precious_metals_weight.primary",
-              "evidence_key": "commodity_prices",
-              "tool": "get_commodity_prices",
+              "evidence_key": "commodity_conditions_snapshot",
+              "tool": "get_commodity_conditions_snapshot",
               "metric_ids": [
-                "commodity_prices_current"
+                "commodity_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3876,23 +3876,23 @@
     },
     {
       "layer": "macro",
-      "agent": "volatility",
-      "prompt_ir_agent": "macro.volatility",
+      "agent": "geopolitical",
+      "prompt_ir_agent": "macro.geopolitical",
       "min_mutable_domain_knobs": 6,
       "card_count": 6,
       "cards": [
         {
-          "id": "ivx_weight",
-          "owner_agent": "macro.volatility",
+          "id": "conflict_weight",
+          "owner_agent": "macro.geopolitical",
           "consumer_agents": [
-            "macro.volatility"
+            "macro.geopolitical"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/ivx_weight/value",
+          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/conflict_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -3904,11 +3904,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.volatility.ivx_weight.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "dependency_id": "macro.geopolitical.conflict_weight.primary",
+              "evidence_key": "geopolitical_events_snapshot",
+              "tool": "get_geopolitical_events_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "geopolitical_events_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3921,7 +3921,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.volatility.ivx_weight.primary": {
+            "macro.geopolitical.conflict_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3930,8 +3930,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate ivx weight for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.ivx_weight.5d",
+          "learning_objective": "calibrate conflict weight for macro.geopolitical prediction quality",
+          "prediction_target": "macro.geopolitical.conflict_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -3951,33 +3951,33 @@
           "normalization": "none"
         },
         {
-          "id": "realized_vol_weight",
-          "owner_agent": "macro.volatility",
+          "id": "event_decay_window_days",
+          "owner_agent": "macro.geopolitical",
           "consumer_agents": [
-            "macro.volatility"
+            "macro.geopolitical"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/realized_vol_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/event_decay_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
           "coverage_level": "direct_tool",
           "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.volatility.realized_vol_weight.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "dependency_id": "macro.geopolitical.event_decay_window_days.primary",
+              "evidence_key": "geopolitical_events_snapshot",
+              "tool": "get_geopolitical_events_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "geopolitical_events_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3990,7 +3990,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.volatility.realized_vol_weight.primary": {
+            "macro.geopolitical.event_decay_window_days.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3999,8 +3999,431 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate realized vol weight for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.realized_vol_weight.5d",
+          "learning_objective": "calibrate event decay window days for macro.geopolitical prediction quality",
+          "prediction_target": "macro.geopolitical.event_decay_window_days.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "risk_event_severity_threshold",
+          "owner_agent": "macro.geopolitical",
+          "consumer_agents": [
+            "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/risk_event_severity_threshold/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.geopolitical.risk_event_severity_threshold.primary",
+              "evidence_key": "geopolitical_events_snapshot",
+              "tool": "get_geopolitical_events_snapshot",
+              "metric_ids": [
+                "geopolitical_events_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.geopolitical.risk_event_severity_threshold.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate risk event severity threshold for macro.geopolitical prediction quality",
+          "prediction_target": "macro.geopolitical.risk_event_severity_threshold.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "risk_off_override_threshold",
+          "owner_agent": "macro.geopolitical",
+          "consumer_agents": [
+            "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/risk_off_override_threshold/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.geopolitical.risk_off_override_threshold.primary",
+              "evidence_key": "geopolitical_events_snapshot",
+              "tool": "get_geopolitical_events_snapshot",
+              "metric_ids": [
+                "geopolitical_events_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.geopolitical.risk_off_override_threshold.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate risk off override threshold for macro.geopolitical prediction quality",
+          "prediction_target": "macro.geopolitical.risk_off_override_threshold.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "sanction_weight",
+          "owner_agent": "macro.geopolitical",
+          "consumer_agents": [
+            "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/sanction_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.geopolitical.sanction_weight.primary",
+              "evidence_key": "geopolitical_events_snapshot",
+              "tool": "get_geopolitical_events_snapshot",
+              "metric_ids": [
+                "geopolitical_events_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.geopolitical.sanction_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate sanction weight for macro.geopolitical prediction quality",
+          "prediction_target": "macro.geopolitical.sanction_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "supply_chain_weight",
+          "owner_agent": "macro.geopolitical",
+          "consumer_agents": [
+            "macro.geopolitical"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.geopolitical.runtime.v1/rules/macro.geopolitical.soft.001/learnable_parameters/supply_chain_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.geopolitical.supply_chain_weight.primary",
+              "evidence_key": "geopolitical_events_snapshot",
+              "tool": "get_geopolitical_events_snapshot",
+              "metric_ids": [
+                "geopolitical_events_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.geopolitical.supply_chain_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate supply chain weight for macro.geopolitical prediction quality",
+          "prediction_target": "macro.geopolitical.supply_chain_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "layer": "macro",
+      "agent": "volatility",
+      "prompt_ir_agent": "macro.volatility",
+      "min_mutable_domain_knobs": 6,
+      "card_count": 6,
+      "cards": [
+        {
+          "id": "china_realized_vol_weight",
+          "owner_agent": "macro.volatility",
+          "consumer_agents": [
+            "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/china_realized_vol_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.volatility.china_realized_vol_weight.primary",
+              "evidence_key": "volatility_snapshot",
+              "tool": "get_volatility_snapshot",
+              "metric_ids": [
+                "volatility_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.volatility.china_realized_vol_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate china realized vol weight for macro.volatility prediction quality",
+          "prediction_target": "macro.volatility.china_realized_vol_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "cross_market_stress_weight",
+          "owner_agent": "macro.volatility",
+          "consumer_agents": [
+            "macro.volatility"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/cross_market_stress_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.volatility.cross_market_stress_weight.primary",
+              "evidence_key": "volatility_snapshot",
+              "tool": "get_volatility_snapshot",
+              "metric_ids": [
+                "volatility_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.volatility.cross_market_stress_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate cross market stress weight for macro.volatility prediction quality",
+          "prediction_target": "macro.volatility.cross_market_stress_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -4043,10 +4466,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.volatility.risk_off_threshold.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "evidence_key": "volatility_snapshot",
+              "tool": "get_volatility_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "volatility_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -4112,10 +4535,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.volatility.vix_weight.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "evidence_key": "volatility_snapshot",
+              "tool": "get_volatility_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "volatility_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -4181,10 +4604,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.volatility.vol_amplification_window_days.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "evidence_key": "volatility_snapshot",
+              "tool": "get_volatility_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "volatility_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -4250,10 +4673,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.volatility.volatility_cap.primary",
-              "evidence_key": "fred_series",
-              "tool": "get_fred_series",
+              "evidence_key": "volatility_snapshot",
+              "tool": "get_volatility_snapshot",
               "metric_ids": [
-                "fred_series_current"
+                "volatility_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -4299,161 +4722,23 @@
     },
     {
       "layer": "macro",
-      "agent": "emerging_markets",
-      "prompt_ir_agent": "macro.emerging_markets",
+      "agent": "market_breadth",
+      "prompt_ir_agent": "macro.market_breadth",
       "min_mutable_domain_knobs": 6,
       "card_count": 6,
       "cards": [
         {
-          "id": "dxy_pressure_threshold",
-          "owner_agent": "macro.emerging_markets",
+          "id": "a_share_transmission_weight",
+          "owner_agent": "macro.market_breadth",
           "consumer_agents": [
-            "macro.emerging_markets"
+            "macro.market_breadth"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/dxy_pressure_threshold/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.emerging_markets.dxy_pressure_threshold.primary",
-              "evidence_key": "etf_price_data",
-              "tool": "get_etf_price_data",
-              "metric_ids": [
-                "etf_price_data_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.emerging_markets.dxy_pressure_threshold.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate dxy pressure threshold for macro.emerging_markets prediction quality",
-          "prediction_target": "macro.emerging_markets.dxy_pressure_threshold.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "em_drawdown_cap",
-          "owner_agent": "macro.emerging_markets",
-          "consumer_agents": [
-            "macro.emerging_markets"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/em_drawdown_cap/value",
-          "type": "number",
-          "default": -0.08,
-          "min": -0.3,
-          "max": -0.01,
-          "step": 0.01,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.emerging_markets.em_drawdown_cap.primary",
-              "evidence_key": "etf_price_data",
-              "tool": "get_etf_price_data",
-              "metric_ids": [
-                "etf_price_data_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.emerging_markets.em_drawdown_cap.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate em drawdown cap for macro.emerging_markets prediction quality",
-          "prediction_target": "macro.emerging_markets.em_drawdown_cap.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "em_etf_weight",
-          "owner_agent": "macro.emerging_markets",
-          "consumer_agents": [
-            "macro.emerging_markets"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/em_etf_weight/value",
+          "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/a_share_transmission_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -4465,11 +4750,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.emerging_markets.em_etf_weight.primary",
-              "evidence_key": "etf_price_data",
-              "tool": "get_etf_price_data",
+              "dependency_id": "macro.market_breadth.a_share_transmission_weight.primary",
+              "evidence_key": "market_breadth_snapshot",
+              "tool": "get_market_breadth_snapshot",
               "metric_ids": [
-                "etf_price_data_current"
+                "market_breadth_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -4482,7 +4767,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.emerging_markets.em_etf_weight.primary": {
+            "macro.market_breadth.a_share_transmission_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -4491,8 +4776,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate em etf weight for macro.emerging_markets prediction quality",
-          "prediction_target": "macro.emerging_markets.em_etf_weight.5d",
+          "learning_objective": "calibrate a share transmission weight for macro.market_breadth prediction quality",
+          "prediction_target": "macro.market_breadth.a_share_transmission_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -4512,155 +4797,17 @@
           "normalization": "none"
         },
         {
-          "id": "foreign_flow_confirmation_days",
-          "owner_agent": "macro.emerging_markets",
+          "id": "breadth_change_confirmation_weight",
+          "owner_agent": "macro.market_breadth",
           "consumer_agents": [
-            "macro.emerging_markets"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/foreign_flow_confirmation_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.emerging_markets.foreign_flow_confirmation_days.primary",
-              "evidence_key": "etf_price_data",
-              "tool": "get_etf_price_data",
-              "metric_ids": [
-                "etf_price_data_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.emerging_markets.foreign_flow_confirmation_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate foreign flow confirmation days for macro.emerging_markets prediction quality",
-          "prediction_target": "macro.emerging_markets.foreign_flow_confirmation_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "hk_a_relative_strength_window_days",
-          "owner_agent": "macro.emerging_markets",
-          "consumer_agents": [
-            "macro.emerging_markets"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/hk_a_relative_strength_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.emerging_markets.hk_a_relative_strength_window_days.primary",
-              "evidence_key": "etf_price_data",
-              "tool": "get_etf_price_data",
-              "metric_ids": [
-                "etf_price_data_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.emerging_markets.hk_a_relative_strength_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate hk a relative strength window days for macro.emerging_markets prediction quality",
-          "prediction_target": "macro.emerging_markets.hk_a_relative_strength_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "northbound_flow_weight",
-          "owner_agent": "macro.emerging_markets",
-          "consumer_agents": [
-            "macro.emerging_markets"
+            "macro.market_breadth"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.emerging_markets.runtime.v1/rules/macro.emerging_markets.soft.001/learnable_parameters/northbound_flow_weight/value",
+          "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/breadth_change_confirmation_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -4672,11 +4819,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.emerging_markets.northbound_flow_weight.primary",
-              "evidence_key": "etf_price_data",
-              "tool": "get_etf_price_data",
+              "dependency_id": "macro.market_breadth.breadth_change_confirmation_weight.primary",
+              "evidence_key": "market_breadth_snapshot",
+              "tool": "get_market_breadth_snapshot",
               "metric_ids": [
-                "etf_price_data_current"
+                "market_breadth_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -4689,7 +4836,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.emerging_markets.northbound_flow_weight.primary": {
+            "macro.market_breadth.breadth_change_confirmation_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -4698,86 +4845,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate northbound flow weight for macro.emerging_markets prediction quality",
-          "prediction_target": "macro.emerging_markets.northbound_flow_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        }
-      ]
-    },
-    {
-      "layer": "macro",
-      "agent": "news_sentiment",
-      "prompt_ir_agent": "macro.news_sentiment",
-      "min_mutable_domain_knobs": 6,
-      "card_count": 6,
-      "cards": [
-        {
-          "id": "contrarian_threshold",
-          "owner_agent": "macro.news_sentiment",
-          "consumer_agents": [
-            "macro.news_sentiment"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/contrarian_threshold/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.news_sentiment.contrarian_threshold.primary",
-              "evidence_key": "news",
-              "tool": "get_news",
-              "metric_ids": [
-                "news_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.news_sentiment.contrarian_threshold.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate contrarian threshold for macro.news_sentiment prediction quality",
-          "prediction_target": "macro.news_sentiment.contrarian_threshold.5d",
+          "learning_objective": "calibrate breadth change confirmation weight for macro.market_breadth prediction quality",
+          "prediction_target": "macro.market_breadth.breadth_change_confirmation_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -4797,86 +4866,17 @@
           "normalization": "none"
         },
         {
-          "id": "event_decay_window_days",
-          "owner_agent": "macro.news_sentiment",
+          "id": "breadth_composite_weight",
+          "owner_agent": "macro.market_breadth",
           "consumer_agents": [
-            "macro.news_sentiment"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/event_decay_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.news_sentiment.event_decay_window_days.primary",
-              "evidence_key": "news",
-              "tool": "get_news",
-              "metric_ids": [
-                "news_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.news_sentiment.event_decay_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate event decay window days for macro.news_sentiment prediction quality",
-          "prediction_target": "macro.news_sentiment.event_decay_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "news_sentiment_scale",
-          "owner_agent": "macro.news_sentiment",
-          "consumer_agents": [
-            "macro.news_sentiment"
+            "macro.market_breadth"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/news_sentiment_scale/value",
+          "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/breadth_composite_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -4888,11 +4888,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.news_sentiment.news_sentiment_scale.primary",
-              "evidence_key": "news",
-              "tool": "get_news",
+              "dependency_id": "macro.market_breadth.breadth_composite_weight.primary",
+              "evidence_key": "market_breadth_snapshot",
+              "tool": "get_market_breadth_snapshot",
               "metric_ids": [
-                "news_current"
+                "market_breadth_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -4905,7 +4905,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.news_sentiment.news_sentiment_scale.primary": {
+            "macro.market_breadth.breadth_composite_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -4914,8 +4914,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate news sentiment scale for macro.news_sentiment prediction quality",
-          "prediction_target": "macro.news_sentiment.news_sentiment_scale.5d",
+          "learning_objective": "calibrate breadth composite weight for macro.market_breadth prediction quality",
+          "prediction_target": "macro.market_breadth.breadth_composite_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -4935,155 +4935,17 @@
           "normalization": "none"
         },
         {
-          "id": "policy_semantic_weight",
-          "owner_agent": "macro.news_sentiment",
+          "id": "breadth_state_confirmation_weight",
+          "owner_agent": "macro.market_breadth",
           "consumer_agents": [
-            "macro.news_sentiment"
+            "macro.market_breadth"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/policy_semantic_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "derived_proxy",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.news_sentiment.policy_semantic_weight.primary",
-              "evidence_key": "news",
-              "tool": "get_news",
-              "metric_ids": [
-                "news_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "derived_proxy",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.news_sentiment.policy_semantic_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate policy semantic weight for macro.news_sentiment prediction quality",
-          "prediction_target": "macro.news_sentiment.policy_semantic_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "topic_filter_threshold",
-          "owner_agent": "macro.news_sentiment",
-          "consumer_agents": [
-            "macro.news_sentiment"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/topic_filter_threshold/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.news_sentiment.topic_filter_threshold.primary",
-              "evidence_key": "news",
-              "tool": "get_news",
-              "metric_ids": [
-                "news_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.news_sentiment.topic_filter_threshold.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate topic filter threshold for macro.news_sentiment prediction quality",
-          "prediction_target": "macro.news_sentiment.topic_filter_threshold.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "xueqiu_replacement_weight",
-          "owner_agent": "macro.news_sentiment",
-          "consumer_agents": [
-            "macro.news_sentiment"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.news_sentiment.runtime.v1/rules/macro.news_sentiment.soft.001/learnable_parameters/xueqiu_replacement_weight/value",
+          "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/breadth_state_confirmation_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -5095,11 +4957,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.news_sentiment.xueqiu_replacement_weight.primary",
-              "evidence_key": "news",
-              "tool": "get_news",
+              "dependency_id": "macro.market_breadth.breadth_state_confirmation_weight.primary",
+              "evidence_key": "market_breadth_snapshot",
+              "tool": "get_market_breadth_snapshot",
               "metric_ids": [
-                "news_current"
+                "market_breadth_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5112,7 +4974,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.news_sentiment.xueqiu_replacement_weight.primary": {
+            "macro.market_breadth.breadth_state_confirmation_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -5121,8 +4983,146 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate xueqiu replacement weight for macro.news_sentiment prediction quality",
-          "prediction_target": "macro.news_sentiment.xueqiu_replacement_weight.5d",
+          "learning_objective": "calibrate breadth state confirmation weight for macro.market_breadth prediction quality",
+          "prediction_target": "macro.market_breadth.breadth_state_confirmation_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "concentration_confirmation_weight",
+          "owner_agent": "macro.market_breadth",
+          "consumer_agents": [
+            "macro.market_breadth"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/concentration_confirmation_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.market_breadth.concentration_confirmation_weight.primary",
+              "evidence_key": "market_breadth_snapshot",
+              "tool": "get_market_breadth_snapshot",
+              "metric_ids": [
+                "market_breadth_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.market_breadth.concentration_confirmation_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate concentration confirmation weight for macro.market_breadth prediction quality",
+          "prediction_target": "macro.market_breadth.concentration_confirmation_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "return_dispersion_weight",
+          "owner_agent": "macro.market_breadth",
+          "consumer_agents": [
+            "macro.market_breadth"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/return_dispersion_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.market_breadth.return_dispersion_weight.primary",
+              "evidence_key": "market_breadth_snapshot",
+              "tool": "get_market_breadth_snapshot",
+              "metric_ids": [
+                "market_breadth_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.market_breadth.return_dispersion_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate return dispersion weight for macro.market_breadth prediction quality",
+          "prediction_target": "macro.market_breadth.return_dispersion_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -5148,8 +5148,146 @@
       "agent": "institutional_flow",
       "prompt_ir_agent": "macro.institutional_flow",
       "min_mutable_domain_knobs": 6,
-      "card_count": 6,
+      "card_count": 7,
       "cards": [
+        {
+          "id": "crowding_confirmation_weight",
+          "owner_agent": "macro.institutional_flow",
+          "consumer_agents": [
+            "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/crowding_confirmation_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.institutional_flow.crowding_confirmation_weight.primary",
+              "evidence_key": "market_positioning_snapshot",
+              "tool": "get_market_positioning_snapshot",
+              "metric_ids": [
+                "market_positioning_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.institutional_flow.crowding_confirmation_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate crowding confirmation weight for macro.institutional_flow prediction quality",
+          "prediction_target": "macro.institutional_flow.crowding_confirmation_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "etf_share_change_weight",
+          "owner_agent": "macro.institutional_flow",
+          "consumer_agents": [
+            "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/etf_share_change_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.institutional_flow.etf_share_change_weight.primary",
+              "evidence_key": "market_positioning_snapshot",
+              "tool": "get_market_positioning_snapshot",
+              "metric_ids": [
+                "market_positioning_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.institutional_flow.etf_share_change_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate etf share change weight for macro.institutional_flow prediction quality",
+          "prediction_target": "macro.institutional_flow.etf_share_change_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
         {
           "id": "flow_persistence_days",
           "owner_agent": "macro.institutional_flow",
@@ -5174,10 +5312,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.institutional_flow.flow_persistence_days.primary",
-              "evidence_key": "lhb_ranking",
-              "tool": "get_lhb_ranking",
+              "evidence_key": "market_positioning_snapshot",
+              "tool": "get_market_positioning_snapshot",
               "metric_ids": [
-                "lhb_ranking_current"
+                "market_positioning_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5220,144 +5358,6 @@
           "normalization": "none"
         },
         {
-          "id": "industry_moneyflow_window_days",
-          "owner_agent": "macro.institutional_flow",
-          "consumer_agents": [
-            "macro.institutional_flow"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/industry_moneyflow_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.institutional_flow.industry_moneyflow_window_days.primary",
-              "evidence_key": "lhb_ranking",
-              "tool": "get_lhb_ranking",
-              "metric_ids": [
-                "lhb_ranking_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.institutional_flow.industry_moneyflow_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate industry moneyflow window days for macro.institutional_flow prediction quality",
-          "prediction_target": "macro.institutional_flow.industry_moneyflow_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "lhb_window_days",
-          "owner_agent": "macro.institutional_flow",
-          "consumer_agents": [
-            "macro.institutional_flow"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/lhb_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.institutional_flow.lhb_window_days.primary",
-              "evidence_key": "lhb_ranking",
-              "tool": "get_lhb_ranking",
-              "metric_ids": [
-                "lhb_ranking_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.institutional_flow.lhb_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate lhb window days for macro.institutional_flow prediction quality",
-          "prediction_target": "macro.institutional_flow.lhb_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
           "id": "main_net_inflow_threshold",
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
@@ -5381,10 +5381,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.institutional_flow.main_net_inflow_threshold.primary",
-              "evidence_key": "lhb_ranking",
-              "tool": "get_lhb_ranking",
+              "evidence_key": "market_positioning_snapshot",
+              "tool": "get_market_positioning_snapshot",
               "metric_ids": [
-                "lhb_ranking_current"
+                "market_positioning_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5427,6 +5427,75 @@
           "normalization": "none"
         },
         {
+          "id": "market_flow_window_days",
+          "owner_agent": "macro.institutional_flow",
+          "consumer_agents": [
+            "macro.institutional_flow"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/market_flow_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.institutional_flow.market_flow_window_days.primary",
+              "evidence_key": "market_positioning_snapshot",
+              "tool": "get_market_positioning_snapshot",
+              "metric_ids": [
+                "market_positioning_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.institutional_flow.market_flow_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate market flow window days for macro.institutional_flow prediction quality",
+          "prediction_target": "macro.institutional_flow.market_flow_window_days.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
           "id": "null_flow_fallback_cap",
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
@@ -5450,10 +5519,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "macro.institutional_flow.null_flow_fallback_cap.primary",
-              "evidence_key": "lhb_ranking",
-              "tool": "get_lhb_ranking",
+              "evidence_key": "market_positioning_snapshot",
+              "tool": "get_market_positioning_snapshot",
               "metric_ids": [
-                "lhb_ranking_current"
+                "market_positioning_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5496,7 +5565,7 @@
           "normalization": "none"
         },
         {
-          "id": "top_buyer_weight",
+          "id": "sector_rotation_window_days",
           "owner_agent": "macro.institutional_flow",
           "consumer_agents": [
             "macro.institutional_flow"
@@ -5505,24 +5574,24 @@
           "consumer_stages": [
             "agent_run"
           ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/top_buyer_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/sector_rotation_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
           "coverage_level": "direct_tool",
           "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.institutional_flow.top_buyer_weight.primary",
-              "evidence_key": "lhb_ranking",
-              "tool": "get_lhb_ranking",
+              "dependency_id": "macro.institutional_flow.sector_rotation_window_days.primary",
+              "evidence_key": "market_positioning_snapshot",
+              "tool": "get_market_positioning_snapshot",
               "metric_ids": [
-                "lhb_ranking_current"
+                "market_positioning_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5535,7 +5604,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.institutional_flow.top_buyer_weight.primary": {
+            "macro.institutional_flow.sector_rotation_window_days.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -5544,8 +5613,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate top buyer weight for macro.institutional_flow prediction quality",
-          "prediction_target": "macro.institutional_flow.top_buyer_weight.5d",
+          "learning_objective": "calibrate sector rotation window days for macro.institutional_flow prediction quality",
+          "prediction_target": "macro.institutional_flow.sector_rotation_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",

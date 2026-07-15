@@ -16,6 +16,8 @@ export function validateStrictAgentOutput<T>(input: {
   runtimeEvidence: RuntimeEvidenceSnapshot | null;
   knobSnapshot: ResearchKnobsSnapshot | null;
   toolStatuses: ReadonlyArray<ToolStatus>;
+  /** Accept uncertainty-only claims for an explicitly neutral/no-action output. */
+  allowUncertaintyOnly?: boolean;
   currentPositions?: CurrentPositionsSnapshot;
 }): ContractValidationResult<T> {
   let output = input.output;
@@ -23,7 +25,11 @@ export function validateStrictAgentOutput<T>(input: {
   if (!input.runtimeEvidence) {
     issues.push(issue("evidence_claim_graph_v1", "EVIDENCE_SNAPSHOT_MISSING", "$"));
   } else {
-    const claimValidation = validateOutputByClaimEvidence(output, input.runtimeEvidence);
+    const claimValidation = validateOutputByClaimEvidence(output, input.runtimeEvidence, {
+      ...(input.allowUncertaintyOnly !== undefined
+        ? { allowUncertaintyOnly: input.allowUncertaintyOnly }
+        : {}),
+    });
     if (!claimValidation.rawOutputAccepted) {
       issues.push(
         ...claimValidation.rejectionReasons.map((reason) =>

@@ -253,6 +253,7 @@ export function selectOutputByClaimEvidence<T>(
 export function validateOutputByClaimEvidence<T>(
   rawOutput: T,
   runtime: RuntimeEvidenceSnapshot,
+  options: { allowUncertaintyOnly?: boolean } = {},
 ): ClaimGraphSelection<T> {
   const rawGraph = claimGraphFromOutput(rawOutput, runtime);
   if (!rawGraph.graph) {
@@ -268,7 +269,7 @@ export function validateOutputByClaimEvidence<T>(
     expectedSnapshotHash: runtime.snapshotHash,
     runtimeOwnedEvidenceById: runtime.evidenceById,
     requiredOutputIds: rawGraph.requiredOutputIds,
-    ...(isExplicitEmptyDisposition(rawOutput)
+    ...(isExplicitEmptyDisposition(rawOutput) || options.allowUncertaintyOnly
       ? { allowUncertaintyOnlyOutputIds: rawGraph.requiredOutputIds }
       : {}),
     allowedResearchRuleIds: runtime.allowedResearchRuleIds,

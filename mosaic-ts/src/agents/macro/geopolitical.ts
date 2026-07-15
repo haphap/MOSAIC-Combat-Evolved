@@ -1,60 +1,15 @@
-/**
- * geopolitical Layer-1 macro agent (Plan §5.1).
- *
- * Plan §5.1 tools: `get_us_china_relations` (Tsinghua sino-US relations index)
- * + `get_industry_policy` (gov.cn policy documents incl. trade-war /
- * export-control language).
- */
-
 import type { GeopoliticalOutput } from "../types.js";
-import {
-  buildLayerOneAgentNode,
-  type LayerOneAgentDeps,
-  type LayerOneAgentNode,
-  type LayerOneAgentSpec,
-} from "./_factory.js";
+import { MACRO_ROLE_CONTRACTS } from "./_contracts.js";
+import { buildLayerOneAgentNode, type LayerOneAgentDeps } from "./_factory.js";
 import { GEOPOLITICAL_FIELD_NAMES, GeopoliticalSchema } from "./_schemas.js";
+import { macroAgentSpec, renderMacroTransmission } from "./_spec.js";
 
-export const REQUIRED_TOOLS = [
-  "get_rke_research_context",
-  "get_us_china_relations",
-  "get_industry_policy",
-] as const;
-
-export const geopoliticalSpec: LayerOneAgentSpec<GeopoliticalOutput> = {
-  agentId: "geopolitical",
-  schema: GeopoliticalSchema,
-  fieldNames: GEOPOLITICAL_FIELD_NAMES,
-  requiredTools: REQUIRED_TOOLS,
-  render: renderGeopolitical,
-};
-
-export function buildGeopoliticalNode(deps: LayerOneAgentDeps): LayerOneAgentNode {
-  return buildLayerOneAgentNode(geopoliticalSpec, deps);
-}
-
-export function renderGeopolitical(o: GeopoliticalOutput): string {
-  const zones = (o.hot_zones ?? []).join(", ");
-  const drivers = (o.key_drivers ?? []).map((d) => `  - ${d}`).join("\n");
-  return (
-    `geopolitical analysis (confidence=${o.confidence.toFixed(2)})\n` +
-    `  escalation_level: ${o.escalation_level}\n` +
-    `  hot_zones:        ${zones}\n` +
-    `  trade_impact:     ${o.trade_impact}\n` +
-    `  key_drivers:\n${drivers}`
-  );
-}
-
-export function fallbackGeopolitical(text: string): GeopoliticalOutput {
-  const trimmed = (text ?? "").trim();
-  return {
-    agent: "geopolitical",
-    escalation_level: 2,
-    hot_zones: ["unknown"],
-    trade_impact: "no material change",
-    key_drivers: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],
-    confidence: 0,
-  };
-}
-
+export const REQUIRED_TOOLS = MACRO_ROLE_CONTRACTS.geopolitical.requiredTools;
+export const geopoliticalSpec = macroAgentSpec<GeopoliticalOutput>(
+  "geopolitical",
+  GeopoliticalSchema,
+);
+export const buildGeopoliticalNode = (deps: LayerOneAgentDeps) =>
+  buildLayerOneAgentNode(geopoliticalSpec, deps);
+export const renderGeopolitical = renderMacroTransmission;
 export { GEOPOLITICAL_FIELD_NAMES, GeopoliticalSchema };
