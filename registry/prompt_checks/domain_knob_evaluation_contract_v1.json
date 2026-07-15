@@ -3,7 +3,7 @@
   "contract_version": "domain_knob_evaluation_contract_v1",
   "catalog_version": "domain_knob_catalog_v1",
   "schema_hash": "sha256:ab8e7bef2e22dfadd080b19f2f4181aec145afadd27de2900ddb3b4c7e102adc",
-  "catalog_hash": "sha256:a657db890389ced215e611c7f4037801f0eaed55b733a636d9b152ba2416675d",
+  "catalog_hash": "sha256:774fdb22341b0944f68e321f5b30c25dea95aea8de38e262537488b105a5af63",
   "metric_registry_hash": "sha256:aafb67d08764b43316c4732500d7e9d9eca481f53741591cd720a1ae01c1194a",
   "calculator_registry_hash": "sha256:f76785cc56ed7361bf9bf0f2e29ccd6d06bc19163f63917bbdb05e6c46406cc4",
   "evaluation_metrics": {
@@ -6573,12 +6573,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/china_demand_weight/value",
-      "card_id": "china_demand_weight",
+      "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/industrial_metals_weight/value",
+      "card_id": "industrial_metals_weight",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.commodities.china_demand_weight.5d",
+      "prediction_target": "macro.commodities.industrial_metals_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6592,12 +6592,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/industrial_metals_weight/value",
-      "card_id": "industrial_metals_weight",
+      "path": "/rule_packs/macro.commodities.runtime.v1/rules/macro.commodities.soft.001/learnable_parameters/inflation_shock_transmission_weight/value",
+      "card_id": "inflation_shock_transmission_weight",
       "owner_agent": "macro.commodities",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.commodities.industrial_metals_weight.5d",
+      "prediction_target": "macro.commodities.inflation_shock_transmission_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6668,12 +6668,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/broad_dollar_trend_window_days/value",
-      "card_id": "broad_dollar_trend_window_days",
+      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/a_share_fx_liquidity_weight/value",
+      "card_id": "a_share_fx_liquidity_weight",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.broad_dollar_trend_window_days.5d",
+      "prediction_target": "macro.dollar.a_share_fx_liquidity_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6687,12 +6687,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/cn_us_spread_weight/value",
-      "card_id": "cn_us_spread_weight",
+      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/broad_dollar_trend_window_days/value",
+      "card_id": "broad_dollar_trend_window_days",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.cn_us_spread_weight.5d",
+      "prediction_target": "macro.dollar.broad_dollar_trend_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6725,12 +6725,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/em_flow_pressure_weight/value",
-      "card_id": "em_flow_pressure_weight",
+      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fx_volatility_weight/value",
+      "card_id": "fx_volatility_weight",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.em_flow_pressure_weight.5d",
+      "prediction_target": "macro.dollar.fx_volatility_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6744,12 +6744,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fed_pboc_divergence_threshold_bps/value",
-      "card_id": "fed_pboc_divergence_threshold_bps",
+      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/onshore_offshore_spread_weight/value",
+      "card_id": "onshore_offshore_spread_weight",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.fed_pboc_divergence_threshold_bps.5d",
+      "prediction_target": "macro.dollar.onshore_offshore_spread_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6763,12 +6763,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/real_rate_weight/value",
-      "card_id": "real_rate_weight",
+      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/rmb_pressure_weight/value",
+      "card_id": "rmb_pressure_weight",
       "owner_agent": "macro.dollar",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.real_rate_weight.5d",
+      "prediction_target": "macro.dollar.rmb_pressure_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6896,50 +6896,50 @@
       }
     },
     {
+      "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/crowding_confirmation_weight/value",
+      "card_id": "crowding_confirmation_weight",
+      "owner_agent": "macro.institutional_flow",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.institutional_flow.crowding_confirmation_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/etf_share_change_weight/value",
+      "card_id": "etf_share_change_weight",
+      "owner_agent": "macro.institutional_flow",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.institutional_flow.etf_share_change_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
       "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/flow_persistence_days/value",
       "card_id": "flow_persistence_days",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
       "activation_state": "active",
       "prediction_target": "macro.institutional_flow.flow_persistence_days.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/industry_moneyflow_window_days/value",
-      "card_id": "industry_moneyflow_window_days",
-      "owner_agent": "macro.institutional_flow",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.institutional_flow.industry_moneyflow_window_days.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/lhb_window_days/value",
-      "card_id": "lhb_window_days",
-      "owner_agent": "macro.institutional_flow",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.institutional_flow.lhb_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6972,6 +6972,25 @@
       }
     },
     {
+      "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/market_flow_window_days/value",
+      "card_id": "market_flow_window_days",
+      "owner_agent": "macro.institutional_flow",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.institutional_flow.market_flow_window_days.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
       "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/null_flow_fallback_cap/value",
       "card_id": "null_flow_fallback_cap",
       "owner_agent": "macro.institutional_flow",
@@ -6991,12 +7010,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/top_buyer_weight/value",
-      "card_id": "top_buyer_weight",
+      "path": "/rule_packs/macro.institutional_flow.runtime.v1/rules/macro.institutional_flow.soft.001/learnable_parameters/sector_rotation_window_days/value",
+      "card_id": "sector_rotation_window_days",
       "owner_agent": "macro.institutional_flow",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.institutional_flow.top_buyer_weight.5d",
+      "prediction_target": "macro.institutional_flow.sector_rotation_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7010,12 +7029,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/advance_decline_weight/value",
-      "card_id": "advance_decline_weight",
+      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/a_share_transmission_weight/value",
+      "card_id": "a_share_transmission_weight",
       "owner_agent": "macro.market_breadth",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.market_breadth.advance_decline_weight.5d",
+      "prediction_target": "macro.market_breadth.a_share_transmission_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7029,12 +7048,50 @@
       }
     },
     {
-      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/breadth_change_window_days/value",
-      "card_id": "breadth_change_window_days",
+      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/breadth_change_confirmation_weight/value",
+      "card_id": "breadth_change_confirmation_weight",
       "owner_agent": "macro.market_breadth",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.market_breadth.breadth_change_window_days.5d",
+      "prediction_target": "macro.market_breadth.breadth_change_confirmation_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/breadth_composite_weight/value",
+      "card_id": "breadth_composite_weight",
+      "owner_agent": "macro.market_breadth",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.market_breadth.breadth_composite_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/breadth_state_confirmation_weight/value",
+      "card_id": "breadth_state_confirmation_weight",
+      "owner_agent": "macro.market_breadth",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.market_breadth.breadth_state_confirmation_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7067,50 +7124,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/new_high_low_weight/value",
-      "card_id": "new_high_low_weight",
+      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/return_dispersion_weight/value",
+      "card_id": "return_dispersion_weight",
       "owner_agent": "macro.market_breadth",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.market_breadth.new_high_low_weight.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/trend_breadth_weight/value",
-      "card_id": "trend_breadth_weight",
-      "owner_agent": "macro.market_breadth",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.market_breadth.trend_breadth_weight.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.market_breadth.runtime.v1/rules/macro.market_breadth.soft.001/learnable_parameters/turnover_expansion_weight/value",
-      "card_id": "turnover_expansion_weight",
-      "owner_agent": "macro.market_breadth",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.market_breadth.turnover_expansion_weight.5d",
+      "prediction_target": "macro.market_breadth.return_dispersion_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7257,12 +7276,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/realized_vol_weight/value",
-      "card_id": "realized_vol_weight",
+      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/cross_market_stress_weight/value",
+      "card_id": "cross_market_stress_weight",
       "owner_agent": "macro.volatility",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.volatility.realized_vol_weight.5d",
+      "prediction_target": "macro.volatility.cross_market_stress_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -8907,5 +8926,5 @@
       }
     }
   ],
-  "contract_hash": "sha256:a467b5d8b905b3b510ee5adc3f01735249d8ca23916133ac582648d1274e7c9f"
+  "contract_hash": "sha256:80fa8fc6ebab0eacbba64af43c491a1946d3b441a305ab055c98d310fdc114d5"
 }
