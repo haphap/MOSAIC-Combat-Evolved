@@ -5,7 +5,7 @@ Assess the broad dollar, RMB state, FX pressure, and A-share liquidity transmiss
 
 Prohibited:
 - Do not label a broad-dollar index as DXY
-- Do not judge the US economy
+- Do not judge the US economy or infer a Fed policy direction
 
 Only call: get_fx_conditions_snapshot.
 Treat the runtime JSON Schema as the sole output-field contract; do not use hand-written JSON examples.

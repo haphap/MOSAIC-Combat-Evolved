@@ -2397,7 +2397,7 @@
           "normalization": "none"
         },
         {
-          "id": "pboc_fed_policy_weight",
+          "id": "pboc_policy_weight",
           "owner_agent": "macro.central_bank",
           "consumer_agents": [
             "macro.central_bank"
@@ -2407,7 +2407,7 @@
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_fed_policy_weight/value",
+          "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_policy_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -2419,7 +2419,7 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.central_bank.pboc_fed_policy_weight.primary",
+              "dependency_id": "macro.central_bank.pboc_policy_weight.primary",
               "evidence_key": "central_bank_snapshot",
               "tool": "get_central_bank_snapshot",
               "metric_ids": [
@@ -2436,7 +2436,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.central_bank.pboc_fed_policy_weight.primary": {
+            "macro.central_bank.pboc_policy_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2445,8 +2445,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate pboc fed policy weight for macro.central_bank prediction quality",
-          "prediction_target": "macro.central_bank.pboc_fed_policy_weight.5d",
+          "learning_objective": "calibrate pboc policy weight for macro.central_bank prediction quality",
+          "prediction_target": "macro.central_bank.pboc_policy_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",

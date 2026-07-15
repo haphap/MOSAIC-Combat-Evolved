@@ -513,7 +513,7 @@ research-knobs:
 
     expect(snapshot.consumptionSnapshot.active_knobs.length).toBeGreaterThan(0);
     expect(snapshot.consumptionSnapshot.disabled_knobs).toHaveLength(0);
-    expect(snapshot.visibleContract).toContain('"pboc_fed_policy_weight"');
+    expect(snapshot.visibleContract).toContain('"pboc_policy_weight"');
   });
 
   it("uses dependency min coverage when deciding unsupported knob influence", () => {
@@ -527,15 +527,15 @@ research-knobs:
     });
     const output = {
       confidence: 0.8,
-      declared_knob_influence_ids: ["pboc_fed_policy_weight"],
+      declared_knob_influence_ids: ["pboc_policy_weight"],
     };
 
     const sufficient = applyResearchKnobCaps(output, snapshot, {
       toolStatuses: [],
       evidenceDependencyStatuses: [
         {
-          card_id: "pboc_fed_policy_weight",
-          dependency_id: "macro.central_bank.pboc_fed_policy_weight.primary",
+          card_id: "pboc_policy_weight",
+          dependency_id: "macro.central_bank.pboc_policy_weight.primary",
           evidence_key: "pboc_ops",
           scope: "cohort:cohort_default",
           metric_id: "pboc_ops_current",
@@ -549,8 +549,8 @@ research-knobs:
       toolStatuses: [],
       evidenceDependencyStatuses: [
         {
-          card_id: "pboc_fed_policy_weight",
-          dependency_id: "macro.central_bank.pboc_fed_policy_weight.primary",
+          card_id: "pboc_policy_weight",
+          dependency_id: "macro.central_bank.pboc_policy_weight.primary",
           evidence_key: "pboc_ops",
           scope: "cohort:cohort_default",
           metric_id: "pboc_ops_current",
@@ -562,7 +562,7 @@ research-knobs:
     });
 
     expect(sufficient.audit.unsupported_knob_influence_ids).toEqual([]);
-    expect(insufficient.audit.unsupported_knob_influence_ids).toEqual(["pboc_fed_policy_weight"]);
+    expect(insufficient.audit.unsupported_knob_influence_ids).toEqual(["pboc_policy_weight"]);
   });
 
   it("derives dependency statuses per dependency metric", () => {
@@ -1073,7 +1073,7 @@ research-knobs:
     const result = applyResearchKnobCaps(
       {
         confidence: 0.7,
-        declared_knob_influence_ids: ["pboc_fed_policy_weight", "missing_card"],
+        declared_knob_influence_ids: ["pboc_policy_weight", "missing_card"],
       },
       snapshot,
       {
@@ -1089,8 +1089,8 @@ research-knobs:
         ],
         evidenceDependencyStatuses: [
           {
-            card_id: "pboc_fed_policy_weight",
-            dependency_id: "macro.central_bank.pboc_fed_policy_weight.primary",
+            card_id: "pboc_policy_weight",
+            dependency_id: "macro.central_bank.pboc_policy_weight.primary",
             evidence_key: "pboc_ops",
             scope: "cohort_default",
             status: "tool_failed",
@@ -1104,7 +1104,7 @@ research-knobs:
     };
 
     expect(result.audit.unsupported_knob_influence_ids).toEqual([
-      "pboc_fed_policy_weight",
+      "pboc_policy_weight",
       "missing_card",
     ]);
     expect(result.audit.sample_exclusion_reason).toContain("unsupported_knob_influence");
@@ -1125,7 +1125,7 @@ research-knobs:
     const rawOutput = {
       confidence: 0.8,
       recommendation: "RISK_ON",
-      declared_knob_influence_ids: ["pboc_fed_policy_weight"],
+      declared_knob_influence_ids: ["pboc_policy_weight"],
     };
 
     const result = applyResearchKnobCapsWithFallback(
@@ -1140,8 +1140,8 @@ research-knobs:
         toolStatuses: [],
         evidenceDependencyStatuses: [
           {
-            card_id: "pboc_fed_policy_weight",
-            dependency_id: "macro.central_bank.pboc_fed_policy_weight.primary",
+            card_id: "pboc_policy_weight",
+            dependency_id: "macro.central_bank.pboc_policy_weight.primary",
             evidence_key: "pboc_ops",
             scope: "cohort_default",
             status: "tool_failed",
@@ -1155,7 +1155,7 @@ research-knobs:
     expect(result.output.confidence).toBe(0);
     expect(result.audit.output_selection).toBe("deterministic_fallback");
     expect(result.audit.fallback_reason_code).toContain("unsupported_knob_influence");
-    expect(result.audit.unsupported_knob_influence_ids).toEqual(["pboc_fed_policy_weight"]);
+    expect(result.audit.unsupported_knob_influence_ids).toEqual(["pboc_policy_weight"]);
   });
 
   it("derives post-run evidence dependency statuses from tool statuses", () => {
@@ -1171,7 +1171,7 @@ research-knobs:
     const result = applyResearchKnobCaps(
       {
         confidence: 0.7,
-        declared_knob_influence_ids: ["pboc_fed_policy_weight"],
+        declared_knob_influence_ids: ["pboc_policy_weight"],
       },
       snapshot,
       {
@@ -1180,7 +1180,7 @@ research-knobs:
     );
 
     expect(result.audit.evidence_dependency_status_summary.missing).toBeGreaterThan(0);
-    expect(result.audit.unsupported_knob_influence_ids).toContain("pboc_fed_policy_weight");
+    expect(result.audit.unsupported_knob_influence_ids).toContain("pboc_policy_weight");
     expect(result.audit.sample_exclusion_reason).toContain("unsupported_knob_influence");
   });
 });

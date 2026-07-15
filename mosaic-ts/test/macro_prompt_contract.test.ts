@@ -117,10 +117,14 @@ describe("generated bundled macro prompts", () => {
 
   it("removes search/social dependencies and old required-role mistakes", () => {
     const china = prompt("china", "en");
+    const centralBank = prompt("central_bank", "en");
     const dollar = prompt("dollar", "en");
     const volatility = prompt("volatility", "en");
     expect(china).not.toMatch(/must[^\n]{0,40}property/i);
     expect(china).toContain("Do not require property");
+    expect(centralBank).toContain("PBOC reaction function");
+    expect(centralBank).toContain("Do not infer a Fed policy direction");
+    expect(centralBank).not.toContain("PBOC/Fed");
     expect(dollar).toContain("Do not label a broad-dollar index as DXY");
     expect(volatility).toContain("Do not call realized volatility iVX");
     for (const agent of MACRO_AGENT_IDS) {

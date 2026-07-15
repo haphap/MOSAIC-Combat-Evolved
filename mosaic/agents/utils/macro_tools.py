@@ -800,7 +800,7 @@ def get_us_macro_snapshot(
 def get_central_bank_snapshot(
     as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
 ) -> str:
-    """Return deterministic macro summaries plus PBOC/Fed operations; never agent conclusions."""
+    """Return deterministic China summaries plus PBOC operations and domestic liquidity."""
     return render_role_snapshot("central_bank", as_of_date)
 
 

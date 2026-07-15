@@ -5,7 +5,7 @@
 
 禁区：
 - 不得把广义美元指标冒充 DXY
-- 不得判断美国经济
+- 不得判断美国经济或 Fed 政策方向
 
 只允许调用：get_fx_conditions_snapshot。
 以运行时 JSON Schema 为唯一输出字段与约束来源，不使用手写 JSON 示例。

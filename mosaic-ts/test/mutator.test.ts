@@ -499,11 +499,11 @@ describe("knob mutation validation", () => {
     );
     expect(registry).toContainEqual(
       expect.objectContaining({
-        path: expect.stringContaining("/learnable_parameters/pboc_fed_policy_weight/value"),
+        path: expect.stringContaining("/learnable_parameters/pboc_policy_weight/value"),
         category: "domain",
         write_back_source: "domain_knob_value_registry",
         write_back_path: "registry/domain_knobs/cohort_default/central_bank.json",
-        domain_card_id: "pboc_fed_policy_weight",
+        domain_card_id: "pboc_policy_weight",
         evaluation_metrics: expect.arrayContaining([
           "macro_signal_accuracy_5d",
           "confidence_calibration_error",
@@ -639,15 +639,15 @@ describe("knob mutation validation", () => {
 
   it("renormalizes projection evidence weights after learnable-parameter patches", () => {
     const knobs = knobsFixture();
-    knobs.evidence_registry.fed_policy = {
-      tool: "get_fed_policy",
-      metric: "fed_policy_path",
+    knobs.evidence_registry.mlf_policy = {
+      tool: "get_pboc_ops",
+      metric: "pboc_mlf_policy_path",
       current_data: true,
       primary: false,
     };
     knobs.evidence_weights = {
       pboc_liquidity: 0.5,
-      fed_policy: 0.5,
+      mlf_policy: 0.5,
     };
     const next = applyKnobPatchesToProjection(
       knobs,
@@ -664,14 +664,14 @@ describe("knob mutation validation", () => {
         renormalization: [
           {
             group: "evidence_weights",
-            raw_values: { pboc_liquidity: 0.75, fed_policy: 0.25 },
+            raw_values: { pboc_liquidity: 0.75, mlf_policy: 0.25 },
           },
         ],
       }),
     );
 
     expect(next.evidence_weights.pboc_liquidity).toBe(0.75);
-    expect(next.evidence_weights.fed_policy).toBe(0.25);
+    expect(next.evidence_weights.mlf_policy).toBe(0.25);
     expect(knobs.evidence_weights.pboc_liquidity).toBe(0.5);
   });
 
@@ -681,7 +681,7 @@ describe("knob mutation validation", () => {
     if (!spec) return;
     const knobs = buildRuntimeResearchKnobs(spec);
     const target = knobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+      item.path.endsWith("/learnable_parameters/pboc_policy_weight/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
@@ -689,7 +689,7 @@ describe("knob mutation validation", () => {
     const next = applyKnobPatchesToProjection(
       knobs,
       knobMutation({
-        prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+        prediction_target: "macro.central_bank.pboc_policy_weight.5d",
         evaluation_metric: "macro_signal_accuracy_5d",
         horizon: "5d",
         rollback_condition: {
@@ -702,15 +702,15 @@ describe("knob mutation validation", () => {
             path: target.path,
             old_value: 0.2,
             new_value: 0.35,
-            rationale: "PBOC/Fed policy split has become more predictive.",
-            expected_effect: "Increase the policy-divergence domain threshold weight.",
+            rationale: "PBOC policy evidence has become more predictive.",
+            expected_effect: "Increase the domestic-policy domain threshold weight.",
           },
         ],
       }),
     );
 
-    expect(next.thresholds.pboc_fed_policy_weight).toBe(0.35);
-    expect(knobs.thresholds.pboc_fed_policy_weight).toBe(0.2);
+    expect(next.thresholds.pboc_policy_weight).toBe(0.35);
+    expect(knobs.thresholds.pboc_policy_weight).toBe(0.2);
   });
 
   it("projects catalog-governed domain knobs into every v1 bucket", () => {
@@ -792,7 +792,7 @@ describe("knob mutation validation", () => {
     const registry = buildDomainKnobValueRegistry(spec, "cohort_default");
     const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
     const target = knobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+      item.path.endsWith("/learnable_parameters/pboc_policy_weight/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
@@ -801,7 +801,7 @@ describe("knob mutation validation", () => {
       registry,
       knobs,
       knobMutation({
-        prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+        prediction_target: "macro.central_bank.pboc_policy_weight.5d",
         evaluation_metric: "macro_signal_accuracy_5d",
         horizon: "5d",
         rollback_condition: {
@@ -814,7 +814,7 @@ describe("knob mutation validation", () => {
             path: target.path,
             old_value: 0.2,
             new_value: 0.35,
-            rationale: "PBOC/Fed policy split has become more predictive.",
+            rationale: "PBOC policy evidence has become more predictive.",
             expected_effect: "Persist the domain value before projection regeneration.",
           },
         ],
@@ -826,7 +826,7 @@ describe("knob mutation validation", () => {
     expect(result.changed_paths).toEqual([target.path]);
     expect(result.registry.values_by_path[target.path]).toBe(0.35);
     expect(result.registry.last_mutation_id).toBe("KM-domain-1");
-    expect(regenerated.thresholds.pboc_fed_policy_weight).toBe(0.35);
+    expect(regenerated.thresholds.pboc_policy_weight).toBe(0.35);
     expect(registry.values_by_path[target.path]).toBe(0.2);
   });
 
@@ -979,7 +979,7 @@ describe("knob mutation validation", () => {
     if (!spec) return;
     const knobs = buildRuntimeResearchKnobs(spec);
     const target = knobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+      item.path.endsWith("/learnable_parameters/pboc_policy_weight/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
@@ -988,7 +988,7 @@ describe("knob mutation validation", () => {
       validateKnobMutation(
         knobs,
         knobMutation({
-          prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+          prediction_target: "macro.central_bank.pboc_policy_weight.5d",
           evaluation_metric: "portfolio_construction_quality_20d",
           rollback_condition: {
             metric: "portfolio_construction_quality_20d",
@@ -1017,7 +1017,7 @@ describe("knob mutation validation", () => {
     if (!spec) return;
     const knobs = buildRuntimeResearchKnobs(spec);
     const target = knobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+      item.path.endsWith("/learnable_parameters/pboc_policy_weight/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
@@ -1026,7 +1026,7 @@ describe("knob mutation validation", () => {
       validateKnobMutation(
         knobs,
         knobMutation({
-          prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+          prediction_target: "macro.central_bank.pboc_policy_weight.5d",
           evaluation_metric: "confidence_calibration_error",
           horizon: "5d",
           rollback_condition: {
@@ -1127,7 +1127,7 @@ describe("knob mutation validation", () => {
       writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf-8");
       const knobs = buildRuntimeResearchKnobs(spec, { domainRegistry: registry });
       const target = knobs.mutation_targets.find((item) =>
-        item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+        item.path.endsWith("/learnable_parameters/pboc_policy_weight/value"),
       );
       expect(target).toBeDefined();
       if (!target) return;
@@ -1136,7 +1136,7 @@ describe("knob mutation validation", () => {
         registryPath,
         knobs,
         mutation: knobMutation({
-          prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+          prediction_target: "macro.central_bank.pboc_policy_weight.5d",
           evaluation_metric: "macro_signal_accuracy_5d",
           horizon: "5d",
           rollback_condition: {
@@ -1165,7 +1165,7 @@ describe("knob mutation validation", () => {
           registryPath,
           knobs,
           mutation: knobMutation({
-            prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+            prediction_target: "macro.central_bank.pboc_policy_weight.5d",
             evaluation_metric: "macro_signal_accuracy_5d",
             horizon: "5d",
             rollback_condition: {
@@ -1354,12 +1354,12 @@ describe("knob mutation validation", () => {
     if (!spec) return;
     const baseKnobs = buildRuntimeResearchKnobs(spec);
     const target = baseKnobs.mutation_targets.find((item) =>
-      item.path.endsWith("/learnable_parameters/pboc_fed_policy_weight/value"),
+      item.path.endsWith("/learnable_parameters/pboc_policy_weight/value"),
     );
     expect(target).toBeDefined();
     if (!target) return;
     const mutation = knobMutation({
-      prediction_target: "macro.central_bank.pboc_fed_policy_weight.5d",
+      prediction_target: "macro.central_bank.pboc_policy_weight.5d",
       evaluation_metric: "confidence_calibration_error",
       horizon: "5d",
       rollback_condition: {

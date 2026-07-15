@@ -106,6 +106,27 @@ def test_role_snapshot_rejects_cross_role_series():
         validate_role_snapshot(bad, "central_bank", "2024-06-30")
 
 
+def test_central_bank_snapshot_is_pboc_and_domestic_liquidity_only():
+    accepted = payload(
+        role="central_bank",
+        observations=[observation(series_id="pboc_omo_net_injection")],
+    )
+    assert validate_role_snapshot(accepted, "central_bank", "2024-06-30")[
+        "observations"
+    ]
+
+    for forbidden in ("fed_policy_rate", "policy_divergence_index", "us_price_summary"):
+        bad = payload(
+            role="central_bank",
+            observations=[observation(series_id=forbidden)],
+        )
+        with pytest.raises(
+            DataVendorUnavailable,
+            match="outside the central_bank snapshot contract",
+        ):
+            validate_role_snapshot(bad, "central_bank", "2024-06-30")
+
+
 def test_alfred_revision_series_is_us_economy_only():
     bad = payload(observations=[observation(series_id="GDPC1", source="ALFRED")])
     with pytest.raises(DataVendorUnavailable, match="not permitted for role china"):

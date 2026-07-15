@@ -3,7 +3,7 @@
   "contract_version": "domain_knob_evaluation_contract_v1",
   "catalog_version": "domain_knob_catalog_v1",
   "schema_hash": "sha256:ab8e7bef2e22dfadd080b19f2f4181aec145afadd27de2900ddb3b4c7e102adc",
-  "catalog_hash": "sha256:774fdb22341b0944f68e321f5b30c25dea95aea8de38e262537488b105a5af63",
+  "catalog_hash": "sha256:0af48463646de7033ca13351a95b5731ea7a3518db2fe34b9e0b3a26922f21b3",
   "metric_registry_hash": "sha256:aafb67d08764b43316c4732500d7e9d9eca481f53741591cd720a1ae01c1194a",
   "calculator_registry_hash": "sha256:f76785cc56ed7361bf9bf0f2e29ccd6d06bc19163f63917bbdb05e6c46406cc4",
   "evaluation_metrics": {
@@ -6383,12 +6383,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_fed_policy_weight/value",
-      "card_id": "pboc_fed_policy_weight",
+      "path": "/rule_packs/macro.central_bank.runtime.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_policy_weight/value",
+      "card_id": "pboc_policy_weight",
       "owner_agent": "macro.central_bank",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.central_bank.pboc_fed_policy_weight.5d",
+      "prediction_target": "macro.central_bank.pboc_policy_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -8926,5 +8926,5 @@
       }
     }
   ],
-  "contract_hash": "sha256:80fa8fc6ebab0eacbba64af43c491a1946d3b441a305ab055c98d310fdc114d5"
+  "contract_hash": "sha256:60adea35b87f1b1740261bb1af6bcdc989d400d32bda59aad5c2790183eb1907"
 }

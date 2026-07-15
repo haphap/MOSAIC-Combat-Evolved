@@ -100,12 +100,16 @@ export const MACRO_ROLE_CONTRACTS: Readonly<Record<MacroAgentId, MacroRoleContra
   central_bank: {
     agentId: "central_bank",
     responsibility: {
-      zh: "判断 PBOC/Fed 反应函数、政策倾向、流动性与政策分化。",
-      en: "Assess PBOC/Fed reaction functions, policy bias, liquidity, and policy divergence.",
+      zh: "判断 PBOC 反应函数、政策倾向、公开市场操作与境内流动性对 A 股的传导。",
+      en: "Assess how the PBOC reaction function, policy bias, open-market operations, and domestic liquidity transmit to A-shares.",
     },
     prohibited: {
-      zh: ["不得重复给中美经济周期投票", "不得读取其他 Agent 输出"],
-      en: ["Do not cast another China/US cycle vote", "Do not read another agent's output"],
+      zh: ["不得判断 Fed 政策方向", "不得重复给中国经济周期投票", "不得读取其他 Agent 输出"],
+      en: [
+        "Do not infer a Fed policy direction",
+        "Do not cast another China-cycle vote",
+        "Do not read another agent's output",
+      ],
     },
     requiredTools: ["get_central_bank_snapshot"],
   },
@@ -116,8 +120,11 @@ export const MACRO_ROLE_CONTRACTS: Readonly<Record<MacroAgentId, MacroRoleContra
       en: "Assess the broad dollar, RMB state, FX pressure, and A-share liquidity transmission.",
     },
     prohibited: {
-      zh: ["不得把广义美元指标冒充 DXY", "不得判断美国经济"],
-      en: ["Do not label a broad-dollar index as DXY", "Do not judge the US economy"],
+      zh: ["不得把广义美元指标冒充 DXY", "不得判断美国经济或 Fed 政策方向"],
+      en: [
+        "Do not label a broad-dollar index as DXY",
+        "Do not judge the US economy or infer a Fed policy direction",
+      ],
     },
     requiredTools: ["get_fx_conditions_snapshot"],
   },

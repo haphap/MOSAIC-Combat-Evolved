@@ -21,6 +21,14 @@ generated prompt contract live in
 references, key drivers, and confidence. Neutral means exactly strength zero;
 non-neutral strength is 1–5.
 
+This is an A-share research graph, so `central_bank` is explicitly a PBOC and
+domestic-liquidity role. It neither infers nor votes on a Fed direction. Fed
+effects enter only after they are observable in the external financial paths
+owned by `dollar` and `yield_curve`; this avoids counting a Fed narrative once
+as policy and again through the dollar or rates. A future direct Fed view would
+require a separately scored role rather than being folded back into
+`central_bank`, `commodities`, or `geopolitical`.
+
 ## Prompt generation and cohort boundary
 
 The bundled repository contains concise Chinese and English prompts for the

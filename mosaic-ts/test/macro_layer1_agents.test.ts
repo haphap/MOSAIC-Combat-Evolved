@@ -123,6 +123,17 @@ describe("macro responsibility matrix", () => {
       if (!allowed.has(agent)) expect(text).not.toContain("新闻情绪票");
     }
   });
+
+  it("keeps central_bank China-centric and routes Fed transmission through market paths", () => {
+    const role = MACRO_ROLE_CONTRACTS.central_bank;
+    expect(role.responsibility.zh).toContain("PBOC");
+    expect(role.responsibility.en).toContain("PBOC");
+    expect(role.responsibility.zh).not.toContain("Fed");
+    expect(role.responsibility.en).not.toContain("Fed");
+    expect(role.prohibited.zh).toContain("不得判断 Fed 政策方向");
+    expect(MACRO_ROLE_CONTRACTS.dollar.prohibited.zh.join(" ")).toContain("Fed 政策方向");
+    expect(MACRO_ROLE_CONTRACTS.yield_curve.prohibited.zh.join(" ")).toContain("央行政策结论");
+  });
 });
 
 describe("macro snapshot semantic validation", () => {

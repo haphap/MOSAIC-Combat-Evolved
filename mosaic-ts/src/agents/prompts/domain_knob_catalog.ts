@@ -562,7 +562,7 @@ export function registeredMetricIdsForTool(tool: string): ReadonlySet<string> {
 
 const DOMAIN_SEEDS_BY_AGENT: Record<string, DomainSeed[]> = {
   central_bank: seeds([
-    "pboc_fed_policy_weight",
+    "pboc_policy_weight",
     "liquidity_net_injection_window_days",
     "omo_mlf_freshness_days",
     "easing_threshold_bps",
