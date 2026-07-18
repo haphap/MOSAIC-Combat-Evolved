@@ -2,10 +2,10 @@
   "schema_version": "agent_prompt_role_contract_manifest_v2",
   "private_prompt_repository": "haphap/MOSAIC-Prompts",
   "private_prompt_branch": "codex/macro-agent-role-contracts-v2",
-  "private_prompt_commit": "d154e3ee99c647241c5f85b93fd2f16c030cf4fd",
+  "private_prompt_commit": "90b0c8bd31746612c47580839b9c8aba75aa051e",
   "prompt_tree_sha256": "8492a48aeabffcfd38be3fdc853e77ee4b862b6d62b37e77880647c093b880ae",
-  "execution_behavior_release_id": "execution-behavior-release:f1b50da4c10217c160849279ef1dc683abc6c18727c4728b42c9705209c9876a",
-  "execution_behavior_release_hash": "sha256:7f2fde8a55f31b91d972f3b40aabf16c64587952f00c5616274f4f13cbf29d53",
+  "execution_behavior_release_id": "execution-behavior-release:72e4412af835699e6dd68a9dd65d8661157d0bf53ad348954231657521f88892",
+  "execution_behavior_release_hash": "sha256:fb4959de6ba946410b54ad8fc7403583b5a95e695ed4fa1dcb6f5ba76b980a40",
   "cohorts": [
     "cohort_bull_2007",
     "cohort_bull_2016",
