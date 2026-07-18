@@ -120,6 +120,39 @@ class TestScorecardAppend:
             count = conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0]
         assert count == 2  # not 4
 
+    def test_ui_narratives_are_stripped_from_evaluation_writers(
+        self, tmp_store, monkeypatch
+    ):
+        state = _sample_state()
+        state["trace_id"] = "trace-1"
+        state["agent_display_narratives"] = {"ui_only": True}
+        evaluation_states = []
+        narrative_states = []
+
+        monkeypatch.setattr(
+            tmp_store,
+            "append_from_state",
+            lambda payload: evaluation_states.append(payload) or 2,
+        )
+        monkeypatch.setattr(
+            tmp_store,
+            "append_macro_signals_from_state",
+            lambda payload: evaluation_states.append(payload) or 0,
+        )
+        monkeypatch.setattr(
+            tmp_store,
+            "append_agent_display_narratives_from_state",
+            lambda payload: narrative_states.append(payload) or 28,
+        )
+
+        result = dispatch("scorecard.append", {"state": state})
+        assert result["agent_narratives_ingested"] == 28
+        assert all(
+            "agent_display_narratives" not in payload
+            for payload in evaluation_states
+        )
+        assert narrative_states[0]["agent_display_narratives"] == {"ui_only": True}
+
     def test_missing_state_object(self, tmp_store):
         with pytest.raises(RpcError) as excinfo:
             dispatch("scorecard.append", {})
@@ -544,6 +577,7 @@ def test_all_5_methods_registered():
         "scorecard.score_pending",
         "scorecard.list_skill",
         "scorecard.latest_cio_actions",
+        "scorecard.latest_agent_narratives",
         "scorecard.win_rate",
         "darwinian.compute",
         "darwinian.get_weights",
@@ -581,6 +615,13 @@ class TestSignalsRpc:
         assert out["date"] == "2024-06-25"
         assert out["actions"][0]["ticker"] == "510300.SH"
 
+    def test_latest_agent_narratives_rpc_empty(self, tmp_store):
+        out = dispatch(
+            "scorecard.latest_agent_narratives", {"cohort": "cohort_default"}
+        )
+        assert out["date"] is None
+        assert out["narratives"] == []
+
     def test_win_rate_rpc(self, tmp_store):
         self._seed(tmp_store)
         rows = dispatch("scorecard.win_rate", {"cohort": "cohort_default"})["rows"]
@@ -591,6 +632,10 @@ class TestSignalsRpc:
     def test_latest_cio_actions_requires_cohort(self):
         with pytest.raises(RpcError):
             dispatch("scorecard.latest_cio_actions", {})
+
+    def test_latest_agent_narratives_requires_cohort(self):
+        with pytest.raises(RpcError):
+            dispatch("scorecard.latest_agent_narratives", {})
 
     def test_win_rate_rejects_bad_since(self, tmp_store):
         with pytest.raises(RpcError):

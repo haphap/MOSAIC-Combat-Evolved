@@ -31,6 +31,8 @@ export {
   pickBridgeTools,
 } from "./tools.js";
 export type {
+  AgentDisplayNarrativeRow,
+  AgentDisplayNarratives,
   AgentSnapshotBundle,
   AgentToolCapabilityManifest,
   AutoresearchActiveBranch,

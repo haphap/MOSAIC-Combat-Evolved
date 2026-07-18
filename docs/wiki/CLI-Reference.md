@@ -178,7 +178,7 @@ Long-running (minutes) — run as cron, not alongside latency-sensitive RPCs. Se
 ```bash
 pnpm dev dashboard --cohort cohort_default [--user <name>]
 ```
-See [TUI](TUI.md).
+See [TUI](TUI.md). Key 8 shows the latest UI-only human-readable explanation for each Agent; `j/k` moves through the 28-Agent roster.
 
 ## Daily operation
 

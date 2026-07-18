@@ -41,6 +41,15 @@ logger = logging.getLogger(__name__)
 # one Python-side contract so bridge handlers and persistence cannot drift.
 RUNTIME_AGENT_STAGE_COUNT = 29
 
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 71
+        and value.startswith("sha256:")
+        and all(char in "0123456789abcdef" for char in value[7:])
+    )
+
 # Resolve <repoRoot>/data/scorecard.db at import time.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DB_PATH = (
@@ -102,6 +111,32 @@ CREATE INDEX IF NOT EXISTS idx_rec_pending
 
 CREATE INDEX IF NOT EXISTS idx_rec_cohort_agent_date
     ON recommendations(cohort, agent, date);
+
+-- Human-readable projections of accepted Agent outputs.  This is a UI-only
+-- sidecar: no Darwinian/KNOT or downstream Agent query reads this table.
+CREATE TABLE IF NOT EXISTS agent_display_narratives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cohort TEXT NOT NULL,
+    date TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    bundle_hash TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    layer TEXT NOT NULL CHECK(layer IN ('macro', 'sector', 'superinvestor', 'decision')),
+    language TEXT NOT NULL CHECK(language IN ('zh', 'en')),
+    source TEXT NOT NULL CHECK(source IN (
+        'ACCEPTED_OUTPUT', 'NO_EVALUATION_OBJECT', 'NON_PRODUCTION_STRUCTURED_OUTPUT'
+    )),
+    source_output_id TEXT,
+    source_output_hash TEXT NOT NULL,
+    narrative_id TEXT NOT NULL,
+    narrative_text TEXT NOT NULL,
+    ui_only INTEGER NOT NULL CHECK(ui_only = 1),
+    created_at TEXT NOT NULL,
+    UNIQUE(cohort, date, trace_id, agent)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_display_narratives_latest
+    ON agent_display_narratives(cohort, created_at DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS darwinian_weights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2132,6 +2167,147 @@ class ScorecardStore:
             )
         return len(rows)
 
+    def append_agent_display_narratives_from_state(
+        self, state: dict[str, Any]
+    ) -> int:
+        """Persist the exact 28-Agent UI narrative sidecar for one live run.
+
+        The bundle is derived by TypeScript from accepted structured outputs.
+        It is intentionally stored outside recommendation, outcome, Darwinian,
+        and KNOT tables so no decision or evaluation path can consume it.
+        """
+        bundle = state.get("agent_display_narratives")
+        if not isinstance(bundle, dict):
+            raise ValueError("agent_display_narratives must be an object")
+        if bundle.get("schema_version") != "agent_display_narrative_bundle_v1":
+            raise ValueError("agent display narrative bundle version mismatch")
+
+        cohort = state.get("active_cohort")
+        date = state.get("as_of_date")
+        trace_id = state.get("trace_id")
+        if not all(isinstance(value, str) and value.strip() for value in (cohort, date, trace_id)):
+            raise ValueError("agent display narratives require cohort, date, and trace_id")
+        if (
+            bundle.get("cohort") != cohort
+            or bundle.get("as_of_date") != date
+            or bundle.get("trace_id") != trace_id
+        ):
+            raise ValueError("agent display narrative bundle owner mismatch")
+
+        language = bundle.get("language")
+        bundle_hash = bundle.get("bundle_hash")
+        narratives = bundle.get("narratives")
+        if language not in ("zh", "en"):
+            raise ValueError("agent display narrative language must be zh or en")
+        if not _is_sha256(bundle_hash):
+            raise ValueError("agent display narrative bundle_hash must be sha256")
+        if (
+            bundle.get("narrative_count") != 28
+            or not isinstance(narratives, list)
+            or len(narratives) != 28
+        ):
+            raise ValueError("agent display narrative bundle must contain exactly 28 Agents")
+
+        from mosaic.bridge.tool_capabilities import AGENTS_BY_LAYER, ALL_AGENT_IDS
+
+        layer_by_agent = {
+            agent: layer for layer, agents in AGENTS_BY_LAYER.items() for agent in agents
+        }
+        if [row.get("agent_id") for row in narratives if isinstance(row, dict)] != list(
+            ALL_AGENT_IDS
+        ):
+            raise ValueError("agent display narrative roster or order mismatch")
+
+        created_at = datetime.now(timezone.utc).isoformat()
+        rows: list[dict[str, Any]] = []
+        for row in narratives:
+            if not isinstance(row, dict):
+                raise ValueError("agent display narrative rows must be objects")
+            agent = row.get("agent_id")
+            source = row.get("source")
+            source_output_id = row.get("source_output_id")
+            narrative_text = row.get("narrative_text")
+            narrative_id = row.get("narrative_id")
+            if row.get("schema_version") != "agent_display_narrative_v1":
+                raise ValueError(f"{agent}: agent display narrative version mismatch")
+            if row.get("layer") != layer_by_agent.get(agent):
+                raise ValueError(f"{agent}: agent display narrative layer mismatch")
+            if row.get("language") != language or row.get("ui_only") is not True:
+                raise ValueError(f"{agent}: agent display narrative UI contract mismatch")
+            if source not in (
+                "ACCEPTED_OUTPUT",
+                "NO_EVALUATION_OBJECT",
+                "NON_PRODUCTION_STRUCTURED_OUTPUT",
+            ):
+                raise ValueError(f"{agent}: agent display narrative source is invalid")
+            if source == "ACCEPTED_OUTPUT" and not (
+                isinstance(source_output_id, str) and source_output_id.strip()
+            ):
+                raise ValueError(f"{agent}: accepted narrative lacks source_output_id")
+            if source != "ACCEPTED_OUTPUT" and source_output_id is not None:
+                raise ValueError(f"{agent}: non-accepted narrative cannot name an output id")
+            if source_output_id is not None and not isinstance(source_output_id, str):
+                raise ValueError(f"{agent}: source_output_id must be a string or null")
+            if not _is_sha256(row.get("source_output_hash")):
+                raise ValueError(f"{agent}: source_output_hash must be sha256")
+            if not (
+                isinstance(narrative_id, str)
+                and narrative_id.startswith("agent-display:")
+                and len(narrative_id) == len("agent-display:") + 64
+            ):
+                raise ValueError(f"{agent}: narrative_id is invalid")
+            if not (
+                isinstance(narrative_text, str)
+                and narrative_text.strip()
+                and len(narrative_text) <= 2_000
+            ):
+                raise ValueError(f"{agent}: narrative_text must contain 1-2000 characters")
+            rows.append(
+                {
+                    "cohort": cohort,
+                    "date": date,
+                    "trace_id": trace_id,
+                    "bundle_hash": bundle_hash,
+                    "agent": agent,
+                    "layer": row["layer"],
+                    "language": language,
+                    "source": source,
+                    "source_output_id": source_output_id,
+                    "source_output_hash": row["source_output_hash"],
+                    "narrative_id": narrative_id,
+                    "narrative_text": narrative_text,
+                    "created_at": created_at,
+                }
+            )
+
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO agent_display_narratives (
+                    cohort, date, trace_id, bundle_hash, agent, layer, language,
+                    source, source_output_id, source_output_hash, narrative_id,
+                    narrative_text, ui_only, created_at
+                ) VALUES (
+                    :cohort, :date, :trace_id, :bundle_hash, :agent, :layer, :language,
+                    :source, :source_output_id, :source_output_hash, :narrative_id,
+                    :narrative_text, 1, :created_at
+                )
+                ON CONFLICT(cohort, date, trace_id, agent) DO UPDATE SET
+                    bundle_hash = excluded.bundle_hash,
+                    layer = excluded.layer,
+                    language = excluded.language,
+                    source = excluded.source,
+                    source_output_id = excluded.source_output_id,
+                    source_output_hash = excluded.source_output_hash,
+                    narrative_id = excluded.narrative_id,
+                    narrative_text = excluded.narrative_text,
+                    ui_only = 1,
+                    created_at = excluded.created_at
+                """,
+                rows,
+            )
+        return len(rows)
+
     def list_pending(
         self,
         cohort: Optional[str] = None,
@@ -2718,6 +2894,54 @@ class ScorecardStore:
                 (cohort, latest),
             )
             return {"cohort": cohort, "date": latest, "actions": [dict(r) for r in cur.fetchall()]}
+
+    def get_latest_agent_display_narratives(self, cohort: str) -> dict[str, Any]:
+        """Return the latest complete UI-only Agent narrative bundle."""
+        with self._connect() as conn:
+            latest = conn.execute(
+                "SELECT date, trace_id, bundle_hash, language "
+                "FROM agent_display_narratives WHERE cohort = ? "
+                "ORDER BY created_at DESC, id DESC LIMIT 1",
+                (cohort,),
+            ).fetchone()
+            if not latest:
+                return {
+                    "schema_version": "agent_display_narrative_bundle_v1",
+                    "cohort": cohort,
+                    "date": None,
+                    "trace_id": None,
+                    "bundle_hash": None,
+                    "language": None,
+                    "narratives": [],
+                }
+            rows = conn.execute(
+                "SELECT agent AS agent_id, layer, language, source, source_output_id, "
+                "source_output_hash, narrative_id, narrative_text, ui_only "
+                "FROM agent_display_narratives "
+                "WHERE cohort = ? AND date = ? AND trace_id = ?",
+                (cohort, latest["date"], latest["trace_id"]),
+            ).fetchall()
+
+        from mosaic.bridge.tool_capabilities import ALL_AGENT_IDS
+
+        by_agent = {row["agent_id"]: dict(row) for row in rows}
+        narratives = []
+        for agent in ALL_AGENT_IDS:
+            row = by_agent.get(agent)
+            if row is None:
+                raise ValueError("latest agent display narrative bundle is incomplete")
+            row["schema_version"] = "agent_display_narrative_v1"
+            row["ui_only"] = bool(row["ui_only"])
+            narratives.append(row)
+        return {
+            "schema_version": "agent_display_narrative_bundle_v1",
+            "cohort": cohort,
+            "date": latest["date"],
+            "trace_id": latest["trace_id"],
+            "bundle_hash": latest["bundle_hash"],
+            "language": latest["language"],
+            "narratives": narratives,
+        }
 
     def compute_win_rate(
         self, cohort: str, since_date: Optional[str] = None, agent: str = "cio"

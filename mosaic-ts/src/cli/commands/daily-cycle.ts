@@ -25,6 +25,10 @@ import { AIMessage } from "@langchain/core/messages";
 import type { Command } from "commander";
 import pc from "picocolors";
 import { AcceptedAgentOutputStore } from "../../agents/accepted_output.js";
+import {
+  type AgentDisplayNarrativeBundle,
+  buildAgentDisplayNarrativeBundle,
+} from "../../agents/agent_display_narrative.js";
 import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
 import { buildPositionAuditToolStatusSummary } from "../../agents/helpers/position_audit.js";
 import {
@@ -342,6 +346,7 @@ export function registerDailyCycle(program: Command): void {
         const t0 = Date.now();
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
         assertAcceptedDailyCycle(final);
+        const agentDisplayNarratives = buildAgentDisplayNarrativeBundle(final);
         const agentRunAudits = final.llm_calls.flatMap((call) =>
           call.agent_run_audit ? [call.agent_run_audit] : [],
         );
@@ -381,6 +386,7 @@ export function registerDailyCycle(program: Command): void {
             agent_run_audits: agentRunAudits,
             decision_disposition: decisionDisposition,
             day_outcome_status: "accepted",
+            agent_display_narratives: agentDisplayNarratives,
           });
           if (!scorecardWrite.darwinian_v2) {
             throw new Error("accepted live cycle did not create Darwinian v2 ledgers");
@@ -443,6 +449,7 @@ export function registerDailyCycle(program: Command): void {
           // surface only the prose content for any consumer that wants it.
           const dump = {
             ...final,
+            agent_display_narratives: agentDisplayNarratives,
             messages: final.messages.map((m) => ({
               role: m.getType?.() ?? "unknown",
               content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
@@ -451,7 +458,7 @@ export function registerDailyCycle(program: Command): void {
           writeFileSync(opts.out, JSON.stringify(dump, null, 2), "utf-8");
           console.log(pc.dim(`\nstate written to ${opts.out} (${elapsed}s)`));
         } else {
-          printCycleSummary(final, elapsed);
+          printCycleSummary(final, elapsed, agentDisplayNarratives);
         }
       } catch (err) {
         if (err instanceof RpcError) {
@@ -475,7 +482,11 @@ export function registerDailyCycle(program: Command): void {
 // Pretty printer (4 layer summary blocks + portfolio_actions table)
 // ---------------------------------------------------------------------------
 
-function printCycleSummary(state: DailyCycleStateType, elapsed: string): void {
+function printCycleSummary(
+  state: DailyCycleStateType,
+  elapsed: string,
+  agentDisplayNarratives: AgentDisplayNarrativeBundle,
+): void {
   console.log(pc.cyan("\n=== Layer 1 — accepted Macro transmissions ==="));
   console.log(
     state.macro_input_gate
@@ -557,6 +568,14 @@ function printCycleSummary(state: DailyCycleStateType, elapsed: string): void {
   console.log(pc.cyan("\n=== portfolio_actions (final) ==="));
   printPositionAudit(state);
   printPortfolioTable(state.portfolio_actions, state.layer4_outputs.cio?.decision_disposition);
+
+  console.log(pc.cyan("\n=== Agent decision narratives (UI-only) ==="));
+  for (const narrative of agentDisplayNarratives.narratives) {
+    console.log(pc.bold(`\n[${narrative.agent_id}] ${narrative.layer}`));
+    for (const line of narrative.narrative_text.split("\n")) {
+      console.log(`  ${line}`);
+    }
+  }
 
   console.log(pc.dim(`\ntotal=${state.llm_calls.length} llm calls, elapsed=${elapsed}s`));
 }

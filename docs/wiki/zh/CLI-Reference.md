@@ -169,7 +169,7 @@ pnpm dev data validate --kind stock|etf [--gap-threshold 0.01]
 ```bash
 pnpm dev dashboard --cohort cohort_default [--user <name>]
 ```
-见 [TUI](TUI.md)。
+见 [TUI](TUI.md)。键 8 展示每个 Agent 最新的 UI-only 人可读决策说明,用 `j/k` 在 28 个 Agent 间切换。
 
 ## 日常运维
 

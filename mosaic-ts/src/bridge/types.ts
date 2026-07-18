@@ -420,6 +420,29 @@ export interface CioActions {
   actions: CioAction[];
 }
 
+export interface AgentDisplayNarrativeRow {
+  schema_version: "agent_display_narrative_v1";
+  narrative_id: string;
+  agent_id: string;
+  layer: "macro" | "sector" | "superinvestor" | "decision";
+  language: "zh" | "en";
+  source: "ACCEPTED_OUTPUT" | "NO_EVALUATION_OBJECT" | "NON_PRODUCTION_STRUCTURED_OUTPUT";
+  source_output_id: string | null;
+  source_output_hash: string;
+  narrative_text: string;
+  ui_only: true;
+}
+
+export interface AgentDisplayNarratives {
+  schema_version: "agent_display_narrative_bundle_v1";
+  cohort: string;
+  date: string | null;
+  trace_id: string | null;
+  bundle_hash: string | null;
+  language: "zh" | "en" | null;
+  narratives: AgentDisplayNarrativeRow[];
+}
+
 export interface WinRateRow {
   ticker: string;
   win_rate: number;
@@ -1872,6 +1895,7 @@ export class BridgeApi {
   scorecardAppend(state: Record<string, unknown>): Promise<{
     ingested: number;
     macro_ingested: number;
+    agent_narratives_ingested?: number;
     darwinian_v2?: {
       production_variant_roster_revision_id: string;
       accepted_output_records: number;
@@ -1938,6 +1962,12 @@ export class BridgeApi {
 
   scorecardLatestCioActions(cohort: string): Promise<CioActions> {
     return this.client.call<CioActions>("scorecard.latest_cio_actions", { cohort });
+  }
+
+  scorecardLatestAgentNarratives(cohort: string): Promise<AgentDisplayNarratives> {
+    return this.client.call<AgentDisplayNarratives>("scorecard.latest_agent_narratives", {
+      cohort,
+    });
   }
 
   scorecardWinRate(cohort: string, since?: string): Promise<{ rows: WinRateRow[] }> {
