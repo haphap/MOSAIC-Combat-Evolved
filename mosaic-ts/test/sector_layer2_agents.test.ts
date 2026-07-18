@@ -1,597 +1,215 @@
-/**
- * Bulk smoke test for the 7 sector agents added in Plan §11.2 sub-step 2D.1.
- * Same pattern as test/macro_layer1_agents.test.ts.
- */
-
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { pickResearchDigestTools } from "../src/agents/helpers/research_digest_tools.js";
+import { describe, expect, it } from "vitest";
+import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
-import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import {
-  biotechSpec,
-  buildBiotechNode,
-  fallbackBiotech,
-  renderBiotech,
-} from "../src/agents/sector/biotech.js";
+  SECTOR_AGENT_IDS,
+  STANDARD_SECTOR_AGENT_IDS,
+  STANDARD_SECTOR_ROLE_CONTRACTS,
+} from "../src/agents/sector/_contracts.js";
 import {
-  buildConsumerNode,
-  consumerSpec,
-  fallbackConsumer,
-  renderConsumer,
-} from "../src/agents/sector/consumer.js";
+  compactRelationshipExtractorAnalysis,
+  renderSectorDirectionResearchPayloads,
+} from "../src/agents/sector/_factory.js";
 import {
-  buildEnergyNode,
-  energySpec,
-  fallbackEnergy,
-  renderEnergy,
-} from "../src/agents/sector/energy.js";
-import {
-  buildFinancialsNode,
-  fallbackFinancials,
-  financialsSpec,
-  renderFinancials,
-} from "../src/agents/sector/financials.js";
-import {
-  buildIndustrialsNode,
-  fallbackIndustrials,
-  industrialsSpec,
-  renderIndustrials,
-} from "../src/agents/sector/industrials.js";
-import {
-  buildRelationshipMapperNode,
-  fallbackRelationshipMapper,
-  relationshipMapperSpec,
-  renderRelationshipMapper,
-} from "../src/agents/sector/relationship_mapper.js";
-import {
-  buildSemiconductorNode,
-  fallbackSemiconductor,
-  renderSemiconductor,
-  semiconductorSpec,
-} from "../src/agents/sector/semiconductor.js";
-import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
-import type {
-  CentralBankOutput,
-  ChinaOutput,
-  InstitutionalFlowOutput,
-  RegimeSignal,
-  SectorAgentOutput,
-  SemiconductorOutput,
-} from "../src/agents/types.js";
-import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
-import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
-import { fakeContractOutput } from "../src/cli/fake_agent_output.js";
-import type { LlmHandle } from "../src/llm/factory.js";
-import { macroOutput } from "./helpers/macro.js";
+  buildStandardSectorSchema,
+  RelationshipMapperSchema,
+} from "../src/agents/sector/_schemas.js";
+import { standardSectorSpec } from "../src/agents/sector/_spec.js";
+import { relationshipMapperSpec } from "../src/agents/sector/relationship_mapper.js";
+import { LAYER2_AGENT_NODES } from "../src/graph/layer2.js";
+import { sectorOutput } from "./helpers/sector.js";
 
-// ============================================================ AGENTS_BY_LAYER
-
-describe("AGENTS_BY_LAYER.sector", () => {
-  it("lists the canonical 7 sector agents from Plan §5.2", () => {
-    expect([...AGENTS_BY_LAYER.sector]).toEqual([
-      "semiconductor",
-      "energy",
-      "biotech",
-      "consumer",
-      "industrials",
-      "financials",
-      "relationship_mapper",
-    ]);
-  });
-});
-
-// ============================================================ spec sanity
-
-describe("each sector spec wires the right factory inputs", () => {
-  const cases = [
-    { name: "semiconductor", spec: semiconductorSpec },
-    { name: "energy", spec: energySpec },
-    { name: "biotech", spec: biotechSpec },
-    { name: "consumer", spec: consumerSpec },
-    { name: "industrials", spec: industrialsSpec },
-    { name: "financials", spec: financialsSpec },
-    { name: "relationship_mapper", spec: relationshipMapperSpec },
-  ] as const;
-
-  for (const { name, spec } of cases) {
-    it(`${name}`, () => {
-      expect(spec.agentId).toBe(name);
-      expect(spec.requiredTools.length).toBeGreaterThanOrEqual(2);
-      expect(spec.fieldNames).toContain("key_drivers");
-      expect(spec.fieldNames).toContain("confidence");
-    });
-  }
-
-  it("industry sector agents require get_broker_research (行业研报)", () => {
-    for (const { name, spec } of cases) {
-      if (name === "relationship_mapper") continue; // stock-level, not industry
-      expect(spec.requiredTools).toContain("get_broker_research");
-    }
+describe("Layer-2 roster and role contracts", () => {
+  it("has nine disjoint standard roles plus relationship mapper", () => {
+    expect(STANDARD_SECTOR_AGENT_IDS).toHaveLength(9);
+    expect(SECTOR_AGENT_IDS).toHaveLength(10);
+    expect([...AGENTS_BY_LAYER.sector]).toEqual([...SECTOR_AGENT_IDS]);
+    expect([...LAYER2_AGENT_NODES]).toEqual([...SECTOR_AGENT_IDS]);
   });
 
-  it("industry sector agents require get_etf_holdings (行业 ETF 暴露)", () => {
-    for (const { name, spec } of cases) {
-      if (name === "relationship_mapper") continue;
-      expect(spec.requiredTools).toContain("get_etf_holdings");
-    }
-  });
-
-  it("relationship_mapper requires get_stock_research (个股研报)", () => {
-    expect(relationshipMapperSpec.requiredTools).toContain("get_stock_research");
-  });
-});
-
-// ============================================================ render + fallback
-
-describe("renderers + fallbacks emit non-empty strings", () => {
-  it("semiconductor", () => {
-    const fb = fallbackSemiconductor("", null);
-    expect(fb.confidence).toBe(0);
-    expect(renderSemiconductor(fb).length).toBeGreaterThan(20);
-  });
-  it("energy", () => {
-    const fb = fallbackEnergy("", null);
-    expect(fb.confidence).toBe(0);
-    expect(renderEnergy(fb).length).toBeGreaterThan(20);
-  });
-  it("biotech", () => {
-    const fb = fallbackBiotech("", null);
-    expect(fb.confidence).toBe(0);
-    expect(renderBiotech(fb).length).toBeGreaterThan(20);
-  });
-  it("consumer", () => {
-    const fb = fallbackConsumer("", null);
-    expect(fb.confidence).toBe(0);
-    expect(renderConsumer(fb).length).toBeGreaterThan(20);
-  });
-  it("industrials", () => {
-    const fb = fallbackIndustrials("", null);
-    expect(fb.confidence).toBe(0);
-    expect(renderIndustrials(fb).length).toBeGreaterThan(20);
-  });
-  it("financials", () => {
-    const fb = fallbackFinancials("", null);
-    expect(fb.confidence).toBe(0);
-    expect(renderFinancials(fb).length).toBeGreaterThan(20);
-  });
-  it("relationship_mapper", () => {
-    const fb = fallbackRelationshipMapper("", null);
-    expect(fb.confidence).toBe(0);
-    expect(renderRelationshipMapper(fb).length).toBeGreaterThan(20);
-  });
-});
-
-// ============================================================ schema rejects
-
-describe("schemas reject malformations", () => {
-  it("standard sector rejects sector_score outside [-1, 1]", () => {
-    expect(() =>
-      semiconductorSpec.schema.parse({
-        agent: "semiconductor",
-        longs: [],
-        shorts: [],
-        sector_score: 2.0,
-        key_drivers: ["x"],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("relationship_mapper rejects empty supply_chains", () => {
-    expect(() =>
-      relationshipMapperSpec.schema.parse({
-        agent: "relationship_mapper",
-        supply_chains: [],
-        ownership_clusters: [],
-        contagion_risks: ["x"],
-        key_drivers: ["d"],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-});
-
-// ============================================================ end-to-end via factory
-
-describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
-  let promptDir: string;
-
-  class ScriptedLlm {
-    invokeCalls = 0;
-    bindToolsCalled = 0;
-    structuredCalls = 0;
-    readonly response: AIMessage;
-    readonly structuredResponse: SectorAgentOutput;
-    constructor(text: string, structured: SectorAgentOutput) {
-      this.response = new AIMessage(text);
-      this.structuredResponse = structured;
-    }
-    bindTools(_t: unknown): ScriptedLlm {
-      this.bindToolsCalled++;
-      return this;
-    }
-    withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
-      return {
-        invoke: async (input) => {
-          this.structuredCalls++;
-          return fakeContractOutput(
-            this.structuredResponse as unknown as Record<string, unknown>,
-            "semiconductor",
-            input,
-          );
-        },
-      };
-    }
-    async invoke(_messages: BaseMessage[]): Promise<AIMessage> {
-      this.invokeCalls++;
-      return this.response;
-    }
-  }
-
-  beforeEach(() => {
-    promptDir = mkdtempSync(join(tmpdir(), "mosaic-l2-"));
-    const dir = join(promptDir, "cohort_default", "sector");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "semiconductor.zh.md"), "FAKE", "utf-8");
-    writeFileSync(join(dir, "semiconductor.en.md"), "FAKE", "utf-8");
-    clearPromptCache();
-  });
-  afterEach(() => {
-    rmSync(promptDir, { recursive: true, force: true });
-    clearPromptCache();
-  });
-
-  it("reads layer1_consensus from state and writes layer2_outputs.semiconductor", async () => {
-    const TOOL_SCHEMA: JsonSchemaObject = {
-      type: "object",
-      properties: { x: { type: "string" } },
-      required: ["x"],
-    };
-    const FAKE_TOOLS: ToolMetadata[] = [
-      "get_rke_research_context",
-      "get_industry_policy",
-      "get_xueqiu_heat",
-      "get_lhb_ranking",
-      "get_broker_research",
-      "get_stock_research",
-      "get_etf_holdings",
-      "get_stock_data",
-      "get_indicators",
-      "get_income_statement",
-      "get_balance_sheet",
-      "get_cashflow",
-      "get_industry_moneyflow",
-    ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
-
-    const cannedOutput: SemiconductorOutput = {
-      agent: "semiconductor",
-      longs: [],
-      shorts: [],
-      sector_score: 0.6,
-      key_drivers: [
-        "Layer-1 BULLISH 且 china.sector_focus 含半导体",
-        "工信部 6/24 出台先进制程支持政策",
-      ],
-      confidence: 0,
-    };
-
-    const llm = new ScriptedLlm("semi analysis text", cannedOutput);
-    const handle: LlmHandle = {
-      llm: llm as unknown as LlmHandle["llm"],
-      provider: "fake",
-      model: "fake-model",
-      baseUrl: undefined,
-    };
-
-    let observedSystem = "";
-    const originalInvoke = llm.invoke.bind(llm);
-    llm.invoke = async (messages: BaseMessage[]) => {
-      observedSystem = String(messages[0]?.content ?? "");
-      return originalInvoke(messages);
-    };
-
-    const api = {
-      toolsList: async () => FAKE_TOOLS,
-      toolsCall: async (name: string) => ({ text: `${name}_csv` }),
-    } as unknown as BridgeApi;
-
-    const config: MosaicConfig = {
-      llm_provider: "fake",
-      deep_think_llm: "fake",
-      quick_think_llm: "fake",
-      backend_url: null,
-      anthropic_base_url: null,
-      anthropic_effort: null,
-      output_language: "Chinese",
-      research_depth_name: "标准",
-      active_cohort: "cohort_default",
-      cohorts: { cohort_default: { start: "2000-01-01", end: "2099-12-31" } },
-      autoresearch: {
-        agent_mutation_cooldown_hours: 24,
-        keep_revert_lockout_days: 3,
-        keep_threshold_delta_sharpe: 0.1,
-        monthly_modification_cap_per_cohort: 100,
-        evaluation_horizon_trading_days: 5,
-      },
-      data_vendors: {},
-      tool_vendors: {},
-    };
-
-    // Pre-populate Layer-1 state — the factory must surface this in user context.
-    const cb: CentralBankOutput = macroOutput("central_bank", {
-      direction: "SUPPORTIVE",
-      strength: 4,
-    });
-    const cn: ChinaOutput = macroOutput("china", {
-      direction: "SUPPORTIVE",
-      strength: 4,
-      channels: ["半导体", "新质生产力"],
-      key_drivers: ["国务院 6/24 半导体扶持"],
-    });
-    const inf: InstitutionalFlowOutput = macroOutput("institutional_flow", {
-      direction: "SUPPORTIVE",
-      strength: 4,
-      channels: ["semiconductor rotation"],
-    });
-    const regime: RegimeSignal = {
-      stance: "BULLISH",
-      confidence: 0.7,
-      key_drivers: ["regime drv"],
-      layer_1_consensus_score: 0.6,
-    };
-    const sample: DailyCycleStateType = {
-      messages: [],
-      active_cohort: "cohort_default",
-      as_of_date: "2024-06-24",
-      mode: "live",
-      trace_id: "test",
-      continuity_context: {},
-      lesson_context: {},
-      method_context: {},
-      layer1_outputs: { central_bank: cb, china: cn, institutional_flow: inf },
-      layer1_consensus: regime,
-      layer2_outputs: {},
-      layer2_consensus: null,
-      layer3_outputs: {},
-      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
-      current_positions: {
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        position_snapshot_hash: "sha256:empty_positions",
-        positions: [],
-      },
-      position_reviews: [],
-      position_audit: {
-        position_snapshot_hash: "sha256:empty_positions",
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        positions_loaded: 0,
-        positions_reviewed: 0,
-        positions_unreviewed: 0,
-        hold_count: 0,
-        add_count: 0,
-        reduce_count: 0,
-        exit_count: 0,
-        stale_thesis_count: 0,
-        stop_loss_override_count: 0,
-        target_current_drift_count: 0,
-      },
-      portfolio_actions: [],
-      replay_triggered: false,
-      llm_calls: [],
-    };
-
-    const node = buildSemiconductorNode({ llmHandle: handle, api, config });
-    const update = await node(sample);
-    const unwrapped = update as DailyCycleStateUpdate as unknown as {
-      layer2_outputs?: Record<string, SectorAgentOutput>;
-    };
-    expect(unwrapped.layer2_outputs?.semiconductor).toMatchObject(cannedOutput);
-    expect(llm.invokeCalls).toBe(1);
-    expect(llm.bindToolsCalled).toBe(1);
-    expect(llm.structuredCalls).toBe(1);
-    void observedSystem; // observation hook kept for future debugging
-  });
-});
-
-import { buildLayerTwoUserContext } from "../src/agents/sector/_factory.js";
-
-describe("buildLayerTwoUserContext", () => {
-  it("includes layer1_consensus + china + institutional_flow when populated", () => {
-    const regime: RegimeSignal = {
-      stance: "BULLISH",
-      confidence: 0.7,
-      key_drivers: ["d1"],
-      layer_1_consensus_score: 0.6,
-    };
-    const china: ChinaOutput = macroOutput("china", {
-      direction: "SUPPORTIVE",
-      strength: 4,
-      channels: ["半导体"],
-    });
-    const inf: InstitutionalFlowOutput = macroOutput("institutional_flow", {
-      direction: "SUPPORTIVE",
-      strength: 3,
-      channels: ["semi rotation"],
-    });
-    const state: DailyCycleStateType = {
-      messages: [],
-      active_cohort: "cohort_default",
-      as_of_date: "2024-06-24",
-      mode: "live",
-      trace_id: "t",
-      continuity_context: {},
-      lesson_context: {},
-      method_context: {},
-      layer1_outputs: { china, institutional_flow: inf },
-      layer1_consensus: regime,
-      layer2_outputs: {},
-      layer2_consensus: null,
-      layer3_outputs: {},
-      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
-      current_positions: {
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        position_snapshot_hash: "sha256:empty_positions",
-        positions: [],
-      },
-      position_reviews: [],
-      position_audit: {
-        position_snapshot_hash: "sha256:empty_positions",
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        positions_loaded: 0,
-        positions_reviewed: 0,
-        positions_unreviewed: 0,
-        hold_count: 0,
-        add_count: 0,
-        reduce_count: 0,
-        exit_count: 0,
-        stale_thesis_count: 0,
-        stop_loss_override_count: 0,
-        target_current_drift_count: 0,
-      },
-      portfolio_actions: [],
-      replay_triggered: false,
-      llm_calls: [],
-    };
-    const ctx = buildLayerTwoUserContext(state, "semiconductor");
-    expect(ctx).toContain("BULLISH");
-    expect(ctx).toContain("SUPPORTIVE");
-    expect(ctx).toContain("半导体");
-    expect(ctx).toContain("semi rotation");
-    expect(ctx).toContain("semiconductor"); // agentId in header
-  });
-
-  it("degrades gracefully when upstream Layer-1 state is missing", () => {
-    const state: DailyCycleStateType = {
-      messages: [],
-      active_cohort: "cohort_default",
-      as_of_date: "2024-06-24",
-      mode: "live",
-      trace_id: "t",
-      continuity_context: {},
-      lesson_context: {},
-      method_context: {},
-      layer1_outputs: {},
-      layer1_consensus: null,
-      layer2_outputs: {},
-      layer2_consensus: null,
-      layer3_outputs: {},
-      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
-      current_positions: {
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        position_snapshot_hash: "sha256:empty_positions",
-        positions: [],
-      },
-      position_reviews: [],
-      position_audit: {
-        position_snapshot_hash: "sha256:empty_positions",
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        positions_loaded: 0,
-        positions_reviewed: 0,
-        positions_unreviewed: 0,
-        hold_count: 0,
-        add_count: 0,
-        reduce_count: 0,
-        exit_count: 0,
-        stale_thesis_count: 0,
-        stop_loss_override_count: 0,
-        target_current_drift_count: 0,
-      },
-      portfolio_actions: [],
-      replay_triggered: false,
-      llm_calls: [],
-    };
-    const ctx = buildLayerTwoUserContext(state, "semiconductor");
-    expect(ctx).toContain("not available");
-  });
-});
-
-describe("compact ETF holdings tool", () => {
-  it("returns a small candidate JSON and does not pass top_n to the bridge tool", async () => {
-    const raw = [
-      "# ETF holdings for 512010.SH",
-      "# Total records: 20",
-      "",
-      "# Key snapshot",
-      "Ticker: 512010.SH",
-      "Disclosure Date: 20260422",
-      "Report Date: 20260331",
-      "Top Holding: 600276.SH",
-      "Top Holding Weight: 20.20%",
-      "",
-      "ts_code,ann_date,end_date,symbol,mkv,amount,stk_mkv_ratio,stk_float_ratio,stk_name",
-      "512010.SH,20260422,20260331,600276.SH,3472136909.78,62878249.0,20.2,0.99,恒瑞医药",
-      "512010.SH,20260422,20260331,603259.SH,3417696580.5,34838905.0,19.88,1.41,药明康德",
-      "512010.SH,20260422,20260331,300760.SZ,1404918967.72,8532242.0,8.17,0.7,迈瑞医疗",
-    ].join("\n");
-    const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
-    const api = {
-      toolsList: async () => [
-        {
-          name: "get_etf_holdings",
-          description: "raw ETF holdings",
-          args_schema: { type: "object", properties: {}, required: [] },
-        },
-      ],
-      toolsCall: async (name: string, input: Record<string, unknown>) => {
-        calls.push({ name, input });
-        return { text: raw };
-      },
-    } as unknown as BridgeApi;
-
-    const [tool] = await pickResearchDigestTools({
-      api,
-      names: ["get_etf_holdings"],
-      options: {},
-      llmHandle: { model: "fake" } as LlmHandle,
-      onLog: () => undefined,
-      signal: new AbortController().signal,
-    });
-    if (!tool) throw new Error("expected get_etf_holdings tool");
-    const output = String(
-      await tool.invoke({ ticker: "512010.SH", curr_date: "2026-06-18", top_n: 2 }),
+  it.each(STANDARD_SECTOR_AGENT_IDS)("%s owns an exact direction registry", (agent) => {
+    const role = STANDARD_SECTOR_ROLE_CONTRACTS[agent];
+    expect(role.directionIds.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(role.directionIds).size).toBe(role.directionIds.length);
+    expect(role.requiredTools).toEqual(
+      agent === "biotech"
+        ? ["get_sector_research_snapshot"]
+        : ["get_sector_research_snapshot", "get_role_event_snapshot"],
     );
-    const parsed = JSON.parse(output) as {
-      candidates: Array<{ ticker: string; name: string; weight_pct: number }>;
-      usage: string;
-    };
+    expect(role.responsibility.zh).not.toBe(role.responsibility.en);
+    expect(role.prohibited.zh.length).toBeGreaterThan(0);
+  });
 
-    expect(calls).toEqual([
-      { name: "get_etf_holdings", input: { ticker: "512010.SH", curr_date: "2026-06-18" } },
+  it("preserves the requested industry ownership boundaries", () => {
+    expect(STANDARD_SECTOR_ROLE_CONTRACTS.energy.directionIds).toEqual(
+      expect.arrayContaining(["coal", "oil_gas", "solar", "wind", "battery_storage"]),
+    );
+    expect(STANDARD_SECTOR_ROLE_CONTRACTS.consumer.directionIds).toContain("automobiles");
+    expect(STANDARD_SECTOR_ROLE_CONTRACTS.industrials.directionIds).toEqual(
+      expect.arrayContaining(["basic_chemicals", "steel", "nonferrous_metals"]),
+    );
+    expect(STANDARD_SECTOR_ROLE_CONTRACTS.real_estate_construction.directionIds).toEqual([
+      "real_estate",
+      "building_materials",
+      "construction_decoration",
     ]);
-    expect(parsed.candidates).toHaveLength(2);
-    expect(parsed.candidates[0]).toMatchObject({
-      ticker: "600276.SH",
-      name: "恒瑞医药",
-      weight_pct: 20.2,
-    });
-    expect(parsed.usage).toContain("at most 3 tickers");
-    expect(output).not.toContain("mkv,amount");
+  });
+
+  it("keeps source ids distinct from the runtime claim-evidence catalog", () => {
+    const rendered = renderSectorDirectionResearchPayloads(
+      new Map([
+        [
+          "get_sector_research_snapshot",
+          JSON.stringify({
+            direction_cards: [
+              { direction_id: "semiconductor_core", evidence_ids: ["source-card-evidence"] },
+            ],
+            evidence_catalog: [{ evidence_id: "source-card-evidence" }],
+          }),
+        ],
+        ["get_role_event_snapshot", JSON.stringify({ coverage_evidence_ids: ["coverage-id"] })],
+      ]),
+    );
+    expect(rendered).not.toContain("source-card-evidence");
+    expect(rendered).toContain("coverage-id");
   });
 });
 
-// Compile-time canary — every spec exists.
-const _allSectorBuilders = {
-  semiconductor: buildSemiconductorNode,
-  energy: buildEnergyNode,
-  biotech: buildBiotechNode,
-  consumer: buildConsumerNode,
-  industrials: buildIndustrialsNode,
-  financials: buildFinancialsNode,
-  relationship_mapper: buildRelationshipMapperNode,
-};
-void _allSectorBuilders;
+describe("standard sector output contracts", () => {
+  it.each(
+    STANDARD_SECTOR_AGENT_IDS,
+  )("%s accepts the final selection without research rows", (agent) => {
+    const schema = buildStandardSectorSchema(agent);
+    const parsed = schema.parse(sectorOutput(agent));
+    expect(parsed).not.toHaveProperty("direction_comparisons");
+    expect(parsed.macro_input_attributions.map((item) => item.agent_id).sort()).toEqual(
+      [...MACRO_AGENT_IDS].sort(),
+    );
+  });
+
+  it("rejects research rows submitted during final selection", () => {
+    const output = { ...sectorOutput("energy"), direction_comparisons: [] };
+    expect(buildStandardSectorSchema("energy").safeParse(output).success).toBe(false);
+  });
+
+  it("rejects duplicate or incomplete Macro attribution", () => {
+    const output = sectorOutput("consumer");
+    const duplicate = output.macro_input_attributions[1];
+    if (!duplicate) throw new Error("fixture requires at least two Macro attributions");
+    output.macro_input_attributions[0] = duplicate;
+    expect(buildStandardSectorSchema("consumer").safeParse(output).success).toBe(false);
+  });
+
+  it("rejects a direction owned by another role", () => {
+    const output = sectorOutput("consumer");
+    if (output.selection_status !== "SELECTED" || !("direction_id" in output.preferred_direction)) {
+      throw new Error("fixture must select");
+    }
+    output.preferred_direction.direction_id = "coal";
+    expect(buildStandardSectorSchema("consumer").safeParse(output).success).toBe(false);
+  });
+
+  it("binds final selection to the exact runtime direction and empty security shortlist", () => {
+    const directive = {
+      selection_status: "SELECTED" as const,
+      preferred_direction_id: "coal",
+      least_preferred_status: "NOT_QUALIFIED" as const,
+      least_preferred_direction_id: null,
+      least_preferred_reason: "NO_UNIQUE_CONDORCET_LOSER" as const,
+      allowed_preferred_security_ids: [],
+      allowed_least_preferred_security_ids: [],
+    };
+    const output = sectorOutput("energy");
+    if (!("direction_id" in output.preferred_direction)) throw new Error("fixture must select");
+    output.preferred_direction.direction_id = "coal";
+    output.preferred_direction.direction_local_id = "coal";
+    const schema = buildStandardSectorSchema("energy", "SELECTED", directive);
+    expect(schema.safeParse(output).success).toBe(true);
+    output.preferred_direction.direction_id = "oil_gas";
+    expect(schema.safeParse(output).success).toBe(false);
+  });
+
+  it.each(STANDARD_SECTOR_AGENT_IDS)("%s spec exposes its closed snapshot tools", (agent) => {
+    const spec = standardSectorSpec(agent, buildStandardSectorSchema(agent));
+    expect(spec.requiredTools).toEqual(
+      agent === "biotech"
+        ? ["get_sector_research_snapshot"]
+        : ["get_sector_research_snapshot", "get_role_event_snapshot"],
+    );
+    expect(spec.fieldNames).toEqual(
+      expect.arrayContaining([
+        "preferred_direction",
+        "least_preferred_direction",
+        "long_picks",
+        "short_or_avoid_picks",
+        "macro_input_attributions",
+      ]),
+    );
+  });
+});
+
+describe("relationship mapper", () => {
+  it("bounds extractor context while preserving both analysis ends", () => {
+    const analysis = `${"head".repeat(2_000)}${"tail".repeat(2_000)}`;
+    const compact = compactRelationshipExtractorAnalysis(analysis);
+    expect(compact).toHaveLength(6_000);
+    expect(compact.startsWith("head")).toBe(true);
+    expect(compact.endsWith("tail")).toBe(true);
+  });
+
+  it("uses its dedicated frozen-domain snapshot", () => {
+    expect(relationshipMapperSpec.requiredTools).toEqual(["get_relationship_graph_snapshot"]);
+  });
+
+  it("requires structured relationships, risks, evidence, and claims", () => {
+    expect(
+      RelationshipMapperSchema.parse({
+        agent: "relationship_mapper",
+        factual_edges: [
+          {
+            edge_local_id: "edge-1",
+            source_entity: "300750.SZ",
+            target_entity: "battery_storage",
+            edge_type: "supply_chain",
+            claim_refs: ["relationship-claim"],
+          },
+        ],
+        predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
+        predictive_edges: [],
+        predictive_graph_abstention_confidence: 0.5,
+        key_drivers: [
+          {
+            driver_local_id: "driver-1",
+            summary: "frozen accepted direction domain",
+            claim_refs: ["relationship-claim"],
+          },
+        ],
+        risks: [
+          {
+            risk_local_id: "risk-1",
+            summary: "shared supplier",
+            claim_refs: ["relationship-claim"],
+          },
+        ],
+        claims: [
+          {
+            claim_id: "relationship-claim",
+            claim_kind: "FACT",
+            statement: "A frozen-domain relationship is observed.",
+            structured_conclusion: { relationship: "supply_chain" },
+            evidence_ids: ["sector:relationship"],
+            research_rule_refs: [],
+          },
+        ],
+        claim_refs: ["relationship-claim"],
+        macro_input_attributions: MACRO_AGENT_IDS.map((macroAgentId) => ({
+          agent_id: macroAgentId,
+          target_type: "SUBMISSION_SUMMARY",
+          target_local_ref: "$SUBMISSION",
+          claim_refs_used: [],
+          effect: "NOT_MATERIAL",
+        })),
+      }).agent,
+    ).toBe("relationship_mapper");
+  });
+});

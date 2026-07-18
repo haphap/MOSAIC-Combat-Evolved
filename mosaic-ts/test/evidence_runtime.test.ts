@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CioProposalSubmission } from "../src/agents/decision/accepted.js";
 import {
   buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
@@ -6,13 +7,15 @@ import {
 } from "../src/agents/helpers/evidence_runtime.js";
 import type { ResearchKnobsSnapshot } from "../src/agents/helpers/research_knobs.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
+import { fallbackSuperinvestorOutput } from "../src/agents/superinvestor/_factory.js";
 import type {
   CentralBankOutput,
   CioOutput,
   MungerOutput,
   SemiconductorOutput,
 } from "../src/agents/types.js";
-import { macroOutput } from "./helpers/macro.js";
+import { macroSubmission } from "./helpers/macro.js";
+import { sectorOutput } from "./helpers/sector.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const MARKET_HASH = `sha256:${"2".repeat(64)}`;
@@ -236,27 +239,34 @@ describe("runtime evidence snapshots", () => {
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
     expect(evidenceId).toBeDefined();
-    const raw: CioOutput = {
-      agent: "cio",
-      decision_claim_refs: ["claim-1"],
-      portfolio_actions: [
+    const raw: CioProposalSubmission = {
+      agent_id: "cio",
+      decision_stage: "PROPOSAL",
+      decision_disposition: "TARGET_PORTFOLIO",
+      claim_refs: ["claim-1"],
+      target_positions: [
         {
-          ticker: "600519.SH",
-          action: "HOLD",
+          position_local_id: "position-1",
+          ts_code: "600519.SH",
           target_weight: 0.1,
-          holding_period: "1M",
-          dissent_notes: "",
+          position_decision: "HOLD",
+          holding_period: "MONTHS",
+          thesis_status: "INTACT",
+          risk_flags: [],
           claim_refs: ["claim-1"],
         },
       ],
+      cash_weight: 0.9,
+      decision_reason: "The existing position remains supported.",
       confidence: 0.6,
+      macro_input_attributions: [],
       claims: [
         {
           claim_id: "claim-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports holding the existing position.",
           structured_conclusion: { decision: "HOLD" },
-          evidence_refs: [evidenceId ?? "missing"],
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
@@ -264,7 +274,18 @@ describe("runtime evidence snapshots", () => {
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): CioOutput => ({ agent: "cio", portfolio_actions: [], confidence: 0 }),
+      (): CioProposalSubmission => ({
+        agent_id: "cio",
+        decision_stage: "PROPOSAL",
+        decision_disposition: "ALL_CASH",
+        target_positions: [],
+        cash_weight: 1,
+        decision_reason: "Fallback to cash.",
+        confidence: 0,
+        macro_input_attributions: [],
+        claims: raw.claims,
+        claim_refs: raw.claim_refs,
+      }),
       runtime,
     );
 
@@ -276,7 +297,7 @@ describe("runtime evidence snapshots", () => {
         claim_refs: ["claim-1"],
       },
       {
-        output_id: "portfolio_action:0:600519.SH",
+        output_id: "target_position:0:600519.SH",
         output_type: "portfolio_action",
         claim_refs: ["claim-1"],
       },
@@ -294,27 +315,29 @@ describe("runtime evidence snapshots", () => {
     const evidenceId = runtime.evidenceLedger.find(
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
-    const raw: CentralBankOutput = {
-      ...macroOutput("central_bank", {
-        key_drivers: ["Current market evidence is neutral"],
-        confidence: 0.4,
-      }),
-      claim_refs: ["claim-macro-1"],
+    const baseSubmission = macroSubmission("central_bank");
+    if (baseSubmission.mode !== "COMPONENTS") throw new Error("central_bank is component mode");
+    const raw: CentralBankOutput = macroSubmission("central_bank", {
+      key_drivers: ["Current market evidence is neutral"],
       claims: [
         {
           claim_id: "claim-macro-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports a neutral policy stance.",
           structured_conclusion: { direction: "NEUTRAL", strength: 0 },
-          evidence_refs: [evidenceId ?? "missing"],
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
-    };
+      components: baseSubmission.components.map((component) => ({
+        ...component,
+        claim_refs: ["claim-macro-1"],
+      })),
+    });
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): CentralBankOutput => macroOutput("central_bank", { confidence: 0 }),
+      (): CentralBankOutput => macroSubmission("central_bank"),
       runtime,
     );
 
@@ -338,43 +361,36 @@ describe("runtime evidence snapshots", () => {
     const evidenceId = runtime.evidenceLedger.find(
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
-    const raw: SemiconductorOutput = {
-      agent: "semiconductor",
-      longs: [
+    const raw: SemiconductorOutput = sectorOutput("semiconductor", {
+      preferred_security_status: "PICKS_PRESENT",
+      preferred_security_abstention_confidence: null,
+      long_picks: [
         {
-          ticker: "600519.SH",
+          pick_local_id: "pick-sector-1",
+          ts_code: "600519.SH",
+          direction_local_id: "semiconductor-preferred",
+          position_action: "LONG",
           thesis: "verified candidate",
           conviction: 0.5,
           claim_refs: ["claim-sector-1"],
         },
       ],
-      shorts: [],
-      sector_score: 0.2,
-      key_drivers: ["Current evidence"],
-      confidence: 0.5,
       claim_refs: ["claim-sector-1"],
       claims: [
         {
           claim_id: "claim-sector-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports the candidate and sector tilt.",
-          structured_conclusion: { sector_score: 0.2 },
-          evidence_refs: [evidenceId ?? "missing"],
+          structured_conclusion: { selection_status: "SELECTED" },
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
-    };
+    });
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): SemiconductorOutput => ({
-        agent: "semiconductor",
-        longs: [],
-        shorts: [],
-        sector_score: 0,
-        key_drivers: ["fallback"],
-        confidence: 0,
-      }),
+      (): SemiconductorOutput => sectorOutput("semiconductor"),
       runtime,
     );
 
@@ -404,27 +420,43 @@ describe("runtime evidence snapshots", () => {
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
     const raw: MungerOutput = {
+      ...fallbackSuperinvestorOutput("munger", "Current evidence"),
       agent: "munger",
+      selection_status: "SELECTED",
       picks: [
         {
-          ticker: "600519.SH",
+          pick_local_id: "munger-pick-1",
+          ts_code: "600519.SH",
+          position_action: "LONG",
           thesis: "verified quality",
           conviction: 0.5,
-          holding_period: "1Y",
           claim_refs: ["claim-pick-1"],
         },
       ],
-      philosophy_note: "Current evidence supports quality exposure.",
-      key_drivers: ["Current evidence"],
+      holding_period: "YEARS",
+      key_drivers: [
+        {
+          driver_local_id: "munger-driver-1",
+          summary: "Current evidence",
+          claim_refs: ["claim-pick-1"],
+        },
+      ],
+      risks: [
+        {
+          risk_local_id: "munger-risk-1",
+          summary: "Quality evidence may weaken.",
+          claim_refs: ["claim-pick-1"],
+        },
+      ],
       confidence: 0.5,
       claim_refs: ["claim-pick-1"],
       claims: [
         {
           claim_id: "claim-pick-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports the philosophy-filtered pick.",
           structured_conclusion: { philosophy: "quality" },
-          evidence_refs: [evidenceId ?? "missing"],
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
@@ -432,13 +464,7 @@ describe("runtime evidence snapshots", () => {
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): MungerOutput => ({
-        agent: "munger",
-        picks: [],
-        philosophy_note: "fallback",
-        key_drivers: ["fallback"],
-        confidence: 0,
-      }),
+      (): MungerOutput => fallbackSuperinvestorOutput("munger", "fallback") as MungerOutput,
       runtime,
     );
 
@@ -481,10 +507,10 @@ describe("runtime evidence snapshots", () => {
       claims: [
         {
           claim_id: "claim-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Unsupported buy.",
           structured_conclusion: { decision: "BUY" },
-          evidence_refs: ["invented-evidence"],
+          evidence_ids: ["invented-evidence"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
@@ -507,8 +533,6 @@ describe("runtime evidence snapshots", () => {
         ]),
       }),
     );
-    expect(selected.graph.claims).toEqual([
-      expect.objectContaining({ claim_type: "uncertainty", evidence_refs: [] }),
-    ]);
+    expect(selected.graph.claims).toEqual([expect.objectContaining({ claim_kind: "RISK_FLAG" })]);
   });
 });

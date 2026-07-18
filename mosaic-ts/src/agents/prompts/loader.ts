@@ -1,5 +1,5 @@
 /**
- * Loads prompt markdown files for the 25 agents (Plan §10).
+ * Loads prompt markdown files for the 28 logical agents (plan v2 §12).
  *
  * Convention:
  *   * Returns the raw markdown text as a UTF-8 string. The caller's prompt
@@ -287,10 +287,12 @@ interface ParsedPromptPair {
 }
 
 /**
- * Load zh/en prompt pair with a required research-knobs projection.
+ * Load a zh/en prompt pair and its runtime-owned research-knob snapshot.
  *
  * Unlike legacy ``loadPrompt({ language: "Bilingual" })``, this fails closed
- * if either language is missing or the parsed knobs differ.
+ * if either language is missing or the parsed knobs differ. The snapshot is
+ * returned only for deterministic runtime enforcement and audit; knob fields
+ * are deliberately excluded from the model-visible system prompt.
  */
 export async function loadPromptWithKnobs(
   opts: Omit<LoadOptions, "language"> & {
@@ -327,9 +329,7 @@ export async function loadPromptWithKnobs(
     ...(opts.stage ? { stage: opts.stage } : {}),
     runtimeSourceStatuses: opts.runtimeSourceStatuses ?? [],
   });
-  const prompt = [snapshot.visibleContract, "", zhParsed.body, "", "---", "", enParsed.body].join(
-    "\n",
-  );
+  const prompt = [zhParsed.body, "", "---", "", enParsed.body].join("\n");
   const result = {
     prompt,
     snapshot,
@@ -376,12 +376,18 @@ async function loadParsedPromptPair(
       zhParsed: await parsePromptKnobsSource({
         text: pinnedPair.zh,
         agent: opts.agent,
-        allowBundledDefault: pinnedPair.source === "bundled_fallback",
+        cohort: opts.cohort,
+        ...(pinnedPair.source === "private" && privateRoot
+          ? { privatePromptsRoot: privateRoot }
+          : {}),
       }),
       enParsed: await parsePromptKnobsSource({
         text: pinnedPair.en,
         agent: opts.agent,
-        allowBundledDefault: pinnedPair.source === "bundled_fallback",
+        cohort: opts.cohort,
+        ...(pinnedPair.source === "private" && privateRoot
+          ? { privatePromptsRoot: privateRoot }
+          : {}),
       }),
       paths: pinnedPair.paths,
     };
@@ -402,12 +408,14 @@ async function loadParsedPromptPair(
     zhParsed: await parsePromptKnobsSource({
       text: zh.text,
       agent: opts.agent,
-      allowBundledDefault: !isPrivatePromptPath(zh.path, privateRoot),
+      cohort: opts.cohort,
+      ...(isPrivatePromptPath(zh.path, privateRoot) ? { privatePromptsRoot: privateRoot } : {}),
     }),
     enParsed: await parsePromptKnobsSource({
       text: en.text,
       agent: opts.agent,
-      allowBundledDefault: !isPrivatePromptPath(en.path, privateRoot),
+      cohort: opts.cohort,
+      ...(isPrivatePromptPath(en.path, privateRoot) ? { privatePromptsRoot: privateRoot } : {}),
     }),
     paths: { zh: zh.path, en: en.path },
   };
@@ -418,10 +426,11 @@ async function loadParsedPromptPair(
 async function parsePromptKnobsSource(input: {
   text: string;
   agent: string;
-  allowBundledDefault: boolean;
+  cohort: string;
+  privatePromptsRoot?: string;
 }): Promise<ParsedResearchKnobsPrompt> {
   const fences = [...input.text.matchAll(/```research-knobs\s*\n([\s\S]*?)```/g)];
-  if (fences.length !== 0 || !input.allowBundledDefault) {
+  if (fences.length !== 0) {
     return parseResearchKnobsPrompt(input.text);
   }
   return {

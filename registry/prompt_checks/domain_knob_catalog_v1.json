@@ -1,7 +1,7 @@
 {
   "schema_version": "domain_knob_catalog_v1",
   "catalog_version": "domain_knob_catalog_v1",
-  "runtime_agent_count": 25,
+  "runtime_agent_count": 28,
   "runtime_sources": {
     "candidate_target_state": {
       "id": "candidate_target_state",
@@ -2184,6 +2184,429 @@
     },
     {
       "layer": "macro",
+      "agent": "eu_economy",
+      "prompt_ir_agent": "macro.eu_economy",
+      "min_mutable_domain_knobs": 6,
+      "card_count": 6,
+      "cards": [
+        {
+          "id": "a_share_external_demand_weight",
+          "owner_agent": "macro.eu_economy",
+          "consumer_agents": [
+            "macro.eu_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/a_share_external_demand_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.eu_economy.a_share_external_demand_weight.primary",
+              "evidence_key": "eu_macro_snapshot",
+              "tool": "get_eu_macro_snapshot",
+              "metric_ids": [
+                "eu_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.eu_economy.a_share_external_demand_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate a share external demand weight for macro.eu_economy prediction quality",
+          "prediction_target": "macro.eu_economy.a_share_external_demand_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "demand_weight",
+          "owner_agent": "macro.eu_economy",
+          "consumer_agents": [
+            "macro.eu_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/demand_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.eu_economy.demand_weight.primary",
+              "evidence_key": "eu_macro_snapshot",
+              "tool": "get_eu_macro_snapshot",
+              "metric_ids": [
+                "eu_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.eu_economy.demand_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate demand weight for macro.eu_economy prediction quality",
+          "prediction_target": "macro.eu_economy.demand_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "employment_weight",
+          "owner_agent": "macro.eu_economy",
+          "consumer_agents": [
+            "macro.eu_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/employment_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.eu_economy.employment_weight.primary",
+              "evidence_key": "eu_macro_snapshot",
+              "tool": "get_eu_macro_snapshot",
+              "metric_ids": [
+                "eu_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.eu_economy.employment_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate employment weight for macro.eu_economy prediction quality",
+          "prediction_target": "macro.eu_economy.employment_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "growth_weight",
+          "owner_agent": "macro.eu_economy",
+          "consumer_agents": [
+            "macro.eu_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/growth_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.eu_economy.growth_weight.primary",
+              "evidence_key": "eu_macro_snapshot",
+              "tool": "get_eu_macro_snapshot",
+              "metric_ids": [
+                "eu_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.eu_economy.growth_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate growth weight for macro.eu_economy prediction quality",
+          "prediction_target": "macro.eu_economy.growth_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "inflation_weight",
+          "owner_agent": "macro.eu_economy",
+          "consumer_agents": [
+            "macro.eu_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/inflation_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.eu_economy.inflation_weight.primary",
+              "evidence_key": "eu_macro_snapshot",
+              "tool": "get_eu_macro_snapshot",
+              "metric_ids": [
+                "eu_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.eu_economy.inflation_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate inflation weight for macro.eu_economy prediction quality",
+          "prediction_target": "macro.eu_economy.inflation_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "surprise_window_days",
+          "owner_agent": "macro.eu_economy",
+          "consumer_agents": [
+            "macro.eu_economy"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/surprise_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.eu_economy.surprise_window_days.primary",
+              "evidence_key": "eu_macro_snapshot",
+              "tool": "get_eu_macro_snapshot",
+              "metric_ids": [
+                "eu_macro_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.eu_economy.surprise_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate surprise window days for macro.eu_economy prediction quality",
+          "prediction_target": "macro.eu_economy.surprise_window_days.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "layer": "macro",
       "agent": "central_bank",
       "prompt_ir_agent": "macro.central_bank",
       "min_mutable_domain_knobs": 6,
@@ -2607,23 +3030,23 @@
     },
     {
       "layer": "macro",
-      "agent": "dollar",
-      "prompt_ir_agent": "macro.dollar",
+      "agent": "us_financial_conditions",
+      "prompt_ir_agent": "macro.us_financial_conditions",
       "min_mutable_domain_knobs": 6,
-      "card_count": 6,
+      "card_count": 7,
       "cards": [
         {
           "id": "a_share_fx_liquidity_weight",
-          "owner_agent": "macro.dollar",
+          "owner_agent": "macro.us_financial_conditions",
           "consumer_agents": [
-            "macro.dollar"
+            "macro.us_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/a_share_fx_liquidity_weight/value",
+          "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/a_share_fx_liquidity_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -2635,11 +3058,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.a_share_fx_liquidity_weight.primary",
-              "evidence_key": "fx_conditions_snapshot",
-              "tool": "get_fx_conditions_snapshot",
+              "dependency_id": "macro.us_financial_conditions.a_share_fx_liquidity_weight.primary",
+              "evidence_key": "us_financial_conditions_snapshot",
+              "tool": "get_us_financial_conditions_snapshot",
               "metric_ids": [
-                "fx_conditions_snapshot_current"
+                "us_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2652,7 +3075,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.a_share_fx_liquidity_weight.primary": {
+            "macro.us_financial_conditions.a_share_fx_liquidity_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2661,8 +3084,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate a share fx liquidity weight for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.a_share_fx_liquidity_weight.5d",
+          "learning_objective": "calibrate a share fx liquidity weight for macro.us_financial_conditions prediction quality",
+          "prediction_target": "macro.us_financial_conditions.a_share_fx_liquidity_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -2683,16 +3106,16 @@
         },
         {
           "id": "broad_dollar_trend_window_days",
-          "owner_agent": "macro.dollar",
+          "owner_agent": "macro.us_financial_conditions",
           "consumer_agents": [
-            "macro.dollar"
+            "macro.us_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/broad_dollar_trend_window_days/value",
+          "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/broad_dollar_trend_window_days/value",
           "type": "integer",
           "default": 20,
           "min": 1,
@@ -2704,11 +3127,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.broad_dollar_trend_window_days.primary",
-              "evidence_key": "fx_conditions_snapshot",
-              "tool": "get_fx_conditions_snapshot",
+              "dependency_id": "macro.us_financial_conditions.broad_dollar_trend_window_days.primary",
+              "evidence_key": "us_financial_conditions_snapshot",
+              "tool": "get_us_financial_conditions_snapshot",
               "metric_ids": [
-                "fx_conditions_snapshot_current"
+                "us_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2721,7 +3144,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.broad_dollar_trend_window_days.primary": {
+            "macro.us_financial_conditions.broad_dollar_trend_window_days.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2730,8 +3153,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate broad dollar trend window days for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.broad_dollar_trend_window_days.5d",
+          "learning_objective": "calibrate broad dollar trend window days for macro.us_financial_conditions prediction quality",
+          "prediction_target": "macro.us_financial_conditions.broad_dollar_trend_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -2751,17 +3174,17 @@
           "normalization": "none"
         },
         {
-          "id": "dollar_pressure_cap",
-          "owner_agent": "macro.dollar",
+          "id": "credit_spread_discount",
+          "owner_agent": "macro.us_financial_conditions",
           "consumer_agents": [
-            "macro.dollar"
+            "macro.us_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/dollar_pressure_cap/value",
+          "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/credit_spread_discount/value",
           "type": "number",
           "default": 0.25,
           "min": 0,
@@ -2773,11 +3196,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.dollar_pressure_cap.primary",
-              "evidence_key": "fx_conditions_snapshot",
-              "tool": "get_fx_conditions_snapshot",
+              "dependency_id": "macro.us_financial_conditions.credit_spread_discount.primary",
+              "evidence_key": "us_financial_conditions_snapshot",
+              "tool": "get_us_financial_conditions_snapshot",
               "metric_ids": [
-                "fx_conditions_snapshot_current"
+                "us_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2790,7 +3213,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.dollar_pressure_cap.primary": {
+            "macro.us_financial_conditions.credit_spread_discount.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2799,8 +3222,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate dollar pressure cap for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.dollar_pressure_cap.5d",
+          "learning_objective": "calibrate credit spread discount for macro.us_financial_conditions prediction quality",
+          "prediction_target": "macro.us_financial_conditions.credit_spread_discount.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -2821,16 +3244,16 @@
         },
         {
           "id": "fx_volatility_weight",
-          "owner_agent": "macro.dollar",
+          "owner_agent": "macro.us_financial_conditions",
           "consumer_agents": [
-            "macro.dollar"
+            "macro.us_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fx_volatility_weight/value",
+          "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/fx_volatility_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -2842,11 +3265,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.fx_volatility_weight.primary",
-              "evidence_key": "fx_conditions_snapshot",
-              "tool": "get_fx_conditions_snapshot",
+              "dependency_id": "macro.us_financial_conditions.fx_volatility_weight.primary",
+              "evidence_key": "us_financial_conditions_snapshot",
+              "tool": "get_us_financial_conditions_snapshot",
               "metric_ids": [
-                "fx_conditions_snapshot_current"
+                "us_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2859,7 +3282,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.fx_volatility_weight.primary": {
+            "macro.us_financial_conditions.fx_volatility_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2868,8 +3291,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate fx volatility weight for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.fx_volatility_weight.5d",
+          "learning_objective": "calibrate fx volatility weight for macro.us_financial_conditions prediction quality",
+          "prediction_target": "macro.us_financial_conditions.fx_volatility_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -2889,33 +3312,33 @@
           "normalization": "none"
         },
         {
-          "id": "onshore_offshore_spread_weight",
-          "owner_agent": "macro.dollar",
+          "id": "inversion_threshold_bps",
+          "owner_agent": "macro.us_financial_conditions",
           "consumer_agents": [
-            "macro.dollar"
+            "macro.us_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/onshore_offshore_spread_weight/value",
+          "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/inversion_threshold_bps/value",
           "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
+          "default": 25,
+          "min": -200,
+          "max": 200,
+          "step": 5,
           "coverage_level": "direct_tool",
           "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.onshore_offshore_spread_weight.primary",
-              "evidence_key": "fx_conditions_snapshot",
-              "tool": "get_fx_conditions_snapshot",
+              "dependency_id": "macro.us_financial_conditions.inversion_threshold_bps.primary",
+              "evidence_key": "us_financial_conditions_snapshot",
+              "tool": "get_us_financial_conditions_snapshot",
               "metric_ids": [
-                "fx_conditions_snapshot_current"
+                "us_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2928,7 +3351,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.onshore_offshore_spread_weight.primary": {
+            "macro.us_financial_conditions.inversion_threshold_bps.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -2937,8 +3360,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate onshore offshore spread weight for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.onshore_offshore_spread_weight.5d",
+          "learning_objective": "calibrate inversion threshold bps for macro.us_financial_conditions prediction quality",
+          "prediction_target": "macro.us_financial_conditions.inversion_threshold_bps.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -2959,16 +3382,16 @@
         },
         {
           "id": "rmb_pressure_weight",
-          "owner_agent": "macro.dollar",
+          "owner_agent": "macro.us_financial_conditions",
           "consumer_agents": [
-            "macro.dollar"
+            "macro.us_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/rmb_pressure_weight/value",
+          "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/rmb_pressure_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -2980,11 +3403,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.dollar.rmb_pressure_weight.primary",
-              "evidence_key": "fx_conditions_snapshot",
-              "tool": "get_fx_conditions_snapshot",
+              "dependency_id": "macro.us_financial_conditions.rmb_pressure_weight.primary",
+              "evidence_key": "us_financial_conditions_snapshot",
+              "tool": "get_us_financial_conditions_snapshot",
               "metric_ids": [
-                "fx_conditions_snapshot_current"
+                "us_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -2997,7 +3420,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.dollar.rmb_pressure_weight.primary": {
+            "macro.us_financial_conditions.rmb_pressure_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3006,8 +3429,77 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate rmb pressure weight for macro.dollar prediction quality",
-          "prediction_target": "macro.dollar.rmb_pressure_weight.5d",
+          "learning_objective": "calibrate rmb pressure weight for macro.us_financial_conditions prediction quality",
+          "prediction_target": "macro.us_financial_conditions.rmb_pressure_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "term_spread_window_days",
+          "owner_agent": "macro.us_financial_conditions",
+          "consumer_agents": [
+            "macro.us_financial_conditions"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/term_spread_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.us_financial_conditions.term_spread_window_days.primary",
+              "evidence_key": "us_financial_conditions_snapshot",
+              "tool": "get_us_financial_conditions_snapshot",
+              "metric_ids": [
+                "us_financial_conditions_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.us_financial_conditions.term_spread_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate term spread window days for macro.us_financial_conditions prediction quality",
+          "prediction_target": "macro.us_financial_conditions.term_spread_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -3030,27 +3522,27 @@
     },
     {
       "layer": "macro",
-      "agent": "yield_curve",
-      "prompt_ir_agent": "macro.yield_curve",
+      "agent": "euro_area_financial_conditions",
+      "prompt_ir_agent": "macro.euro_area_financial_conditions",
       "min_mutable_domain_knobs": 6,
       "card_count": 6,
       "cards": [
         {
-          "id": "credit_spread_discount",
-          "owner_agent": "macro.yield_curve",
+          "id": "a_share_external_demand_weight",
+          "owner_agent": "macro.euro_area_financial_conditions",
           "consumer_agents": [
-            "macro.yield_curve"
+            "macro.euro_area_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/credit_spread_discount/value",
+          "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/a_share_external_demand_weight/value",
           "type": "number",
-          "default": 0.25,
+          "default": 0.2,
           "min": 0,
-          "max": 0.75,
+          "max": 1,
           "step": 0.05,
           "coverage_level": "direct_tool",
           "activation_state": "active",
@@ -3058,11 +3550,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.yield_curve.credit_spread_discount.primary",
-              "evidence_key": "rates_credit_snapshot",
-              "tool": "get_rates_credit_snapshot",
+              "dependency_id": "macro.euro_area_financial_conditions.a_share_external_demand_weight.primary",
+              "evidence_key": "euro_area_financial_conditions_snapshot",
+              "tool": "get_euro_area_financial_conditions_snapshot",
               "metric_ids": [
-                "rates_credit_snapshot_current"
+                "euro_area_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3075,7 +3567,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.yield_curve.credit_spread_discount.primary": {
+            "macro.euro_area_financial_conditions.a_share_external_demand_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3084,8 +3576,77 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate credit spread discount for macro.yield_curve prediction quality",
-          "prediction_target": "macro.yield_curve.credit_spread_discount.5d",
+          "learning_objective": "calibrate a share external demand weight for macro.euro_area_financial_conditions prediction quality",
+          "prediction_target": "macro.euro_area_financial_conditions.a_share_external_demand_weight.5d",
+          "evaluation_metric": "macro_signal_accuracy_5d",
+          "secondary_metrics": [
+            "confidence_calibration_error",
+            "fallback_rate"
+          ],
+          "horizon": "5d",
+          "rollback_condition": {
+            "metric": "macro_signal_accuracy_5d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "credit_spread_discount",
+          "owner_agent": "macro.euro_area_financial_conditions",
+          "consumer_agents": [
+            "macro.euro_area_financial_conditions"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/credit_spread_discount/value",
+          "type": "number",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.75,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "macro.euro_area_financial_conditions.credit_spread_discount.primary",
+              "evidence_key": "euro_area_financial_conditions_snapshot",
+              "tool": "get_euro_area_financial_conditions_snapshot",
+              "metric_ids": [
+                "euro_area_financial_conditions_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "macro.euro_area_financial_conditions.credit_spread_discount.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate credit spread discount for macro.euro_area_financial_conditions prediction quality",
+          "prediction_target": "macro.euro_area_financial_conditions.credit_spread_discount.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -3106,16 +3667,16 @@
         },
         {
           "id": "duration_risk_weight",
-          "owner_agent": "macro.yield_curve",
+          "owner_agent": "macro.euro_area_financial_conditions",
           "consumer_agents": [
-            "macro.yield_curve"
+            "macro.euro_area_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/duration_risk_weight/value",
+          "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/duration_risk_weight/value",
           "type": "number",
           "default": 0.2,
           "min": 0,
@@ -3127,11 +3688,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.yield_curve.duration_risk_weight.primary",
-              "evidence_key": "rates_credit_snapshot",
-              "tool": "get_rates_credit_snapshot",
+              "dependency_id": "macro.euro_area_financial_conditions.duration_risk_weight.primary",
+              "evidence_key": "euro_area_financial_conditions_snapshot",
+              "tool": "get_euro_area_financial_conditions_snapshot",
               "metric_ids": [
-                "rates_credit_snapshot_current"
+                "euro_area_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3144,7 +3705,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.yield_curve.duration_risk_weight.primary": {
+            "macro.euro_area_financial_conditions.duration_risk_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3153,8 +3714,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate duration risk weight for macro.yield_curve prediction quality",
-          "prediction_target": "macro.yield_curve.duration_risk_weight.5d",
+          "learning_objective": "calibrate duration risk weight for macro.euro_area_financial_conditions prediction quality",
+          "prediction_target": "macro.euro_area_financial_conditions.duration_risk_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -3174,33 +3735,33 @@
           "normalization": "none"
         },
         {
-          "id": "flattening_threshold_bps",
-          "owner_agent": "macro.yield_curve",
+          "id": "fx_volatility_weight",
+          "owner_agent": "macro.euro_area_financial_conditions",
           "consumer_agents": [
-            "macro.yield_curve"
+            "macro.euro_area_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/flattening_threshold_bps/value",
+          "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/fx_volatility_weight/value",
           "type": "number",
-          "default": 25,
-          "min": -200,
-          "max": 200,
-          "step": 5,
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
           "coverage_level": "direct_tool",
           "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.yield_curve.flattening_threshold_bps.primary",
-              "evidence_key": "rates_credit_snapshot",
-              "tool": "get_rates_credit_snapshot",
+              "dependency_id": "macro.euro_area_financial_conditions.fx_volatility_weight.primary",
+              "evidence_key": "euro_area_financial_conditions_snapshot",
+              "tool": "get_euro_area_financial_conditions_snapshot",
               "metric_ids": [
-                "rates_credit_snapshot_current"
+                "euro_area_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3213,7 +3774,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.yield_curve.flattening_threshold_bps.primary": {
+            "macro.euro_area_financial_conditions.fx_volatility_weight.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3222,8 +3783,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate flattening threshold bps for macro.yield_curve prediction quality",
-          "prediction_target": "macro.yield_curve.flattening_threshold_bps.5d",
+          "learning_objective": "calibrate fx volatility weight for macro.euro_area_financial_conditions prediction quality",
+          "prediction_target": "macro.euro_area_financial_conditions.fx_volatility_weight.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -3243,37 +3804,37 @@
           "normalization": "none"
         },
         {
-          "id": "inversion_threshold_bps",
-          "owner_agent": "macro.yield_curve",
+          "id": "policy_conflict_cap",
+          "owner_agent": "macro.euro_area_financial_conditions",
           "consumer_agents": [
-            "macro.yield_curve"
+            "macro.euro_area_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/inversion_threshold_bps/value",
+          "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/policy_conflict_cap/value",
           "type": "number",
-          "default": 25,
-          "min": -200,
-          "max": 200,
-          "step": 5,
-          "coverage_level": "direct_tool",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.75,
+          "step": 0.05,
+          "coverage_level": "derived_proxy",
           "activation_state": "active",
           "runtime_input_sources": [],
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.yield_curve.inversion_threshold_bps.primary",
-              "evidence_key": "rates_credit_snapshot",
-              "tool": "get_rates_credit_snapshot",
+              "dependency_id": "macro.euro_area_financial_conditions.policy_conflict_cap.primary",
+              "evidence_key": "euro_area_financial_conditions_snapshot",
+              "tool": "get_euro_area_financial_conditions_snapshot",
               "metric_ids": [
-                "rates_credit_snapshot_current"
+                "euro_area_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
-              "dependency_type": "direct_tool",
+              "dependency_type": "derived_proxy",
               "scope_resolution": "pre_run",
               "scope_schema": {
                 "cohort": "required"
@@ -3282,7 +3843,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.yield_curve.inversion_threshold_bps.primary": {
+            "macro.euro_area_financial_conditions.policy_conflict_cap.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3291,77 +3852,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate inversion threshold bps for macro.yield_curve prediction quality",
-          "prediction_target": "macro.yield_curve.inversion_threshold_bps.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "steepening_threshold_bps",
-          "owner_agent": "macro.yield_curve",
-          "consumer_agents": [
-            "macro.yield_curve"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/steepening_threshold_bps/value",
-          "type": "number",
-          "default": 25,
-          "min": -200,
-          "max": 200,
-          "step": 5,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.yield_curve.steepening_threshold_bps.primary",
-              "evidence_key": "rates_credit_snapshot",
-              "tool": "get_rates_credit_snapshot",
-              "metric_ids": [
-                "rates_credit_snapshot_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.yield_curve.steepening_threshold_bps.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate steepening threshold bps for macro.yield_curve prediction quality",
-          "prediction_target": "macro.yield_curve.steepening_threshold_bps.5d",
+          "learning_objective": "calibrate policy conflict cap for macro.euro_area_financial_conditions prediction quality",
+          "prediction_target": "macro.euro_area_financial_conditions.policy_conflict_cap.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -3382,16 +3874,16 @@
         },
         {
           "id": "term_spread_window_days",
-          "owner_agent": "macro.yield_curve",
+          "owner_agent": "macro.euro_area_financial_conditions",
           "consumer_agents": [
-            "macro.yield_curve"
+            "macro.euro_area_financial_conditions"
           ],
           "owner_stage": "agent_run",
           "consumer_stages": [
             "agent_run"
           ],
           "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/term_spread_window_days/value",
+          "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/term_spread_window_days/value",
           "type": "integer",
           "default": 20,
           "min": 1,
@@ -3403,11 +3895,11 @@
           "runtime_input_source_policies": {},
           "evidence_dependencies": [
             {
-              "dependency_id": "macro.yield_curve.term_spread_window_days.primary",
-              "evidence_key": "rates_credit_snapshot",
-              "tool": "get_rates_credit_snapshot",
+              "dependency_id": "macro.euro_area_financial_conditions.term_spread_window_days.primary",
+              "evidence_key": "euro_area_financial_conditions_snapshot",
+              "tool": "get_euro_area_financial_conditions_snapshot",
               "metric_ids": [
-                "rates_credit_snapshot_current"
+                "euro_area_financial_conditions_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -3420,7 +3912,7 @@
             }
           ],
           "evidence_dependency_policies": {
-            "macro.yield_curve.term_spread_window_days.primary": {
+            "macro.euro_area_financial_conditions.term_spread_window_days.primary": {
               "missing": "exclude_sample_and_cap_if_required",
               "stale": "exclude_sample_and_cap_if_required",
               "fallback": "exclude_sample_and_cap_if_required",
@@ -3429,8 +3921,8 @@
               "loaded": "allow"
             }
           },
-          "learning_objective": "calibrate term spread window days for macro.yield_curve prediction quality",
-          "prediction_target": "macro.yield_curve.term_spread_window_days.5d",
+          "learning_objective": "calibrate term spread window days for macro.euro_area_financial_conditions prediction quality",
+          "prediction_target": "macro.euro_area_financial_conditions.term_spread_window_days.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -4277,429 +4769,6 @@
           },
           "learning_objective": "calibrate supply chain weight for macro.geopolitical prediction quality",
           "prediction_target": "macro.geopolitical.supply_chain_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        }
-      ]
-    },
-    {
-      "layer": "macro",
-      "agent": "volatility",
-      "prompt_ir_agent": "macro.volatility",
-      "min_mutable_domain_knobs": 6,
-      "card_count": 6,
-      "cards": [
-        {
-          "id": "china_realized_vol_weight",
-          "owner_agent": "macro.volatility",
-          "consumer_agents": [
-            "macro.volatility"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/china_realized_vol_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.volatility.china_realized_vol_weight.primary",
-              "evidence_key": "volatility_snapshot",
-              "tool": "get_volatility_snapshot",
-              "metric_ids": [
-                "volatility_snapshot_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.volatility.china_realized_vol_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate china realized vol weight for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.china_realized_vol_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "cross_market_stress_weight",
-          "owner_agent": "macro.volatility",
-          "consumer_agents": [
-            "macro.volatility"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/cross_market_stress_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.volatility.cross_market_stress_weight.primary",
-              "evidence_key": "volatility_snapshot",
-              "tool": "get_volatility_snapshot",
-              "metric_ids": [
-                "volatility_snapshot_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.volatility.cross_market_stress_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate cross market stress weight for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.cross_market_stress_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "risk_off_threshold",
-          "owner_agent": "macro.volatility",
-          "consumer_agents": [
-            "macro.volatility"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/risk_off_threshold/value",
-          "type": "number",
-          "default": 0.6,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.volatility.risk_off_threshold.primary",
-              "evidence_key": "volatility_snapshot",
-              "tool": "get_volatility_snapshot",
-              "metric_ids": [
-                "volatility_snapshot_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.volatility.risk_off_threshold.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate risk off threshold for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.risk_off_threshold.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "vix_weight",
-          "owner_agent": "macro.volatility",
-          "consumer_agents": [
-            "macro.volatility"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/vix_weight/value",
-          "type": "number",
-          "default": 0.2,
-          "min": 0,
-          "max": 1,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.volatility.vix_weight.primary",
-              "evidence_key": "volatility_snapshot",
-              "tool": "get_volatility_snapshot",
-              "metric_ids": [
-                "volatility_snapshot_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.volatility.vix_weight.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate vix weight for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.vix_weight.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "vol_amplification_window_days",
-          "owner_agent": "macro.volatility",
-          "consumer_agents": [
-            "macro.volatility"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "lookbacks",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/vol_amplification_window_days/value",
-          "type": "integer",
-          "default": 20,
-          "min": 1,
-          "max": 120,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.volatility.vol_amplification_window_days.primary",
-              "evidence_key": "volatility_snapshot",
-              "tool": "get_volatility_snapshot",
-              "metric_ids": [
-                "volatility_snapshot_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.volatility.vol_amplification_window_days.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate vol amplification window days for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.vol_amplification_window_days.5d",
-          "evaluation_metric": "macro_signal_accuracy_5d",
-          "secondary_metrics": [
-            "confidence_calibration_error",
-            "fallback_rate"
-          ],
-          "horizon": "5d",
-          "rollback_condition": {
-            "metric": "macro_signal_accuracy_5d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
-          "id": "volatility_cap",
-          "owner_agent": "macro.volatility",
-          "consumer_agents": [
-            "macro.volatility"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/volatility_cap/value",
-          "type": "number",
-          "default": 0.25,
-          "min": 0,
-          "max": 0.75,
-          "step": 0.05,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "macro.volatility.volatility_cap.primary",
-              "evidence_key": "volatility_snapshot",
-              "tool": "get_volatility_snapshot",
-              "metric_ids": [
-                "volatility_snapshot_current"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "pre_run",
-              "scope_schema": {
-                "cohort": "required"
-              },
-              "min_scope_coverage": 1
-            }
-          ],
-          "evidence_dependency_policies": {
-            "macro.volatility.volatility_cap.primary": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate volatility cap for macro.volatility prediction quality",
-          "prediction_target": "macro.volatility.volatility_cap.5d",
           "evaluation_metric": "macro_signal_accuracy_5d",
           "secondary_metrics": [
             "confidence_calibration_error",
@@ -5640,7 +5709,7 @@
       "agent": "semiconductor",
       "prompt_ir_agent": "sector.semiconductor",
       "min_mutable_domain_knobs": 12,
-      "card_count": 23,
+      "card_count": 22,
       "cards": [
         {
           "id": "ai_compute_weight",
@@ -5666,10 +5735,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.ai_compute_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5735,10 +5804,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.broker_research_days.primary",
-              "evidence_key": "broker_research",
-              "tool": "get_broker_research",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "broker_research_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5804,12 +5873,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.capex_cycle_quarters.primary",
-              "evidence_key": "cashflow",
-              "tool": "get_cashflow",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "capex_to_revenue",
-                "construction_in_progress_change",
-                "operating_cashflow_margin"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5875,12 +5942,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.capex_to_revenue_min.primary",
-              "evidence_key": "cashflow",
-              "tool": "get_cashflow",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "capex_to_revenue",
-                "construction_in_progress_change",
-                "operating_cashflow_margin"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -5946,10 +6011,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.design_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6015,10 +6080,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.equipment_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6084,10 +6149,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.export_control_discount.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6153,10 +6218,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.financial_statement_quarters.primary",
-              "evidence_key": "income_statement",
-              "tool": "get_income_statement",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "income_statement_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6222,10 +6287,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.foundry_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6291,10 +6356,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.gross_margin_change_min.primary",
-              "evidence_key": "income_statement",
-              "tool": "get_income_statement",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "gross_margin_change"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6360,10 +6425,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.industry_moneyflow_days.primary",
-              "evidence_key": "industry_moneyflow",
-              "tool": "get_industry_moneyflow",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_moneyflow_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6429,11 +6494,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.inventory_cycle_quarters.primary",
-              "evidence_key": "balance_sheet",
-              "tool": "get_balance_sheet",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "inventory_to_revenue",
-                "inventory_turnover_days"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6499,11 +6563,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.inventory_to_revenue_risk.primary",
-              "evidence_key": "balance_sheet",
-              "tool": "get_balance_sheet",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "inventory_to_revenue",
-                "inventory_turnover_days"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6569,10 +6632,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.localization_policy_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6638,10 +6701,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.materials_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6684,81 +6747,6 @@
           "normalization": "sum_to_one"
         },
         {
-          "id": "max_verified_constituents",
-          "owner_agent": "sector.semiconductor",
-          "consumer_agents": [
-            "sector.semiconductor"
-          ],
-          "owner_stage": "agent_run",
-          "consumer_stages": [
-            "agent_run"
-          ],
-          "projection_bucket": "thresholds",
-          "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/max_verified_constituents/value",
-          "type": "integer",
-          "default": 3,
-          "min": 1,
-          "max": 6,
-          "step": 1,
-          "coverage_level": "direct_tool",
-          "activation_state": "active",
-          "runtime_input_sources": [],
-          "runtime_input_source_policies": {},
-          "evidence_dependencies": [
-            {
-              "dependency_id": "sector.semiconductor.max_verified_constituents.candidate_validation",
-              "evidence_key": "stock_data",
-              "tool": "get_stock_data",
-              "metric_ids": [
-                "close",
-                "volume"
-              ],
-              "freshness": "current_window",
-              "required_for_prediction": true,
-              "dependency_type": "direct_tool",
-              "scope_resolution": "in_run_tool_derived",
-              "scope_source_tool": "get_etf_holdings",
-              "scope_source_evidence_key": "etf_holdings",
-              "scope_schema": {
-                "ticker": "required"
-              },
-              "max_scope_count": 6,
-              "min_scope_count": 1,
-              "min_scope_coverage": 0.8,
-              "empty_scope_behavior": "exclude_sample"
-            }
-          ],
-          "evidence_dependency_policies": {
-            "sector.semiconductor.max_verified_constituents.candidate_validation": {
-              "missing": "exclude_sample_and_cap_if_required",
-              "stale": "exclude_sample_and_cap_if_required",
-              "fallback": "exclude_sample_and_cap_if_required",
-              "tool_failed": "exclude_sample_and_cap_if_required",
-              "partial_loaded": "exclude_sample_only",
-              "loaded": "allow"
-            }
-          },
-          "learning_objective": "calibrate max verified constituents for sector.semiconductor prediction quality",
-          "prediction_target": "sector.semiconductor.max_verified_constituents.20d",
-          "evaluation_metric": "sector_rank_correlation_20d",
-          "secondary_metrics": [
-            "max_drawdown_after_hold",
-            "portfolio_risk_quality_20d"
-          ],
-          "horizon": "20d",
-          "rollback_condition": {
-            "metric": "sector_rank_correlation_20d",
-            "worse_by": 0.02,
-            "unit": "ratio"
-          },
-          "enforcement": "advisory",
-          "category": "domain",
-          "cross_field_group": null,
-          "weight_group": null,
-          "atomic_mutation_group": null,
-          "normalization": "none"
-        },
-        {
           "id": "min_long_conviction",
           "owner_agent": "sector.semiconductor",
           "consumer_agents": [
@@ -6782,10 +6770,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.min_long_conviction.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6851,10 +6839,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.min_short_conviction.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6920,10 +6908,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.packaging_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -6989,10 +6977,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.policy_digest_days.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7058,10 +7046,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.price_confirmation_pct.primary",
-              "evidence_key": "stock_data",
-              "tool": "get_stock_data",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "stock_data_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7127,10 +7115,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.price_momentum_days.primary",
-              "evidence_key": "stock_data",
-              "tool": "get_stock_data",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "stock_data_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7196,10 +7184,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.semiconductor.valuation_risk_max.primary",
-              "evidence_key": "indicators",
-              "tool": "get_indicators",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "indicators_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7223,6 +7211,429 @@
           },
           "learning_objective": "calibrate valuation risk max for sector.semiconductor prediction quality",
           "prediction_target": "sector.semiconductor.valuation_risk_max.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "layer": "sector",
+      "agent": "technology",
+      "prompt_ir_agent": "sector.technology",
+      "min_mutable_domain_knobs": 6,
+      "card_count": 6,
+      "cards": [
+        {
+          "id": "broker_research_days",
+          "owner_agent": "sector.technology",
+          "consumer_agents": [
+            "sector.technology"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/broker_research_days/value",
+          "type": "integer",
+          "default": 60,
+          "min": 15,
+          "max": 180,
+          "step": 5,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.technology.broker_research_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.technology.broker_research_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate broker research days for sector.technology prediction quality",
+          "prediction_target": "sector.technology.broker_research_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "export_control_discount",
+          "owner_agent": "sector.technology",
+          "consumer_agents": [
+            "sector.technology"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/export_control_discount/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 0.6,
+          "step": 0.05,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.technology.export_control_discount.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.technology.export_control_discount.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate export control discount for sector.technology prediction quality",
+          "prediction_target": "sector.technology.export_control_discount.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "financial_statement_quarters",
+          "owner_agent": "sector.technology",
+          "consumer_agents": [
+            "sector.technology"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/financial_statement_quarters/value",
+          "type": "integer",
+          "default": 4,
+          "min": 2,
+          "max": 8,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.technology.financial_statement_quarters.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.technology.financial_statement_quarters.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate financial statement quarters for sector.technology prediction quality",
+          "prediction_target": "sector.technology.financial_statement_quarters.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "industry_moneyflow_days",
+          "owner_agent": "sector.technology",
+          "consumer_agents": [
+            "sector.technology"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/industry_moneyflow_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 5,
+          "max": 60,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.technology.industry_moneyflow_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.technology.industry_moneyflow_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate industry moneyflow days for sector.technology prediction quality",
+          "prediction_target": "sector.technology.industry_moneyflow_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "policy_digest_days",
+          "owner_agent": "sector.technology",
+          "consumer_agents": [
+            "sector.technology"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/policy_digest_days/value",
+          "type": "integer",
+          "default": 30,
+          "min": 7,
+          "max": 90,
+          "step": 1,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.technology.policy_digest_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.technology.policy_digest_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate policy digest days for sector.technology prediction quality",
+          "prediction_target": "sector.technology.policy_digest_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "price_momentum_days",
+          "owner_agent": "sector.technology",
+          "consumer_agents": [
+            "sector.technology"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/price_momentum_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 5,
+          "max": 60,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.technology.price_momentum_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.technology.price_momentum_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate price momentum days for sector.technology prediction quality",
+          "prediction_target": "sector.technology.price_momentum_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
           "secondary_metrics": [
             "max_drawdown_after_hold",
@@ -7274,10 +7685,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.energy.coal_price_weight.primary",
-              "evidence_key": "stock_data",
-              "tool": "get_stock_data",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "stock_data_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7343,10 +7754,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.energy.energy_security_theme_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7412,10 +7823,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.energy.inventory_window_days.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7481,10 +7892,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.energy.oil_price_transmission_weight.primary",
-              "evidence_key": "stock_data",
-              "tool": "get_stock_data",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "stock_data_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7550,10 +7961,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.energy.power_tariff_policy_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7619,10 +8030,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.energy.refining_margin_threshold.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7697,10 +8108,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.biotech.approval_catalyst_window_days.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7766,10 +8177,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.biotech.clinical_failure_risk_cap.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7835,10 +8246,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.biotech.cxo_external_demand_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7904,10 +8315,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.biotech.medical_insurance_discount.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -7973,10 +8384,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.biotech.pipeline_stage_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8042,10 +8453,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.biotech.valuation_risk_threshold.primary",
-              "evidence_key": "indicators",
-              "tool": "get_indicators",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "indicators_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8120,10 +8531,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.consumer.consumption_policy_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8189,10 +8600,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.consumer.income_elasticity_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8258,10 +8669,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.consumer.inventory_cycle_window_days.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8327,10 +8738,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.consumer.margin_recovery_threshold.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8396,10 +8807,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.consumer.premium_brand_discount.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8465,10 +8876,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.consumer.property_chain_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8543,10 +8954,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.industrials.capacity_utilization_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8612,10 +9023,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.industrials.capex_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8681,10 +9092,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.industrials.export_chain_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8750,10 +9161,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.industrials.military_order_confirmation_days.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8819,10 +9230,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.industrials.order_backlog_threshold.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8888,10 +9299,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.industrials.policy_catalyst_window_days.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -8915,6 +9326,429 @@
           },
           "learning_objective": "calibrate policy catalyst window days for sector.industrials prediction quality",
           "prediction_target": "sector.industrials.policy_catalyst_window_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "layer": "sector",
+      "agent": "real_estate_construction",
+      "prompt_ir_agent": "sector.real_estate_construction",
+      "min_mutable_domain_knobs": 6,
+      "card_count": 6,
+      "cards": [
+        {
+          "id": "financial_statement_quarters",
+          "owner_agent": "sector.real_estate_construction",
+          "consumer_agents": [
+            "sector.real_estate_construction"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/financial_statement_quarters/value",
+          "type": "integer",
+          "default": 4,
+          "min": 2,
+          "max": 8,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.real_estate_construction.financial_statement_quarters.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.real_estate_construction.financial_statement_quarters.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate financial statement quarters for sector.real_estate_construction prediction quality",
+          "prediction_target": "sector.real_estate_construction.financial_statement_quarters.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "industry_moneyflow_days",
+          "owner_agent": "sector.real_estate_construction",
+          "consumer_agents": [
+            "sector.real_estate_construction"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/industry_moneyflow_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 5,
+          "max": 60,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.real_estate_construction.industry_moneyflow_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.real_estate_construction.industry_moneyflow_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate industry moneyflow days for sector.real_estate_construction prediction quality",
+          "prediction_target": "sector.real_estate_construction.industry_moneyflow_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "policy_catalyst_window_days",
+          "owner_agent": "sector.real_estate_construction",
+          "consumer_agents": [
+            "sector.real_estate_construction"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/policy_catalyst_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.real_estate_construction.policy_catalyst_window_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.real_estate_construction.policy_catalyst_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate policy catalyst window days for sector.real_estate_construction prediction quality",
+          "prediction_target": "sector.real_estate_construction.policy_catalyst_window_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "price_momentum_days",
+          "owner_agent": "sector.real_estate_construction",
+          "consumer_agents": [
+            "sector.real_estate_construction"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/price_momentum_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 5,
+          "max": 60,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.real_estate_construction.price_momentum_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.real_estate_construction.price_momentum_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate price momentum days for sector.real_estate_construction prediction quality",
+          "prediction_target": "sector.real_estate_construction.price_momentum_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "property_chain_weight",
+          "owner_agent": "sector.real_estate_construction",
+          "consumer_agents": [
+            "sector.real_estate_construction"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/property_chain_weight/value",
+          "type": "number",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.real_estate_construction.property_chain_weight.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.real_estate_construction.property_chain_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate property chain weight for sector.real_estate_construction prediction quality",
+          "prediction_target": "sector.real_estate_construction.property_chain_weight.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "valuation_risk_threshold",
+          "owner_agent": "sector.real_estate_construction",
+          "consumer_agents": [
+            "sector.real_estate_construction"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/valuation_risk_threshold/value",
+          "type": "number",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.real_estate_construction.valuation_risk_threshold.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.real_estate_construction.valuation_risk_threshold.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate valuation risk threshold for sector.real_estate_construction prediction quality",
+          "prediction_target": "sector.real_estate_construction.valuation_risk_threshold.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
           "secondary_metrics": [
             "max_drawdown_after_hold",
@@ -8966,10 +9800,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.financials.brokerage_volume_threshold.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9035,10 +9869,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.financials.credit_risk_cap.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9104,10 +9938,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.financials.curve_weight.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9173,10 +10007,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.financials.insurance_rate_sensitivity.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9242,10 +10076,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.financials.property_risk_discount.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9311,10 +10145,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.financials.turnover_beta_weight.primary",
-              "evidence_key": "industry_policy_digest",
-              "tool": "get_industry_policy_digest",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
               "metric_ids": [
-                "industry_policy_digest_current"
+                "sector_research_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9338,6 +10172,429 @@
           },
           "learning_objective": "calibrate turnover beta weight for sector.financials prediction quality",
           "prediction_target": "sector.financials.turnover_beta_weight.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "layer": "sector",
+      "agent": "agriculture",
+      "prompt_ir_agent": "sector.agriculture",
+      "min_mutable_domain_knobs": 6,
+      "card_count": 6,
+      "cards": [
+        {
+          "id": "capacity_utilization_weight",
+          "owner_agent": "sector.agriculture",
+          "consumer_agents": [
+            "sector.agriculture"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "thresholds",
+          "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/capacity_utilization_weight/value",
+          "type": "number",
+          "default": 0.25,
+          "min": 0,
+          "max": 0.75,
+          "step": 0.05,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.agriculture.capacity_utilization_weight.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.agriculture.capacity_utilization_weight.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate capacity utilization weight for sector.agriculture prediction quality",
+          "prediction_target": "sector.agriculture.capacity_utilization_weight.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "financial_statement_quarters",
+          "owner_agent": "sector.agriculture",
+          "consumer_agents": [
+            "sector.agriculture"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/financial_statement_quarters/value",
+          "type": "integer",
+          "default": 4,
+          "min": 2,
+          "max": 8,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.agriculture.financial_statement_quarters.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.agriculture.financial_statement_quarters.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate financial statement quarters for sector.agriculture prediction quality",
+          "prediction_target": "sector.agriculture.financial_statement_quarters.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "industry_moneyflow_days",
+          "owner_agent": "sector.agriculture",
+          "consumer_agents": [
+            "sector.agriculture"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/industry_moneyflow_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 5,
+          "max": 60,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.agriculture.industry_moneyflow_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.agriculture.industry_moneyflow_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate industry moneyflow days for sector.agriculture prediction quality",
+          "prediction_target": "sector.agriculture.industry_moneyflow_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "inventory_confirmation_window_days",
+          "owner_agent": "sector.agriculture",
+          "consumer_agents": [
+            "sector.agriculture"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/inventory_confirmation_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.agriculture.inventory_confirmation_window_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.agriculture.inventory_confirmation_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate inventory confirmation window days for sector.agriculture prediction quality",
+          "prediction_target": "sector.agriculture.inventory_confirmation_window_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "policy_catalyst_window_days",
+          "owner_agent": "sector.agriculture",
+          "consumer_agents": [
+            "sector.agriculture"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/policy_catalyst_window_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 120,
+          "step": 1,
+          "coverage_level": "derived_proxy",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.agriculture.policy_catalyst_window_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "derived_proxy",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.agriculture.policy_catalyst_window_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate policy catalyst window days for sector.agriculture prediction quality",
+          "prediction_target": "sector.agriculture.policy_catalyst_window_days.20d",
+          "evaluation_metric": "sector_rank_correlation_20d",
+          "secondary_metrics": [
+            "max_drawdown_after_hold",
+            "portfolio_risk_quality_20d"
+          ],
+          "horizon": "20d",
+          "rollback_condition": {
+            "metric": "sector_rank_correlation_20d",
+            "worse_by": 0.02,
+            "unit": "ratio"
+          },
+          "enforcement": "advisory",
+          "category": "domain",
+          "cross_field_group": null,
+          "weight_group": null,
+          "atomic_mutation_group": null,
+          "normalization": "none"
+        },
+        {
+          "id": "price_momentum_days",
+          "owner_agent": "sector.agriculture",
+          "consumer_agents": [
+            "sector.agriculture"
+          ],
+          "owner_stage": "agent_run",
+          "consumer_stages": [
+            "agent_run"
+          ],
+          "projection_bucket": "lookbacks",
+          "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/price_momentum_days/value",
+          "type": "integer",
+          "default": 20,
+          "min": 5,
+          "max": 60,
+          "step": 5,
+          "coverage_level": "direct_tool",
+          "activation_state": "active",
+          "runtime_input_sources": [],
+          "runtime_input_source_policies": {},
+          "evidence_dependencies": [
+            {
+              "dependency_id": "sector.agriculture.price_momentum_days.primary",
+              "evidence_key": "sector_research_snapshot",
+              "tool": "get_sector_research_snapshot",
+              "metric_ids": [
+                "sector_research_snapshot_current"
+              ],
+              "freshness": "current_window",
+              "required_for_prediction": true,
+              "dependency_type": "direct_tool",
+              "scope_resolution": "pre_run",
+              "scope_schema": {
+                "cohort": "required"
+              },
+              "min_scope_coverage": 1
+            }
+          ],
+          "evidence_dependency_policies": {
+            "sector.agriculture.price_momentum_days.primary": {
+              "missing": "exclude_sample_and_cap_if_required",
+              "stale": "exclude_sample_and_cap_if_required",
+              "fallback": "exclude_sample_and_cap_if_required",
+              "tool_failed": "exclude_sample_and_cap_if_required",
+              "partial_loaded": "exclude_sample_only",
+              "loaded": "allow"
+            }
+          },
+          "learning_objective": "calibrate price momentum days for sector.agriculture prediction quality",
+          "prediction_target": "sector.agriculture.price_momentum_days.20d",
           "evaluation_metric": "sector_rank_correlation_20d",
           "secondary_metrics": [
             "max_drawdown_after_hold",
@@ -9389,10 +10646,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.relationship_mapper.cross_sector_spillover_threshold.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "relationship_graph_snapshot",
+              "tool": "get_relationship_graph_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "relationship_graph_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9458,10 +10715,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.relationship_mapper.etf_overlap_threshold.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "relationship_graph_snapshot",
+              "tool": "get_relationship_graph_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "relationship_graph_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9527,10 +10784,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.relationship_mapper.flow_diffusion_window_days.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "relationship_graph_snapshot",
+              "tool": "get_relationship_graph_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "relationship_graph_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9596,10 +10853,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.relationship_mapper.holding_overlap_threshold.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "relationship_graph_snapshot",
+              "tool": "get_relationship_graph_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "relationship_graph_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9665,10 +10922,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.relationship_mapper.policy_resonance_weight.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "relationship_graph_snapshot",
+              "tool": "get_relationship_graph_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "relationship_graph_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9734,10 +10991,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "sector.relationship_mapper.supply_chain_transmission_strength.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "relationship_graph_snapshot",
+              "tool": "get_relationship_graph_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "relationship_graph_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9812,10 +11069,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.druckenmiller.concentration_cap.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9878,10 +11135,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.druckenmiller.error_cut_rule.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -9944,10 +11201,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.druckenmiller.macro_weight.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10010,10 +11267,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.druckenmiller.payoff_threshold.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10076,10 +11333,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.druckenmiller.trend_confirmation_window_days.primary",
-              "evidence_key": "yield_curve_cn",
-              "tool": "get_yield_curve_cn",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "yield_curve_cn_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10151,10 +11408,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.munger.balance_sheet_quality_weight.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10217,10 +11474,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.munger.capital_allocation_quality_min.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10283,10 +11540,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.munger.compounder_window_days.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10349,10 +11606,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.munger.moat_score_min.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10415,10 +11672,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.munger.pricing_power_weight.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10490,10 +11747,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.burry.crowding_penalty.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10556,10 +11813,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.burry.distress_catalyst_weight.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10622,10 +11879,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.burry.downside_protection_min.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10688,10 +11945,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.burry.short_signal_window_days.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10754,10 +12011,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.burry.valuation_mispricing_threshold.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10829,10 +12086,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.ackman.activist_catalyst_window_days.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10895,10 +12152,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.ackman.brand_quality_weight.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -10961,10 +12218,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.ackman.free_cashflow_growth_weight.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -11027,10 +12284,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.ackman.growth_quality_min.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,
@@ -11093,10 +12350,10 @@
           "evidence_dependencies": [
             {
               "dependency_id": "superinvestor.ackman.operating_leverage_threshold.primary",
-              "evidence_key": "stock_research",
-              "tool": "get_stock_research",
+              "evidence_key": "superinvestor_candidate_snapshot",
+              "tool": "get_superinvestor_candidate_snapshot",
               "metric_ids": [
-                "stock_research_current"
+                "superinvestor_candidate_snapshot_current"
               ],
               "freshness": "current_window",
               "required_for_prediction": true,

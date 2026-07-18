@@ -1,169 +1,234 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { AcceptedOutputRecordRef } from "../src/agents/accepted_output.js";
 import {
-  ALL_MACRO_AGENTS,
-  aggregateLayer1,
-  buildAggregateLayer1Node,
-  MACRO_FACTOR_GROUPS,
-  MacroAggregationRejectedError,
-  signalForAgent,
-} from "../src/agents/macro/_aggregator.js";
-import type { MacroAgentId, MacroAgentOutput } from "../src/agents/types.js";
-import { macroOutput } from "./helpers/macro.js";
+  composeAcceptedMacroTransmission,
+  createMacroSubmissionSchema,
+  MACRO_AGENT_IDS,
+  MACRO_ROLE_CONTRACTS,
+  TOMBSTONED_MACRO_AGENT_IDS,
+} from "../src/agents/macro/_contracts.js";
+import { validateMacroInputs } from "../src/agents/macro/_input_gate.js";
+import type { MacroAgentId, MacroAgentSubmission } from "../src/agents/types.js";
+import type { ComponentWeightRuntimeResolution } from "../src/autoresearch/production_variant.js";
+import { macroOutput, macroSubmission } from "./helpers/macro.js";
 
-function completeOutputs(
-  overrides: Partial<Record<MacroAgentId, Partial<MacroAgentOutput>>> = {},
-): Record<string, MacroAgentOutput> {
-  return Object.fromEntries(
-    ALL_MACRO_AGENTS.map((agent) => [agent, macroOutput(agent, overrides[agent] as never)]),
-  ) as Record<string, MacroAgentOutput>;
-}
-
-describe("uniform macro transmission", () => {
-  it("maps direction and strength to s_i", () => {
-    expect(signalForAgent(macroOutput("china", { direction: "SUPPORTIVE", strength: 3 }))).toBe(
-      0.6,
-    );
-    expect(signalForAgent(macroOutput("china", { direction: "ADVERSE", strength: 5 }))).toBe(-1);
-    expect(signalForAgent(macroOutput("china"))).toBe(0);
-  });
-
-  it("keeps exactly ten current roles and six non-overlapping groups", () => {
-    expect(ALL_MACRO_AGENTS).toEqual([
-      "china",
-      "us_economy",
-      "central_bank",
+describe("v2 macro composition and input gate", () => {
+  it("has ten production roles and five audit-only tombstones", () => {
+    expect(MACRO_AGENT_IDS).toHaveLength(10);
+    expect(new Set(MACRO_AGENT_IDS).size).toBe(10);
+    expect(TOMBSTONED_MACRO_AGENT_IDS).toEqual([
       "dollar",
       "yield_curve",
-      "commodities",
-      "geopolitical",
       "volatility",
-      "market_breadth",
-      "institutional_flow",
+      "emerging_markets",
+      "news_sentiment",
     ]);
-    expect(Object.values(MACRO_FACTOR_GROUPS).flat()).toEqual(ALL_MACRO_AGENTS);
-    expect(Object.keys(MACRO_FACTOR_GROUPS)).toHaveLength(6);
   });
-});
 
-describe("six-group aggregation", () => {
-  it("rejects formal aggregation until all ten agents are accepted", () => {
-    expect(() => aggregateLayer1({ china: macroOutput("china") })).toThrow(
-      MacroAggregationRejectedError,
+  it("accepts the exact component set once and rejects missing, duplicate, or extra components", () => {
+    const valid = macroSubmission("central_bank");
+    expect(MACRO_ROLE_CONTRACTS.central_bank.mode).toBe("COMPONENTS");
+    if (valid.mode !== "COMPONENTS") throw new Error("fixture mode mismatch");
+    const schema = createMacroSubmissionSchema("central_bank");
+    expect(schema.safeParse(valid).success).toBe(true);
+    expect(schema.safeParse({ ...valid, components: valid.components.slice(1) }).success).toBe(
+      false,
     );
-  });
-
-  it("does not reward a group for having more agents", () => {
-    const outputs = completeOutputs();
-    for (const agent of ALL_MACRO_AGENTS) {
-      outputs[agent] = macroOutput(agent, {
-        direction: "SUPPORTIVE",
-        strength: 5,
-        confidence: 1,
-      } as never);
-    }
-    const result = aggregateLayer1(outputs);
-    expect(result.score).toBeCloseTo(1);
-    for (const group of result.groups) expect(group.effective_weight).toBeCloseTo(1 / 6);
-  });
-
-  it("preserves a single-agent group's Darwinian reliability", () => {
-    const result = aggregateLayer1(completeOutputs(), {
-      darwinianWeights: { china: { weight: 2 } },
-    });
     expect(
-      result.groups.find((group) => group.group === "china_economy")?.effective_weight,
-    ).toBeCloseTo(2 / 7);
+      schema.safeParse({ ...valid, components: [...valid.components, valid.components[0]] })
+        .success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        ...valid,
+        components: [...valid.components.slice(1), { ...valid.components[0], component: "extra" }],
+      }).success,
+    ).toBe(false);
   });
 
-  it("ranks agents only inside a multi-agent group before group weighting", () => {
-    const outputs = completeOutputs({
-      dollar: { direction: "SUPPORTIVE", strength: 5, confidence: 1 },
-      yield_curve: { direction: "ADVERSE", strength: 5, confidence: 1 },
-    });
-    const result = aggregateLayer1(outputs, {
-      darwinianWeights: { dollar: { weight: 2 }, yield_curve: { weight: 0.5 } },
-    });
-    const financial = result.groups.find((group) => group.group === "financial_conditions");
-    expect(financial?.direction).toBeCloseTo(0.6);
-    expect(financial?.reliability).toBeCloseTo(1.25);
-  });
-
-  it("uses ±0.3 only after the exact reliability-normalized group score", () => {
-    const outputs = completeOutputs();
-    for (const agent of ALL_MACRO_AGENTS) {
-      outputs[agent] = macroOutput(agent, { confidence: 1 } as never);
-    }
-    outputs.china = macroOutput("china", {
-      direction: "SUPPORTIVE",
-      strength: 5,
-      confidence: 1,
-    });
-    outputs.us_economy = macroOutput("us_economy", {
-      direction: "SUPPORTIVE",
-      strength: 5,
-      confidence: 1,
-    });
-    outputs.central_bank = macroOutput("central_bank", {
-      direction: "ADVERSE",
-      strength: 5,
-      confidence: 1,
-    });
-    const result = aggregateLayer1(outputs);
-    expect(result.score).toBeCloseTo(1 / 6);
-    expect(result.signal.stance).toBe("NEUTRAL");
-    expect(result.signal.layer_1_consensus_score).toBeCloseTo(0.167);
-  });
-
-  it("never inherits legacy-agent weights", () => {
-    const baseline = aggregateLayer1(completeOutputs());
-    const legacy = aggregateLayer1(completeOutputs(), {
-      darwinianWeights: {
-        emerging_markets: { weight: 2.5 },
-        news_sentiment: { weight: 2.5 },
-      },
-    });
-    expect(legacy.score).toBe(baseline.score);
-  });
-
-  it("matches the shared Python/TypeScript aggregation fixture", () => {
-    const fixture = JSON.parse(
-      readFileSync(
-        resolve(process.cwd(), "..", "tests", "fixtures", "macro_aggregation_case.json"),
-        "utf8",
-      ),
-    ) as {
-      outputs: Record<MacroAgentId, Partial<MacroAgentOutput>>;
-      darwinian_weights: Record<string, number>;
-      expected_score: number;
-      expected_stance: string;
-    };
-    const outputs = Object.fromEntries(
-      ALL_MACRO_AGENTS.map((agent) => [agent, macroOutput(agent, fixture.outputs[agent] as never)]),
-    ) as Record<string, MacroAgentOutput>;
-    const darwinianWeights = Object.fromEntries(
-      Object.entries(fixture.darwinian_weights).map(([agent, weight]) => [agent, { weight }]),
-    );
-    const result = aggregateLayer1(outputs, { darwinianWeights });
-    expect(result.score).toBeCloseTo(fixture.expected_score);
-    expect(result.signal.stance).toBe(fixture.expected_stance);
-  });
-
-  it("loads current role weights in the graph node", async () => {
-    const darwinianGetWeights = vi.fn(async () => ({
-      weights: { china: { weight: 2, sharpe_30: null, sharpe_90: null, quartile: null } },
+  it("composes components once with fixed weights, quality, dispersion, and the five-day horizon", () => {
+    const submission = macroSubmission("us_financial_conditions") as Extract<
+      MacroAgentSubmission,
+      { mode: "COMPONENTS" }
+    >;
+    submission.components = submission.components.map((component, index) => ({
+      ...component,
+      direction: index < 3 ? "ADVERSE" : "SUPPORTIVE",
+      strength: index < 3 ? 4 : 2,
+      confidence: 0.8,
     }));
-    const node = buildAggregateLayer1Node({
-      api: { darwinianGetWeights },
-      config: { darwinian: { weight_rewrite_enabled: true } } as never,
+    const accepted = composeAcceptedMacroTransmission("us_financial_conditions", submission, {
+      mode: "COMPONENTS",
+      dataQualityByComponent: Object.fromEntries(
+        submission.components.map((component) => [component.component, 1]),
+      ),
     });
-    const update = await node({
-      active_cohort: "cohort_default",
-      as_of_date: "2026-07-15",
-      layer1_outputs: completeOutputs(),
-    } as never);
-    expect((update.layer1_consensus as never as { stance: string }).stance).toBe("NEUTRAL");
-    expect(darwinianGetWeights).toHaveBeenCalledWith("cohort_default", "2026-07-15");
+    expect(accepted.agent_id).toBe("us_financial_conditions");
+    expect(accepted.direction).toBe("ADVERSE");
+    expect(accepted.strength).toBeGreaterThan(0);
+    expect(accepted.evaluation_horizon_trading_days).toBe(5);
+    expect(accepted.component_weight_contract_version).toBe("macro_component_weights_v2");
+    expect(accepted.confidence).toBeLessThanOrEqual(accepted.model_confidence);
+    expect(accepted).not.toHaveProperty("stance");
+    expect(accepted).not.toHaveProperty("layer_1_consensus_score");
+  });
+
+  it("uses the active calibrated component version and weights at the accepted boundary", () => {
+    const submission = macroSubmission("us_economy") as Extract<
+      MacroAgentSubmission,
+      { mode: "COMPONENTS" }
+    >;
+    submission.components = submission.components.map((component) => ({
+      ...component,
+      direction: component.component === "growth_production" ? "SUPPORTIVE" : "ADVERSE",
+      strength: component.component === "growth_production" ? 5 : 3,
+      confidence: 1,
+    }));
+    const quality = {
+      mode: "COMPONENTS" as const,
+      dataQualityByComponent: Object.fromEntries(
+        submission.components.map((component) => [component.component, 1]),
+      ),
+    };
+    const fixed = composeAcceptedMacroTransmission("us_economy", submission, quality);
+    const active: ComponentWeightRuntimeResolution = {
+      agent_id: "us_economy",
+      component_weight_contract_version: "us_economy_component_weights_test_v1",
+      component_weights: {
+        growth_production: 0.35,
+        prices: 0.25,
+        employment: 0.2,
+        demand_trade: 0.2,
+      },
+      release_revision_id: "component-weight-release:test",
+      release_revision_hash: `sha256:${"1".repeat(64)}`,
+      effective_at: "2026-01-05T00:00:00+08:00",
+    };
+    const calibrated = composeAcceptedMacroTransmission(
+      "us_economy",
+      submission,
+      quality,
+      {
+        agent_contract_version: "macro_agent_contract_v2",
+        prompt_behavior_version: "macro_prompt_behavior_v2",
+        execution_behavior_version: "macro_execution_behavior_v2",
+        component_weight_contract_version: active.component_weight_contract_version,
+      },
+      active,
+    );
+
+    expect(calibrated.component_weight_contract_version).toBe(
+      active.component_weight_contract_version,
+    );
+    expect(calibrated.direction).toBe("NEUTRAL");
+    expect(fixed.direction).toBe("ADVERSE");
+  });
+
+  it("rejects malformed or cross-Agent calibrated component resolutions", () => {
+    const submission = macroSubmission("us_economy");
+    const quality = {
+      mode: "COMPONENTS" as const,
+      dataQualityByComponent: Object.fromEntries(
+        submission.mode === "COMPONENTS"
+          ? submission.components.map((component) => [component.component, 1])
+          : [],
+      ),
+    };
+    const behavior = {
+      agent_contract_version: "macro_agent_contract_v2",
+      prompt_behavior_version: "macro_prompt_behavior_v2",
+      execution_behavior_version: "macro_execution_behavior_v2",
+      component_weight_contract_version: "calibrated-v1",
+    };
+    const base = {
+      agent_id: "central_bank",
+      component_weight_contract_version: "calibrated-v1",
+      component_weights: {
+        growth_production: 0.35,
+        prices: 0.25,
+        employment: 0.2,
+        demand_trade: 0.2,
+      },
+      release_revision_id: null,
+      release_revision_hash: null,
+      effective_at: null,
+    } satisfies ComponentWeightRuntimeResolution;
+
+    expect(() =>
+      composeAcceptedMacroTransmission("us_economy", submission, quality, behavior, base),
+    ).toThrow(/owner mismatch/);
+    expect(() =>
+      composeAcceptedMacroTransmission("us_economy", submission, quality, behavior, {
+        ...base,
+        agent_id: "us_economy",
+        component_weights: {
+          growth_production: 0.5,
+          prices: 0.2,
+          employment: 0.2,
+          demand_trade: 0.2,
+        },
+      }),
+    ).toThrow(/invalid active component weights/);
+  });
+
+  it("applies deterministic quality once for DIRECT roles", () => {
+    const accepted = composeAcceptedMacroTransmission(
+      "market_breadth",
+      macroSubmission("market_breadth"),
+      { mode: "DIRECT", dataQuality: 0.8 },
+    );
+    expect(accepted.model_confidence).toBe(0.7);
+    expect(accepted.deterministic_data_quality).toBe(0.8);
+    expect(accepted.confidence).toBeCloseTo(0.56);
+    expect(accepted.component_weight_contract_version).toBeNull();
+  });
+
+  it("fails closed when any accepted slot is absent or a contract version is wrong", () => {
+    const outputs = Object.fromEntries(
+      MACRO_AGENT_IDS.map((agent) => [agent, macroOutput(agent)]),
+    ) as Record<MacroAgentId, ReturnType<typeof macroOutput>>;
+    const receipt = validateMacroInputs(outputs);
+    expect(receipt.accepted_count).toBe(10);
+    expect(receipt.accepted_agent_ids).toEqual(MACRO_AGENT_IDS);
+    expect(receipt.input_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(
+      Object.values(receipt.reliability_by_agent).reduce((sum, row) => sum + row.usage_share, 0),
+    ).toBeCloseTo(1);
+    const incomplete = { ...outputs };
+    delete (incomplete as Partial<typeof incomplete>).eu_economy;
+    expect(() => validateMacroInputs(incomplete)).toThrow(/requires exactly/);
+    const wrong = { ...outputs, china: { ...outputs.china, agent_contract_version: "old" } };
+    expect(() => validateMacroInputs(wrong)).toThrow(/version mismatch/);
+  });
+
+  it("hashes exact namespace-safe record references at the production gate", () => {
+    const outputs = Object.fromEntries(
+      MACRO_AGENT_IDS.map((agent) => [agent, macroOutput(agent)]),
+    ) as Record<MacroAgentId, ReturnType<typeof macroOutput>>;
+    const refs = Object.fromEntries(
+      MACRO_AGENT_IDS.map((agent) => [
+        agent,
+        {
+          accepted_output_kind: "MACRO_TRANSMISSION",
+          agent_id: agent,
+          accepted_output_id: `accepted:${agent}`,
+          accepted_output_hash: `sha256:${agent.padEnd(64, "0").slice(0, 64)}`,
+        },
+      ]),
+    ) as Record<MacroAgentId, AcceptedOutputRecordRef<"MACRO_TRANSMISSION">>;
+    const receipt = validateMacroInputs(outputs, undefined, undefined, refs);
+    expect(receipt.accepted_count).toBe(10);
+    const incompleteRefs = Object.fromEntries(
+      Object.entries(refs).filter(([agent]) => agent !== "china"),
+    );
+    expect(() =>
+      validateMacroInputs(outputs, undefined, undefined, incompleteRefs as never),
+    ).toThrow(/exactly ten accepted Macro record references/);
+    expect(() =>
+      validateMacroInputs(outputs, undefined, undefined, {
+        ...refs,
+        china: { ...refs.china, agent_id: "us_economy" },
+      } as never),
+    ).toThrow(/owner mismatch/);
   });
 });

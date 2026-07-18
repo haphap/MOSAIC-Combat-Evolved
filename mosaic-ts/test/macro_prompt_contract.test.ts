@@ -6,6 +6,7 @@ import {
   MACRO_ROLE_CONTRACTS,
   renderMacroPromptBody,
 } from "../src/agents/macro/_contracts.js";
+import { ALL_AGENTS } from "../src/agents/prompts/cohorts.js";
 import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/research_knobs_projection.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 
@@ -17,7 +18,7 @@ const privateManifest = JSON.parse(
       "..",
       "registry",
       "prompt_checks",
-      "macro_prompt_role_contract_manifest_v1.json",
+      "agent_prompt_role_contract_manifest_v2.json",
     ),
     "utf8",
   ),
@@ -25,10 +26,12 @@ const privateManifest = JSON.parse(
   agents: string[];
   cohort_count: number;
   languages: string[];
-  legacy_agents: Array<{ agent: string; status: string }>;
+  tombstoned_macro_agents: Array<{ agent: string; status: string }>;
   private_prompt_commit: string;
   prompt_count: number;
   prompt_tree_sha256: string;
+  execution_behavior_release_id: string;
+  execution_behavior_release_hash: string;
 };
 
 function prompt(agent: string, language: "zh" | "en") {
@@ -45,13 +48,20 @@ describe("generated bundled macro prompts", () => {
   });
 
   it("pins the rebuilt private prompt tree", () => {
-    expect(privateManifest.agents).toEqual(MACRO_AGENT_IDS);
+    expect(privateManifest.agents).toEqual(ALL_AGENTS);
     expect(privateManifest.languages).toEqual(["en", "zh"]);
     expect(privateManifest.cohort_count).toBe(8);
-    expect(privateManifest.prompt_count).toBe(160);
+    expect(privateManifest.prompt_count).toBe(448);
     expect(privateManifest.private_prompt_commit).toMatch(/^[0-9a-f]{40}$/);
     expect(privateManifest.prompt_tree_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(privateManifest.legacy_agents).toEqual([
+    expect(privateManifest.execution_behavior_release_id).toMatch(
+      /^execution-behavior-release:[0-9a-f]{64}$/,
+    );
+    expect(privateManifest.execution_behavior_release_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(privateManifest.tombstoned_macro_agents).toEqual([
+      { agent: "dollar", status: "legacy_unverified" },
+      { agent: "yield_curve", status: "legacy_unverified" },
+      { agent: "volatility", status: "legacy_unverified" },
       { agent: "emerging_markets", status: "legacy_unverified" },
       { agent: "news_sentiment", status: "legacy_unverified" },
     ]);
@@ -95,7 +105,7 @@ describe("generated bundled macro prompts", () => {
     const files = readdirSync(bundledRoot, { recursive: true, encoding: "utf8" }).filter((file) =>
       file.endsWith(".md"),
     );
-    expect(files).toHaveLength(50);
+    expect(files).toHaveLength(56);
     for (const file of files) {
       const text = readFileSync(join(bundledRoot, file), "utf8");
       expect(text).not.toContain("```research-knobs");
@@ -118,15 +128,16 @@ describe("generated bundled macro prompts", () => {
   it("removes search/social dependencies and old required-role mistakes", () => {
     const china = prompt("china", "en");
     const centralBank = prompt("central_bank", "en");
-    const dollar = prompt("dollar", "en");
-    const volatility = prompt("volatility", "en");
+    const usFinancialConditions = prompt("us_financial_conditions", "en");
+    const euEconomy = prompt("eu_economy", "en");
     expect(china).not.toMatch(/must[^\n]{0,40}property/i);
     expect(china).toContain("Do not require property");
     expect(centralBank).toContain("PBOC reaction function");
-    expect(centralBank).toContain("Do not infer a Fed policy direction");
+    expect(centralBank).toContain("Do not judge foreign central banks");
     expect(centralBank).not.toContain("PBOC/Fed");
-    expect(dollar).toContain("Do not label a broad-dollar index as DXY");
-    expect(volatility).toContain("Do not call realized volatility iVX");
+    expect(usFinancialConditions).toContain("Fed, US curves, credit/financial stress, and USD/RMB");
+    expect(usFinancialConditions).toContain("Do not split the Fed, dollar, and curve");
+    expect(euEconomy).toContain("Do not include the UK, Switzerland, or Norway");
     for (const agent of MACRO_AGENT_IDS) {
       const text = `${prompt(agent, "zh")}\n${prompt(agent, "en")}`;
       expect(text).not.toContain("get_news");

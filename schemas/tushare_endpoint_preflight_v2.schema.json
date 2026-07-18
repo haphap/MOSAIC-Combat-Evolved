@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tushare endpoint permission and schema preflight v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "registry_version",
+    "generated_at",
+    "checks",
+    "artifact_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "tushare_endpoint_preflight_v2" },
+    "registry_version": { "const": "tushare_endpoint_registry_v2" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "endpoint",
+          "status",
+          "permission_checked_at",
+          "permission_evidence_id",
+          "schema_contract_version",
+          "request_contract",
+          "expected_columns",
+          "observed_row_count",
+          "permission_result",
+          "pit_assessment",
+          "raw_payload_committed",
+          "coverage_smoke"
+        ],
+        "properties": {
+          "endpoint": { "type": "string", "minLength": 1 },
+          "status": {
+            "enum": [
+              "ACTIVE_VERIFIED",
+              "PRECHECK_REQUIRED",
+              "DISABLED_PERMISSION_DENIED"
+            ]
+          },
+          "permission_checked_at": { "type": "string", "format": "date-time" },
+          "permission_evidence_id": { "type": "string", "minLength": 1 },
+          "schema_contract_version": { "type": "string", "minLength": 1 },
+          "request_contract": { "type": "object" },
+          "expected_columns": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "observed_row_count": { "type": "integer", "minimum": 0 },
+          "permission_result": {
+            "enum": [
+              "NON_EMPTY_RESPONSE",
+              "EMPTY_RESPONSE",
+              "TRUNCATION_RISK",
+              "PERMISSION_DENIED"
+            ]
+          },
+          "pit_assessment": {
+            "enum": ["LOCAL_CAPTURE_ONLY", "NOT_APPLICABLE"]
+          },
+          "raw_payload_committed": { "const": false },
+          "response_content_hash": {
+            "type": ["string", "null"],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "permission_error_class": { "type": ["string", "null"] },
+          "coverage_smoke": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "date",
+              "registered_currency_count",
+              "query_count",
+              "raw_row_count",
+              "deduplicated_row_count",
+              "truncated_leaf_count",
+              "status"
+            ],
+            "properties": {
+              "scope_kind": { "type": "string", "minLength": 1 },
+              "date": { "type": "string", "format": "date" },
+              "registered_currency_count": { "type": "integer", "minimum": 0 },
+              "query_count": { "type": "integer", "minimum": 0 },
+              "raw_row_count": { "type": "integer", "minimum": 0 },
+              "deduplicated_row_count": { "type": "integer", "minimum": 0 },
+              "truncated_leaf_count": { "type": "integer", "minimum": 0 },
+              "status": {
+                "enum": [
+                  "COMPLETE",
+                  "PERMISSION_SCHEMA_ONLY",
+                  "EMPTY_RESPONSE",
+                  "TRUNCATION_RISK"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "artifact_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

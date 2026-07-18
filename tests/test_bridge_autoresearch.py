@@ -111,11 +111,11 @@ class TestAutoresearchTrigger(unittest.TestCase):
     def test_trigger_creates_version_without_project_branch(self):
         result = autoresearch_trigger({
             "cohort": "euphoria_2021",
-            "force_agent": "volatility",
+            "force_agent": "us_financial_conditions",
         })
         self.assertIn("version_id", result)
-        self.assertEqual(result["agent"], "volatility")
-        self.assertIn("cohort/euphoria_2021/auto/volatility/", result["branch_name"])
+        self.assertEqual(result["agent"], "us_financial_conditions")
+        self.assertIn("cohort/euphoria_2021/auto/us_financial_conditions/", result["branch_name"])
         self.assertIsInstance(result["base_commit"], str)
         self.assertTrue(len(result["base_commit"]) >= 7)
         git_branch = subprocess.run(
@@ -129,11 +129,11 @@ class TestAutoresearchTrigger(unittest.TestCase):
         """Calling trigger twice for the same date/agent returns the same version."""
         r1 = autoresearch_trigger({
             "cohort": "euphoria_2021",
-            "force_agent": "volatility",
+            "force_agent": "us_financial_conditions",
         })
         r2 = autoresearch_trigger({
             "cohort": "euphoria_2021",
-            "force_agent": "volatility",
+            "force_agent": "us_financial_conditions",
         })
         self.assertEqual(r1["version_id"], r2["version_id"])
 
@@ -146,12 +146,12 @@ class TestAutoresearchTrigger(unittest.TestCase):
         """dry_run selects the agent but creates no branch and no version row."""
         result = autoresearch_trigger({
             "cohort": "euphoria_2021",
-            "force_agent": "volatility",
+            "force_agent": "us_financial_conditions",
             "dry_run": True,
         })
         self.assertIsNone(result["version_id"])
         self.assertTrue(result["dry_run"])
-        self.assertEqual(result["agent"], "volatility")
+        self.assertEqual(result["agent"], "us_financial_conditions")
         # No prompt_versions row persisted.
         self.assertEqual(len(self.store.list_prompt_versions()), 0)
         # No git branch created.
@@ -169,7 +169,7 @@ class TestAutoresearchTrigger(unittest.TestCase):
         with patch.object(_ar, "_private_git_ops", return_value=GitOps(self.repo_path)):
             result = autoresearch_trigger({
                 "cohort": "history_walkforward_2009",
-                "force_agent": "volatility",
+                "force_agent": "us_financial_conditions",
                 "historical_sandbox": True,
                 "historical_run_id": "history-test-1",
                 "as_of_date": "2011-01-05",
@@ -179,7 +179,7 @@ class TestAutoresearchTrigger(unittest.TestCase):
 
         self.assertEqual(
             result["branch_name"],
-            "history/history-test-1/history_walkforward_2009/volatility/2011-01-05",
+            "history/history-test-1/history_walkforward_2009/us_financial_conditions/2011-01-05",
         )
         self.assertEqual(result["base_commit"], prompt_base)
         version = self.store.get_prompt_version(result["version_id"])
@@ -190,7 +190,7 @@ class TestAutoresearchTrigger(unittest.TestCase):
         with self.assertRaises(RpcError) as ctx:
             autoresearch_trigger({
                 "cohort": "euphoria_2021",
-                "force_agent": "volatility",
+                "force_agent": "us_financial_conditions",
                 "historical_run_id": "history-test-1",
                 "as_of_date": "2011-01-05",
             })
@@ -212,8 +212,8 @@ class TestAutoresearchHistoricalDecide(unittest.TestCase):
     def test_revert_is_audit_only_and_uses_simulated_decision_date(self):
         vid = self.store.create_prompt_version(
             cohort="history_walkforward_2009",
-            agent="volatility",
-            branch_name="history/history_walkforward_2009/volatility/2011-01-05",
+            agent="us_financial_conditions",
+            branch_name="history/history_walkforward_2009/us_financial_conditions/2011-01-05",
             base_commit_hash="a" * 40,
         )
         self.store.set_version_mutation(
@@ -239,8 +239,8 @@ class TestAutoresearchHistoricalDecide(unittest.TestCase):
     def test_historical_validation_is_read_only(self):
         vid = self.store.create_prompt_version(
             cohort="history_walkforward_2009",
-            agent="volatility",
-            branch_name="history/history-test-1/history_walkforward_2009/volatility/2011-01-05",
+            agent="us_financial_conditions",
+            branch_name="history/history-test-1/history_walkforward_2009/us_financial_conditions/2011-01-05",
             base_commit_hash="a" * 40,
         )
         self.store.set_version_mutation(
@@ -277,11 +277,11 @@ class TestAutoresearchHistoricalDecide(unittest.TestCase):
         git_ops = GitOps(repo)
         base = git_ops.current_commit()
         candidate_branch = (
-            "history/history-test-1/history_walkforward_2009/volatility/2011-01-05"
+            "history/history-test-1/history_walkforward_2009/us_financial_conditions/2011-01-05"
         )
         prompt_paths = {
-            "prompts/mosaic/history_walkforward_2009/macro/volatility.zh.md": "候选\n",
-            "prompts/mosaic/history_walkforward_2009/macro/volatility.en.md": "candidate\n",
+            "prompts/mosaic/history_walkforward_2009/macro/us_financial_conditions.zh.md": "候选\n",
+            "prompts/mosaic/history_walkforward_2009/macro/us_financial_conditions.en.md": "candidate\n",
         }
         candidate_commit = git_ops.write_and_commit(
             prompt_paths,
@@ -291,7 +291,7 @@ class TestAutoresearchHistoricalDecide(unittest.TestCase):
         )
         vid = self.store.create_prompt_version(
             cohort="history_walkforward_2009",
-            agent="volatility",
+            agent="us_financial_conditions",
             branch_name=candidate_branch,
             base_commit_hash=base,
         )
@@ -373,8 +373,8 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
     def test_record_mutation_updates_version(self):
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            agent="us_financial_conditions",
+            branch_name="cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01",
             base_commit_hash="a" * 40,
         )
         result = autoresearch_record_mutation({
@@ -399,8 +399,8 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
     def test_record_mutation_appends_log(self):
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-02",
+            agent="us_financial_conditions",
+            branch_name="cohort/euphoria_2021/auto/us_financial_conditions/2021-01-02",
             base_commit_hash="a" * 40,
         )
         autoresearch_record_mutation({
@@ -414,8 +414,8 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
     def test_record_domain_mutation_advances_to_validated(self):
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-03",
+            agent="us_financial_conditions",
+            branch_name="cohort/euphoria_2021/auto/us_financial_conditions/2021-01-03",
             base_commit_hash="a" * 40,
         )
         metadata = {
@@ -423,7 +423,7 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
             "transaction_id": "TX-KM-domain-1",
             "experiment_id": "EXP-KM-domain-1",
             "mutation_kind": "domain_knob",
-            "domain_card_id": "macro.volatility.test",
+            "domain_card_id": "macro.us_financial_conditions.test",
         }
         params = {
             "version_id": vid,
@@ -467,7 +467,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
 
     def _mutated_version(self, branch: str) -> int:
         vid = self.store.create_prompt_version(
-            cohort="euphoria_2021", agent="volatility",
+            cohort="euphoria_2021", agent="us_financial_conditions",
             branch_name=branch, base_commit_hash="a" * 40,
         )
         self.store.set_version_mutation(vid, "b" * 40, "x")
@@ -475,7 +475,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
 
     def _private_mutated_version(self, branch: str) -> int:
         vid = self.store.create_prompt_version(
-            cohort="euphoria_2021", agent="volatility",
+            cohort="euphoria_2021", agent="us_financial_conditions",
             branch_name=branch, base_commit_hash="a" * 40,
         )
         self.store.set_version_mutation(
@@ -492,7 +492,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
     def _domain_mutated_version(self, branch: str) -> int:
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
+            agent="us_financial_conditions",
             branch_name=branch,
             base_commit_hash="a" * 40,
         )
@@ -505,7 +505,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
                 "transaction_id": "TX-KM-domain-1",
                 "experiment_id": "EXP-KM-domain-1",
                 "mutation_kind": "domain_knob",
-                "domain_card_id": "macro.volatility.test",
+                "domain_card_id": "macro.us_financial_conditions.test",
             },
         )
         self.store.set_version_mutation_lifecycle(vid, "validated")
@@ -514,7 +514,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
     def _generic_mutated_version(self, branch: str) -> int:
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
+            agent="us_financial_conditions",
             branch_name=branch,
             base_commit_hash="a" * 40,
         )
@@ -528,8 +528,8 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
                 "experiment_id": "EXP-KM-generic-1",
                 "mutation_kind": "generic_knob",
                 "generic_target_paths": [
-                    "/rule_packs/macro.volatility.runtime.v1/rules/"
-                    "macro.volatility.soft.001/confidence_policy/"
+                    "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/"
+                    "macro.us_financial_conditions.soft.001/confidence_policy/"
                     "missing_current_data/cap"
                 ],
             },
@@ -539,7 +539,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
 
     def test_version_id_scopes_to_one_version(self):
         # Two mutated pending versions; ask for just the second.
-        self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
+        self._mutated_version("cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01")
         vid2 = self._mutated_version("cohort/euphoria_2021/auto/cro/2021-01-01")
         result = autoresearch_evaluate_pending({"version_id": vid2})
         ids = [r["version_id"] for r in result["results"]]
@@ -553,7 +553,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
 
     def test_domain_mutation_never_falls_back_to_sharpe_only(self):
         vid = self._domain_mutated_version(
-            "cohort/euphoria_2021/auto/volatility/2021-01-06"
+            "cohort/euphoria_2021/auto/us_financial_conditions/2021-01-06"
         )
         with patch("mosaic.autoresearch.evaluator.compute_delta") as compute_delta:
             result = autoresearch_evaluate_pending({"version_id": vid})
@@ -567,7 +567,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
 
     def test_generic_mutation_never_falls_back_to_sharpe_only(self):
         vid = self._generic_mutated_version(
-            "cohort/euphoria_2021/auto/volatility/2021-01-07"
+            "cohort/euphoria_2021/auto/us_financial_conditions/2021-01-07"
         )
         with patch("mosaic.autoresearch.evaluator.compute_delta") as compute_delta:
             result = autoresearch_evaluate_pending({"version_id": vid})
@@ -582,8 +582,8 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
     def test_domain_promotion_requires_operator_and_closed_holdout_evidence(self):
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-08",
+            agent="us_financial_conditions",
+            branch_name="cohort/euphoria_2021/auto/us_financial_conditions/2021-01-08",
             base_commit_hash="a" * 40,
         )
         metadata = {
@@ -635,20 +635,14 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
             os.environ,
             {"MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS": "operator:test"},
         ):
-            result = autoresearch_review_domain_promotion(params)
-            repeated = autoresearch_review_domain_promotion(params)
+            with self.assertRaisesRegex(RpcError, "KNOT promotion batch"):
+                autoresearch_review_domain_promotion(params)
             rejected = {**params, "approved_by": "operator:unlisted"}
             with self.assertRaises(RpcError):
                 autoresearch_review_domain_promotion(rejected)
 
-        self.assertEqual(result["status"], "kept")
-        self.assertTrue(result["created"])
-        self.assertFalse(repeated["created"])
-        self.assertEqual(self.store.get_prompt_version(vid)["status"], "keep")
-        self.assertEqual(
-            self.store.get_domain_promotion_decision(vid)["approved_by"],
-            "operator:test",
-        )
+        self.assertEqual(self.store.get_prompt_version(vid)["status"], "pending")
+        self.assertIsNone(self.store.get_domain_promotion_decision(vid))
 
     def test_needs_fill_reports_private_prompt_metadata(self):
         class FakePrivateGit:
@@ -656,7 +650,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
                 return True
 
         vid = self._private_mutated_version(
-            "cohort/euphoria_2021/auto/volatility/2021-01-04"
+            "cohort/euphoria_2021/auto/us_financial_conditions/2021-01-04"
         )
 
         with patch.object(_ar, "_private_git_ops", return_value=FakePrivateGit()):
@@ -675,7 +669,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
 
     def test_private_version_requires_private_repo_git(self):
         vid = self._private_mutated_version(
-            "cohort/euphoria_2021/auto/volatility/2021-01-05"
+            "cohort/euphoria_2021/auto/us_financial_conditions/2021-01-05"
         )
 
         with self.assertRaises(RpcError) as ctx:
@@ -684,7 +678,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.assertIn("MOSAIC_PROMPTS_REPO", ctx.exception.message)
 
     def test_scan_all_without_version_id(self):
-        self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
+        self._mutated_version("cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01")
         self._mutated_version("cohort/euphoria_2021/auto/cro/2021-01-01")
         result = autoresearch_evaluate_pending({"cohort": "euphoria_2021"})
         self.assertEqual(len(result["results"]), 2)
@@ -704,7 +698,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
             "unknown_tools": ["get_removed_tool"],
             "missing_files": [],
         }
-        vid = self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-03")
+        vid = self._mutated_version("cohort/euphoria_2021/auto/us_financial_conditions/2021-01-03")
 
         result = autoresearch_evaluate_pending({"version_id": vid})
 
@@ -748,7 +742,7 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
         self._store_patch.stop()
         self._tmpdir.cleanup()
 
-    def test_macro_private_mutation_kept_by_portfolio_delta_not_macro_hit_rate(self):
+    def test_macro_portfolio_delta_is_legacy_audit_not_prompt_promotion(self):
         from datetime import datetime, timezone
 
         from mosaic.scorecard.scorer import MacroScorer
@@ -762,8 +756,8 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
             "prompt_repo_id": "private",
             "prompt_sha256": "f" * 64,
             "layer1_outputs": {
-                "volatility": {
-                    "agent": "volatility",
+                "us_financial_conditions": {
+                    "agent": "us_financial_conditions",
                     "direction": "SUPPORTIVE",
                     "strength": 5,
                     "regime_filter": "RISK_ON",
@@ -805,7 +799,7 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
         now = datetime(2024, 3, 1, 12, 0, tzinfo=timezone.utc)
         with patch.object(_ar, "_now", return_value=now):
             triggered = autoresearch_trigger({"cohort": "euphoria_2021"})
-        self.assertEqual(triggered["agent"], "volatility")
+        self.assertEqual(triggered["agent"], "us_financial_conditions")
 
         autoresearch_record_mutation(
             {
@@ -858,7 +852,7 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
                         "stage": "primary",
                         "status": "accepted",
                     }
-                    for index in range(26)
+                    for index in range(29)
                 ],
                 decision_disposition="ALL_CASH",
             )
@@ -890,11 +884,14 @@ class TestMacroAutoresearchIntegration(unittest.TestCase):
              patch("mosaic.autoresearch.evaluator._find_run_sharpe", fake_find_run_sharpe):
             result = autoresearch_evaluate_pending({"version_id": triggered["version_id"]})
 
-        self.assertEqual(result["results"][0]["status"], "kept")
+        self.assertEqual(result["results"][0]["status"], "legacy_unverified")
         self.assertAlmostEqual(result["results"][0]["delta_sharpe"], 0.25)
         self.assertIn(private_mod_run, seen_run_ids)
         self.assertNotIn(wrong_repo_mod_run, seen_run_ids)
-        self.assertEqual(self.store.get_prompt_version(triggered["version_id"])["status"], "keep")
+        self.assertEqual(
+            self.store.get_prompt_version(triggered["version_id"])["status"],
+            "pending",
+        )
 
 
 class TestAutoresearchGetLog(unittest.TestCase):
@@ -918,7 +915,7 @@ class TestAutoresearchGetLog(unittest.TestCase):
     def test_get_log_with_entries(self):
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
+            agent="us_financial_conditions",
             branch_name="test-branch",
             base_commit_hash="a" * 40,
         )
@@ -930,7 +927,7 @@ class TestAutoresearchGetLog(unittest.TestCase):
     def test_get_log_cohort_filter(self):
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
+            agent="us_financial_conditions",
             branch_name="test-branch-filter",
             base_commit_hash="a" * 40,
         )
@@ -960,13 +957,13 @@ class TestAutoresearchListActiveBranches(unittest.TestCase):
     def test_lists_pending_versions(self):
         self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            agent="us_financial_conditions",
+            branch_name="cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01",
             base_commit_hash="a" * 40,
         )
         result = autoresearch_list_active_branches({})
         self.assertEqual(len(result["branches"]), 1)
-        self.assertEqual(result["branches"][0]["agent"], "volatility")
+        self.assertEqual(result["branches"][0]["agent"], "us_financial_conditions")
 
 
 class TestAutoresearchWorktree(unittest.TestCase):
@@ -1057,8 +1054,8 @@ class TestAutoresearchRevertModification(unittest.TestCase):
     def test_revert_pending_version(self):
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            agent="us_financial_conditions",
+            branch_name="cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01",
             base_commit_hash="a" * 40,
         )
         result = autoresearch_revert_modification({"version_id": vid})
@@ -1072,8 +1069,8 @@ class TestAutoresearchRevertModification(unittest.TestCase):
 
         vid = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-02",
+            agent="us_financial_conditions",
+            branch_name="cohort/euphoria_2021/auto/us_financial_conditions/2021-01-02",
             base_commit_hash="a" * 40,
         )
         # Decide as keep just now.

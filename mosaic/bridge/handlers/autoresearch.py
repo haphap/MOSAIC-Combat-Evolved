@@ -542,7 +542,6 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
     Returns:
         {"results": [{version_id, status, delta_sharpe?}, ...]}
     """
-    from mosaic.autoresearch.decider import decide
     from mosaic.autoresearch.domain_evaluator import (
         DomainEvaluationError,
         evaluate_domain_mutation,
@@ -755,21 +754,22 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             })
             continue
 
-        # Both runs complete: evaluate + decide.
+        # Both runs complete: preserve the legacy diagnostic, but never let
+        # aggregate portfolio Sharpe write or promote a v2 prompt. KNOT owns
+        # production behavior proposal/pairing and the promotion gate owns the
+        # prospective release revision.
         try:
             delta_result = compute_delta(store, version_id, config)
-            # Re-read version after eval writes.
-            updated_version = store.get_prompt_version(version_id)
-            git = _git_ops_for_branch(updated_version["branch_name"], updated_version)
-            status = decide(store, git, updated_version, config)
-            # decide() returns the stored state-machine value (keep/revert);
-            # expose the past-tense form (kept/reverted) on the RPC boundary so
-            # it matches the autoresearch_log event names and the TS consumers.
-            rpc_status = {"keep": "kept", "revert": "reverted"}.get(status, status)
+            store.append_log(
+                version_id,
+                "legacy_unverified",
+                "delta_sharpe retained for audit only; production promotion disabled",
+            )
             results.append({
                 "version_id": version_id,
-                "status": rpc_status,
+                "status": "legacy_unverified",
                 "delta_sharpe": delta_result["delta_sharpe"],
+                "detail": "legacy aggregate evaluation cannot promote a v2 prompt",
             })
         except ValueError as exc:
             results.append({
@@ -984,11 +984,15 @@ def autoresearch_historical_decide(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("autoresearch.review_domain_promotion")
 def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, Any]:
-    """Record an explicit operator keep/revert decision after holdout evaluation."""
+    """Record an explicit rejection of a legacy diagnostic mutation."""
     version_id = _require_int(params, "version_id")
     decision = _require_str(params, "decision")
-    if decision not in ("keep", "revert"):
-        raise RpcError(INVALID_PARAMS, "'decision' must be 'keep' or 'revert'")
+    if decision != "revert":
+        raise RpcError(
+            AUTORESEARCH_ERROR,
+            "legacy domain promotion is disabled; production prompt behavior can be "
+            "promoted only by a KNOT promotion batch",
+        )
     approved_by = _require_str(params, "approved_by")
     if approved_by not in _authorized_prompt_release_operators():
         raise RpcError(INVALID_PARAMS, "'approved_by' is not an authorized prompt release operator")
@@ -1014,7 +1018,7 @@ def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, An
             raise RpcError(AUTORESEARCH_ERROR, "domain promotion decision already exists")
         return {
             "version_id": version_id,
-            "status": "kept" if decision == "keep" else "reverted",
+            "status": "reverted",
             "decision_hash": _canonical_hash(existing_decision),
             "decision": existing_decision,
             "created": False,
@@ -1080,12 +1084,12 @@ def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, An
         raise RpcError(AUTORESEARCH_ERROR, str(exc)) from exc
     store.append_log(
         version_id,
-        "kept" if decision == "keep" else "reverted",
+        "reverted",
         f"promotion_decision={decision_hash}; approved_by={approved_by}",
     )
     return {
         "version_id": version_id,
-        "status": "kept" if decision == "keep" else "reverted",
+        "status": "reverted",
         "decision_hash": decision_hash,
         "decision": decision_evidence,
         "created": created,

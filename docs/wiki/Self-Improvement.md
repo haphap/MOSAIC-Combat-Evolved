@@ -1,114 +1,74 @@
 # Self-Improvement
 
-MOSAIC's self-improvement stack has four parts: **Autoresearch** (prompt evolution), **PRISM** (multi-regime training), **JANUS** (cross-cohort meta-weighting), and **MiroFish** (reflexive simulation).
+MOSAIC separates two mechanisms that must not be conflated:
 
-## Autoresearch — prompt self-evolution
+- Darwinian v2 evaluates all 28 logical Agents. It supplies downstream usage
+  weights only for the 24 non-Decision Agents; CRO, Alpha, Execution, and CIO
+  are evolution-only.
+- KNOT is the only production prompt-behavior evolution and promotion path.
 
-`mosaic/autoresearch/` retains the legacy prompt-rewrite loop, where Delta
-Sharpe remains valid only for that legacy path. Governed generic confidence and
-evidence-weight targets and domain cards now use the generated metric/calculator
-contract, preregistered paired PIT evaluation, one-use holdout, and explicit
-rollback policy. Catalog presence alone is not evidence that a knob improved.
+## Darwinian v2
 
-- **`git_ops.py`** (`GitOps`) — thin, fail-loud wrapper over `git`. Mutations are committed inside a throwaway `git worktree` so the operator's working tree is never touched. Keep = `merge_to_main`, revert = `delete_branch`.
-- **`constraints.py`** — `check_cooldown` (24h per agent), `check_monthly_cap` (≤100/cohort/month), `check_keep_lockout` (3 days after a keep).
-- **`evaluator.py`** — computes ΔSharpe over the evaluation horizon (default 5 trading days).
-- **`decider.py`** — keep iff `delta_sharpe ≥ keep_threshold_delta_sharpe` (default 0.1).
-- **`knob_patch` mode** — mutates governed Prompt IR/domain-knob paths without rewriting prompt prose. Only cards with `activation_state: active` are eligible; `read_only` and `backlog` paths must be rejected.
+Each Agent has a role-specific evaluation object, deterministic PIT label,
+maturity horizon, and rank scope. A score updates only the owning Agent track;
+CIO portfolio P&L is never copied backward to upstream Agents. New Agent IDs
+start with zero mature evaluation samples, and the 24 usage-weight tracks start
+from an isolated weight of 1.0.
 
-Branch naming: `cohort/{name}/auto/{agent}/{YYYY-MM-DD}`.
+Macro outputs remain ten independent transmissions. Downstream consumers receive
+the accepted output, evidence lineage, operational reliability, and the owning
+usage weight directly. There is no six-factor bundle or Macro stance. Decision
+Agents receive explicit control DTOs without usage weights.
 
-### Optional: mirror kept mutations to a self-hosted git server
+Component weights inside multi-component Agents are a separate, fixed runtime
+contract. Offline component calibration can propose a shadow release, but
+Darwinian and KNOT cannot mutate those weights.
 
-`autoresearch.git` config (default **OFF**): when `push: true`, the keep-path runs `git push <remote> main` after a successful merge. A push failure is logged and swallowed (the keep decision still stands locally); a failed merge skips push. Credentials are the operator's responsibility (SSH key / credential helper). Config: `{ "push": false, "remote": "origin" }`.
+## KNOT paired evolution
 
-Defaults (`mosaic/default_config.py` → `autoresearch`): `agent_mutation_cooldown_hours: 24`, `keep_revert_lockout_days: 3`, `keep_threshold_delta_sharpe: 0.1`, `monthly_modification_cap_per_cohort: 100`, `evaluation_horizon_trading_days: 5`.
+KNOT selects one mature track within its registered scope and proposes a minimal
+change to the private prompt's cohort-behavior block. It cannot change roles,
+tools, schemas, labels, component weights, immutable stage instructions, data
+catalogs, or scoring thresholds.
 
-### Governed research knobs
+Champion and candidate run against the same frozen snapshot bundle, tool
+payloads, opportunity set, and realized market observation. They use distinct
+capabilities and produce distinct outputs, labels, and scores. Agent failures
+score `-2`; common exogenous exclusions do not score; asymmetric inputs fail the
+pair contract.
 
-The domain-knob catalog is the typed source for prompt projections. Every card
-has one activation state:
+CIO pairs run a special control-shadow subgraph. Alpha is sampled once and
+reused by both sides; each side then runs its own proposal → CRO → Execution →
+CIO-final chain. Alpha/CRO/Execution control calls are
+`KNOT_CONTROL_SHADOW`, production-reliability-ineligible, and cannot create
+their own outcome labels, Darwin maturity, usage weights, or KNOT scores.
+Dependency failures block and consume the pair slot without assigning CIO a
+`-2`; only CIO proposal/final failures are attributed to CIO.
 
-- `active`: projected, counted by the coverage gate, and exposed as a mutation target.
-- `read_only`: projected with a versioned value for runtime use, but excluded from mutation targets and active coverage.
-- `backlog`: retained as authoring metadata and excluded from effective prompt buckets.
+Promotion requires at least 30 accountable non-overlapping pairs plus the
+registered statistical, reliability, holdout-regime, and safety gates. A
+multi-variant mutation publishes atomically: any failed target rejects the whole
+batch. The promoted behavior starts a new future production roster revision and
+an empty evaluation track. The first 20 mature post-promotion pairs can trigger
+a prospective rollback.
 
-The generated catalog and evaluation contract live under
-`registry/prompt_checks/`. Each evaluation binding includes the activation
-state, metric, horizon, and rollback policy; the same contract carries the
-metric-to-calculator registry. The bilingual private prompt
-checker validates 25 agents across 26 runtime stages; it does not activate a
-card or a release pointer.
+Prompt-release traffic still enters through a bounded `canary` and uses
+`rollback` on failure; neither operation changes KNOT pairing, attribution, or
+promotion semantics.
 
-The evaluator dispatches each registered uncertainty policy to its actual
-estimator: paired or independent block bootstrap, Wilson intervals for binary
-rates, and Fisher-z intervals for rank correlation. Runtime evidence health is
-also aggregated across every same-name tool invocation, so a later failure or
-fallback cannot escape a confidence cap because the first call succeeded.
-Sample manifests are content-addressed over both arms, evidence vintages,
-generator identity, and source snapshots. Promotion also requires common
-support; arm-specific exclusions and asymmetric missing values fail closed.
+## Prompt and release boundary
 
-Kept mutations still move through staged and canary release states. Runtime
-records contain a durable pre-load assignment and one terminal outcome bound to
-release, stage snapshots, run identity, prompt source, schema/fallback, token,
-order, and exposure results. `prompt-release summarize-slo` reads the configured
-journal and closes both the invocation set and journal prefix; activation rereads
-the journal and rejects handwritten, stale, or subset summaries. Bundled prompt
-fallbacks count as source failures. The operator can run `autoresearch
-recover-transactions` after a crash and `prompt-release rollback` to restore the
-prior aggregate release pointer. Failed aborts remain pending and retain their
-path leases until candidate refs are confirmed absent.
+Production loads the pinned private release containing 8 cohorts × 28 Agents ×
+2 languages = 448 prompts. Bundled prompts are minimal fake/offline fallbacks
+and never serve as KNOT champions. Runtime contracts, research controls, KNOT
+metadata, provider bindings, and tool payloads stay outside model-visible prompt
+text.
 
-Non-canary traffic remains on the active pinned baseline. A first canary without
-that baseline is rejected; operators must import a previously approved active
-manifest with `prompt-release provision-baseline`. Runtime code identity remains
-pinned during canary traffic. Prompt caches include lifecycle state and rollout
-scope, so promotion of the same release id from canary to active refreshes
-runtime metadata.
+The old Delta-Sharpe Autoresearch path is diagnostic/historical only. Evaluation
+returns `legacy_unverified`; direct keep/merge is disabled, and manual domain
+review can only record a rejection. Historical backtest evolution uses an
+isolated sandbox branch and has no edge to the active production release.
 
-The decision-layer rollout uses one canonical sequence: alpha discovery, CIO
-proposal, frozen candidate target, CRO review, execution feasibility, CIO
-final, and shared validation. Runtime carries the prior accepted final target
-across backtest/shadow cycles, resolves market and liquidity evidence per
-ticker, freezes prompt/source inputs for CIO final, and replaces outputs that
-declare unsupported knob influence with a deterministic conservative fallback.
-When runtime/shared concentration policy values are absent, CIO validation and
-fallback use the catalog defaults (12% single-name and 30% sector) rather than
-disabling the limits.
-The claim/evidence graph validator exists, but the evidence-runtime gate remains
-open until runtime-owned result fingerprints and evidence ids are passed to the
-structured extractor and every recommendation/action has verified claim refs.
-
-## PRISM — multi-regime training
-
-`mosaic/prism/` trains prompt evolution across **7 market-regime cohorts**, sequentially per cohort with bounded intra-layer concurrency. Cohorts (`prism/cohorts.py`):
-
-| Cohort | Window | Regime |
-| --- | --- | --- |
-| `bull_2007` | 2006-01-04 → 2007-10-16 | 牛市顶 6124 |
-| `crisis_2008` | 2007-10-17 → 2008-10-28 | 暴跌 70%, 1664 见底 |
-| `bull_2016` | 2016-01-29 → 2017-12-29 | 慢牛 + 白酒 |
-| `crisis_covid` | 2018-10-19 → 2020-03-23 | 贸易战 + 疫情合并 |
-| `recovery_2020` | 2020-03-24 → 2020-12-31 | 疫后宽松反弹 |
-| `euphoria_2021` | 2020-07-01 → 2021-02-18 | 茅指数高峰 (启动 cohort) |
-| `rate_tightening` | 2022-04-01 → 2023-12-31 | 中特估 + 量化退潮 + Fed 加息 |
-
-CLI: `prism list|train|status|compare`.
-
-## JANUS — cross-cohort meta-weighting
-
-`mosaic/janus/` computes softmax meta-weights across cohorts (so the live system blends regime-specialized prompts by current-regime fit). CLI: `janus run|weights|regime|history`; RPCs `janus.run_daily|get_weights|regime|get_history`.
-
-## MiroFish — reflexive simulation
-
-`mosaic/mirofish/` synthesizes forward scenarios from a behavioral agent swarm and grades recommendations against them.
-
-- **engine** (`config.mirofish.engine`): `oasis` (default — real self-hosted MOSAIC-Fish), `montecarlo` (local correlated paths), or `swarm` (local agent-to-agent interaction).
-- **scorer** (`config.mirofish.scorer`): `terminal` (default — direction × cumulative return) or `path_aware` (drawdown-penalized equity curve; the `--path-aware` shorthand on `mirofish train`).
-- **inject_context** (`config.mirofish.inject_context`, default ON): append one shared, simulation-only scenario context to the L4 CRO, autonomous execution, and CIO prompts for the run (see [Agents](Agents.md)). Successful `mirofish generate` and non-dry-run `mirofish train` commands refresh that context automatically.
-- An OASIS adapter can drive a real external MiroFish engine over HTTP (`MOSAIC_MIROFISH_URL`).
-
-CLI: `mirofish generate|train|history`; RPCs under `mirofish.*`.
-
-> Memory/persona (7M.2/7M.3) is deferred/NO-GO per gain validation; documented in `docs/plans/mosaic-tsplan.md` §11.8.1.
+See [Macro Agent Role Contracts](../macro_agent_role_contracts.md) and the
+[position-aware evolution runbook](../runbooks/position_aware_prompt_evolution.md)
+for contract and operating details.

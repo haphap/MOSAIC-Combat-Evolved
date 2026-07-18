@@ -1,0 +1,4322 @@
+{
+  "manifest_version": "agent_outcome_contract_manifest_v2",
+  "contract_count": 28,
+  "usage_track_count": 24,
+  "evolution_only_track_count": 4,
+  "registry_hash": "sha256:030933946e91658ad7db971a4d09b355147b6085d1af21e007f4e91c0a468319",
+  "metric_schema_count": 8,
+  "metric_schemas_hash": "sha256:996e6805b0607dad5e3aa28b27bfcfbc813ca3ed61fa41ccbdb88919f4d9c155",
+  "metric_schemas": {
+    "macro_transmission_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "direction_sign": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": -1
+            },
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            }
+          ]
+        },
+        "strength": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            },
+            {
+              "type": "number",
+              "const": 2
+            },
+            {
+              "type": "number",
+              "const": 3
+            },
+            {
+              "type": "number",
+              "const": 4
+            },
+            {
+              "type": "number",
+              "const": 5
+            }
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "role_path_metric": {
+          "type": "number"
+        },
+        "pit_volatility_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "point_forecast": {
+          "type": "number"
+        },
+        "realized_scaled_path": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "forecast_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "null_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "direction_sign",
+        "strength",
+        "confidence",
+        "role_path_metric",
+        "pit_volatility_scale"
+      ],
+      "additionalProperties": false
+    },
+    "standard_sector_direction_pick_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "output_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "confidence_semantics": {
+          "type": "string",
+          "enum": [
+            "DIRECTIONAL_UTILITY",
+            "ABSTENTION_WARRANTED"
+          ]
+        },
+        "least_preferred_eligibility_status": {
+          "type": "string",
+          "enum": [
+            "REQUIRED",
+            "NOT_QUALIFIED",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "direction_metrics": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "direction_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_return_5d": {
+                "type": "number"
+              },
+              "parent_sector_return_5d": {
+                "type": "number"
+              },
+              "realized_scaled_path": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "predicted_tilt": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "selected_role": {
+                "type": "string",
+                "enum": [
+                  "PREFERRED",
+                  "LEAST_PREFERRED",
+                  "UNSELECTED"
+                ]
+              }
+            },
+            "required": [
+              "direction_id",
+              "realized_return_5d",
+              "parent_sector_return_5d",
+              "realized_scaled_path",
+              "predicted_tilt",
+              "selected_role"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "security_metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "side": {
+                "type": "string",
+                "enum": [
+                  "PREFERRED",
+                  "LEAST_PREFERRED"
+                ]
+              },
+              "direction_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "LONG",
+                  "SHORT",
+                  "AVOID",
+                  "UNSELECTED"
+                ]
+              },
+              "conviction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "net_alpha_5d": {
+                "type": "number"
+              },
+              "realized_scaled_alpha": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "predicted_position": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "side",
+              "direction_id",
+              "ts_code",
+              "action",
+              "conviction",
+              "net_alpha_5d",
+              "realized_scaled_alpha",
+              "predicted_position"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "security_abstention_metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "side": {
+                "type": "string",
+                "enum": [
+                  "PREFERRED",
+                  "LEAST_PREFERRED"
+                ]
+              },
+              "direction_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "security_status": {
+                "type": "string",
+                "enum": [
+                  "PICKS_PRESENT",
+                  "NO_QUALIFIED_SECURITY_EMPTY_SHORTLIST",
+                  "NO_QUALIFIED_SECURITY_NONEMPTY_SHORTLIST"
+                ]
+              },
+              "shortlist_size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "raw_opportunity_utility": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cardinality_adjusted_opportunity_utility": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "abstention_warranted_label": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 0
+                      },
+                      {
+                        "type": "number",
+                        "const": 1
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "abstention_forecast_probability": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "abstention_null_probability": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "abstention_forecast_loss": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "abstention_null_loss": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "missed_opportunity_regret": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "side_security_utility_delta": {
+                "type": "number"
+              },
+              "abstention_base_rate_record_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "abstention_base_rate_record_hash": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "opportunity_search_calibration_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "opportunity_search_calibration_hash": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "side",
+              "direction_id",
+              "security_status",
+              "shortlist_size",
+              "raw_opportunity_utility",
+              "cardinality_adjusted_opportunity_utility",
+              "abstention_warranted_label",
+              "abstention_forecast_probability",
+              "abstention_null_probability",
+              "abstention_forecast_loss",
+              "abstention_null_loss",
+              "missed_opportunity_regret",
+              "side_security_utility_delta",
+              "abstention_base_rate_record_id",
+              "abstention_base_rate_record_hash",
+              "opportunity_search_calibration_id",
+              "opportunity_search_calibration_hash"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "direction_forecast_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "direction_null_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "security_forecast_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "security_null_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "direction_utility_delta": {
+          "type": "number"
+        },
+        "security_utility_delta": {
+          "type": "number"
+        },
+        "abstention_forecast_loss": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_null_loss": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_utility_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_warranted_label": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 0
+                },
+                {
+                  "type": "number",
+                  "const": 1
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_null_probability": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_base_rate_record_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_base_rate_record_hash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_missed_opportunity_regret": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        },
+        "unit_confidence_utility_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_raw_opportunity_utility": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_opportunity_utility": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_opportunity_search_calibration_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "abstention_opportunity_search_calibration_hash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence_calibration_target": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            }
+          ]
+        }
+      },
+      "required": [
+        "output_confidence",
+        "confidence_semantics",
+        "least_preferred_eligibility_status",
+        "direction_metrics",
+        "security_metrics",
+        "security_abstention_metrics",
+        "direction_forecast_loss",
+        "direction_null_loss",
+        "security_forecast_loss",
+        "security_null_loss",
+        "direction_utility_delta",
+        "security_utility_delta",
+        "abstention_forecast_loss",
+        "abstention_null_loss",
+        "abstention_utility_delta",
+        "abstention_warranted_label",
+        "abstention_null_probability",
+        "abstention_base_rate_record_id",
+        "abstention_base_rate_record_hash",
+        "abstention_missed_opportunity_regret",
+        "combined_utility_delta",
+        "unit_confidence_utility_delta",
+        "abstention_raw_opportunity_utility",
+        "abstention_opportunity_utility",
+        "abstention_opportunity_search_calibration_id",
+        "abstention_opportunity_search_calibration_hash",
+        "confidence_calibration_target"
+      ],
+      "additionalProperties": false
+    },
+    "relationship_graph_validation_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "predictive_graph_status": {
+          "type": "string",
+          "enum": [
+            "EDGES_PRESENT",
+            "NO_QUALIFIED_PREDICTIVE_EDGE"
+          ]
+        },
+        "edge_metrics": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "edge_candidate_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "materiality_weight": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "realized_edge_state": {
+                    "type": "string",
+                    "enum": [
+                      "NO_ACTIVATION",
+                      "POSITIVE",
+                      "NEGATIVE",
+                      "MIXED"
+                    ]
+                  },
+                  "matched_non_edge_lift": {
+                    "type": "number"
+                  },
+                  "candidate_counterfactual_best_utility": {
+                    "type": "number"
+                  },
+                  "activation_direction_brier_skill": {
+                    "type": "number"
+                  },
+                  "path_lift_utility_delta": {
+                    "type": "number"
+                  },
+                  "missed_edge_regret": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "edge_utility_delta": {
+                    "type": "number"
+                  },
+                  "submitted": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "submitted_direction": {
+                    "type": "string",
+                    "enum": [
+                      "POSITIVE",
+                      "NEGATIVE",
+                      "MIXED"
+                    ]
+                  },
+                  "submitted_model_confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "edge_candidate_id",
+                  "materiality_weight",
+                  "realized_edge_state",
+                  "matched_non_edge_lift",
+                  "candidate_counterfactual_best_utility",
+                  "activation_direction_brier_skill",
+                  "path_lift_utility_delta",
+                  "missed_edge_regret",
+                  "edge_utility_delta",
+                  "submitted",
+                  "submitted_direction",
+                  "submitted_model_confidence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "edge_candidate_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "materiality_weight": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "realized_edge_state": {
+                    "type": "string",
+                    "enum": [
+                      "NO_ACTIVATION",
+                      "POSITIVE",
+                      "NEGATIVE",
+                      "MIXED"
+                    ]
+                  },
+                  "matched_non_edge_lift": {
+                    "type": "number"
+                  },
+                  "candidate_counterfactual_best_utility": {
+                    "type": "number"
+                  },
+                  "activation_direction_brier_skill": {
+                    "type": "number"
+                  },
+                  "path_lift_utility_delta": {
+                    "type": "number"
+                  },
+                  "missed_edge_regret": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "edge_utility_delta": {
+                    "type": "number"
+                  },
+                  "submitted": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "submitted_direction": {
+                    "type": "null"
+                  },
+                  "submitted_model_confidence": {
+                    "type": "number",
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "edge_candidate_id",
+                  "materiality_weight",
+                  "realized_edge_state",
+                  "matched_non_edge_lift",
+                  "candidate_counterfactual_best_utility",
+                  "activation_direction_brier_skill",
+                  "path_lift_utility_delta",
+                  "missed_edge_regret",
+                  "edge_utility_delta",
+                  "submitted",
+                  "submitted_direction",
+                  "submitted_model_confidence"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "weighted_edge_utility_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graph_abstention_forecast_probability": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graph_abstention_warranted_label": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 0
+                },
+                {
+                  "type": "number",
+                  "const": 1
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graph_abstention_forecast_loss": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graph_abstention_null_loss": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graph_abstention_best_raw_opportunity_utility": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graph_abstention_cardinality_adjusted_utility": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graph_abstention_missed_opportunity_regret": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "predictive_graph_status",
+        "edge_metrics",
+        "weighted_edge_utility_delta",
+        "graph_abstention_forecast_probability",
+        "graph_abstention_warranted_label",
+        "graph_abstention_forecast_loss",
+        "graph_abstention_null_loss",
+        "graph_abstention_best_raw_opportunity_utility",
+        "graph_abstention_cardinality_adjusted_utility",
+        "graph_abstention_missed_opportunity_regret",
+        "combined_utility_delta"
+      ],
+      "additionalProperties": false
+    },
+    "superinvestor_pick_utility_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "selection_disposition": {
+          "type": "string",
+          "enum": [
+            "CANDIDATES",
+            "NO_QUALIFIED_CANDIDATES"
+          ]
+        },
+        "output_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pick_metrics": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "candidate_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "LONG",
+                  "SHORT",
+                  "AVOID",
+                  "UNSELECTED"
+                ]
+              },
+              "conviction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "realized_net_excess_return_21d": {
+                "type": "number"
+              },
+              "realized_scaled_utility": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "downside_path_penalty": {
+                "type": "number",
+                "minimum": 0
+              },
+              "pick_utility_delta": {
+                "type": "number"
+              },
+              "missed_opportunity_utility": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "candidate_ref",
+              "ts_code",
+              "selected",
+              "side",
+              "conviction",
+              "realized_net_excess_return_21d",
+              "realized_scaled_utility",
+              "downside_path_penalty",
+              "pick_utility_delta",
+              "missed_opportunity_utility"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "selected_pick_utility_delta": {
+          "type": "number"
+        },
+        "missed_opportunity_utility": {
+          "type": "number",
+          "minimum": 0
+        },
+        "output_confidence_forecast_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "output_confidence_null_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "selection_disposition",
+        "output_confidence",
+        "pick_metrics",
+        "selected_pick_utility_delta",
+        "missed_opportunity_utility",
+        "output_confidence_forecast_loss",
+        "output_confidence_null_loss",
+        "combined_utility_delta"
+      ],
+      "additionalProperties": false
+    },
+    "cro_risk_control_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "combined_output_utility": {
+          "type": "number"
+        },
+        "combined_null_utility": {
+          "type": "number"
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        },
+        "components": {
+          "type": "array",
+          "items": [
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "PRECISION"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.35
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "RECALL"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.35
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "SPECIFICITY"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.2
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "CALIBRATION"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.1
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "candidate_metrics": {
+          "type": "array",
+          "items": [
+            {
+              "type": "object",
+              "properties": {
+                "candidate_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ts_code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "predicted_action": {
+                  "type": "string",
+                  "enum": [
+                    "VETO",
+                    "CAP_WEIGHT",
+                    "REDUCE_WEIGHT",
+                    "REQUIRE_REVIEW",
+                    "NO_OBJECTION"
+                  ]
+                },
+                "predicted_risk_probability": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "predicted_positive": {
+                  "type": "boolean"
+                },
+                "realized_risk_state": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "const": 1
+                    }
+                  ]
+                },
+                "realized_risk_evidence_ids": {
+                  "type": "array",
+                  "items": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ],
+                  "additionalItems": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "candidate_ref",
+                "ts_code",
+                "predicted_action",
+                "predicted_risk_probability",
+                "predicted_positive",
+                "realized_risk_state",
+                "realized_risk_evidence_ids"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "additionalItems": {
+            "type": "object",
+            "properties": {
+              "candidate_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "predicted_action": {
+                "type": "string",
+                "enum": [
+                  "VETO",
+                  "CAP_WEIGHT",
+                  "REDUCE_WEIGHT",
+                  "REQUIRE_REVIEW",
+                  "NO_OBJECTION"
+                ]
+              },
+              "predicted_risk_probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "predicted_positive": {
+                "type": "boolean"
+              },
+              "realized_risk_state": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "number",
+                    "const": 1
+                  }
+                ]
+              },
+              "realized_risk_evidence_ids": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                ],
+                "additionalItems": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "candidate_ref",
+              "ts_code",
+              "predicted_action",
+              "predicted_risk_probability",
+              "predicted_positive",
+              "realized_risk_state",
+              "realized_risk_evidence_ids"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "true_positive_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "false_positive_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "true_negative_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "false_negative_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "precision": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "recall": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "specificity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "forecast_brier_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "null_brier_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "precision_denominator_zero": {
+          "type": "boolean"
+        },
+        "recall_denominator_zero": {
+          "type": "boolean"
+        },
+        "specificity_denominator_zero": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "combined_output_utility",
+        "combined_null_utility",
+        "combined_utility_delta",
+        "components",
+        "candidate_metrics",
+        "true_positive_count",
+        "false_positive_count",
+        "true_negative_count",
+        "false_negative_count",
+        "precision",
+        "recall",
+        "specificity",
+        "forecast_brier_loss",
+        "null_brier_loss",
+        "precision_denominator_zero",
+        "recall_denominator_zero",
+        "specificity_denominator_zero"
+      ],
+      "additionalProperties": false
+    },
+    "alpha_discovery_incremental_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "combined_output_utility": {
+          "type": "number"
+        },
+        "combined_null_utility": {
+          "type": "number"
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        },
+        "components": {
+          "type": "array",
+          "items": [
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "SELECTED_PICK_UTILITY"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.7
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "INCREMENTAL_OPPORTUNITY_UTILITY"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.3
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "discovery_disposition": {
+          "type": "string",
+          "enum": [
+            "CANDIDATES",
+            "NONE_FOUND"
+          ]
+        },
+        "candidate_metrics": {
+          "type": "array",
+          "items": [
+            {
+              "type": "object",
+              "properties": {
+                "candidate_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ts_code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "selected": {
+                  "type": "boolean"
+                },
+                "submitted_conviction": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "realized_net_excess_return_5d": {
+                  "type": "number"
+                },
+                "realized_scaled_alpha": {
+                  "type": "number",
+                  "minimum": -1,
+                  "maximum": 1
+                },
+                "missed_opportunity_utility": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "candidate_ref",
+                "ts_code",
+                "selected",
+                "submitted_conviction",
+                "realized_net_excess_return_5d",
+                "realized_scaled_alpha",
+                "missed_opportunity_utility"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "additionalItems": {
+            "type": "object",
+            "properties": {
+              "candidate_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "submitted_conviction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "realized_net_excess_return_5d": {
+                "type": "number"
+              },
+              "realized_scaled_alpha": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              },
+              "missed_opportunity_utility": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "candidate_ref",
+              "ts_code",
+              "selected",
+              "submitted_conviction",
+              "realized_net_excess_return_5d",
+              "realized_scaled_alpha",
+              "missed_opportunity_utility"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "selected_pick_utility_delta": {
+          "type": "number"
+        },
+        "incremental_candidate_utility_delta": {
+          "type": "number"
+        },
+        "output_confidence_forecast_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "output_confidence_null_loss": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "combined_output_utility",
+        "combined_null_utility",
+        "combined_utility_delta",
+        "components",
+        "discovery_disposition",
+        "candidate_metrics",
+        "selected_pick_utility_delta",
+        "incremental_candidate_utility_delta",
+        "output_confidence_forecast_loss",
+        "output_confidence_null_loss"
+      ],
+      "additionalProperties": false
+    },
+    "execution_feasibility_cost_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "combined_output_utility": {
+          "type": "number"
+        },
+        "combined_null_utility": {
+          "type": "number"
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        },
+        "components": {
+          "type": "array",
+          "items": [
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "COST_ERROR"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.4
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "FEASIBILITY"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.3
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "TARGET_DELTA"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.2
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "POLICY_COMPLIANCE"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.1
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "execution_mode": {
+          "type": "string",
+          "enum": [
+            "PAPER",
+            "REAL"
+          ]
+        },
+        "order_metrics": {
+          "type": "array",
+          "items": [
+            {
+              "type": "object",
+              "properties": {
+                "order_intent_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ts_code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_delta_weight": {
+                  "type": "number"
+                },
+                "predicted_feasibility": {
+                  "type": "string",
+                  "enum": [
+                    "FEASIBLE",
+                    "PARTIAL",
+                    "BLOCKED"
+                  ]
+                },
+                "predicted_feasibility_confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "realized_feasibility": {
+                  "type": "string",
+                  "enum": [
+                    "FEASIBLE",
+                    "PARTIAL",
+                    "BLOCKED"
+                  ]
+                },
+                "predicted_cost_bps": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "realized_cost_bps": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "pit_cost_scale_bps": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "normalized_absolute_cost_error": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "realized_delta_weight": {
+                  "type": "number"
+                },
+                "target_delta_attainment": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "realized_policy_compliance": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "const": 1
+                    }
+                  ]
+                },
+                "outcome_evidence_ids": {
+                  "type": "array",
+                  "items": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ],
+                  "additionalItems": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "order_intent_ref",
+                "ts_code",
+                "requested_delta_weight",
+                "predicted_feasibility",
+                "predicted_feasibility_confidence",
+                "realized_feasibility",
+                "predicted_cost_bps",
+                "realized_cost_bps",
+                "pit_cost_scale_bps",
+                "normalized_absolute_cost_error",
+                "realized_delta_weight",
+                "target_delta_attainment",
+                "realized_policy_compliance",
+                "outcome_evidence_ids"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "additionalItems": {
+            "type": "object",
+            "properties": {
+              "order_intent_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "requested_delta_weight": {
+                "type": "number"
+              },
+              "predicted_feasibility": {
+                "type": "string",
+                "enum": [
+                  "FEASIBLE",
+                  "PARTIAL",
+                  "BLOCKED"
+                ]
+              },
+              "predicted_feasibility_confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "realized_feasibility": {
+                "type": "string",
+                "enum": [
+                  "FEASIBLE",
+                  "PARTIAL",
+                  "BLOCKED"
+                ]
+              },
+              "predicted_cost_bps": {
+                "type": "number",
+                "minimum": 0
+              },
+              "realized_cost_bps": {
+                "type": "number",
+                "minimum": 0
+              },
+              "pit_cost_scale_bps": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "normalized_absolute_cost_error": {
+                "type": "number",
+                "minimum": 0
+              },
+              "realized_delta_weight": {
+                "type": "number"
+              },
+              "target_delta_attainment": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "realized_policy_compliance": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "number",
+                    "const": 1
+                  }
+                ]
+              },
+              "outcome_evidence_ids": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                ],
+                "additionalItems": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "order_intent_ref",
+              "ts_code",
+              "requested_delta_weight",
+              "predicted_feasibility",
+              "predicted_feasibility_confidence",
+              "realized_feasibility",
+              "predicted_cost_bps",
+              "realized_cost_bps",
+              "pit_cost_scale_bps",
+              "normalized_absolute_cost_error",
+              "realized_delta_weight",
+              "target_delta_attainment",
+              "realized_policy_compliance",
+              "outcome_evidence_ids"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "mean_normalized_cost_error": {
+          "type": "number",
+          "minimum": 0
+        },
+        "feasibility_classification_utility_delta": {
+          "type": "number"
+        },
+        "target_delta_utility_delta": {
+          "type": "number"
+        },
+        "policy_compliance_utility_delta": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "combined_output_utility",
+        "combined_null_utility",
+        "combined_utility_delta",
+        "components",
+        "execution_mode",
+        "order_metrics",
+        "mean_normalized_cost_error",
+        "feasibility_classification_utility_delta",
+        "target_delta_utility_delta",
+        "policy_compliance_utility_delta"
+      ],
+      "additionalProperties": false
+    },
+    "cio_portfolio_utility_metrics_v2": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "combined_output_utility": {
+          "type": "number"
+        },
+        "combined_null_utility": {
+          "type": "number"
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        },
+        "components": {
+          "type": "array",
+          "items": [
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "RELATIVE_RETURN"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.5
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "DRAWDOWN"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.25
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "TURNOVER_COST"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.15
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "component_id": {
+                  "type": "string",
+                  "const": "CONSTRAINT_COMPLIANCE"
+                },
+                "component_weight": {
+                  "type": "number",
+                  "const": 0.1
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "RATIO",
+                    "PROBABILITY_LOSS",
+                    "BASIS_POINTS",
+                    "PORTFOLIO_WEIGHT",
+                    "RETURN"
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "HIGHER_IS_BETTER",
+                    "LOWER_IS_BETTER"
+                  ]
+                },
+                "unclipped_output_value": {
+                  "type": "number"
+                },
+                "unclipped_null_value": {
+                  "type": "number"
+                },
+                "scale": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "output_utility": {
+                  "type": "number"
+                },
+                "null_utility": {
+                  "type": "number"
+                },
+                "utility_delta": {
+                  "type": "number"
+                },
+                "denominator_zero_rule_id": {
+                  "type": "string",
+                  "enum": [
+                    "NOT_APPLICABLE",
+                    "ZERO_UTILITY_IF_NO_PREDICTED_POSITIVE",
+                    "ZERO_UTILITY_IF_NO_ACTUAL_POSITIVE",
+                    "ONE_IF_NO_ACTUAL_NEGATIVE",
+                    "EXOGENOUS_EXCLUSION_IF_EMPTY_OBJECT_SET"
+                  ]
+                }
+              },
+              "required": [
+                "component_id",
+                "component_weight",
+                "unit",
+                "direction",
+                "unclipped_output_value",
+                "unclipped_null_value",
+                "scale",
+                "output_utility",
+                "null_utility",
+                "utility_delta",
+                "denominator_zero_rule_id"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "decision_disposition": {
+          "type": "string",
+          "enum": [
+            "TARGET_PORTFOLIO",
+            "HOLD_CURRENT",
+            "ALL_CASH"
+          ]
+        },
+        "portfolio_metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pre_cio_weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "target_weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "realized_weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "realized_net_return_5d": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "ts_code",
+              "pre_cio_weight",
+              "target_weight",
+              "realized_weight",
+              "realized_net_return_5d"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "pre_cio_cash_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "target_cash_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "realized_cash_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "output_net_return_5d": {
+          "type": "number"
+        },
+        "null_net_return_5d": {
+          "type": "number"
+        },
+        "output_max_drawdown_5d": {
+          "type": "number",
+          "maximum": 0
+        },
+        "null_max_drawdown_5d": {
+          "type": "number",
+          "maximum": 0
+        },
+        "output_turnover_cost": {
+          "type": "number",
+          "minimum": 0
+        },
+        "null_turnover_cost": {
+          "type": "number",
+          "minimum": 0
+        },
+        "realized_constraint_compliance": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            }
+          ]
+        }
+      },
+      "required": [
+        "combined_output_utility",
+        "combined_null_utility",
+        "combined_utility_delta",
+        "components",
+        "decision_disposition",
+        "portfolio_metrics",
+        "pre_cio_cash_weight",
+        "target_cash_weight",
+        "realized_cash_weight",
+        "output_net_return_5d",
+        "null_net_return_5d",
+        "output_max_drawdown_5d",
+        "null_max_drawdown_5d",
+        "output_turnover_cost",
+        "null_turnover_cost",
+        "realized_constraint_compliance"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "contracts": [
+    {
+      "agent_id": "ackman",
+      "layer": "SUPERINVESTOR",
+      "evaluation_object": "AcceptedSuperinvestorSelection",
+      "evaluation_object_type": "SUPERINVESTOR_PICKS",
+      "evaluation_object_schema_version": "accepted_superinvestor_selection_v2",
+      "accepted_output_kind": "SUPERINVESTOR_SELECTION",
+      "primary_label_id": "ackman_pick_utility_21d",
+      "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_21",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 21,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 21
+      },
+      "rank_scope": "superinvestor_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "SUPERINVESTOR",
+      "outcome_contract_version": "superinvestor_selection_outcome_v2",
+      "scoring_contract_version": "score_ackman_pick_utility_v2",
+      "sample_schedule_contract_version": "superinvestor_fixed_non_overlapping_21d_v2",
+      "rank_scope_contract_version": "superinvestor_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "ackman_frozen_layer2_candidate_set_v2",
+      "normalization_contract_version": "superinvestor_pick_utility_normalization_v2",
+      "required_source_ids": [
+        "accepted_sector_layer_snapshot_v2",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "agriculture",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "agriculture_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_agriculture_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "agriculture_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "alpha_discovery",
+      "layer": "DECISION",
+      "evaluation_object": "AcceptedAlphaDiscovery",
+      "evaluation_object_type": "ALPHA_FROZEN_NOVEL_PICKS",
+      "evaluation_object_schema_version": "accepted_alpha_discovery_v2",
+      "accepted_output_kind": "ALPHA_DISCOVERY",
+      "primary_label_id": "alpha_discovery_incremental_alpha_5d",
+      "metric_schema_id": "alpha_discovery_incremental_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "decision_alpha",
+      "darwin_application_mode": "EVOLUTION_ONLY",
+      "metric_family": "ALPHA",
+      "outcome_contract_version": "alpha_discovery_outcome_v2",
+      "scoring_contract_version": "score_alpha_discovery_v2",
+      "sample_schedule_contract_version": "decision_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "self_decision_alpha_v2",
+      "opportunity_set_contract_version": "alpha_novel_candidate_opportunity_set_v2",
+      "normalization_contract_version": "alpha_incremental_utility_normalization_v2",
+      "required_source_ids": [
+        "frozen_layer3_novel_candidate_set_v2",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "autonomous_execution",
+      "layer": "DECISION",
+      "evaluation_object": "AcceptedExecutionFeasibility",
+      "evaluation_object_type": "EXECUTION_FROZEN_ORDER_INTENT",
+      "evaluation_object_schema_version": "accepted_execution_assessment_v2",
+      "accepted_output_kind": "EXECUTION_ASSESSMENT",
+      "primary_label_id": "execution_feasibility_cost_t1",
+      "metric_schema_id": "execution_feasibility_cost_metrics_v2",
+      "maturity_horizon": "T1_CLOSE",
+      "maturity": {
+        "entry_semantics": "NEXT_SESSION_EXECUTION",
+        "horizon_trading_days": 1,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 1
+      },
+      "rank_scope": "decision_execution",
+      "darwin_application_mode": "EVOLUTION_ONLY",
+      "metric_family": "EXECUTION",
+      "outcome_contract_version": "execution_outcome_v2",
+      "scoring_contract_version": "score_execution_feasibility_cost_v2",
+      "sample_schedule_contract_version": "decision_t1_execution_opportunity_v2",
+      "rank_scope_contract_version": "self_decision_execution_v2",
+      "opportunity_set_contract_version": "execution_frozen_order_intent_opportunity_set_v2",
+      "normalization_contract_version": "execution_cost_feasibility_normalization_v2",
+      "required_source_ids": [
+        "cio_approved_order_intent_set_v2",
+        "next_session_execution_outcome_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "biotech",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "biotech_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_biotech_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "biotech_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "burry",
+      "layer": "SUPERINVESTOR",
+      "evaluation_object": "AcceptedSuperinvestorSelection",
+      "evaluation_object_type": "SUPERINVESTOR_PICKS",
+      "evaluation_object_schema_version": "accepted_superinvestor_selection_v2",
+      "accepted_output_kind": "SUPERINVESTOR_SELECTION",
+      "primary_label_id": "burry_pick_utility_21d",
+      "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_21",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 21,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 21
+      },
+      "rank_scope": "superinvestor_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "SUPERINVESTOR",
+      "outcome_contract_version": "superinvestor_selection_outcome_v2",
+      "scoring_contract_version": "score_burry_pick_utility_v2",
+      "sample_schedule_contract_version": "superinvestor_fixed_non_overlapping_21d_v2",
+      "rank_scope_contract_version": "superinvestor_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "burry_frozen_layer2_candidate_set_v2",
+      "normalization_contract_version": "superinvestor_pick_utility_normalization_v2",
+      "required_source_ids": [
+        "accepted_sector_layer_snapshot_v2",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "central_bank",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "pboc_rate_liquidity_a_share_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "EVENT_TRIGGERED",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "event_registry_version": "central_bank_verified_event_registry_v2",
+        "event_priority_version": "central_bank_event_priority_v2"
+      },
+      "rank_scope": "macro_central_bank",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_pboc_rate_liquidity_a_share_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_central_bank_v2",
+      "opportunity_set_contract_version": "central_bank_macro_opportunity_set_v2",
+      "normalization_contract_version": "pboc_rate_liquidity_a_share_path_5d_normalization_v1",
+      "required_source_ids": [
+        "pboc_verified_policy_liquidity_event_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": {
+        "component_weight_contract_version": "macro_component_weights_v2",
+        "components": {
+          "pboc_policy_bias": 0.25,
+          "liquidity_money_market": 0.25,
+          "china_curve": 0.25,
+          "credit_conditions": 0.25
+        },
+        "calibration_contract": {
+          "calibration_contract_version": "macro_component_calibration_v1",
+          "calibration_solver_version": "bounded_grid_001_half_up_v1",
+          "reference_cohort_id": "cohort_default",
+          "reference_language": "zh",
+          "maximum_lookback_trading_days": 1260,
+          "semiannual_slot_months": [
+            6,
+            12
+          ],
+          "regularization_lambda": 1,
+          "component_weight_lower_bound": 0.15,
+          "component_weight_upper_bound": 0.35,
+          "maximum_component_delta": 0.05,
+          "solver_grid_step": 0.01,
+          "minimum_fit_samples": 60,
+          "minimum_production_samples": 100,
+          "minimum_rolling_folds": 5,
+          "minimum_validation_samples_per_fold": 12,
+          "purge_trading_days": 5,
+          "embargo_trading_days": 5,
+          "minimum_shadow_samples": 20,
+          "maximum_runs_per_half_year": 1,
+          "minimum_oos_mse_improvement_ratio": 0.05,
+          "maximum_regime_mse_degradation_ratio": 0.05,
+          "minimum_regime_validation_samples": 20,
+          "minimum_fold_adjustment_agreement_ratio": 0.75,
+          "maximum_bound_hit_fold_ratio": 0.5,
+          "minimum_diagnostic_paired_samples": 60,
+          "maximum_diagnostic_mse_degradation_ratio": 0.05
+        }
+      },
+      "track_contract_dimensions": {
+        "component_weight_contract": "REQUIRED",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "china",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "china_macro_transmission_a_share_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "EVENT_TRIGGERED",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "event_registry_version": "china_verified_event_registry_v2",
+        "event_priority_version": "china_event_priority_v2"
+      },
+      "rank_scope": "macro_china",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_china_macro_transmission_a_share_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_china_v2",
+      "opportunity_set_contract_version": "china_macro_opportunity_set_v2",
+      "normalization_contract_version": "china_macro_transmission_a_share_path_5d_normalization_v1",
+      "required_source_ids": [
+        "china_verified_macro_release_event_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": {
+        "component_weight_contract_version": "macro_component_weights_v2",
+        "components": {
+          "growth_production": 0.2,
+          "prices": 0.2,
+          "credit": 0.2,
+          "external_demand_trade": 0.2,
+          "fiscal": 0.2
+        },
+        "calibration_contract": {
+          "calibration_contract_version": "macro_component_calibration_v1",
+          "calibration_solver_version": "bounded_grid_001_half_up_v1",
+          "reference_cohort_id": "cohort_default",
+          "reference_language": "zh",
+          "maximum_lookback_trading_days": 1260,
+          "semiannual_slot_months": [
+            6,
+            12
+          ],
+          "regularization_lambda": 1,
+          "component_weight_lower_bound": 0.15,
+          "component_weight_upper_bound": 0.35,
+          "maximum_component_delta": 0.05,
+          "solver_grid_step": 0.01,
+          "minimum_fit_samples": 60,
+          "minimum_production_samples": 100,
+          "minimum_rolling_folds": 5,
+          "minimum_validation_samples_per_fold": 12,
+          "purge_trading_days": 5,
+          "embargo_trading_days": 5,
+          "minimum_shadow_samples": 20,
+          "maximum_runs_per_half_year": 1,
+          "minimum_oos_mse_improvement_ratio": 0.05,
+          "maximum_regime_mse_degradation_ratio": 0.05,
+          "minimum_regime_validation_samples": 20,
+          "minimum_fold_adjustment_agreement_ratio": 0.75,
+          "maximum_bound_hit_fold_ratio": 0.5,
+          "minimum_diagnostic_paired_samples": 60,
+          "maximum_diagnostic_mse_degradation_ratio": 0.05
+        }
+      },
+      "track_contract_dimensions": {
+        "component_weight_contract": "REQUIRED",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "cio",
+      "layer": "DECISION",
+      "evaluation_object": "AcceptedCioFinal",
+      "evaluation_object_type": "CIO_FROZEN_FINAL_PORTFOLIO",
+      "evaluation_object_schema_version": "accepted_cio_final_v2",
+      "accepted_output_kind": "CIO_FINAL",
+      "primary_label_id": "cio_portfolio_utility_5d",
+      "metric_schema_id": "cio_portfolio_utility_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "decision_cio",
+      "darwin_application_mode": "EVOLUTION_ONLY",
+      "metric_family": "CIO",
+      "outcome_contract_version": "cio_final_outcome_v2",
+      "scoring_contract_version": "score_cio_portfolio_utility_v2",
+      "sample_schedule_contract_version": "decision_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "self_decision_cio_v2",
+      "opportunity_set_contract_version": "cio_pre_cio_portfolio_opportunity_set_v2",
+      "normalization_contract_version": "cio_portfolio_utility_normalization_v2",
+      "required_source_ids": [
+        "pre_cio_portfolio_and_constraints_v2",
+        "realized_portfolio_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "commodities",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "commodity_a_share_transmission_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "macro_commodities",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_commodity_a_share_transmission_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_commodities_v2",
+      "opportunity_set_contract_version": "commodities_macro_opportunity_set_v2",
+      "normalization_contract_version": "commodity_a_share_transmission_path_5d_normalization_v1",
+      "required_source_ids": [
+        "commodity_market_transmission_path_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": {
+        "component_weight_contract_version": "macro_component_weights_v2",
+        "components": {
+          "energy": 0.25,
+          "industrial_metals": 0.25,
+          "gold": 0.25,
+          "agriculture_food": 0.25
+        },
+        "calibration_contract": {
+          "calibration_contract_version": "macro_component_calibration_v1",
+          "calibration_solver_version": "bounded_grid_001_half_up_v1",
+          "reference_cohort_id": "cohort_default",
+          "reference_language": "zh",
+          "maximum_lookback_trading_days": 1260,
+          "semiannual_slot_months": [
+            6,
+            12
+          ],
+          "regularization_lambda": 1,
+          "component_weight_lower_bound": 0.15,
+          "component_weight_upper_bound": 0.35,
+          "maximum_component_delta": 0.05,
+          "solver_grid_step": 0.01,
+          "minimum_fit_samples": 60,
+          "minimum_production_samples": 100,
+          "minimum_rolling_folds": 5,
+          "minimum_validation_samples_per_fold": 12,
+          "purge_trading_days": 5,
+          "embargo_trading_days": 5,
+          "minimum_shadow_samples": 20,
+          "maximum_runs_per_half_year": 1,
+          "minimum_oos_mse_improvement_ratio": 0.05,
+          "maximum_regime_mse_degradation_ratio": 0.05,
+          "minimum_regime_validation_samples": 20,
+          "minimum_fold_adjustment_agreement_ratio": 0.75,
+          "maximum_bound_hit_fold_ratio": 0.5,
+          "minimum_diagnostic_paired_samples": 60,
+          "maximum_diagnostic_mse_degradation_ratio": 0.05
+        }
+      },
+      "track_contract_dimensions": {
+        "component_weight_contract": "REQUIRED",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "consumer",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "consumer_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_consumer_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "consumer_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "cro",
+      "layer": "DECISION",
+      "evaluation_object": "AcceptedCroRiskActions",
+      "evaluation_object_type": "CRO_FROZEN_RISK_ACTIONS",
+      "evaluation_object_schema_version": "accepted_cro_risk_review_v2",
+      "accepted_output_kind": "CRO_RISK_REVIEW",
+      "primary_label_id": "cro_risk_control_calibration_5d",
+      "metric_schema_id": "cro_risk_control_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "decision_cro",
+      "darwin_application_mode": "EVOLUTION_ONLY",
+      "metric_family": "CRO",
+      "outcome_contract_version": "cro_outcome_v2",
+      "scoring_contract_version": "score_cro_risk_control_v2",
+      "sample_schedule_contract_version": "decision_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "self_decision_cro_v2",
+      "opportunity_set_contract_version": "cro_pre_cro_candidate_opportunity_set_v2",
+      "normalization_contract_version": "cro_risk_control_normalization_v2",
+      "required_source_ids": [
+        "pre_cro_candidate_set_v2",
+        "realized_risk_state_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "druckenmiller",
+      "layer": "SUPERINVESTOR",
+      "evaluation_object": "AcceptedSuperinvestorSelection",
+      "evaluation_object_type": "SUPERINVESTOR_PICKS",
+      "evaluation_object_schema_version": "accepted_superinvestor_selection_v2",
+      "accepted_output_kind": "SUPERINVESTOR_SELECTION",
+      "primary_label_id": "druckenmiller_pick_utility_21d",
+      "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_21",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 21,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 21
+      },
+      "rank_scope": "superinvestor_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "SUPERINVESTOR",
+      "outcome_contract_version": "superinvestor_selection_outcome_v2",
+      "scoring_contract_version": "score_druckenmiller_pick_utility_v2",
+      "sample_schedule_contract_version": "superinvestor_fixed_non_overlapping_21d_v2",
+      "rank_scope_contract_version": "superinvestor_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "druckenmiller_frozen_layer2_candidate_set_v2",
+      "normalization_contract_version": "superinvestor_pick_utility_normalization_v2",
+      "required_source_ids": [
+        "accepted_sector_layer_snapshot_v2",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "energy",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "energy_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_energy_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "energy_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "eu_economy",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "eu_economic_cycle_a_share_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "EVENT_TRIGGERED",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "event_registry_version": "eu_economy_verified_event_registry_v2",
+        "event_priority_version": "eu_economy_event_priority_v2"
+      },
+      "rank_scope": "macro_eu_economy",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_eu_economic_cycle_a_share_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_eu_economy_v2",
+      "opportunity_set_contract_version": "eu_economy_macro_opportunity_set_v2",
+      "normalization_contract_version": "eu_economic_cycle_a_share_path_5d_normalization_v1",
+      "required_source_ids": [
+        "eu27_verified_macro_release_event_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": {
+        "component_weight_contract_version": "macro_component_weights_v2",
+        "components": {
+          "growth_production": 0.25,
+          "prices": 0.25,
+          "employment": 0.25,
+          "demand_trade": 0.25
+        },
+        "calibration_contract": {
+          "calibration_contract_version": "macro_component_calibration_v1",
+          "calibration_solver_version": "bounded_grid_001_half_up_v1",
+          "reference_cohort_id": "cohort_default",
+          "reference_language": "zh",
+          "maximum_lookback_trading_days": 1260,
+          "semiannual_slot_months": [
+            6,
+            12
+          ],
+          "regularization_lambda": 1,
+          "component_weight_lower_bound": 0.15,
+          "component_weight_upper_bound": 0.35,
+          "maximum_component_delta": 0.05,
+          "solver_grid_step": 0.01,
+          "minimum_fit_samples": 60,
+          "minimum_production_samples": 100,
+          "minimum_rolling_folds": 5,
+          "minimum_validation_samples_per_fold": 12,
+          "purge_trading_days": 5,
+          "embargo_trading_days": 5,
+          "minimum_shadow_samples": 20,
+          "maximum_runs_per_half_year": 1,
+          "minimum_oos_mse_improvement_ratio": 0.05,
+          "maximum_regime_mse_degradation_ratio": 0.05,
+          "minimum_regime_validation_samples": 20,
+          "minimum_fold_adjustment_agreement_ratio": 0.75,
+          "maximum_bound_hit_fold_ratio": 0.5,
+          "minimum_diagnostic_paired_samples": 60,
+          "maximum_diagnostic_mse_degradation_ratio": 0.05
+        }
+      },
+      "track_contract_dimensions": {
+        "component_weight_contract": "REQUIRED",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "euro_area_financial_conditions",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "euro_area_financial_conditions_a_share_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "macro_euro_area_financial_conditions",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_euro_area_financial_conditions_a_share_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_euro_area_financial_conditions_v2",
+      "opportunity_set_contract_version": "euro_area_financial_conditions_macro_opportunity_set_v2",
+      "normalization_contract_version": "euro_area_financial_conditions_a_share_path_5d_normalization_v1",
+      "required_source_ids": [
+        "euro_area_financial_conditions_path_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": {
+        "component_weight_contract_version": "macro_component_weights_v2",
+        "components": {
+          "ecb_liquidity": 0.25,
+          "euro_area_curve": 0.25,
+          "bank_credit": 0.25,
+          "eur_financial_stress": 0.25
+        },
+        "calibration_contract": {
+          "calibration_contract_version": "macro_component_calibration_v1",
+          "calibration_solver_version": "bounded_grid_001_half_up_v1",
+          "reference_cohort_id": "cohort_default",
+          "reference_language": "zh",
+          "maximum_lookback_trading_days": 1260,
+          "semiannual_slot_months": [
+            6,
+            12
+          ],
+          "regularization_lambda": 1,
+          "component_weight_lower_bound": 0.15,
+          "component_weight_upper_bound": 0.35,
+          "maximum_component_delta": 0.05,
+          "solver_grid_step": 0.01,
+          "minimum_fit_samples": 60,
+          "minimum_production_samples": 100,
+          "minimum_rolling_folds": 5,
+          "minimum_validation_samples_per_fold": 12,
+          "purge_trading_days": 5,
+          "embargo_trading_days": 5,
+          "minimum_shadow_samples": 20,
+          "maximum_runs_per_half_year": 1,
+          "minimum_oos_mse_improvement_ratio": 0.05,
+          "maximum_regime_mse_degradation_ratio": 0.05,
+          "minimum_regime_validation_samples": 20,
+          "minimum_fold_adjustment_agreement_ratio": 0.75,
+          "maximum_bound_hit_fold_ratio": 0.5,
+          "minimum_diagnostic_paired_samples": 60,
+          "maximum_diagnostic_mse_degradation_ratio": 0.05
+        }
+      },
+      "track_contract_dimensions": {
+        "component_weight_contract": "REQUIRED",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "financials",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "financials_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_financials_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "financials_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "geopolitical",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "geopolitical_transmission_a_share_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "EVENT_TRIGGERED",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "event_registry_version": "geopolitical_verified_event_registry_v2",
+        "event_priority_version": "geopolitical_event_priority_v2"
+      },
+      "rank_scope": "macro_geopolitical",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_geopolitical_transmission_a_share_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_geopolitical_v2",
+      "opportunity_set_contract_version": "geopolitical_macro_opportunity_set_v2",
+      "normalization_contract_version": "geopolitical_transmission_a_share_path_5d_normalization_v1",
+      "required_source_ids": [
+        "verified_geopolitical_event_lifecycle_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "industrials",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "industrials_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_industrials_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "industrials_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "institutional_flow",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "institutional_flow_followthrough_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "macro_institutional_flow",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_institutional_flow_followthrough_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_institutional_flow_v2",
+      "opportunity_set_contract_version": "institutional_flow_macro_opportunity_set_v2",
+      "normalization_contract_version": "institutional_flow_followthrough_5d_normalization_v1",
+      "required_source_ids": [
+        "institutional_flow_followthrough_path_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "market_breadth",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "market_breadth_confirmation_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "macro_market_breadth",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_market_breadth_confirmation_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_market_breadth_v2",
+      "opportunity_set_contract_version": "market_breadth_macro_opportunity_set_v2",
+      "normalization_contract_version": "market_breadth_confirmation_5d_normalization_v1",
+      "required_source_ids": [
+        "market_breadth_composite_path_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "munger",
+      "layer": "SUPERINVESTOR",
+      "evaluation_object": "AcceptedSuperinvestorSelection",
+      "evaluation_object_type": "SUPERINVESTOR_PICKS",
+      "evaluation_object_schema_version": "accepted_superinvestor_selection_v2",
+      "accepted_output_kind": "SUPERINVESTOR_SELECTION",
+      "primary_label_id": "munger_pick_utility_21d",
+      "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_21",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 21,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 21
+      },
+      "rank_scope": "superinvestor_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "SUPERINVESTOR",
+      "outcome_contract_version": "superinvestor_selection_outcome_v2",
+      "scoring_contract_version": "score_munger_pick_utility_v2",
+      "sample_schedule_contract_version": "superinvestor_fixed_non_overlapping_21d_v2",
+      "rank_scope_contract_version": "superinvestor_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "munger_frozen_layer2_candidate_set_v2",
+      "normalization_contract_version": "superinvestor_pick_utility_normalization_v2",
+      "required_source_ids": [
+        "accepted_sector_layer_snapshot_v2",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "real_estate_construction",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "real_estate_construction_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_real_estate_construction_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "real_estate_construction_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "relationship_mapper",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedRelationshipGraph",
+      "evaluation_object_type": "RELATIONSHIP_EDGES",
+      "evaluation_object_schema_version": "accepted_relationship_graph_v2",
+      "accepted_output_kind": "RELATIONSHIP_GRAPH",
+      "primary_label_id": "relationship_graph_validation_20d",
+      "metric_schema_id": "relationship_graph_validation_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_20",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 20,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 20
+      },
+      "rank_scope": "sector_relationship",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "RELATIONSHIP",
+      "outcome_contract_version": "relationship_graph_outcome_v2",
+      "scoring_contract_version": "score_relationship_graph_validation_v2",
+      "sample_schedule_contract_version": "relationship_fixed_non_overlapping_20d_v2",
+      "rank_scope_contract_version": "self_sector_relationship_v2",
+      "opportunity_set_contract_version": "relationship_edge_candidate_opportunity_set_v2",
+      "normalization_contract_version": "relationship_edge_validation_normalization_v2",
+      "required_source_ids": [
+        "relationship_graph_candidate_snapshot_v2",
+        "relationship_edge_realized_path_v2",
+        "relationship_matched_non_edge_sample_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "semiconductor",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "semiconductor_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_semiconductor_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "semiconductor_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "technology",
+      "layer": "SECTOR",
+      "evaluation_object": "AcceptedSectorSelection",
+      "evaluation_object_type": "SECTOR_TILT_PICKS",
+      "evaluation_object_schema_version": "accepted_sector_selection_v3",
+      "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
+      "primary_label_id": "technology_direction_pick_alpha_5d",
+      "metric_schema_id": "standard_sector_direction_pick_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "sector_selection",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "STANDARD_SECTOR",
+      "outcome_contract_version": "sector_direction_pick_outcome_v2",
+      "scoring_contract_version": "score_technology_direction_pick_v2",
+      "sample_schedule_contract_version": "sector_fixed_non_overlapping_5d_v2",
+      "rank_scope_contract_version": "sector_selection_peer_scope_v2",
+      "opportunity_set_contract_version": "technology_sector_opportunity_set_v2",
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v2",
+      "required_source_ids": [
+        "sector_universe_manifest_v1",
+        "sector_pit_direction_constituent_snapshot_v3",
+        "cn_a_share_security_outcome_path_v2"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": null,
+      "track_contract_dimensions": {
+        "component_weight_contract": "NULL",
+        "reliability_adapter_contract": "REQUIRED",
+        "confidence_semantics_contract": "REQUIRED"
+      }
+    },
+    {
+      "agent_id": "us_economy",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "us_economic_cycle_a_share_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "EVENT_TRIGGERED",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "event_registry_version": "us_economy_verified_event_registry_v2",
+        "event_priority_version": "us_economy_event_priority_v2"
+      },
+      "rank_scope": "macro_us_economy",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_us_economic_cycle_a_share_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_us_economy_v2",
+      "opportunity_set_contract_version": "us_economy_macro_opportunity_set_v2",
+      "normalization_contract_version": "us_economic_cycle_a_share_path_5d_normalization_v1",
+      "required_source_ids": [
+        "us_verified_macro_release_event_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": {
+        "component_weight_contract_version": "macro_component_weights_v2",
+        "components": {
+          "growth_production": 0.25,
+          "prices": 0.25,
+          "employment": 0.25,
+          "demand_trade": 0.25
+        },
+        "calibration_contract": {
+          "calibration_contract_version": "macro_component_calibration_v1",
+          "calibration_solver_version": "bounded_grid_001_half_up_v1",
+          "reference_cohort_id": "cohort_default",
+          "reference_language": "zh",
+          "maximum_lookback_trading_days": 1260,
+          "semiannual_slot_months": [
+            6,
+            12
+          ],
+          "regularization_lambda": 1,
+          "component_weight_lower_bound": 0.15,
+          "component_weight_upper_bound": 0.35,
+          "maximum_component_delta": 0.05,
+          "solver_grid_step": 0.01,
+          "minimum_fit_samples": 60,
+          "minimum_production_samples": 100,
+          "minimum_rolling_folds": 5,
+          "minimum_validation_samples_per_fold": 12,
+          "purge_trading_days": 5,
+          "embargo_trading_days": 5,
+          "minimum_shadow_samples": 20,
+          "maximum_runs_per_half_year": 1,
+          "minimum_oos_mse_improvement_ratio": 0.05,
+          "maximum_regime_mse_degradation_ratio": 0.05,
+          "minimum_regime_validation_samples": 20,
+          "minimum_fold_adjustment_agreement_ratio": 0.75,
+          "maximum_bound_hit_fold_ratio": 0.5,
+          "minimum_diagnostic_paired_samples": 60,
+          "maximum_diagnostic_mse_degradation_ratio": 0.05
+        }
+      },
+      "track_contract_dimensions": {
+        "component_weight_contract": "REQUIRED",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    },
+    {
+      "agent_id": "us_financial_conditions",
+      "layer": "MACRO",
+      "evaluation_object": "AcceptedMacroTransmission",
+      "evaluation_object_type": "MACRO_TRANSMISSION",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "accepted_output_kind": "MACRO_TRANSMISSION",
+      "primary_label_id": "us_financial_conditions_a_share_path_5d",
+      "metric_schema_id": "macro_transmission_metrics_v2",
+      "maturity_horizon": "TRADING_DAYS_5",
+      "maturity": {
+        "entry_semantics": "T_PLUS_1_OPEN",
+        "horizon_trading_days": 5,
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
+      },
+      "sample_schedule": {
+        "kind": "FIXED_NON_OVERLAP",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "epoch": "2010-01-04",
+        "step_trading_days": 5
+      },
+      "rank_scope": "macro_us_financial_conditions",
+      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
+      "metric_family": "MACRO_TRANSMISSION",
+      "outcome_contract_version": "macro_transmission_outcome_v2",
+      "scoring_contract_version": "score_us_financial_conditions_a_share_path_5d_v1",
+      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
+      "rank_scope_contract_version": "self_macro_us_financial_conditions_v2",
+      "opportunity_set_contract_version": "us_financial_conditions_macro_opportunity_set_v2",
+      "normalization_contract_version": "us_financial_conditions_a_share_path_5d_normalization_v1",
+      "required_source_ids": [
+        "us_financial_conditions_path_v2",
+        "cn_a_share_t_plus_1_total_return_path_v1",
+        "cn_a_share_pit_volatility_scale_v1"
+      ],
+      "fallback_allowed": false,
+      "label_owner": "DETERMINISTIC_RUNTIME",
+      "component_composition_contract": {
+        "component_weight_contract_version": "macro_component_weights_v2",
+        "components": {
+          "fed_liquidity": 0.25,
+          "us_curve": 0.25,
+          "credit_financial_stress": 0.25,
+          "usd_rmb": 0.25
+        },
+        "calibration_contract": {
+          "calibration_contract_version": "macro_component_calibration_v1",
+          "calibration_solver_version": "bounded_grid_001_half_up_v1",
+          "reference_cohort_id": "cohort_default",
+          "reference_language": "zh",
+          "maximum_lookback_trading_days": 1260,
+          "semiannual_slot_months": [
+            6,
+            12
+          ],
+          "regularization_lambda": 1,
+          "component_weight_lower_bound": 0.15,
+          "component_weight_upper_bound": 0.35,
+          "maximum_component_delta": 0.05,
+          "solver_grid_step": 0.01,
+          "minimum_fit_samples": 60,
+          "minimum_production_samples": 100,
+          "minimum_rolling_folds": 5,
+          "minimum_validation_samples_per_fold": 12,
+          "purge_trading_days": 5,
+          "embargo_trading_days": 5,
+          "minimum_shadow_samples": 20,
+          "maximum_runs_per_half_year": 1,
+          "minimum_oos_mse_improvement_ratio": 0.05,
+          "maximum_regime_mse_degradation_ratio": 0.05,
+          "minimum_regime_validation_samples": 20,
+          "minimum_fold_adjustment_agreement_ratio": 0.75,
+          "maximum_bound_hit_fold_ratio": 0.5,
+          "minimum_diagnostic_paired_samples": 60,
+          "maximum_diagnostic_mse_degradation_ratio": 0.05
+        }
+      },
+      "track_contract_dimensions": {
+        "component_weight_contract": "REQUIRED",
+        "reliability_adapter_contract": "NULL",
+        "confidence_semantics_contract": "NULL"
+      }
+    }
+  ]
+}

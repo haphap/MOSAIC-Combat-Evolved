@@ -8,23 +8,13 @@ from pathlib import Path
 import pytest
 
 from mosaic.default_config import DEFAULT_CONFIG
+from mosaic.scorecard.macro_aggregation import MACRO_AGENTS as MACRO_AGENT_ORDER
 from mosaic.scorecard.store import ScorecardStore
 from mosaic.scorecard.weights import compute_weights
 
 
 COHORT = "cohort_default"
-MACRO_AGENTS = [
-    "central_bank",
-    "geopolitical",
-    "china",
-    "dollar",
-    "yield_curve",
-    "commodities",
-    "volatility",
-    "us_economy",
-    "market_breadth",
-    "institutional_flow",
-]
+MACRO_AGENTS = list(MACRO_AGENT_ORDER)
 REC_AGENTS = [
     "semiconductor",
     "energy",
@@ -82,7 +72,7 @@ def _add_macro_score(
                     "confidence": 0.5,
                 }
             },
-            "layer1_consensus": {},
+            "legacy_layer1_consensus": {},
         }
     )
     with store._connect() as conn:
@@ -160,13 +150,13 @@ def test_evolutionary_weights_update_quartiles_and_bounds(tmp_path: Path):
 
 def test_evolutionary_weights_skip_small_macro_population(tmp_path: Path):
     store = _store(tmp_path)
-    _add_macro_score(store, "volatility", -0.5)
-    _add_macro_score(store, "dollar", 0.1)
+    _add_macro_score(store, "us_financial_conditions", -0.5)
+    _add_macro_score(store, "central_bank", 0.1)
     store.upsert_darwinian_weights(
         [
             {
                 "cohort": COHORT,
-                "agent": "volatility",
+                "agent": "us_financial_conditions",
                 "date": "2024-01-31",
                 "weight": 1.4,
                 "layer": "macro",
@@ -179,11 +169,11 @@ def test_evolutionary_weights_skip_small_macro_population(tmp_path: Path):
 
     assert out == {"written": 2, "agents_uniform_fallback": 1}
     weights = store.get_darwinian_weights(COHORT, date="2024-02-10")
-    assert weights["volatility"]["weight"] == pytest.approx(1.4)
-    assert weights["volatility"]["update_action"] == "skipped"
-    assert weights["dollar"]["weight"] == pytest.approx(1.0)
-    assert weights["dollar"]["update_action"] == "skipped"
-    assert weights["dollar"]["quartile"] is None
+    assert weights["us_financial_conditions"]["weight"] == pytest.approx(1.4)
+    assert weights["us_financial_conditions"]["update_action"] == "skipped"
+    assert weights["central_bank"]["weight"] == pytest.approx(1.0)
+    assert weights["central_bank"]["update_action"] == "skipped"
+    assert weights["central_bank"]["quartile"] is None
 
 
 def test_macro_weight_stays_one_below_30_non_overlapping_samples(tmp_path: Path):

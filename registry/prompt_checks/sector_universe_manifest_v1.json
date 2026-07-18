@@ -1,0 +1,1986 @@
+{
+  "schema_version": "sector_universe_manifest_v1",
+  "sector_count": 9,
+  "direction_count": 37,
+  "metric_count": 26,
+  "taxonomy_provider": "SW2021",
+  "taxonomy_structure_hash": "sha256:350370759a69c3b81426823a783621f8b23c1e09cf7e1f5bd58b36410c6cf9c5",
+  "direction_registry_version": "sector_direction_registry_v3",
+  "direction_metric_registry_version": "sector_direction_metric_registry_v1",
+  "direction_metric_registry_hash": "sha256:167160b8d4fccb0cc8b27b1a40d509dabec229b34b10ee9ac22b4cd0ef2c4404",
+  "direction_metric_registry": [
+    {
+      "metric_id": "REVENUE_GROWTH_TTM_YOY",
+      "metric_contract_hash": "sha256:536fe3465ed4669ee093eee102df5c2e2d993aee7c146391aa6a65a9391b9c4c",
+      "metric_contract_version": "v1",
+      "metric_family": "FUNDAMENTALS",
+      "formula_id": "PIT_REVENUE_GROWTH_TTM_YOY_EQUAL_WEIGHT",
+      "formula_version": "v1",
+      "unit": "RATIO",
+      "lookback": {
+        "kind": "REPORTED_QUARTERS",
+        "value": 8
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 8,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "OPERATING_CASHFLOW_MARGIN_TTM",
+      "metric_contract_hash": "sha256:3f42f456460210ec610cbfa462d6fe92fc1ddfc724ba57786a0ac1a34fc9b28b",
+      "metric_contract_version": "v1",
+      "metric_family": "FUNDAMENTALS",
+      "formula_id": "PIT_OPERATING_CASHFLOW_MARGIN_TTM_EQUAL_WEIGHT",
+      "formula_version": "v1",
+      "unit": "RATIO",
+      "lookback": {
+        "kind": "REPORTED_QUARTERS",
+        "value": 4
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 4,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "EARNINGS_YIELD_TTM",
+      "metric_contract_hash": "sha256:6f44ec4364a6cb48a17de038f04818bd691a48365fbb7267286730e430ced154",
+      "metric_contract_version": "v1",
+      "metric_family": "VALUATION",
+      "formula_id": "PIT_EARNINGS_YIELD_TTM_EQUAL_WEIGHT",
+      "formula_version": "v1",
+      "unit": "RATIO",
+      "lookback": {
+        "kind": "POINT_IN_TIME",
+        "value": 1
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 1,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "BOOK_TO_PRICE_LF",
+      "metric_contract_hash": "sha256:60c758381606e98b18be3529bb32b4dfed787a3513c1a5bfb32884735a82d537",
+      "metric_contract_version": "v1",
+      "metric_family": "VALUATION",
+      "formula_id": "PIT_BOOK_TO_PRICE_LF_EQUAL_WEIGHT",
+      "formula_version": "v1",
+      "unit": "RATIO",
+      "lookback": {
+        "kind": "POINT_IN_TIME",
+        "value": 1
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 1,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "RELATIVE_TOTAL_RETURN_5D",
+      "metric_contract_hash": "sha256:e9679713f057e0c730e51059b16512765d72e35dae57e821a6512b7af67f548e",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_PRICE_TREND",
+      "formula_id": "PIT_BASKET_RELATIVE_TOTAL_RETURN",
+      "formula_version": "v1",
+      "unit": "RETURN",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 5
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 6,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "PARENT_SECTOR_BENCHMARK",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "RELATIVE_TOTAL_RETURN_20D",
+      "metric_contract_hash": "sha256:2bd7ecca9abbd1e47d4f06b687ba539aee0d409a1a922afc7e819f70c01b1ae1",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_PRICE_TREND",
+      "formula_id": "PIT_BASKET_RELATIVE_TOTAL_RETURN",
+      "formula_version": "v1",
+      "unit": "RETURN",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 21,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "PARENT_SECTOR_BENCHMARK",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "RELATIVE_TOTAL_RETURN_60D",
+      "metric_contract_hash": "sha256:e066b9eb0e792590d05613288f9d58f655b4d14acd77508b3c46c3c594e3cbf1",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_PRICE_TREND",
+      "formula_id": "PIT_BASKET_RELATIVE_TOTAL_RETURN",
+      "formula_version": "v1",
+      "unit": "RETURN",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 60
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 61,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "PARENT_SECTOR_BENCHMARK",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ABOVE_MA20_PCT",
+      "metric_contract_hash": "sha256:a23c5ddea4b83315b5e8d873a54eec306f945c3d59993f3968ef915167dbeafc",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_BREADTH",
+      "formula_id": "PIT_CONSTITUENT_ABOVE_MOVING_AVERAGE_PCT",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 20,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ABOVE_MA60_PCT",
+      "metric_contract_hash": "sha256:c1d14c1326d505ac3aff4de98af704946b8ce4e0e3a76c2fdddf2ad0e3f6fe12",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_BREADTH",
+      "formula_id": "PIT_CONSTITUENT_ABOVE_MOVING_AVERAGE_PCT",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 60
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 60,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "NEW_HIGH_LOW_20D_BALANCE",
+      "metric_contract_hash": "sha256:cefb1f2d7ffc3e2bde840789ff6a2a71364b2781b24bf83128af6069bbb2d979",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_BREADTH",
+      "formula_id": "PIT_NEW_HIGH_LOW_BALANCE",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 20,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "TURNOVER_EXPANSION_20D_PCT",
+      "metric_contract_hash": "sha256:0a165e8ace8b935388cb353251dee16be91d28d369eadf5b65ed5199971764ed",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_TURNOVER_FLOW",
+      "formula_id": "PIT_TURNOVER_EXPANSION_PCT",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 21,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "REALIZED_VOLATILITY_60D",
+      "metric_contract_hash": "sha256:e50d3145b9708481ab173585521e99b0e7af6e8215c49708febb9afcc1a6ffdc",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_PRICE_TREND",
+      "formula_id": "PIT_BASKET_REALIZED_VOLATILITY",
+      "formula_version": "v1",
+      "unit": "VOLATILITY",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 60
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 60,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "CURRENT_DRAWDOWN_252D",
+      "metric_contract_hash": "sha256:06c19413f3b5a8ed4c6b696ed2507ef6f7c0c0dafa7fda473bc79b00ba5d888f",
+      "metric_contract_version": "v1",
+      "metric_family": "BASKET_PRICE_TREND",
+      "formula_id": "PIT_BASKET_CURRENT_DRAWDOWN",
+      "formula_version": "v1",
+      "unit": "RETURN",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 252
+      },
+      "required_for_direction_readiness": true,
+      "minimum_observations": 252,
+      "minimum_coverage_ratio": 0.9,
+      "basket_weighting": "PIT_EQUAL_WEIGHT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_RELATIVE_RETURN_5D",
+      "metric_contract_hash": "sha256:217023c713d495647498add7e86f8cf7736acde0bf67ce927c541f75de4ef6ef",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_RELATIVE_TOTAL_RETURN",
+      "formula_version": "v1",
+      "unit": "RETURN",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 5
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 6,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "DIRECTION_BASKET",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_RELATIVE_RETURN_20D",
+      "metric_contract_hash": "sha256:9151e6530dfc22028d8b0b2c91cdab1aa6c5dff146a3e782f2b3a139effdd085",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_RELATIVE_TOTAL_RETURN",
+      "formula_version": "v1",
+      "unit": "RETURN",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 21,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "DIRECTION_BASKET",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_RELATIVE_RETURN_60D",
+      "metric_contract_hash": "sha256:bfa198617ca1f9f14c9ef3ae4bd9eb606bcb2a564e56afd641b3b4dc77878156",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_RELATIVE_TOTAL_RETURN",
+      "formula_version": "v1",
+      "unit": "RETURN",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 60
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 61,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "DIRECTION_BASKET",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_ABOVE_MA20",
+      "metric_contract_hash": "sha256:1f373fcce97142598c87aad43bd99ad6dd83655c6c9155b16d1afe13db3f9c79",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_ABOVE_MOVING_AVERAGE",
+      "formula_version": "v1",
+      "unit": "RATIO",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 20,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_ABOVE_MA60",
+      "metric_contract_hash": "sha256:d6f2dd69342ad6a7021809a8df349565cbca6703a711ea0c75fe542d3f16efad",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_ABOVE_MOVING_AVERAGE",
+      "formula_version": "v1",
+      "unit": "RATIO",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 60
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 60,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_TURNOVER_EXPANSION_20D",
+      "metric_contract_hash": "sha256:c074cb1766b5ab694fbc92d5fd52606701eeb96e2606c4832268e38eb6b9f44c",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_TURNOVER_EXPANSION",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 21,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_SHARE_CHANGE_1D",
+      "metric_contract_hash": "sha256:891254fea4af81e53d8638f72e160254c88a9302c18974144dba80f615ba0cda",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_SHARE_CHANGE",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 1
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 2,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_SHARE_CHANGE_5D",
+      "metric_contract_hash": "sha256:c296248138e4db793c77d67c8b2fb40ecaeb8bfb82bc20e184e52930ba5ceb34",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_SHARE_CHANGE",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 5
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 6,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_SHARE_CHANGE_20D",
+      "metric_contract_hash": "sha256:63c0d2859bdbb077430b47543a10c79c7d0229fe51a377bc5f23e48163d0919c",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_SHARE_CHANGE",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 21,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_ESTIMATED_CREATION_REDEMPTION_1D",
+      "metric_contract_hash": "sha256:1f02663ff84a456b709bc59495577574a00c6fa07fdac9917695d13bd9b870e9",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_ESTIMATED_CREATION_REDEMPTION",
+      "formula_version": "v1",
+      "unit": "CNY",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 1
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 2,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_ESTIMATED_CREATION_REDEMPTION_5D",
+      "metric_contract_hash": "sha256:0d22a8fa2b8889ebb374d1508fd9eac7ee1d7050c4f23dfb4787f4602da6e573",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_ESTIMATED_CREATION_REDEMPTION",
+      "formula_version": "v1",
+      "unit": "CNY",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 5
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 6,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_ESTIMATED_CREATION_REDEMPTION_20D",
+      "metric_contract_hash": "sha256:4213325fd12106ca211ef089c839af3d4692d2d5960cf0e82e9e0792668c039b",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_ESTIMATED_CREATION_REDEMPTION",
+      "formula_version": "v1",
+      "unit": "CNY",
+      "lookback": {
+        "kind": "TRADING_DAYS",
+        "value": 20
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 21,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    },
+    {
+      "metric_id": "ETF_PREMIUM_DISCOUNT",
+      "metric_contract_hash": "sha256:780a3dea7ef3d35fd6372b5a1349c5c4b2242177e1f31bb98686f7a44d78ebb6",
+      "metric_contract_version": "v1",
+      "metric_family": "ETF_CONFIRMATION",
+      "formula_id": "PIT_ETF_FAMILY_PREMIUM_DISCOUNT",
+      "formula_version": "v1",
+      "unit": "PERCENT",
+      "lookback": {
+        "kind": "POINT_IN_TIME",
+        "value": 1
+      },
+      "required_for_direction_readiness": false,
+      "minimum_observations": 1,
+      "minimum_coverage_ratio": 0.8,
+      "basket_weighting": "LAGGED_20D_MEDIAN_AMOUNT",
+      "benchmark_role": "NONE",
+      "adjustment_contract_version": "pit_total_return_adjustment_v1",
+      "percentile_lookback_trading_days": 252,
+      "percentile_method": "EMPIRICAL_CDF_AVERAGE_TIE",
+      "change_lookback_trading_days": 20
+    }
+  ],
+  "overlap_precedence": [
+    "semiconductor",
+    "technology",
+    "energy",
+    "biotech",
+    "consumer",
+    "industrials",
+    "real_estate_construction",
+    "financials",
+    "agriculture"
+  ],
+  "membership_query_plans": [
+    {
+      "query_plan_id": "sector-membership:semiconductor",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "semiconductor",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801081.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801081.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:b781b797c430757634f7aefdcf471cf08cd2248facef937558025740269389ca"
+    },
+    {
+      "query_plan_id": "sector-membership:technology",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "technology",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801080.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801080.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801750.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801750.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801760.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801760.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801770.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801770.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801081.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801081.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [
+        "801081.SI"
+      ],
+      "query_plan_hash": "sha256:9f173337c5d2ef885f03c73853531bd1bb75c437de9ce70c7a9bba44bb80dd1a"
+    },
+    {
+      "query_plan_id": "sector-membership:energy",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "energy",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801950.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801950.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801960.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801960.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801161.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801161.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801735.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801735.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801736.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801736.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801737.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801737.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:81da06174a60ae62d75f7a379b67be5b9651001d434c9822383db3db4ac2d99f"
+    },
+    {
+      "query_plan_id": "sector-membership:biotech",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "biotech",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801150.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801150.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:552f2024fc0ab55533eda38569adb18be4a5bd0aeefdd26099f2a975ab09c311"
+    },
+    {
+      "query_plan_id": "sector-membership:consumer",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "consumer",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801110.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801110.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801120.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801120.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801130.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801130.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801140.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801140.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801200.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801200.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801210.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801210.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801880.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801880.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801980.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801980.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284"
+    },
+    {
+      "query_plan_id": "sector-membership:industrials",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "industrials",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801030.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801030.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801040.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801040.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801050.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801050.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801170.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801170.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801740.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801740.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801890.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801890.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801970.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801970.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801731.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801731.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801733.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801733.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801738.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801738.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d"
+    },
+    {
+      "query_plan_id": "sector-membership:real_estate_construction",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "real_estate_construction",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801180.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801180.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801710.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801710.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801720.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801720.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:db26cb4914e6d5fb95d1bca4e469fb7df925cc83a5f540148aa6a8e42ea78bc5"
+    },
+    {
+      "query_plan_id": "sector-membership:financials",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "financials",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801780.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801780.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801790.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801790.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:ec1c03ead4ac45f45a40b0f32bea77f2babaf9ff96e8a117dfdde7e52512fbc1"
+    },
+    {
+      "query_plan_id": "sector-membership:agriculture",
+      "query_plan_version": "sector_membership_query_v1",
+      "sector_agent_id": "agriculture",
+      "branches": [
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801010.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l1_code",
+          "classification_code": "801010.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801011.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801011.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801012.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801012.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801014.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801014.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801015.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801015.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801016.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801016.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801017.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801017.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801018.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801018.SI",
+          "is_new": "N"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801019.SI",
+          "is_new": "Y"
+        },
+        {
+          "endpoint": "index_member_all",
+          "parameter": "l2_code",
+          "classification_code": "801019.SI",
+          "is_new": "N"
+        }
+      ],
+      "merge_key": [
+        "l1_code",
+        "l2_code",
+        "l3_code",
+        "ts_code",
+        "in_date",
+        "out_date"
+      ],
+      "post_filter_excluded_codes": [],
+      "query_plan_hash": "sha256:d7a1f783bade5e21865d65ddae75fafb1ebc9f32e9901080c198a3331620e8ae"
+    }
+  ],
+  "direction_contracts": [
+    {
+      "sector_agent_id": "semiconductor",
+      "direction_id": "semiconductor_core",
+      "direction_contract_hash": "sha256:d2fcd74bc2723d4e22223cc6d042cac5dbfeceb0a9bc9636b2a17c47e7965723",
+      "direction_partition_definition_hash": "sha256:93b60abbf19ec4963b4398547433fa4d10a78ebaabd3defc0856b361f0234cc8",
+      "membership_query_plan_hash": "sha256:b781b797c430757634f7aefdcf471cf08cd2248facef937558025740269389ca",
+      "included_classification_codes": [
+        "801081.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:semiconductor:semiconductor_core",
+      "parent_sector_benchmark_contract_id": "parent-sector:semiconductor",
+      "single_direction_null_benchmark_contract_id": "single-null:semiconductor",
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:semiconductor"
+    },
+    {
+      "sector_agent_id": "technology",
+      "direction_id": "electronics_non_semiconductor",
+      "direction_contract_hash": "sha256:beac82b3f67f175c5afb91526d8bb56dcfb9794e5c278115dec5486a7c948ad7",
+      "direction_partition_definition_hash": "sha256:7596f1ee980a95670f0a0464a62bdc630c517e2c898b71e49080a2266155ddef",
+      "membership_query_plan_hash": "sha256:9f173337c5d2ef885f03c73853531bd1bb75c437de9ce70c7a9bba44bb80dd1a",
+      "included_classification_codes": [
+        "801080.SI"
+      ],
+      "excluded_classification_codes": [
+        "801081.SI"
+      ],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:technology:electronics_non_semiconductor",
+      "parent_sector_benchmark_contract_id": "parent-sector:technology",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:technology"
+    },
+    {
+      "sector_agent_id": "technology",
+      "direction_id": "computer",
+      "direction_contract_hash": "sha256:7d2a7ea33d563b9aad4db951e60a48b3d6c1402394887910058c34e1bc5a0d3a",
+      "direction_partition_definition_hash": "sha256:9b5c3e942d4398644c8ce001096b10ac6ac6d7bfcb047f7b706bb9bc612e2f3c",
+      "membership_query_plan_hash": "sha256:9f173337c5d2ef885f03c73853531bd1bb75c437de9ce70c7a9bba44bb80dd1a",
+      "included_classification_codes": [
+        "801750.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:technology:computer",
+      "parent_sector_benchmark_contract_id": "parent-sector:technology",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:technology"
+    },
+    {
+      "sector_agent_id": "technology",
+      "direction_id": "media",
+      "direction_contract_hash": "sha256:fa74114d811b33b27998386d68407d2e71f105df5822d5053e97c36eadae5275",
+      "direction_partition_definition_hash": "sha256:a210604b8d211b2578ac284ab0d9732a0634f819546e668b648a456e85d1f49d",
+      "membership_query_plan_hash": "sha256:9f173337c5d2ef885f03c73853531bd1bb75c437de9ce70c7a9bba44bb80dd1a",
+      "included_classification_codes": [
+        "801760.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:technology:media",
+      "parent_sector_benchmark_contract_id": "parent-sector:technology",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:technology"
+    },
+    {
+      "sector_agent_id": "technology",
+      "direction_id": "communications",
+      "direction_contract_hash": "sha256:4e84eb9e193a13b64bbc1c0b67c82d6b5119b422f6012aaceffd33fa3fb70fbb",
+      "direction_partition_definition_hash": "sha256:0e4335d69dd6d3aaf5e78c2aef7ea7171e3991fdb4f60e02116ffe1303e7b5df",
+      "membership_query_plan_hash": "sha256:9f173337c5d2ef885f03c73853531bd1bb75c437de9ce70c7a9bba44bb80dd1a",
+      "included_classification_codes": [
+        "801770.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:technology:communications",
+      "parent_sector_benchmark_contract_id": "parent-sector:technology",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:technology"
+    },
+    {
+      "sector_agent_id": "energy",
+      "direction_id": "coal",
+      "direction_contract_hash": "sha256:074570b259c1f9e801322cdcb63da4c1fe75747a1b8b19ba7ae164f0bf52c997",
+      "direction_partition_definition_hash": "sha256:d69752096693e428a455c3706180429eb70c25973eedfc7da903b9332de1467c",
+      "membership_query_plan_hash": "sha256:81da06174a60ae62d75f7a379b67be5b9651001d434c9822383db3db4ac2d99f",
+      "included_classification_codes": [
+        "801950.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:energy:coal",
+      "parent_sector_benchmark_contract_id": "parent-sector:energy",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:energy"
+    },
+    {
+      "sector_agent_id": "energy",
+      "direction_id": "oil_gas",
+      "direction_contract_hash": "sha256:65784fb4080ec0082c5a6d82914914473dd9fab88b47e3f57dbc58803d4e16c7",
+      "direction_partition_definition_hash": "sha256:d4809e6d8340f3cefe706578e24e309d340d88f55c5f63f7849f15a2d174b83f",
+      "membership_query_plan_hash": "sha256:81da06174a60ae62d75f7a379b67be5b9651001d434c9822383db3db4ac2d99f",
+      "included_classification_codes": [
+        "801960.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:energy:oil_gas",
+      "parent_sector_benchmark_contract_id": "parent-sector:energy",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:energy"
+    },
+    {
+      "sector_agent_id": "energy",
+      "direction_id": "electric_power",
+      "direction_contract_hash": "sha256:0d0ab32ae0cc0b9046e456ca9aac471a851c4096a84ab696382fe312b7d36d53",
+      "direction_partition_definition_hash": "sha256:908e68fa3353c6cf9f0d92ee164cac2204eb21fdbc088008f4cf34f47b8f5575",
+      "membership_query_plan_hash": "sha256:81da06174a60ae62d75f7a379b67be5b9651001d434c9822383db3db4ac2d99f",
+      "included_classification_codes": [
+        "801161.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:energy:electric_power",
+      "parent_sector_benchmark_contract_id": "parent-sector:energy",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:energy"
+    },
+    {
+      "sector_agent_id": "energy",
+      "direction_id": "solar",
+      "direction_contract_hash": "sha256:a738282281edd76541fe69d53a3eb835c1cfd18e0beb5c4d671d8309a23a618b",
+      "direction_partition_definition_hash": "sha256:c0669be811f22f6dcfd422560013d32adf82e1176187c9bd0d7e42a412657ce1",
+      "membership_query_plan_hash": "sha256:81da06174a60ae62d75f7a379b67be5b9651001d434c9822383db3db4ac2d99f",
+      "included_classification_codes": [
+        "801735.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:energy:solar",
+      "parent_sector_benchmark_contract_id": "parent-sector:energy",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:energy"
+    },
+    {
+      "sector_agent_id": "energy",
+      "direction_id": "wind",
+      "direction_contract_hash": "sha256:08365261222cb43ae47a24d46ec428d26077631c03f7c70a095f4a13f3bdf0f3",
+      "direction_partition_definition_hash": "sha256:6eece24296a06458e5d6c653997515f69218dba996b8d91fa9b5ae18feffdb93",
+      "membership_query_plan_hash": "sha256:81da06174a60ae62d75f7a379b67be5b9651001d434c9822383db3db4ac2d99f",
+      "included_classification_codes": [
+        "801736.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:energy:wind",
+      "parent_sector_benchmark_contract_id": "parent-sector:energy",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:energy"
+    },
+    {
+      "sector_agent_id": "energy",
+      "direction_id": "battery_storage",
+      "direction_contract_hash": "sha256:e90d02542478e832a0af8a31d6725ff68a0150d0207833fb1db2a9c549eedc0c",
+      "direction_partition_definition_hash": "sha256:8deb200f74ab487438143b6e94959260f44c929fff8345e6260b3a1851dfd1cc",
+      "membership_query_plan_hash": "sha256:81da06174a60ae62d75f7a379b67be5b9651001d434c9822383db3db4ac2d99f",
+      "included_classification_codes": [
+        "801737.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:energy:battery_storage",
+      "parent_sector_benchmark_contract_id": "parent-sector:energy",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:energy"
+    },
+    {
+      "sector_agent_id": "biotech",
+      "direction_id": "medicine_biotech",
+      "direction_contract_hash": "sha256:bd764e41c70d3b5d01e410d5195a0f5f6dc622cba9a1a76f366bb7475b67a2be",
+      "direction_partition_definition_hash": "sha256:50b38592984238adb32c0012fcdd87efd0a405e7c557d27262789922e238cd9b",
+      "membership_query_plan_hash": "sha256:552f2024fc0ab55533eda38569adb18be4a5bd0aeefdd26099f2a975ab09c311",
+      "included_classification_codes": [
+        "801150.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:biotech:medicine_biotech",
+      "parent_sector_benchmark_contract_id": "parent-sector:biotech",
+      "single_direction_null_benchmark_contract_id": "single-null:biotech",
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:biotech"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "home_appliances",
+      "direction_contract_hash": "sha256:527b8e3de21edb8b2d7b43d897a1a7a94611ea4cce43a2e9b41422c7eb252176",
+      "direction_partition_definition_hash": "sha256:3bddb37b87996dad1cb278fd4d57cfd0eb749dd4b1b24bf0b593fc29721a0f79",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801110.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:home_appliances",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "food_beverage",
+      "direction_contract_hash": "sha256:7af125ced0b924abf49fcf8e0721e31d2f0508610ec9f6d1152d7839781005cd",
+      "direction_partition_definition_hash": "sha256:9b43bc3064b0e5f3b6323466432217e1b95809f7d0c0337b4e7ffc1ef6745021",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801120.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:food_beverage",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "textiles_apparel",
+      "direction_contract_hash": "sha256:3b40b5187997cc6ddd6f9a11b9d63ab76c0301ddf6c85a26533d5073d832633a",
+      "direction_partition_definition_hash": "sha256:af311caeddd1f116475c06ee3152604175efdeb8b7608d87c756959943a311a8",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801130.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:textiles_apparel",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "light_manufacturing",
+      "direction_contract_hash": "sha256:560524e09ad3afc4570dc92d43f042ec264443c782887ec80463161891392a55",
+      "direction_partition_definition_hash": "sha256:a21c3d6a2c36f84e7a58a43d300322df5bd6845caecbe590c8b9af7ca05289b1",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801140.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:light_manufacturing",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "retail",
+      "direction_contract_hash": "sha256:3bc739356ee62bcb9913a17da29602dc37b98075270c0f62ed2dd5cb3a2a3cd4",
+      "direction_partition_definition_hash": "sha256:26f5c90ca5216e1c0be86dd844a3f706fc9d7f1a5c3a7f74cdfb56dab052c05e",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801200.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:retail",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "consumer_services",
+      "direction_contract_hash": "sha256:7efe3285b8d1668462388e5f544a5627089903faa1dadb6155b2bfe2e71fff3e",
+      "direction_partition_definition_hash": "sha256:665be2782e2315127d68505f5ff77d57ae3101e9238313fdc7cab282a4f84103",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801210.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:consumer_services",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "beauty_care",
+      "direction_contract_hash": "sha256:774979431784f6235307bad8d4e76fadd7eee709030521e105aadb3b54df9e42",
+      "direction_partition_definition_hash": "sha256:89fa0a2992b92cbf0f3a219be20671d9e5acc16076b58e1232220f0925491639",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801980.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:beauty_care",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "consumer",
+      "direction_id": "automobiles",
+      "direction_contract_hash": "sha256:cf33a4dc7aea46cd5e0d1f33bb02cd75dbeefa92bd0590bb6f1926a3ea7856c0",
+      "direction_partition_definition_hash": "sha256:34ce37c8b9cdb25ec92e0f26a94cd011de1bbfcff2c894dbd90c873775eb796b",
+      "membership_query_plan_hash": "sha256:15cf50d50690a966a9d4d84fc63c0d15355a61fc357b907e24f1280991af2284",
+      "included_classification_codes": [
+        "801880.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:consumer:automobiles",
+      "parent_sector_benchmark_contract_id": "parent-sector:consumer",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:consumer"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "basic_chemicals",
+      "direction_contract_hash": "sha256:9a066aa45b1f7d688bcf25a113ffd01b271af702c51c10a28afec65821c70b3a",
+      "direction_partition_definition_hash": "sha256:9f777e6d2abf13cc7b933db8310be8d520d62dc0ef19cd5079b681b79ff71503",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801030.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:basic_chemicals",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "steel",
+      "direction_contract_hash": "sha256:6aa736667fa85f7e902981b860144fcfe504f67963ba4f2b1031145394d074b7",
+      "direction_partition_definition_hash": "sha256:5b19a612488e09ea17c0bfc11b7f073381f24b46313246d1ff246aa70165f6f0",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801040.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:steel",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "nonferrous_metals",
+      "direction_contract_hash": "sha256:5e5f4b5e23330a6c1e9913457d2a18f6d2a220c261a5bb14be47a8eb7e933b08",
+      "direction_partition_definition_hash": "sha256:3df83e5897083eeb0677442ef0b7c3a1b8da3f92460dcf8ddd9762602c658c37",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801050.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:nonferrous_metals",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "machinery",
+      "direction_contract_hash": "sha256:3e157d3c517bd44eb1cf1b03ea7080fcafce8d880ef633cec4b55da9067b7e3d",
+      "direction_partition_definition_hash": "sha256:bc8c65de4e2bad304846a5841d976beb2ef00ba3f1390e2b6c2b39efbac1e137",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801890.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:machinery",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "defense",
+      "direction_contract_hash": "sha256:9489023a87f965effd9a49e9eb460be2004ba179459782e69b5cd14cd42911b4",
+      "direction_partition_definition_hash": "sha256:c2704477915acb4e060435c8b1438e2da4c847567812d451fb37cea42189806f",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801740.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:defense",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "electrical_equipment_ex_renewables",
+      "direction_contract_hash": "sha256:f598baf1a2efb55d8de1222e678218e3f4d377bafcf67351b936ec2a9b124ec0",
+      "direction_partition_definition_hash": "sha256:6dfe5f27d7e39d6798e12905f8c5b16bdba53ed53d51294f10ec84816dbf2498",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801731.SI",
+        "801733.SI",
+        "801738.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:electrical_equipment_ex_renewables",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "transportation",
+      "direction_contract_hash": "sha256:098c3f708db3e32257e61bfd1bb5a1270be4d433c3e2f44e02cca4bf36ba5807",
+      "direction_partition_definition_hash": "sha256:829334ff92682de3dc60b71864d706cce7ae45bc25d9f18ea7b0fc5d7ff04312",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801170.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:transportation",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "industrials",
+      "direction_id": "environmental",
+      "direction_contract_hash": "sha256:0d3c910868dc152e9d777a28344685d43a11f022ac022dbaa89611a50ac4fb35",
+      "direction_partition_definition_hash": "sha256:371f5d993ce58654e5887b7c5d8bb0b71ef47e08e63b7666c8c4b2136ec8cb80",
+      "membership_query_plan_hash": "sha256:a5caf3c0891c279eb0beea8ee2203a32061a4fe7526e7e91d2e8b695eb81550d",
+      "included_classification_codes": [
+        "801970.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:industrials:environmental",
+      "parent_sector_benchmark_contract_id": "parent-sector:industrials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:industrials"
+    },
+    {
+      "sector_agent_id": "real_estate_construction",
+      "direction_id": "real_estate",
+      "direction_contract_hash": "sha256:065f6885951d0554fea0b542289bce216e38bd0ff4ff1243bb870cc53dfb14ad",
+      "direction_partition_definition_hash": "sha256:d9b272dab53fe9814ab9aa19c52ff83f951159b34cea0ab48c22ed6328615e63",
+      "membership_query_plan_hash": "sha256:db26cb4914e6d5fb95d1bca4e469fb7df925cc83a5f540148aa6a8e42ea78bc5",
+      "included_classification_codes": [
+        "801180.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:real_estate_construction:real_estate",
+      "parent_sector_benchmark_contract_id": "parent-sector:real_estate_construction",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:real_estate_construction"
+    },
+    {
+      "sector_agent_id": "real_estate_construction",
+      "direction_id": "building_materials",
+      "direction_contract_hash": "sha256:5b2cb7baf03fd276d937f90f01fb743268e54ab5beafbedf8c5c3bb4f0bdc2fb",
+      "direction_partition_definition_hash": "sha256:b8b0e073ade2fc86baca8679152a1a08c0598ee08ed4439ed28d9b28b0d3a61e",
+      "membership_query_plan_hash": "sha256:db26cb4914e6d5fb95d1bca4e469fb7df925cc83a5f540148aa6a8e42ea78bc5",
+      "included_classification_codes": [
+        "801710.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:real_estate_construction:building_materials",
+      "parent_sector_benchmark_contract_id": "parent-sector:real_estate_construction",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:real_estate_construction"
+    },
+    {
+      "sector_agent_id": "real_estate_construction",
+      "direction_id": "construction_decoration",
+      "direction_contract_hash": "sha256:25fa3fd07b8051c091a4716021e08ba7f3551cc5e3ae3a2eb141883a900b7597",
+      "direction_partition_definition_hash": "sha256:07600bdc253896a5841199332cf483da5ffee47d824d63a021c3f5e8dac08642",
+      "membership_query_plan_hash": "sha256:db26cb4914e6d5fb95d1bca4e469fb7df925cc83a5f540148aa6a8e42ea78bc5",
+      "included_classification_codes": [
+        "801720.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:real_estate_construction:construction_decoration",
+      "parent_sector_benchmark_contract_id": "parent-sector:real_estate_construction",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:real_estate_construction"
+    },
+    {
+      "sector_agent_id": "financials",
+      "direction_id": "banking",
+      "direction_contract_hash": "sha256:cd24476b0d94c9ea9d27c7e0af70d882710a323f0e31a956568b0c7a22904316",
+      "direction_partition_definition_hash": "sha256:acd7e02cc008413c783be54a8d80cf8611c0ff0145a9bb8c62c2cafa90554cb7",
+      "membership_query_plan_hash": "sha256:ec1c03ead4ac45f45a40b0f32bea77f2babaf9ff96e8a117dfdde7e52512fbc1",
+      "included_classification_codes": [
+        "801780.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:financials:banking",
+      "parent_sector_benchmark_contract_id": "parent-sector:financials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:financials"
+    },
+    {
+      "sector_agent_id": "financials",
+      "direction_id": "non_bank_finance",
+      "direction_contract_hash": "sha256:2c440cd7f1388ac3a2d44156cf22784a22c693fc15ffc400a72730c6a08cb47e",
+      "direction_partition_definition_hash": "sha256:4dce58cab51bd4588623eec9c23fc1265202959d7a9714f0f32ca83d1acdfe19",
+      "membership_query_plan_hash": "sha256:ec1c03ead4ac45f45a40b0f32bea77f2babaf9ff96e8a117dfdde7e52512fbc1",
+      "included_classification_codes": [
+        "801790.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:financials:non_bank_finance",
+      "parent_sector_benchmark_contract_id": "parent-sector:financials",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:financials"
+    },
+    {
+      "sector_agent_id": "agriculture",
+      "direction_id": "crop_seed",
+      "direction_contract_hash": "sha256:6a680b589c1e5be7e2f016ca9068bcac0202ecbb7b68c7b726b1ff844a81bc43",
+      "direction_partition_definition_hash": "sha256:7cfe6725b5f162e52915b153b08c8aea9ceee4509c06598b8701086261cbc837",
+      "membership_query_plan_hash": "sha256:d7a1f783bade5e21865d65ddae75fafb1ebc9f32e9901080c198a3331620e8ae",
+      "included_classification_codes": [
+        "801016.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:agriculture:crop_seed",
+      "parent_sector_benchmark_contract_id": "parent-sector:agriculture",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:agriculture"
+    },
+    {
+      "sector_agent_id": "agriculture",
+      "direction_id": "livestock_aquaculture",
+      "direction_contract_hash": "sha256:f9b273a178612a90a34766325e8a8c5216e88acbfa1b017715e0dc81d57f4577",
+      "direction_partition_definition_hash": "sha256:4ba0b5441e6763e3cfc31034182406d09fccd8f25e10bf180db2e974be409e35",
+      "membership_query_plan_hash": "sha256:d7a1f783bade5e21865d65ddae75fafb1ebc9f32e9901080c198a3331620e8ae",
+      "included_classification_codes": [
+        "801017.SI",
+        "801015.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:agriculture:livestock_aquaculture",
+      "parent_sector_benchmark_contract_id": "parent-sector:agriculture",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:agriculture"
+    },
+    {
+      "sector_agent_id": "agriculture",
+      "direction_id": "feed_animal_health",
+      "direction_contract_hash": "sha256:c6689b93f278fdd0637c1e51732d7981aef2bc1f6a3d64062ad5f19d46d67aef",
+      "direction_partition_definition_hash": "sha256:c7c064a104fc56270f695f5ac728d94b52131ea9e5346707b63cbb54eb430e6e",
+      "membership_query_plan_hash": "sha256:d7a1f783bade5e21865d65ddae75fafb1ebc9f32e9901080c198a3331620e8ae",
+      "included_classification_codes": [
+        "801014.SI",
+        "801018.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:agriculture:feed_animal_health",
+      "parent_sector_benchmark_contract_id": "parent-sector:agriculture",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:agriculture"
+    },
+    {
+      "sector_agent_id": "agriculture",
+      "direction_id": "forestry_processing_services",
+      "direction_contract_hash": "sha256:f23f81a152c42c2b1b581704f23e7d7fe695374109f8239b8b590a9fe1ed59bd",
+      "direction_partition_definition_hash": "sha256:58e10d6169fdaa69d378aed384d5bdb305d2b53371c49eff1bd0a570b30650b9",
+      "membership_query_plan_hash": "sha256:d7a1f783bade5e21865d65ddae75fafb1ebc9f32e9901080c198a3331620e8ae",
+      "included_classification_codes": [
+        "801011.SI",
+        "801012.SI",
+        "801019.SI"
+      ],
+      "excluded_classification_codes": [],
+      "direction_contract_version": "sector_direction_registry_v3",
+      "direction_return_benchmark_contract_id": "direction-return:agriculture:forestry_processing_services",
+      "parent_sector_benchmark_contract_id": "parent-sector:agriculture",
+      "single_direction_null_benchmark_contract_id": null,
+      "candidate_eligibility_contract_version": "sector_candidate_eligibility_v1",
+      "membership_query_plan_id": "sector-membership:agriculture"
+    }
+  ],
+  "direction_comparison_contract": {
+    "comparison_contract_hash": "sha256:eee50c1f29c0e5e489d5b9e6bf4166573ab2863d8a41373cfdc4e0c17c2f0c3b",
+    "core_vote_weight": 1,
+    "optional_etf_vote_weight": 0.5,
+    "minimum_base_support_count": 2,
+    "minimum_weighted_support_margin": 1,
+    "maximum_conflict_review_rounds": 1,
+    "comparison_contract_id": "sector_direction_comparison_v2",
+    "comparison_contract_version": "sector_direction_comparison_v2",
+    "core_criteria": [
+      "FUNDAMENTALS",
+      "VALUATION",
+      "BASKET_TECHNICALS",
+      "RISK_ASYMMETRY"
+    ],
+    "coverage_gated_criteria": [
+      "MACRO_EVENT_FIT",
+      "CATALYSTS"
+    ],
+    "optional_etf_criteria": [
+      "ETF_PRICE_CONFIRMATION",
+      "ETF_SHARE_FLOW_CONFIRMATION"
+    ],
+    "pair_coverage": "ALL_ELIGIBLE_UNORDERED_PAIRS",
+    "reducer": "CONDORCET_THEN_SINGLE_CONFLICT_REVIEW_ELSE_ABSTAIN",
+    "available_coverage_gated_vote_weight": 1
+  },
+  "security_scoring_contract": {
+    "scoring_contract_hash": "sha256:4389ea4847eef5303cb5bd3db09d492aa456317dc8933f487a6bd3d9134e36d2",
+    "shortlist_maximum_size_per_direction": 50,
+    "maximum_picks_per_side": 5,
+    "conviction_budget_per_side": 1,
+    "scoring_contract_id": "sector_security_scoring_v1",
+    "scoring_contract_version": "sector_security_scoring_v1",
+    "candidate_source": "PIT_DIRECTION_ELIGIBLE_SECURITIES",
+    "shortlist_order": "LAGGED_20D_MEDIAN_AMOUNT_DESC_THEN_TS_CODE_ASC",
+    "model_pick_domain": "EXACT_FROZEN_SCORING_SHORTLIST",
+    "duplicate_ticker_policy": "REJECT_ACROSS_WHOLE_SUBMISSION",
+    "conviction_lower_bound_exclusive": 0,
+    "conviction_upper_bound_inclusive": 1
+  },
+  "flow_coverage_contract": {
+    "contract_hash": "sha256:1c9d67f9b4ca84c3119a1c923f2469417f8099868ba0c4bb85aa496fc3d537d6",
+    "source_endpoint": "moneyflow",
+    "source_net_flow_field": "net_mf_amount",
+    "minimum_coverage_ratio": 0.9,
+    "ths_industry_flow_usage": "OPTIONAL_DIAGNOSTIC_ONLY",
+    "contract_id": "sector_constituent_flow_v1",
+    "contract_version": "sector_flow_coverage_v1",
+    "denominator": "FROZEN_CANDIDATE_20D_MEDIAN_TURNOVER",
+    "coverage_weighting": "PIT_CONSTITUENT_20D_MEDIAN_TURNOVER",
+    "aggregation": "OBSERVED_CONSTITUENT_NET_FLOW_PER_OBSERVED_MEDIAN_TURNOVER"
+  },
+  "manifest_hash": "sha256:eb7fad915a92aa09c5b3dc619d90f969052dc39ca9b2ed95de846625c7a91027"
+}

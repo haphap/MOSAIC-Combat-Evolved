@@ -2,144 +2,121 @@ import { describe, expect, it } from "vitest";
 import {
   MACRO_AGENT_IDS,
   MACRO_COHORT_LENSES,
-  MACRO_OUTPUT_FIELD_NAMES,
   MACRO_PROMPT_COHORT_IDS,
   MACRO_ROLE_CONTRACTS,
+  MACRO_SUBMISSION_FIELD_NAMES,
   renderMacroPromptBody,
   renderMacroRuntimeContract,
 } from "../src/agents/macro/_contracts.js";
-import { validateMacroSnapshotEchoes } from "../src/agents/macro/_semantic_validation.js";
+import {
+  macroSnapshotEchoView,
+  validateMacroSnapshotEchoes,
+} from "../src/agents/macro/_semantic_validation.js";
 import { centralBankSpec } from "../src/agents/macro/central_bank.js";
 import { chinaSpec } from "../src/agents/macro/china.js";
 import { commoditiesSpec } from "../src/agents/macro/commodities.js";
-import { dollarSpec } from "../src/agents/macro/dollar.js";
+import { euEconomySpec } from "../src/agents/macro/eu_economy.js";
+import { euroAreaFinancialConditionsSpec } from "../src/agents/macro/euro_area_financial_conditions.js";
 import { geopoliticalSpec } from "../src/agents/macro/geopolitical.js";
 import { institutionalFlowSpec } from "../src/agents/macro/institutional_flow.js";
 import { marketBreadthSpec } from "../src/agents/macro/market_breadth.js";
 import { usEconomySpec } from "../src/agents/macro/us_economy.js";
-import { volatilitySpec } from "../src/agents/macro/volatility.js";
-import { yieldCurveSpec } from "../src/agents/macro/yield_curve.js";
-import type { MacroAgentId } from "../src/agents/types.js";
-import { macroOutput } from "./helpers/macro.js";
+import { usFinancialConditionsSpec } from "../src/agents/macro/us_financial_conditions.js";
+import { macroSubmission } from "./helpers/macro.js";
 
 const specs = [
   chinaSpec,
   usEconomySpec,
+  euEconomySpec,
   centralBankSpec,
-  dollarSpec,
-  yieldCurveSpec,
+  usFinancialConditionsSpec,
+  euroAreaFinancialConditionsSpec,
   commoditiesSpec,
   geopoliticalSpec,
-  volatilitySpec,
   marketBreadthSpec,
   institutionalFlowSpec,
 ];
 
 describe.each(specs)("$agentId macro role contract", (spec) => {
-  it("uses the shared schema and its single role-scoped snapshot tool", () => {
-    const parsed = spec.schema.parse(macroOutput(spec.agentId));
-    expect(parsed.agent).toBe(spec.agentId);
-    expect(spec.fieldNames).toEqual(MACRO_OUTPUT_FIELD_NAMES);
+  it("uses one role snapshot and the fixed submission mode", () => {
+    const parsed = spec.schema.parse(macroSubmission(spec.agentId));
+    expect(parsed.mode).toBe(MACRO_ROLE_CONTRACTS[spec.agentId].mode);
+    expect(spec.fieldNames).toEqual(MACRO_SUBMISSION_FIELD_NAMES);
     expect(spec.requiredTools).toEqual(MACRO_ROLE_CONTRACTS[spec.agentId].requiredTools);
     expect(spec.requiredTools).toHaveLength(1);
   });
 
-  it("requires non-empty claims, conclusion refs, drivers, and channels", () => {
-    for (const field of ["claims", "claim_refs", "key_drivers", "channels"] as const) {
-      expect(spec.schema.safeParse({ ...macroOutput(spec.agentId), [field]: [] }).success).toBe(
+  it("requires claims, drivers, channels, refs, and exact component membership", () => {
+    const base = macroSubmission(spec.agentId);
+    expect(spec.schema.safeParse({ ...base, claims: [] }).success).toBe(false);
+    expect(spec.schema.safeParse({ ...base, key_drivers: [] }).success).toBe(false);
+    if (base.mode === "DIRECT") {
+      expect(
+        spec.schema.safeParse({ ...base, signal: { ...base.signal, channels: [] } }).success,
+      ).toBe(false);
+      expect(
+        spec.schema.safeParse({ ...base, signal: { ...base.signal, claim_refs: [] } }).success,
+      ).toBe(false);
+    } else {
+      expect(
+        spec.schema.safeParse({
+          ...base,
+          components: [{ ...base.components[0], direction: "NEUTRAL", strength: 1 }],
+        }).success,
+      ).toBe(false);
+      expect(spec.schema.safeParse({ ...base, components: base.components.slice(1) }).success).toBe(
         false,
       );
     }
   });
-
-  it("enforces direction-strength consistency", () => {
-    expect(
-      spec.schema.safeParse({
-        ...macroOutput(spec.agentId),
-        direction: "NEUTRAL",
-        strength: 1,
-      }).success,
-    ).toBe(false);
-    expect(
-      spec.schema.safeParse({
-        ...macroOutput(spec.agentId),
-        direction: "ADVERSE",
-        strength: 0,
-      }).success,
-    ).toBe(false);
-  });
 });
 
-describe("macro responsibility matrix", () => {
-  it("contains exactly the ten current roles and excludes both legacy roles", () => {
+describe("macro responsibility and prompt contract", () => {
+  it("matches the target roster and China-view boundaries", () => {
     expect(specs.map((spec) => spec.agentId)).toEqual(MACRO_AGENT_IDS);
-    expect(MACRO_AGENT_IDS).not.toContain("emerging_markets");
-    expect(MACRO_AGENT_IDS).not.toContain("news_sentiment");
+    expect(MACRO_ROLE_CONTRACTS.central_bank.responsibility.zh).toContain("PBOC");
+    expect(MACRO_ROLE_CONTRACTS.central_bank.prohibited.zh.join(" ")).toContain("海外央行");
+    expect(MACRO_ROLE_CONTRACTS.us_financial_conditions.responsibility.zh).toContain("Fed");
+    expect(MACRO_ROLE_CONTRACTS.eu_economy.prohibited.zh.join(" ")).toContain("英国");
+    expect(MACRO_ROLE_CONTRACTS.euro_area_financial_conditions.prohibited.zh.join(" ")).toContain(
+      "非欧元区",
+    );
   });
 
-  it.each(MACRO_AGENT_IDS)("generates immutable bilingual role/tool text for %s", (agent) => {
-    const zh = renderMacroRuntimeContract(agent, "zh");
-    const en = renderMacroRuntimeContract(agent, "en");
-    expect(zh).toContain(MACRO_ROLE_CONTRACTS[agent].requiredTools[0]);
-    expect(en).toContain(MACRO_ROLE_CONTRACTS[agent].requiredTools[0]);
-    expect(zh).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility.zh);
-    expect(en).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility.en);
-    expect(zh).not.toContain("```json");
-    expect(en).not.toContain("```json");
-  });
-
-  it("keeps cohort lenses distinct without changing role-scoped contracts", () => {
-    expect(
-      new Set(MACRO_PROMPT_COHORT_IDS.map((cohort) => MACRO_COHORT_LENSES[cohort].en)).size,
-    ).toBe(MACRO_PROMPT_COHORT_IDS.length);
-    expect(
-      new Set(MACRO_PROMPT_COHORT_IDS.map((cohort) => MACRO_COHORT_LENSES[cohort].zh)).size,
-    ).toBe(MACRO_PROMPT_COHORT_IDS.length);
+  it("keeps every cohort behavior distinct while immutable role/tool text stays present", () => {
+    expect(new Set(MACRO_PROMPT_COHORT_IDS.map((id) => MACRO_COHORT_LENSES[id].zh)).size).toBe(8);
+    expect(new Set(MACRO_PROMPT_COHORT_IDS.map((id) => MACRO_COHORT_LENSES[id].en)).size).toBe(8);
     for (const agent of MACRO_AGENT_IDS) {
       for (const language of ["zh", "en"] as const) {
         const bodies = MACRO_PROMPT_COHORT_IDS.map((cohort) =>
           renderMacroPromptBody(agent, language, cohort),
         );
-        expect(new Set(bodies).size, `${agent}:${language}`).toBe(MACRO_PROMPT_COHORT_IDS.length);
-        for (const [index, cohort] of MACRO_PROMPT_COHORT_IDS.entries()) {
-          expect(bodies[index]).toContain(MACRO_COHORT_LENSES[cohort][language]);
-          expect(bodies[index]).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
-        }
+        expect(new Set(bodies).size).toBe(8);
+        expect(bodies[0]).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
+        expect(renderMacroRuntimeContract(agent, language)).toContain(
+          MACRO_ROLE_CONTRACTS[agent].requiredTools[0],
+        );
       }
-      const zh = renderMacroPromptBody(agent, "zh", "cohort_default");
-      expect(zh).not.toMatch(/^## (Runtime|Analysis|Cohort|Prohibited)/m);
-      expect(zh).not.toContain("When evidence is insufficient");
-      expect(zh).not.toContain("Layer-1");
     }
   });
 
-  it("keeps news event evidence limited to China and geopolitical snapshots", () => {
-    const allowed = new Set<MacroAgentId>(["china", "geopolitical"]);
+  it("does not expose research knobs, old fields, or a cross-agent stance", () => {
     for (const agent of MACRO_AGENT_IDS) {
-      const text = [
-        MACRO_ROLE_CONTRACTS[agent].responsibility.zh,
-        ...MACRO_ROLE_CONTRACTS[agent].prohibited.zh,
-      ].join(" ");
-      if (!allowed.has(agent)) expect(text).not.toContain("新闻情绪票");
+      const body = `${renderMacroPromptBody(agent, "zh", "cohort_default")}\n${renderMacroPromptBody(
+        agent,
+        "en",
+        "cohort_default",
+      )}`;
+      expect(body).not.toMatch(/research-knobs|domain knob|knob influence/i);
+      expect(body).not.toMatch(/claim_type|evidence_refs|layer_1_consensus_score|macro stance/i);
     }
-  });
-
-  it("keeps central_bank China-centric and routes Fed transmission through market paths", () => {
-    const role = MACRO_ROLE_CONTRACTS.central_bank;
-    expect(role.responsibility.zh).toContain("PBOC");
-    expect(role.responsibility.en).toContain("PBOC");
-    expect(role.responsibility.zh).not.toContain("Fed");
-    expect(role.responsibility.en).not.toContain("Fed");
-    expect(role.prohibited.zh).toContain("不得判断 Fed 政策方向");
-    expect(MACRO_ROLE_CONTRACTS.dollar.prohibited.zh.join(" ")).toContain("Fed 政策方向");
-    expect(MACRO_ROLE_CONTRACTS.yield_curve.prohibited.zh.join(" ")).toContain("央行政策结论");
   });
 });
 
 describe("macro snapshot semantic validation", () => {
   it("accepts exact observation echoes and rejects altered values", () => {
     const snapshot = {
-      schema_version: "macro_role_snapshot_v1",
+      schema_version: "macro_role_snapshot_v2",
       role: "us_economy",
       as_of_date: "2026-07-15",
       observations: [
@@ -152,155 +129,157 @@ describe("macro snapshot semantic validation", () => {
         },
       ],
     };
-    const baseClaim = macroOutput("us_economy").claims[0];
-    if (!baseClaim) throw new Error("macro fixture claim missing");
-    const exact = macroOutput("us_economy", {
-      claims: [
-        {
-          ...baseClaim,
-          structured_conclusion: { series_id: "CPIAUCSL", actual: 3.2, expected: 3.1 },
-        },
-      ],
-    });
+    const exact = macroSubmission("us_economy");
+    const firstClaim = exact.claims[0];
+    if (!firstClaim) throw new Error("fixture claim required");
+    exact.claims[0] = {
+      ...firstClaim,
+      evidence_ids: ["us-cpi-vintage"],
+      structured_conclusion: {
+        series_id: "CPIAUCSL",
+        actual: 3.2,
+        expected: 3.1,
+        evaluation_horizon_trading_days: 5,
+      },
+    };
     expect(validateMacroSnapshotEchoes(exact, snapshot)).toEqual([]);
-    const altered = macroOutput("us_economy", {
-      claims: [
-        {
-          ...baseClaim,
-          structured_conclusion: { series_id: "CPIAUCSL", actual: 3.4 },
-        },
-      ],
-    });
-    expect(validateMacroSnapshotEchoes(altered, snapshot)).toEqual([
+    exact.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: { actual: 3.2, expected: 3.1, surprise: 0.1 },
+    };
+    expect(validateMacroSnapshotEchoes(exact, snapshot)).toEqual([]);
+    expect(
+      validateMacroSnapshotEchoes(exact, {
+        ...snapshot,
+        observations: [
+          ...snapshot.observations,
+          {
+            series_id: "duplicate",
+            evidence_id: "duplicate",
+            actual: 3.2,
+            previous: 3.3,
+            expected: 3.1,
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_REQUIRED" }),
+      expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_REQUIRED" }),
+      expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_REQUIRED" }),
+    ]);
+    exact.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: { evaluation_horizon_trading_days: 20 },
+    };
+    expect(validateMacroSnapshotEchoes(exact, snapshot)).toEqual([
+      expect.objectContaining({ reason_code: "CONTRACT_NUMERIC_MISMATCH" }),
+    ]);
+    exact.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: { series_id: "CPIAUCSL", actual: 3.4 },
+    };
+    expect(validateMacroSnapshotEchoes(exact, snapshot)).toEqual([
       expect.objectContaining({ reason_code: "SNAPSHOT_NUMERIC_MISMATCH" }),
     ]);
   });
 
-  it("rejects invented breadth percentages", () => {
-    const baseClaim = macroOutput("market_breadth").claims[0];
-    if (!baseClaim) throw new Error("macro fixture claim missing");
-    const output = macroOutput("market_breadth", {
-      claims: [
+  it("separates snapshot echo locators from claim evidence ids", () => {
+    const snapshot = {
+      schema_version: "macro_role_snapshot_v2",
+      role: "commodities",
+      as_of_date: "2026-07-15",
+      observations: [
         {
-          ...baseClaim,
-          structured_conclusion: {
-            evidence_id: "market_breadth:2026-07-15",
-            above_ma20_pct: 0.75,
-          },
+          series_id: "energy_oil",
+          evidence_id: "private-source-evidence",
+          actual: 101.2,
+          previous: 100.8,
+          expected: 101,
         },
       ],
-    });
-    expect(
-      validateMacroSnapshotEchoes(output, {
-        schema_version: "market_breadth_snapshot_v1",
-        as_of_date: "2026-07-15",
-        evidence_id: "market_breadth:2026-07-15",
-        above_ma20_pct: 0.7,
-      }),
-    ).toEqual([expect.objectContaining({ reason_code: "SNAPSHOT_NUMERIC_MISMATCH" })]);
+    };
+    const view = macroSnapshotEchoView(snapshot);
+    const row = (view.observations as Array<Record<string, unknown>>)[0];
+    expect(row).toMatchObject({ snapshot_echo_id: "series:energy_oil", actual: 101.2 });
+    expect(row).not.toHaveProperty("evidence_id");
+
+    const output = macroSubmission("commodities");
+    const firstClaim = output.claims[0];
+    if (!firstClaim) throw new Error("fixture claim required");
+    output.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: {
+        snapshot_echo_id: "series:energy_oil",
+        actual: 101.2,
+      },
+    };
+    expect(validateMacroSnapshotEchoes(output, snapshot)).toEqual([]);
+
+    output.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: {
+        snapshot_echo_id: "role-snapshot:commodities:2026-07-15",
+        series_id: "energy_oil",
+        value: 101.2,
+      },
+    };
+    expect(validateMacroSnapshotEchoes(output, snapshot)).toEqual([]);
   });
 
-  it("rejects fabricated numerics without an explicit snapshot reference", () => {
-    const baseClaim = macroOutput("geopolitical").claims[0];
-    if (!baseClaim) throw new Error("macro fixture claim missing");
-    const output = macroOutput("geopolitical", {
-      claims: [
-        {
-          ...baseClaim,
-          structured_conclusion: { price_impact_pct: 37 },
-        },
-      ],
-    });
-    expect(
-      validateMacroSnapshotEchoes(output, {
-        schema_version: "macro_role_snapshot_v1",
-        role: "geopolitical",
-        as_of_date: "2026-07-15",
-        observations: [],
-      }),
-    ).toEqual([expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_REQUIRED" })]);
-  });
-
-  it("rejects unknown references and percentages hidden in prose", () => {
-    const baseClaim = macroOutput("geopolitical").claims[0];
-    if (!baseClaim) throw new Error("macro fixture claim missing");
-    const output = macroOutput("geopolitical", {
-      claims: [
-        {
-          ...baseClaim,
-          structured_conclusion: {
-            evidence_id: "missing:event",
-            description: "estimated impact=37%",
-          },
-        },
-      ],
-    });
-    expect(
-      validateMacroSnapshotEchoes(output, {
-        schema_version: "macro_role_snapshot_v1",
-        role: "geopolitical",
-        as_of_date: "2026-07-15",
-        observations: [],
-      }),
-    ).toEqual([
-      expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_UNKNOWN" }),
-      expect.objectContaining({ reason_code: "PERCENTAGE_MUST_BE_NUMERIC_SNAPSHOT_ECHO" }),
-    ]);
-  });
-
-  it("allows assessment scores that are not observation echoes", () => {
-    const baseClaim = macroOutput("china").claims[0];
-    if (!baseClaim) throw new Error("macro fixture claim missing");
-    const output = macroOutput("china", {
-      claims: [
-        {
-          ...baseClaim,
-          structured_conclusion: { direction: "supportive", strength: 3 },
-        },
-      ],
-    });
-    expect(
-      validateMacroSnapshotEchoes(output, {
-        schema_version: "macro_role_snapshot_v1",
-        role: "china",
-        as_of_date: "2026-07-15",
-        observations: [],
-      }),
-    ).toEqual([]);
-  });
-
-  it("validates explicit aliases and deterministic surprise arithmetic", () => {
-    const baseClaim = macroOutput("central_bank").claims[0];
-    if (!baseClaim) throw new Error("macro fixture claim missing");
-    const output = macroOutput("central_bank", {
-      claims: [
-        {
-          ...baseClaim,
-          structured_conclusion: {
-            series_id: "smoke_central_bank",
-            observed_index_value: 0.3,
-            previous_value: 0.2,
-            expected_value: 0.25,
-            surprise: 0.05,
-          },
-        },
-      ],
-    });
-    expect(
-      validateMacroSnapshotEchoes(output, {
-        schema_version: "macro_role_snapshot_v1",
-        role: "central_bank",
-        as_of_date: "2026-07-15",
-        observations: [
+  it("accepts exact bound role-event echoes", () => {
+    const snapshot = {
+      schema_version: "macro_role_snapshot_v2",
+      role: "eu_economy",
+      as_of_date: "2026-07-15",
+      observations: [],
+      role_event_snapshot: {
+        projections: [
           {
-            series_id: "smoke_central_bank",
-            evidence_id: "smoke:central_bank:2026-06",
-            actual: 0.3,
-            previous: 0.2,
-            expected: 0.25,
+            calendar_event_id: "calendar-event-1",
+            event_revision_id: "calendar-event-1:r1",
+            actual: 101.2,
+            previous: 100.7,
+            forecast: 100.9,
           },
         ],
-      }),
-    ).toEqual([]);
+      },
+    };
+    const output = macroSubmission("eu_economy");
+    const firstClaim = output.claims[0];
+    if (!firstClaim) throw new Error("fixture claim required");
+    output.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: {
+        snapshot_echo_id: "role-event:calendar-event-1:r1",
+        actual: 101.2,
+        expected: 100.9,
+        previous: 100.7,
+      },
+    };
+    expect(validateMacroSnapshotEchoes(output, snapshot)).toEqual([]);
+  });
+
+  it("accepts exact deterministic direct data quality but rejects invented weights", () => {
+    const snapshot = {
+      schema_version: "geopolitical_role_snapshot_v2",
+      role: "geopolitical",
+      as_of_date: "2026-07-15",
+      direct_data_quality: 1,
+    };
+    const output = macroSubmission("geopolitical");
+    const firstClaim = output.claims[0];
+    if (!firstClaim) throw new Error("fixture claim required");
+    output.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: { readiness: "READY", direct_data_quality: 1 },
+    };
+    expect(validateMacroSnapshotEchoes(output, snapshot)).toEqual([]);
+    output.claims[0] = {
+      ...firstClaim,
+      structured_conclusion: { direct_shock_weight: 1 },
+    };
+    expect(validateMacroSnapshotEchoes(output, snapshot)).toEqual([
+      expect.objectContaining({ reason_code: "SNAPSHOT_REFERENCE_REQUIRED" }),
+    ]);
   });
 });

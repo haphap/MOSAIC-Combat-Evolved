@@ -60,7 +60,7 @@ def _sample_state(date: str = "2024-06-24") -> dict:
                 "stage": "primary",
                 "status": "accepted",
             }
-            for index in range(26)
+            for index in range(29)
         ],
         "layer1_outputs": {},
         "layer2_outputs": {},
@@ -140,7 +140,7 @@ class TestScorecardAppend:
         with pytest.raises(RpcError) as excinfo:
             dispatch("scorecard.append", {"state": state})
         assert excinfo.value.code == -32602
-        assert "26 unique accepted" in excinfo.value.message
+        assert "29 unique accepted" in excinfo.value.message
 
     def test_backtest_requires_matching_accepted_day(self, tmp_store):
         state = _sample_state()
@@ -207,15 +207,14 @@ class TestScorecardScorePending:
                 "as_of_date": d0,
                 "day_outcome_status": "accepted",
                 "layer1_outputs": {
-                    "dollar": {
-                        "agent": "dollar",
+                    "us_financial_conditions": {
+                        "agent": "us_financial_conditions",
                         "direction": "SUPPORTIVE",
                         "strength": 5,
-                        "dxy_trend": "WEAKENING",
                         "confidence": 0.6,
                     }
                 },
-                "layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
+                "legacy_layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
             }
         )
 
@@ -253,7 +252,7 @@ class TestScorecardScorePending:
         assert result["macro_scored"] == 1
         with tmp_store._connect() as conn:
             row = conn.execute("SELECT label_type FROM macro_signals").fetchone()
-        assert row["label_type"] == "cny_pressure_path_5d"
+        assert row["label_type"] == "us_financial_conditions_a_share_path_5d"
 
 
 # ===========================================================================
@@ -496,7 +495,7 @@ class TestDarwinianGetWeights:
             [
                 {
                     "cohort": "cohort_default",
-                    "agent": "volatility",
+                    "agent": "us_financial_conditions",
                     "layer": "macro",
                     "date": "2024-07-31",
                     "weight": 1.05,
@@ -517,7 +516,7 @@ class TestDarwinianGetWeights:
             "darwinian.get_weights",
             {"cohort": "cohort_default", "date": "2024-07-31"},
         )
-        row = result["weights"]["volatility"]
+        row = result["weights"]["us_financial_conditions"]
         assert row["layer"] == "macro"
         assert row["performance_metric"] == "raw_macro_score_5d"
         assert row["rank_scope"] == "macro"
@@ -548,6 +547,16 @@ def test_all_5_methods_registered():
         "scorecard.win_rate",
         "darwinian.compute",
         "darwinian.get_weights",
+        "darwinian.knot_nominate",
+        "darwinian.knot_register_track",
+        "darwinian.knot_freeze_pair",
+        "darwinian.knot_append_score",
+        "darwinian.knot_append_control_dependency",
+        "darwinian.knot_append_cio_dependency_blocked",
+        "darwinian.knot_finalize_pair",
+        "darwinian.knot_publish_promotion",
+        "darwinian.knot_publish_promotion_batch",
+        "darwinian.knot_publish_rollback",
     }
     assert expected.issubset(methods)
 

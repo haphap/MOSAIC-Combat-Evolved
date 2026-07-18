@@ -12,8 +12,20 @@
  * ``client.call(method, params)``.
  */
 
+import type {
+  AgentExecutionStageId,
+  AgentId,
+  AgentSnapshotBundle,
+  SignedAgentToolCapability,
+} from "../agents/tool_contract.js";
 import type { LlmCallRecord } from "../agents/types.js";
 import type { BridgeClient } from "./client.js";
+
+export type {
+  AgentSnapshotBundle,
+  AgentToolCapabilityManifest,
+  SignedAgentToolCapability,
+} from "../agents/tool_contract.js";
 
 /** JSON Schema as produced by Pydantic v2 `model_json_schema()`. */
 export interface JsonSchemaObject {
@@ -39,11 +51,36 @@ export interface ToolMetadata {
   args_schema: JsonSchemaObject;
 }
 
-export interface ToolCallContext {
-  /** ISO yyyy-mm-dd; activates backtest-mode date clamping when set. */
-  as_of_date?: string | null;
-  /** "live" (default) or "backtest". */
-  mode?: "live" | "backtest";
+export interface ToolCapabilityPrepareRequest {
+  graph_run_id: string;
+  run_slot_id: string;
+  run_id: string;
+  node_id: string;
+  agent_id: AgentId;
+  stage: AgentExecutionStageId;
+  as_of: string;
+  materialization_request_id: string;
+  runtime_inputs: Record<string, unknown>;
+  candidate_scope: Record<string, unknown> | null;
+  ttl_seconds?: number;
+}
+
+export interface ToolCapabilityIssueRequest {
+  graph_run_id: string;
+  run_slot_id: string;
+  run_id: string;
+  node_id: string;
+  agent_id: AgentId;
+  stage: AgentExecutionStageId;
+  as_of: string;
+  snapshot_bundle_id: string;
+  snapshot_bundle_hash: string;
+  ttl_seconds?: number;
+}
+
+export interface PreparedAgentToolCapability {
+  bundle: AgentSnapshotBundle;
+  capability: SignedAgentToolCapability;
 }
 
 export interface ToolCallResult {
@@ -1300,7 +1337,7 @@ export interface AutoresearchEvalResult {
 
 export interface AutoresearchDomainPromotionResult {
   version_id: number;
-  status: "kept" | "reverted";
+  status: "reverted";
   decision_hash: string;
   decision: Record<string, unknown>;
   created: boolean;
@@ -1544,20 +1581,49 @@ export class BridgeApi {
   constructor(private readonly client: BridgeClient) {}
 
   // tools.*
-  toolsList(): Promise<ToolMetadata[]> {
-    return this.client.call<ToolMetadata[]>("tools.list", {});
+  toolsPrepareCapability(
+    request: ToolCapabilityPrepareRequest,
+  ): Promise<PreparedAgentToolCapability> {
+    return this.client.call<PreparedAgentToolCapability>("tools.prepare_capability", request);
+  }
+
+  toolsIssueCapability(request: ToolCapabilityIssueRequest): Promise<PreparedAgentToolCapability> {
+    return this.client.call<PreparedAgentToolCapability>("tools.issue_capability", request);
+  }
+
+  toolsList(capability: SignedAgentToolCapability): Promise<ToolMetadata[]> {
+    return this.client.call<ToolMetadata[]>("tools.list", { capability });
   }
 
   toolsCall(
     name: string,
     args: Record<string, unknown>,
-    context?: ToolCallContext,
+    capability: SignedAgentToolCapability,
   ): Promise<ToolCallResult> {
     return this.client.call<ToolCallResult>("tools.call", {
       name,
       args,
-      ...(context ? { context } : {}),
+      capability,
     });
+  }
+
+  toolsTerminateCapability(
+    capability: SignedAgentToolCapability,
+    reason = "node_finished",
+  ): Promise<{ terminated: true }> {
+    return this.client.call<{ terminated: true }>("tools.terminate_capability", {
+      capability,
+      reason,
+    });
+  }
+
+  runtimeStockMarketSnapshot(params: {
+    ticker: string;
+    start_date: string;
+    as_of_date: string;
+    mode: "live" | "backtest";
+  }): Promise<ToolCallResult> {
+    return this.client.call<ToolCallResult>("runtime_data.stock_market_snapshot", params);
   }
 
   // config.*
@@ -1786,6 +1852,14 @@ export class BridgeApi {
     });
   }
 
+  calendarVerifiedSnapshot(params: {
+    start: string;
+    end: string;
+    as_of: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("calendar.verified_snapshot", params);
+  }
+
   calendarIsTradingDay(date: string): Promise<{ is_trading: boolean }> {
     return this.client.call<{ is_trading: boolean }>("calendar.is_trading_day", { date });
   }
@@ -1795,12 +1869,19 @@ export class BridgeApi {
   }
 
   // scorecard.* (Phase 3D)
-  scorecardAppend(
-    state: Record<string, unknown>,
-  ): Promise<{ ingested: number; macro_ingested: number }> {
-    return this.client.call<{ ingested: number; macro_ingested: number }>("scorecard.append", {
-      state,
-    });
+  scorecardAppend(state: Record<string, unknown>): Promise<{
+    ingested: number;
+    macro_ingested: number;
+    darwinian_v2?: {
+      production_variant_roster_revision_id: string;
+      accepted_output_records: number;
+      operational_opportunity_audits: number;
+      evaluation_tracks_inserted: number;
+      usage_tracks_inserted: number;
+      cold_start_weights_inserted: number;
+    };
+  }> {
+    return this.client.call("scorecard.append", { state });
   }
 
   scorecardScorePending(cohort: string, today: string): Promise<ScorecardScoreOutcome> {
@@ -1879,6 +1960,232 @@ export class BridgeApi {
       cohort,
       ...(date ? { date } : {}),
     });
+  }
+
+  darwinianPrepareVariant(
+    binding: import("../autoresearch/production_variant.js").DarwinianRuntimeBinding,
+    asOf: string,
+  ): Promise<{
+    runtime_binding: import("../autoresearch/production_variant.js").DarwinianRuntimeBinding;
+    roster_revision: Record<string, unknown>;
+    weight_snapshot: import("../autoresearch/production_variant.js").DarwinianUsageWeightSnapshot;
+    component_weight_snapshot: import("../autoresearch/production_variant.js").ComponentWeightRuntimeSnapshot;
+  }> {
+    return this.client.call("darwinian.prepare_variant", { binding, as_of: asOf });
+  }
+
+  darwinianPrepareOutcomeSchedule(params: {
+    production_variant_roster_revision_id: string;
+    graph_run_id: string;
+    as_of: string;
+    prepared_at: string;
+    trading_calendar_snapshot: Record<string, unknown>;
+    verified_event_candidates: Record<string, Record<string, unknown>>;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.prepare_outcome_schedule", params);
+  }
+
+  darwinianPrepareDailyCycleOutcomes(params: {
+    production_variant_roster_revision_id: string;
+    graph_run_id: string;
+    as_of: string;
+    prepared_at: string;
+  }): Promise<{
+    outcome_schedule_plan: {
+      outcome_schedule_plan_id: string;
+      outcome_schedule_plan_hash: string;
+      schema_version: string;
+      graph_run_id: string;
+      production_variant_roster_id: string;
+      production_variant_roster_revision_id: string;
+      execution_behavior_release_id: string;
+      cohort_id: string;
+      language: "en" | "zh";
+      as_of: string;
+      prepared_at: string;
+      slots: import("../agents/state.js").OutcomeRunSlot[];
+    };
+    scheduled_opportunity_decisions: Array<Record<string, unknown>>;
+    stage_skips: Record<string, unknown>;
+    run_blockers: Array<{ agent_id: string; reason: string }>;
+    trading_calendar_snapshot_hash: string;
+    event_candidate_input_hash: string;
+  }> {
+    return this.client.call("darwinian.prepare_daily_cycle_outcomes", params);
+  }
+
+  darwinianFreezeOutcomeOpportunity(params: {
+    outcome_schedule_plan_id: string;
+    agent_id: string;
+    qualification_predicate_version: string;
+    member_refs: Array<Record<string, unknown>>;
+    source_evidence_by_required_source_id: Record<string, string[]>;
+    projection_snapshot_hash: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.freeze_outcome_opportunity", params);
+  }
+
+  darwinianRecordOutcomeOpportunityFailure(params: {
+    outcome_schedule_plan_id: string;
+    agent_id: string;
+    qualification_predicate_version: string;
+    source_evidence_by_required_source_id: Record<string, string[]>;
+    error_codes: string[];
+    attempted_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.record_outcome_opportunity_failure", params);
+  }
+
+  darwinianRefreshV2Windows(params: {
+    production_variant_roster_revision_id: string;
+    cutoff_at: string;
+    trading_dates: string[];
+  }): Promise<{ evaluation_windows: Array<Record<string, unknown>> }> {
+    return this.client.call("darwinian.refresh_v2_windows", params);
+  }
+
+  darwinianPublishV2Updates(params: {
+    production_variant_roster_revision_id: string;
+    cutoff_at: string;
+    trading_dates: string[];
+  }): Promise<{ published_batches: Array<Record<string, unknown>> }> {
+    return this.client.call("darwinian.publish_v2_updates", params);
+  }
+
+  darwinianKnotRegisterTrack(params: {
+    production_variant_roster_revision_id: string;
+    target_evaluation_track_key_hash: string;
+    mutation_manifest: Record<string, unknown>;
+    created_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_register_track", params);
+  }
+
+  darwinianKnotNominate(params: {
+    production_variant_roster_revision_id: string;
+    research_slot_id: string;
+    track_states: Record<string, Record<string, unknown>>;
+    active_candidate_counts_by_layer: Record<
+      "MACRO" | "SECTOR" | "SUPERINVESTOR" | "DECISION",
+      number
+    >;
+    recorded_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_nominate", params);
+  }
+
+  darwinianKnotFreezePair(params: {
+    knot_research_track_id: string;
+    research_slot_id: string;
+    evaluation_opportunity_set_id: string;
+    root_snapshot_binding: Record<string, unknown>;
+    champion_capability: Record<string, unknown>;
+    candidate_capability: Record<string, unknown>;
+    frozen_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_freeze_pair", params);
+  }
+
+  darwinianKnotAppendScore(params: {
+    knot_pair_id: string;
+    pair_side: "CHAMPION" | "CANDIDATE";
+    score_disposition: "SCORE" | "AGENT_FAILURE";
+    recorded_at: string;
+    outcome_label_id?: string | null;
+    operational_opportunity_audit_id?: string | null;
+    sector_inference_cost_audit?: Record<string, unknown> | null;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_append_score", params);
+  }
+
+  darwinianKnotAppendControlDependency(params: {
+    knot_pair_id: string;
+    control_side: "SHARED" | "CHAMPION" | "CANDIDATE";
+    agent_id: "alpha_discovery" | "cro" | "autonomous_execution";
+    graph_run_id: string;
+    run_id?: string | null;
+    result_disposition:
+      | "ACCEPTED"
+      | "NO_EVALUATION_OBJECT"
+      | "AGENT_FAILURE"
+      | "EXOGENOUS_EXCLUSION";
+    frozen_object_set_id: string;
+    frozen_object_set_hash: string;
+    evidence_ids: string[];
+    recorded_at: string;
+    output?: Record<string, unknown> | null;
+    failure_reason?: string | null;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_append_control_dependency", params);
+  }
+
+  darwinianKnotFinalizePair(params: {
+    knot_pair_id: string;
+    pair_disposition:
+      | "ACCOUNTABLE"
+      | "EXOGENOUS_EXCLUSION"
+      | "DEPENDENCY_BLOCKED"
+      | "CONTRACT_FAILURE";
+    recorded_at: string;
+    exclusion_or_failure_reason?: string | null;
+    dependency_blocked_audit_id?: string | null;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_finalize_pair", params);
+  }
+
+  darwinianKnotAppendCioDependencyBlocked(params: {
+    knot_pair_id: string;
+    control_side: "SHARED" | "CHAMPION" | "CANDIDATE";
+    blocked_dependency_operational_audit_id: string;
+    recorded_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_append_cio_dependency_blocked", params);
+  }
+
+  darwinianKnotPublishPromotion(params: {
+    knot_research_track_id: string;
+    champion_operational_reliability: number;
+    candidate_operational_reliability: number;
+    benjamini_hochberg_q: number;
+    maximum_holdout_regime_degradation: number;
+    hard_gate_failures: string[];
+    recorded_at: string;
+    effective_from_research_slot_id?: string | null;
+    new_execution_behavior_release_id?: string | null;
+    new_production_variant_roster_revision_id?: string | null;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_publish_promotion", params);
+  }
+
+  darwinianKnotPublishPromotionBatch(params: {
+    targets: Array<{
+      knot_research_track_id: string;
+      champion_operational_reliability: number;
+      candidate_operational_reliability: number;
+      benjamini_hochberg_q: number;
+      maximum_holdout_regime_degradation: number;
+      hard_gate_failures: string[];
+      new_production_variant_roster_revision_id: string;
+    }>;
+    effective_from_research_slot_id: string;
+    new_execution_behavior_release_id: string;
+    recorded_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_publish_promotion_batch", params);
+  }
+
+  darwinianKnotPublishRollback(params: {
+    knot_research_track_id: string;
+    champion_operational_reliability: number;
+    candidate_operational_reliability: number;
+    hard_gate_failures: string[];
+    effective_from_research_slot_id: string;
+    new_execution_behavior_release_id: string;
+    new_production_variant_roster_revision_id: string;
+    cooldown_until_research_slot_id: string;
+    recorded_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_publish_rollback", params);
   }
 
   // prompts.* (Phase 4B)
@@ -2348,7 +2655,7 @@ export class BridgeApi {
 
   autoresearchReviewDomainPromotion(params: {
     version_id: number;
-    decision: "keep" | "revert";
+    decision: "revert";
     approved_by: string;
     approval_policy_id: "domain_release_manual_v1" | "decision_release_manual_v1";
     review_reason: string;

@@ -57,13 +57,13 @@ async function build(
 }
 
 describe("prompt token budget manifest", () => {
-  it("measures both sources for all 26 runtime stages and both languages", async () => {
+  it("measures both sources for all 29 runtime stages and both languages", async () => {
     const artifact = await build(fixtureRoots());
 
     expect(artifact.summary).toEqual({
-      expected_row_count: 104,
-      row_count: 104,
-      passed_row_count: 104,
+      expected_row_count: 116,
+      row_count: 116,
+      passed_row_count: 116,
       failed_row_count: 0,
       semantic_parity_passed: true,
       ready: true,
@@ -77,7 +77,12 @@ describe("prompt token budget manifest", () => {
   it("fails when a runtime prompt grows beyond the committed 1.25x baseline", async () => {
     const roots = fixtureRoots();
     const baseline = await build(roots);
-    const path = join(roots.privateRoot, "cohort_default", "macro", "volatility.zh.md");
+    const path = join(
+      roots.privateRoot,
+      "cohort_default",
+      "macro",
+      "us_financial_conditions.zh.md",
+    );
     writeFileSync(path, `${readFileSync(path, "utf-8")}\n${"expanded contract ".repeat(8_000)}`);
 
     const current = await build(roots, baseline);
@@ -90,8 +95,8 @@ describe("prompt token budget manifest", () => {
 
   it("fails source semantic parity when private knobs drift", async () => {
     const roots = fixtureRoots();
-    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "volatility");
-    if (!spec) throw new Error("volatility spec missing");
+    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "us_financial_conditions");
+    if (!spec) throw new Error("us_financial_conditions spec missing");
     const knobs = structuredClone(buildRuntimeResearchKnobs(spec));
     const missing = knobs.confidence_caps.missing_current_data;
     if (!missing) throw new Error("missing current-data cap missing");
@@ -99,8 +104,13 @@ describe("prompt token budget manifest", () => {
     const fence = renderResearchKnobsFence(knobs);
     for (const language of ["zh", "en"] as const) {
       writeFileSync(
-        join(roots.privateRoot, "cohort_default", "macro", `volatility.${language}.md`),
-        `${fence}\n\n# volatility ${language}\nRuntime contract body.\n`,
+        join(
+          roots.privateRoot,
+          "cohort_default",
+          "macro",
+          `us_financial_conditions.${language}.md`,
+        ),
+        `${fence}\n\n# us_financial_conditions ${language}\nRuntime contract body.\n`,
       );
     }
 

@@ -140,6 +140,72 @@ def _fetch_trade_cal_via_tushare(start: date, end: date) -> Optional[pd.DataFram
         return None
 
 
+def verified_trading_calendar_snapshot(
+    start_date: str,
+    end_date: str,
+    *,
+    as_of: str,
+) -> dict[str, object]:
+    """Return a PIT-auditable SSE calendar snapshot with no fallback path."""
+    start = _parse_date(start_date)
+    end = _parse_date(end_date)
+    if start > end:
+        raise ValueError("calendar snapshot start must not exceed end")
+    as_of_date = _parse_date(as_of[:10])
+    if not start <= as_of_date <= end:
+        raise ValueError("calendar snapshot must cover the as_of date")
+
+    normalized: list[tuple[str, int]] = []
+    year = start.year
+    while year <= end.year:
+        chunk_start = max(start, date(year, 1, 1))
+        chunk_end = min(end, date(year, 12, 31))
+        frame = _fetch_trade_cal_via_tushare(chunk_start, chunk_end)
+        if frame is None or frame.empty:
+            raise RuntimeError(
+                f"Tushare trade_cal unavailable for {chunk_start}/{chunk_end}"
+            )
+        if not {"cal_date", "is_open"}.issubset(frame.columns):
+            raise RuntimeError("Tushare trade_cal schema drift")
+        for _, row in frame.iterrows():
+            cal_date = _parse_date(str(row["cal_date"]))
+            is_open = int(row["is_open"])
+            if is_open not in {0, 1}:
+                raise RuntimeError("Tushare trade_cal returned invalid is_open")
+            if chunk_start <= cal_date <= chunk_end:
+                normalized.append((_format_iso(cal_date), is_open))
+        year += 1
+
+    normalized.sort()
+    expected_days = (end - start).days + 1
+    if len(normalized) != expected_days:
+        raise RuntimeError("Tushare trade_cal did not cover every calendar date")
+    if len({row[0] for row in normalized}) != len(normalized):
+        raise RuntimeError("Tushare trade_cal returned duplicate calendar dates")
+    cursor = start
+    for cal_date, _ in normalized:
+        if cal_date != _format_iso(cursor):
+            raise RuntimeError("Tushare trade_cal contains a calendar-date gap")
+        cursor += timedelta(days=1)
+
+    from mosaic.scorecard.darwinian_v2 import canonical_hash
+
+    source_hash = canonical_hash(normalized)
+    without_hash: dict[str, object] = {
+        "schema_version": "verified_trading_calendar_snapshot_v1",
+        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+        "as_of": as_of,
+        "coverage_start": _format_iso(start),
+        "coverage_end": _format_iso(end),
+        "pit_status": "VERIFIED",
+        "source_evidence_ids": [
+            f"tushare:trade_cal:SSE:{_format_iso(start)}:{_format_iso(end)}:{source_hash}"
+        ],
+        "trading_dates": [cal_date for cal_date, is_open in normalized if is_open == 1],
+    }
+    return {**without_hash, "snapshot_hash": canonical_hash(without_hash)}
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------

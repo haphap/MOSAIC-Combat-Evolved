@@ -1,3 +1,4 @@
+import { KNOT_RUNTIME_CONTRACT_MANIFEST } from "../../autoresearch/knot_contract.js";
 import { alphaDiscoverySpec } from "../decision/alpha_discovery.js";
 import { autonomousExecutionSpec } from "../decision/autonomous_execution.js";
 import { cioSpec } from "../decision/cio.js";
@@ -5,24 +6,28 @@ import { croSpec } from "../decision/cro.js";
 import { centralBankSpec } from "../macro/central_bank.js";
 import { chinaSpec } from "../macro/china.js";
 import { commoditiesSpec } from "../macro/commodities.js";
-import { dollarSpec } from "../macro/dollar.js";
+import { euEconomySpec } from "../macro/eu_economy.js";
+import { euroAreaFinancialConditionsSpec } from "../macro/euro_area_financial_conditions.js";
 import { geopoliticalSpec } from "../macro/geopolitical.js";
 import { institutionalFlowSpec } from "../macro/institutional_flow.js";
 import { marketBreadthSpec } from "../macro/market_breadth.js";
 import { usEconomySpec } from "../macro/us_economy.js";
-import { volatilitySpec } from "../macro/volatility.js";
-import { yieldCurveSpec } from "../macro/yield_curve.js";
+import { usFinancialConditionsSpec } from "../macro/us_financial_conditions.js";
+import { agricultureSpec } from "../sector/agriculture.js";
 import { biotechSpec } from "../sector/biotech.js";
 import { consumerSpec } from "../sector/consumer.js";
 import { energySpec } from "../sector/energy.js";
 import { financialsSpec } from "../sector/financials.js";
 import { industrialsSpec } from "../sector/industrials.js";
+import { realEstateConstructionSpec } from "../sector/real_estate_construction.js";
 import { relationshipMapperSpec } from "../sector/relationship_mapper.js";
 import { semiconductorSpec } from "../sector/semiconductor.js";
+import { technologySpec } from "../sector/technology.js";
 import { ackmanSpec } from "../superinvestor/ackman.js";
 import { burrySpec } from "../superinvestor/burry.js";
 import { druckenmillerSpec } from "../superinvestor/druckenmiller.js";
 import { mungerSpec } from "../superinvestor/munger.js";
+import { AGENT_LAYER_BY_ID, AgentIdSchema, agentToolsFor } from "../tool_contract.js";
 import type { Layer } from "./cohorts.js";
 import {
   configuredRuntimeResearchKnobsCohorts,
@@ -31,7 +36,7 @@ import {
   runtimeResearchKnobsStageEnablement,
 } from "./runtime_stage_enablement.js";
 
-export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v2";
+export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v3";
 
 export const RUNTIME_AGENT_STAGE_IDS = [
   "agent_run",
@@ -102,6 +107,17 @@ export interface RuntimeAgentManifestArtifact {
     legacy_agent_stages: ReadonlyArray<string>;
   }>;
   canonical_l4_sequence: ReadonlyArray<RuntimeAgentStageId>;
+  knot_runtime_contract_ref: {
+    knot_runtime_contract_manifest_id: string;
+    knot_runtime_contract_manifest_version: string;
+    knot_runtime_contract_manifest_hash: string;
+    research_score_contract_id: string;
+    research_score_contract_version: string;
+    research_score_contract_hash: string;
+    scheduler_contract_id: string;
+    scheduler_contract_version: string;
+    scheduler_contract_hash: string;
+  };
   agents: ReadonlyArray<{
     agent: string;
     layer: Layer;
@@ -278,13 +294,24 @@ function runtimeSpec(
     requiredTools?: ReadonlyArray<string>;
   },
 ): RuntimeAgentSpec {
+  const agentId = AgentIdSchema.parse(spec.agentId);
+  if (AGENT_LAYER_BY_ID[agentId] !== layer) {
+    throw new Error(`runtime layer mismatch for ${agentId}`);
+  }
+  const requiredTools = agentToolsFor(agentId);
+  if (
+    spec.requiredTools &&
+    [...spec.requiredTools].sort().join("\0") !== [...requiredTools].sort().join("\0")
+  ) {
+    throw new Error(`runtime tool contract drift for ${agentId}`);
+  }
   const promptIrAgentId = `${layer}.${spec.agentId}`;
   return {
     agent: spec.agentId,
     layer,
     promptIrAgentId,
     fieldNames: spec.fieldNames,
-    requiredTools: spec.requiredTools ?? [],
+    requiredTools,
     stages: stagesForAgent(layer, spec.agentId, promptIrAgentId),
   };
 }
@@ -292,20 +319,23 @@ function runtimeSpec(
 export const RUNTIME_AGENT_SPECS: ReadonlyArray<RuntimeAgentSpec> = [
   runtimeSpec("macro", chinaSpec),
   runtimeSpec("macro", usEconomySpec),
+  runtimeSpec("macro", euEconomySpec),
   runtimeSpec("macro", centralBankSpec),
-  runtimeSpec("macro", dollarSpec),
-  runtimeSpec("macro", yieldCurveSpec),
+  runtimeSpec("macro", usFinancialConditionsSpec),
+  runtimeSpec("macro", euroAreaFinancialConditionsSpec),
   runtimeSpec("macro", commoditiesSpec),
   runtimeSpec("macro", geopoliticalSpec),
-  runtimeSpec("macro", volatilitySpec),
   runtimeSpec("macro", marketBreadthSpec),
   runtimeSpec("macro", institutionalFlowSpec),
   runtimeSpec("sector", semiconductorSpec),
+  runtimeSpec("sector", technologySpec),
   runtimeSpec("sector", energySpec),
   runtimeSpec("sector", biotechSpec),
   runtimeSpec("sector", consumerSpec),
   runtimeSpec("sector", industrialsSpec),
+  runtimeSpec("sector", realEstateConstructionSpec),
   runtimeSpec("sector", financialsSpec),
+  runtimeSpec("sector", agricultureSpec),
   runtimeSpec("sector", relationshipMapperSpec),
   runtimeSpec("superinvestor", druckenmillerSpec),
   runtimeSpec("superinvestor", mungerSpec),
@@ -360,6 +390,26 @@ export function buildRuntimeAgentManifestArtifact(
       };
     }),
     canonical_l4_sequence: [...CANONICAL_L4_STAGE_SEQUENCE],
+    knot_runtime_contract_ref: {
+      knot_runtime_contract_manifest_id:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.knot_runtime_contract_manifest_id,
+      knot_runtime_contract_manifest_version:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.knot_runtime_contract_manifest_version,
+      knot_runtime_contract_manifest_hash:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.knot_runtime_contract_manifest_hash,
+      research_score_contract_id:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.research_score_contract.research_score_contract_id,
+      research_score_contract_version:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.research_score_contract.research_score_contract_version,
+      research_score_contract_hash:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.research_score_contract.research_score_contract_hash,
+      scheduler_contract_id:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.scheduler_contract.scheduler_contract_id,
+      scheduler_contract_version:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.scheduler_contract.scheduler_contract_version,
+      scheduler_contract_hash:
+        KNOT_RUNTIME_CONTRACT_MANIFEST.scheduler_contract.scheduler_contract_hash,
+    },
     agents: specs.map((spec) => ({
       agent: spec.agent,
       layer: spec.layer,

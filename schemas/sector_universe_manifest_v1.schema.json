@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "sector_universe_manifest_v1"
+    },
+    "sector_count": {
+      "type": "number",
+      "const": 9
+    },
+    "direction_count": {
+      "type": "number",
+      "const": 37
+    },
+    "metric_count": {
+      "type": "number",
+      "const": 26
+    },
+    "taxonomy_provider": {
+      "type": "string",
+      "const": "SW2021"
+    },
+    "taxonomy_structure_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "direction_registry_version": {
+      "type": "string",
+      "const": "sector_direction_registry_v3"
+    },
+    "direction_metric_registry_version": {
+      "type": "string",
+      "const": "sector_direction_metric_registry_v1"
+    },
+    "direction_metric_registry_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "direction_metric_registry": {
+      "minItems": 26,
+      "maxItems": 26,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric_id": {
+            "type": "string"
+          },
+          "metric_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "metric_id",
+          "metric_contract_hash"
+        ],
+        "additionalProperties": {}
+      }
+    },
+    "overlap_precedence": {
+      "minItems": 9,
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "membership_query_plans": {
+      "minItems": 9,
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "query_plan_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "query_plan_version": {
+            "type": "string",
+            "const": "sector_membership_query_v1"
+          },
+          "sector_agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "branches": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "endpoint": {
+                  "type": "string",
+                  "const": "index_member_all"
+                },
+                "parameter": {
+                  "type": "string",
+                  "enum": [
+                    "l1_code",
+                    "l2_code",
+                    "l3_code"
+                  ]
+                },
+                "classification_code": {
+                  "type": "string",
+                  "pattern": "^801\\d{3}\\.SI$"
+                },
+                "is_new": {
+                  "type": "string",
+                  "enum": [
+                    "Y",
+                    "N"
+                  ]
+                }
+              },
+              "required": [
+                "endpoint",
+                "parameter",
+                "classification_code",
+                "is_new"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "merge_key": {
+            "minItems": 6,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "post_filter_excluded_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "query_plan_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "query_plan_id",
+          "query_plan_version",
+          "sector_agent_id",
+          "branches",
+          "merge_key",
+          "post_filter_excluded_codes",
+          "query_plan_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "direction_contracts": {
+      "minItems": 37,
+      "maxItems": 37,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sector_agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "direction_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "direction_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "direction_partition_definition_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "membership_query_plan_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "sector_agent_id",
+          "direction_id",
+          "direction_contract_hash",
+          "direction_partition_definition_hash",
+          "membership_query_plan_hash"
+        ],
+        "additionalProperties": {}
+      }
+    },
+    "direction_comparison_contract": {
+      "type": "object",
+      "properties": {
+        "comparison_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "core_vote_weight": {
+          "type": "number",
+          "const": 1
+        },
+        "optional_etf_vote_weight": {
+          "type": "number",
+          "const": 0.5
+        },
+        "minimum_base_support_count": {
+          "type": "number",
+          "const": 2
+        },
+        "minimum_weighted_support_margin": {
+          "type": "number",
+          "const": 1
+        },
+        "maximum_conflict_review_rounds": {
+          "type": "number",
+          "const": 1
+        }
+      },
+      "required": [
+        "comparison_contract_hash",
+        "core_vote_weight",
+        "optional_etf_vote_weight",
+        "minimum_base_support_count",
+        "minimum_weighted_support_margin",
+        "maximum_conflict_review_rounds"
+      ],
+      "additionalProperties": {}
+    },
+    "security_scoring_contract": {
+      "type": "object",
+      "properties": {
+        "scoring_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "shortlist_maximum_size_per_direction": {
+          "type": "number",
+          "const": 50
+        },
+        "maximum_picks_per_side": {
+          "type": "number",
+          "const": 5
+        },
+        "conviction_budget_per_side": {
+          "type": "number",
+          "const": 1
+        }
+      },
+      "required": [
+        "scoring_contract_hash",
+        "shortlist_maximum_size_per_direction",
+        "maximum_picks_per_side",
+        "conviction_budget_per_side"
+      ],
+      "additionalProperties": {}
+    },
+    "flow_coverage_contract": {
+      "type": "object",
+      "properties": {
+        "contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "source_endpoint": {
+          "type": "string",
+          "const": "moneyflow"
+        },
+        "source_net_flow_field": {
+          "type": "string",
+          "const": "net_mf_amount"
+        },
+        "minimum_coverage_ratio": {
+          "type": "number",
+          "const": 0.9
+        },
+        "ths_industry_flow_usage": {
+          "type": "string",
+          "const": "OPTIONAL_DIAGNOSTIC_ONLY"
+        }
+      },
+      "required": [
+        "contract_hash",
+        "source_endpoint",
+        "source_net_flow_field",
+        "minimum_coverage_ratio",
+        "ths_industry_flow_usage"
+      ],
+      "additionalProperties": {}
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "sector_count",
+    "direction_count",
+    "metric_count",
+    "taxonomy_provider",
+    "taxonomy_structure_hash",
+    "direction_registry_version",
+    "direction_metric_registry_version",
+    "direction_metric_registry_hash",
+    "direction_metric_registry",
+    "overlap_precedence",
+    "membership_query_plans",
+    "direction_contracts",
+    "direction_comparison_contract",
+    "security_scoring_contract",
+    "flow_coverage_contract",
+    "manifest_hash"
+  ],
+  "additionalProperties": false
+}

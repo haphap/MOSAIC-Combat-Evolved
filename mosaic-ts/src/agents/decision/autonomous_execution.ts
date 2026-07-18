@@ -1,18 +1,14 @@
 /**
- * autonomous_execution Layer-4 (Plan §5.4 + Plan §11.3 sub-step 3F).
+ * autonomous_execution Layer-4.
  *
  * Reads L3 picks + L4 cro / alpha (peer L4 outputs); produces concrete
  * trade actions with size_pct + conviction.
  *
- * Phase 3F change: Darwinian weights are no longer a static stub. The
- * ``buildAutonomousExecutionNode`` factory wraps the static spec with a
- * deps-aware async ``buildUserContext`` that fetches per-agent weights
- * via ``deps.api.darwinianGetWeights``. When the bridge is unavailable,
- * weights have not been computed yet (empty cohort), or the call errors,
- * the renderer transparently falls back to the original stub — matching
- * the uniform 1.0 baseline that Phase 2 used.
+ * Darwinian weights are applied before Layer 4 by the accepted-output usage
+ * adapter. This decision role never receives raw weights, ranks, or records.
  */
 
+import type { AcceptedAgentOutputStore } from "../accepted_output.js";
 import type { DailyCycleStateType } from "../state.js";
 import type { AutoExecOutput } from "../types.js";
 import {
@@ -22,99 +18,65 @@ import {
   type LayerFourAgentSpec,
 } from "./_factory.js";
 import { AUTONOMOUS_EXECUTION_FIELD_NAMES, AutonomousExecutionSchema } from "./_schemas.js";
-import {
-  renderDarwinianWeights,
-  renderDarwinianWeightsStub,
-  renderLayer3Context,
-  renderLayer4PeerContext,
-  renderLayer4RuntimeContext,
-} from "./_user_context.js";
+import { renderLayer4PeerContext, renderLayer4RuntimeContext } from "./_user_context.js";
+import type { AutonomousExecutionSubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
+const REQUIRED_TOOLS = ["get_execution_snapshot", "get_role_event_snapshot"] as const;
 
-/** Build the static portion of the user-context (peers + L3 picks). The
- *  Darwinian weights block is injected by the factory wrapper below. */
-function buildBaseUserContext(state: DailyCycleStateType, weightsBlock: string): string {
+function buildUserContext(
+  state: DailyCycleStateType,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
+): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   return (
     `Cycle context for autonomous_execution (Layer 4):\n` +
     `* as_of_date: ${date}\n` +
     `* mode:       ${state.mode || "live"}\n\n` +
-    `${renderLayer3Context(state)}\n\n` +
-    `${renderLayer4PeerContext(state, ["autonomous_execution", "cio"])}\n\n` +
+    `${renderLayer4PeerContext(state, ["alpha_discovery", "autonomous_execution", "cio"], acceptedOutputStore)}\n\n` +
     `${renderLayer4RuntimeContext(state)}\n\n` +
-    `${weightsBlock}\n\n` +
     `Translate the frozen candidate target after applying cro's review into executable deltas ` +
-    `with size_pct in [0, 1]. Apply the Darwinian weights above as a per-agent ` +
-    `multiplier when sizing each pick (an agent in quartile 1 gets more weight than ` +
-    `quartile 4). HOLD with size_pct = 0 is fine for picks that are valid but ` +
+    `with size_pct in [0, 1]. Do not reweight candidates by raw upstream Agent scores. ` +
+    `HOLD with size_pct = 0 is fine for picks that are valid but ` +
     `already in the portfolio at target weight.`
   );
 }
 
-/** Synchronous fallback used by the static spec (and tests that don't
- *  want to mock the bridge). Always renders the stub. */
-function buildUserContextSync(state: DailyCycleStateType): string {
-  return buildBaseUserContext(state, renderDarwinianWeightsStub());
-}
-
-/** Async user-context: tries to fetch real Darwinian weights via the
- *  bridge; on any failure falls back to the stub block. */
-async function buildUserContextWithWeights(
-  state: DailyCycleStateType,
-  deps: LayerFourAgentDeps,
-): Promise<string> {
-  if (!deps.api) {
-    return buildUserContextSync(state);
-  }
-  const cohort = state.active_cohort || "cohort_default";
-  const date = state.as_of_date || new Date().toISOString().slice(0, 10);
-
-  let weightsBlock = renderDarwinianWeightsStub();
-  try {
-    const result = await deps.api.darwinianGetWeights(cohort, date);
-    weightsBlock = renderDarwinianWeights(result.weights, date);
-  } catch (err) {
-    deps.onLog?.(
-      `autonomous_execution: darwinian.get_weights failed (${(err as Error).message}); ` +
-        `falling back to uniform stub`,
-    );
-  }
-  return buildBaseUserContext(state, weightsBlock);
-}
-
-export const autonomousExecutionSpec: LayerFourAgentSpec<AutoExecOutput> = {
+export const autonomousExecutionSpec: LayerFourAgentSpec<AutonomousExecutionSubmission> = {
   agentId: "autonomous_execution",
   runtimeStage: "execution_feasibility",
   schema: AutonomousExecutionSchema,
   fieldNames: AUTONOMOUS_EXECUTION_FIELD_NAMES,
   stateUpdateField: "autonomous_execution",
   requiredTools: REQUIRED_TOOLS,
-  // Static spec uses sync stub fallback; the factory below wraps this for
-  // async deps-aware injection. Tests that import the spec directly still
-  // get a working buildUserContext without bridge mocks.
-  buildUserContext: buildUserContextSync,
+  buildUserContext,
   render: renderAutonomousExecution,
 };
 
 export function buildAutonomousExecutionNode(deps: LayerFourAgentDeps): LayerFourAgentNode {
-  // Per-instance spec that closes over deps.api so buildUserContext can
-  // call the bridge for Darwinian weights. The static spec above retains
-  // the sync stub for callers that don't go through this factory.
-  const specWithWeights: LayerFourAgentSpec<AutoExecOutput> = {
-    ...autonomousExecutionSpec,
-    buildUserContext: (state) => buildUserContextWithWeights(state, deps),
-  };
-  return buildLayerFourAgentNode(specWithWeights, deps);
+  return buildLayerFourAgentNode(autonomousExecutionSpec, deps);
 }
 
-export function renderAutonomousExecution(o: AutoExecOutput): string {
-  const trades = o.trades
-    .map((t) => `${t.ticker}:${t.action}@${t.size_pct.toFixed(2)}(conv=${t.conviction.toFixed(2)})`)
+export function renderAutonomousExecution(
+  o: AutonomousExecutionSubmission | AutoExecOutput,
+): string {
+  if ("agent" in o) {
+    const legacy = o.trades
+      .map(
+        (trade) =>
+          `${trade.ticker}:${trade.action}@${trade.size_pct.toFixed(2)}(conv=${trade.conviction.toFixed(2)})`,
+      )
+      .join(" | ");
+    return `autonomous_execution (confidence=${o.confidence.toFixed(2)})\n  trades: ${legacy || "(none)"}`;
+  }
+  const assessments = o.order_assessments
+    .map(
+      (assessment) =>
+        `${assessment.ts_code}:${assessment.feasibility}@${assessment.requested_delta_weight.toFixed(4)}`,
+    )
     .join(" | ");
   return (
     `autonomous_execution (confidence=${o.confidence.toFixed(2)})\n` +
-    `  trades: ${trades || "(none)"}`
+    `  order_assessments: ${assessments}`
   );
 }
 

@@ -331,12 +331,15 @@ function decisionMarketTickers(
   const current = state.current_positions.positions.map((position) => position.ticker);
   if (agentId === "alpha_discovery" || (agentId === "cio" && stage === "cio_proposal")) {
     const layer2 = Object.values(state.layer2_outputs).flatMap((output) =>
-      "longs" in output
-        ? [...output.longs.map((pick) => pick.ticker), ...output.shorts.map((pick) => pick.ticker)]
+      output.agent !== "relationship_mapper"
+        ? [
+            ...output.long_picks.map((pick) => pick.ts_code),
+            ...output.short_or_avoid_picks.map((pick) => pick.ts_code),
+          ]
         : [],
     );
     const layer3 = Object.values(state.layer3_outputs).flatMap((output) =>
-      output.picks.map((pick) => pick.ticker),
+      output.picks.map((pick) => pick.ts_code),
     );
     const alpha =
       agentId === "cio"

@@ -18,6 +18,7 @@
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
+import type { AcceptedAgentOutputStore } from "../agents/accepted_output.js";
 import {
   activeKnobValuesFromUpstreamDecisionAgents,
   layer4MirofishSnapshotHash,
@@ -31,6 +32,10 @@ import { buildCroNode } from "../agents/decision/cro.js";
 import {
   buildPortfolioSummary,
   freezeCioProposal,
+  freezeCroReview,
+  freezeCroStageSkip,
+  freezeExecutionFeasibility,
+  freezeExecutionStageSkip,
   freezeFinalTarget,
   freezeL4RunSnapshotBundle,
   Layer4RuntimeContractError,
@@ -41,6 +46,7 @@ import {
   validateFinalTargetEnvelope,
 } from "../agents/decision/layer4_runtime.js";
 import { validateCioPositionActions } from "../agents/decision/position_validator.js";
+import { expectedFrozenOrderIntents } from "../agents/decision/runtime_adapter.js";
 import {
   type Layer4SourceResolutionStage,
   mergeRuntimeSourceStatuses,
@@ -53,7 +59,7 @@ import {
   type DailyCycleStateType,
   type DailyCycleStateUpdate,
 } from "../agents/state.js";
-import type { CioOutput, L4RunPromptSnapshot } from "../agents/types.js";
+import type { AutoExecOutput, CioOutput, CroOutput, L4RunPromptSnapshot } from "../agents/types.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { chainEdges, serialEdges } from "./_edges.js";
@@ -69,6 +75,7 @@ export interface BuildLayer4GraphDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
 export const LAYER4_AGENT_NODES = [
@@ -98,14 +105,23 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
   const strictDeps = { ...deps, requireL4SnapshotBundle: true };
   const graph = new StateGraph(DailyCycleState)
     .addNode("l4_snapshot_freeze", buildL4SnapshotFreezeNode(strictDeps))
-    .addNode("alpha_discovery", buildAlphaDiscoveryNode(strictDeps))
+    .addNode(
+      "alpha_discovery",
+      withDecisionOutcomeStageSkip("alpha_discovery", buildAlphaDiscoveryNode(strictDeps)),
+    )
     .addNode("cio_proposal_sources", buildSourceResolutionNode(deps, "pre_candidate"))
     .addNode("cio_proposal", buildCioProposalNode(strictDeps))
     .addNode("candidate_market_sources", buildSourceResolutionNode(deps, "candidate_market"))
     .addNode("candidate_freeze", freezeCandidateTargetNode)
-    .addNode("cro", buildCroNode(strictDeps))
+    .addNode("cro", withDecisionOutcomeStageSkip("cro", buildCroNode(strictDeps)))
     .addNode("execution_liquidity_sources", buildSourceResolutionNode(deps, "execution_liquidity"))
-    .addNode("autonomous_execution", buildAutonomousExecutionNode(strictDeps))
+    .addNode(
+      "autonomous_execution",
+      withDecisionOutcomeStageSkip(
+        "autonomous_execution",
+        buildAutonomousExecutionNode(strictDeps),
+      ),
+    )
     .addNode("cio_final", buildCioNode(strictDeps))
     .addNode("shared_validation", validateFinalTargetNode);
 
@@ -113,6 +129,164 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
   chainEdges(graph, serialEdges([START, ...LAYER4_RUNTIME_NODES, END] as const));
 
   return graph.compile();
+}
+
+function withDecisionOutcomeStageSkip(
+  agentId: "alpha_discovery" | "cro" | "autonomous_execution",
+  node: (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>,
+): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
+  return async (state) => {
+    const stageSkip = state.outcome_stage_skips[agentId];
+    const currentRuntime = runtimeStateForLayer4(state);
+    const runId = state.trace_id || state.as_of_date || "current_run";
+    if (!stageSkip) {
+      if (!state.darwinian_runtime_binding && agentId === "cro") {
+        const candidate = currentRuntime.candidate_target_state;
+        if (candidate && candidate.portfolio_actions.length === 0) {
+          const output: CroOutput = {
+            agent: "cro",
+            review_disposition: "NO_OBJECTION",
+            rejected_picks: [],
+            required_adjustments: [],
+            correlated_risks: [],
+            black_swan_scenarios: [],
+            confidence: 0,
+          };
+          const review = freezeCroReview(runId, candidate, output);
+          return {
+            layer4_outputs: {
+              cro: output,
+              runtime: updateLayer4Runtime(
+                currentRuntime,
+                { cro_review_state: review },
+                {
+                  stage: "cro_review",
+                  operation: "stage_skip",
+                  status: "skipped",
+                  reason_codes: ["NO_EVALUATION_OBJECT"],
+                  input_hashes: layer4SkipInputHashes(currentRuntime),
+                  output_hashes: { cro_review_state: review.review_hash },
+                },
+              ),
+            },
+          };
+        }
+      }
+      if (!state.darwinian_runtime_binding && agentId === "autonomous_execution") {
+        if (expectedFrozenOrderIntents(state).length === 0) {
+          const output: AutoExecOutput = {
+            agent: "autonomous_execution",
+            execution_disposition: "NO_DELTA",
+            trades: [],
+            execution_checks: [],
+            confidence: 0,
+          };
+          const feasibility = freezeExecutionFeasibility(
+            runId,
+            currentRuntime.candidate_target_state,
+            currentRuntime.cro_review_state,
+            output,
+            currentRuntime.resolved_source_statuses,
+            state.as_of_date || "live",
+          );
+          return {
+            layer4_outputs: {
+              autonomous_execution: output,
+              runtime: updateLayer4Runtime(
+                currentRuntime,
+                { execution_feasibility_state: feasibility },
+                {
+                  stage: "execution_feasibility",
+                  operation: "stage_skip",
+                  status: "skipped",
+                  reason_codes: ["NO_EVALUATION_OBJECT"],
+                  input_hashes: layer4SkipInputHashes(currentRuntime),
+                  output_hashes: {
+                    execution_feasibility_state: feasibility.feasibility_hash,
+                  },
+                },
+              ),
+            },
+          };
+        }
+      }
+      return node(state);
+    }
+    if (agentId === "alpha_discovery") {
+      return {
+        layer4_outputs: {
+          runtime: updateLayer4Runtime(
+            currentRuntime,
+            {},
+            {
+              stage: "alpha_discovery",
+              operation: "stage_skip",
+              status: "skipped",
+              reason_codes: ["NO_EVALUATION_OBJECT"],
+              input_hashes: {},
+              output_hashes: { stage_skip: stageSkip.stage_skip_hash },
+            },
+          ),
+        },
+      };
+    }
+    if (agentId === "cro") {
+      const review = freezeCroStageSkip(runId, currentRuntime.candidate_target_state, stageSkip);
+      return {
+        layer4_outputs: {
+          runtime: updateLayer4Runtime(
+            currentRuntime,
+            { cro_review_state: review },
+            {
+              stage: "cro_review",
+              operation: "stage_skip",
+              status: "skipped",
+              reason_codes: ["NO_EVALUATION_OBJECT"],
+              input_hashes: layer4SkipInputHashes(currentRuntime),
+              output_hashes: {
+                stage_skip: stageSkip.stage_skip_hash,
+                cro_review_state: review.review_hash,
+              },
+            },
+          ),
+        },
+      };
+    }
+    const feasibility = freezeExecutionStageSkip(
+      runId,
+      currentRuntime.candidate_target_state,
+      currentRuntime.cro_review_state,
+      stageSkip,
+    );
+    return {
+      layer4_outputs: {
+        runtime: updateLayer4Runtime(
+          currentRuntime,
+          { execution_feasibility_state: feasibility },
+          {
+            stage: "execution_feasibility",
+            operation: "stage_skip",
+            status: "skipped",
+            reason_codes: ["NO_EVALUATION_OBJECT"],
+            input_hashes: layer4SkipInputHashes(currentRuntime),
+            output_hashes: {
+              stage_skip: stageSkip.stage_skip_hash,
+              execution_feasibility_state: feasibility.feasibility_hash,
+            },
+          },
+        ),
+      },
+    };
+  };
+}
+
+function layer4SkipInputHashes(runtime: ReturnType<typeof runtimeStateForLayer4>) {
+  return {
+    ...(runtime.candidate_target_state
+      ? { candidate_target_state: runtime.candidate_target_state.candidate_target_hash }
+      : {}),
+    ...(runtime.cro_review_state ? { cro_review_state: runtime.cro_review_state.review_hash } : {}),
+  };
 }
 
 const L4_PROMPT_INVOCATIONS: ReadonlyArray<Pick<L4RunPromptSnapshot, "agent" | "stage">> = [

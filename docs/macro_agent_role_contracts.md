@@ -1,99 +1,131 @@
-# Macro Agent role contracts
+# Macro Agent role contracts v2
 
-Layer 1 still contains ten Macro Agents and the daily graph still contains 25
-logical agents / 26 execution stages. The current roles are `china`,
-`us_economy`, `central_bank`, `dollar`, `yield_curve`, `commodities`,
-`geopolitical`, `volatility`, `market_breadth`, and `institutional_flow`.
-`emerging_markets` and `news_sentiment` are audit-only legacy records marked
-`legacy_unverified`; their historical scores and Darwinian weights are not
-carried into current roles.
+Layer 1 contains ten independent Macro Agents:
 
-The public run contract pins the rebuilt private prompt tree in
-`registry/prompt_checks/macro_prompt_role_contract_manifest_v1.json`, including
-the private commit and a path-and-content SHA-256 over all 160 prompts. The
-digest consumes files in sorted relative-path order as UTF-8 path, NUL, raw
-file content, NUL.
+`china`, `us_economy`, `eu_economy`, `central_bank`,
+`us_financial_conditions`, `euro_area_financial_conditions`, `commodities`,
+`geopolitical`, `market_breadth`, and `institutional_flow`.
 
-The code-owned role matrix, tool whitelist, uniform Zod output schema, and
-generated prompt contract live in
-`mosaic-ts/src/agents/macro/_contracts.ts`. Every role emits `direction`,
-`strength`, `horizon`, `channels`, non-empty evidence claims and conclusion
-references, key drivers, and confidence. Neutral means exactly strength zero;
-non-neutral strength is 1–5.
+`dollar`, `yield_curve`, `volatility`, `emerging_markets`, and
+`news_sentiment` are tombstoned. Historical rows remain readable only as
+`legacy_unverified`; no old prompt, sample, identity, or Darwinian weight is
+inherited by a new Agent.
 
-This is an A-share research graph, so `central_bank` is explicitly a PBOC and
-domestic-liquidity role. It neither infers nor votes on a Fed direction. Fed
-effects enter only after they are observable in the external financial paths
-owned by `dollar` and `yield_curve`; this avoids counting a Fed narrative once
-as policy and again through the dollar or rates. A future direct Fed view would
-require a separately scored role rather than being folded back into
-`central_bank`, `commodities`, or `geopolitical`.
+The graph is China-centric. `central_bank` owns only the PBOC reaction
+function, Chinese money markets, the Chinese nominal curve, and domestic
+credit conditions. Fed policy, the US nominal and real curves, credit spreads,
+the broad dollar, USD/CNY, US financial stress, and VIX are one external
+transmission owned by `us_financial_conditions`. ECB policy, euro-area rates,
+credit, the euro, and CISS are owned by
+`euro_area_financial_conditions`. `us_economy` and `eu_economy` are entity-cycle
+roles and cannot repeat those financial-condition votes. Chinese realized
+volatility is a CRO risk input, not a Macro Agent.
 
-## Prompt generation and cohort boundary
+The code-owned source of truth is
+`mosaic-ts/src/agents/macro/_contracts.ts`. Every model submission uses the
+strict common transmission schema with non-empty claims, conclusion-level
+`claim_refs`, key drivers, and confidence. `NEUTRAL` requires `strength=0`;
+non-neutral directions require strength 1–5. Runtime acceptance adds immutable
+lineage, contract versions, deterministic data quality, and reliability
+metadata; the model cannot submit those fields.
 
-The bundled repository contains concise Chinese and English prompts for the
-default cohort. They deliberately omit the private `research-knobs` fence and
-knob-card details. The private prompt repository contains all 160 combinations
-of ten roles, eight cohorts, and two languages. Run
-`pnpm dev prompts sync-macro-prompts` to regenerate either tree from the same
-code-owned role and tool contract.
+## Direct downstream consumption
 
-Role, tool, schema, PIT, and knob metadata stay identical across cohorts. Each
-cohort instead has a distinct, bilingual stress-test lens that tells the role
-which failure mode to challenge without supplying a market prior or overriding
-current evidence. This preserves meaningful cohort variation without reviving
-the old cohort-specific role drift or hidden output contracts. Chinese prompt
-prose is Chinese; schema field names, tool names, and evidence identifiers stay
-unchanged so runtime binding remains exact.
+There is no six-factor bundle, Macro stance, `layer1_consensus`, or ±0.3
+aggregate. `macro_input_gate` accepts a cycle only when all ten named Macro
+outputs pass their contracts. Sector, Superinvestor, and Decision consumers
+receive the ten transmissions independently, with one authoritative
+`usage_share` per eligible upstream Agent and deterministic causal-evidence
+resolution. Consumers may not compare, sum, or maximize upstream confidence.
 
-## Point-in-time data boundary
+Darwinian usage weights are applied at the consumer boundary, not by collapsing
+the ten views. The atomic production release has 28 evaluation tracks and 24
+usage-weight tracks: 10 Macro, 10 Sector/relationship, and 4 Superinvestor
+sources have usage weights; CRO, Alpha, Execution, and CIO are
+`EVOLUTION_ONLY` and have no weight row. Outcome labels are owned by each
+Agent's registered evaluation object; CIO portfolio PnL never updates upstream
+Agents.
 
-Each role can call exactly one snapshot tool. Private snapshots are read from
-`$MOSAIC_MACRO_SNAPSHOT_DIR/<as_of>/<role>.json` (or
-`<role>.<as_of>.json`); the default is outside the repository under
-`$MOSAIC_CACHE_DIR/macro_snapshots`. Missing snapshots fail closed. The runtime
-does not silently query a second vendor. Every observation includes its series,
-period, release time, vintage time, actual/previous/expected values, unit,
-source, PIT status, and evidence ID. US historical revisions are accepted only
-from the fixed ALFRED/official series map.
+## Data and tool boundary
 
-Tushare `major_news` and official policy documents are deduplicated,
-timestamp-filtered events available only to `china` and `geopolitical`. Raw
-news and licensed content remain private. OpenCLI search, Google/Caixin search,
-and live Xueqiu follower counts are not formal macro-factor inputs.
+Each Macro role calls only its zero-argument, role-scoped snapshot:
 
-Market breadth reads fixed local PIT tables from
-`$MOSAIC_MARKET_BREADTH_DATA_DIR` (default
-`$MOSAIC_CACHE_DIR/market_breadth`): `stock_basic`, `daily`, `adj_factor`, and
-optional `suspensions`, each as Parquet or CSV. The deterministic builder
-reconstructs historical listing/delisting status, requires 60 observations,
-excludes known suspensions, uses only adjustment factors dated on/before the
-as-of date, and rejects core coverage below 90%. Its composite equally weights
-advance/decline, MA20/MA60 trend breadth, 20-day new highs/lows, and turnover
-diffusion. State thresholds use rolling 252-day percentiles and a 20-day
-change. Limit-up/down data is not part of the cross-period core.
+- `get_china_macro_snapshot`
+- `get_us_macro_snapshot`
+- `get_eu_macro_snapshot`
+- `get_central_bank_snapshot`
+- `get_us_financial_conditions_snapshot`
+- `get_euro_area_financial_conditions_snapshot`
+- `get_commodity_conditions_snapshot`
+- `get_geopolitical_events_snapshot`
+- `get_market_breadth_snapshot`
+- `get_market_positioning_snapshot`
 
-## Six-group aggregation
+The bridge binds Agent, stage, date, frozen candidate scope, and snapshot bundle
+to a signed single-use capability. A model cannot pass an Agent ID, date,
+ticker, or scope into these tools, and tool calls read pre-materialized bundles
+rather than collecting live data.
 
-The deterministic aggregator first computes per-agent transmission
-`s_i = direction_sign × strength / 5` and effective reliability
-`a_i = confidence_i × darwin_weight_i`. It then computes group direction and
-reliability:
+Observations carry series ID, observation period, release and vintage times,
+actual/previous/expected values, unit, source, PIT status, and evidence ID.
+Historical runs accept only information visible by `as_of`. US revisions use
+the preregistered ALFRED/official mapping; EU and euro-area sources use frozen
+Eurostat/ECB keys; World Bank data is `CONTEXT_ONLY`. Missing required coverage
+fails closed and is never converted to a neutral signal.
 
-```text
-G_g = sum(a_i * s_i) / sum(a_i)
-R_g = sum(a_i) / number_of_agents_in_group
-W_g = R_g / sum(R_h)
-S   = sum(W_g * G_g)
-```
+`mosaic/dataflows/official_macro_adapters.py` implements the closed, allowlisted
+Eurostat, ECB, and World Bank transports. The committed
+`registry/data_sources/official_macro_source_preflight_v1.json` contains only
+request metadata, row counts, content hashes, and readiness status; provider
+rows are not committed. A successful live request proves transport/schema
+compatibility only. Until an append-only release/vintage ledger can prove
+`released_at` and `vintage_at` at the requested `as_of`, EU/euro-area production
+snapshots remain fail-closed.
 
-The six groups are China economy, US economy, policy/liquidity, financial
-conditions, exogenous/real shocks, and market confirmation. Dividing group
-reliability by group size prevents larger groups from receiving an automatic
-vote bonus. `S` retains the ±0.3 stance thresholds. Formal aggregation is
-rejected unless all ten current roles have accepted outputs.
+Tushare `major_news`, `news`, `npr`, and `monetary_policy` are permission-denied
+and have no runtime client or fallback path. `eco_cal` supplies timestamped
+calendar events to authorized roles but cannot replace an official release or
+geopolitical event-state source. OpenCLI, Caixin/Google search, live Xueqiu
+attention, and RKE report context are not production inputs. RKE remains an
+isolated shadow-only subsystem.
 
-Darwinian ranking requires 30 role-matched, non-overlapping five-day samples;
-otherwise the role weight is exactly 1.0. Market-breadth scoring is 50% the
-subsequent five-day composite change and 50% the PIT equal-weight A-share
-return relative to the benchmark.
+The geopolitical registry contains 14 required direct sources and one optional
+ReliefWeb context source. `geopolitical_source_adapters.py` performs bounded,
+allowlisted root-transport checks and commits metadata/hashes only. Root access
+does not prove route-complete no-event coverage: source-specific pagination,
+publication-time parsing and 30 continuous days of health evidence must all
+pass before the manifest can move from `PREFLIGHT_REQUIRED` to
+`ACTIVE_VERIFIED`; until then the geopolitical snapshot is rejected.
+The private audit retains every route/query/source row. The model-visible role
+snapshot contains only verified event records, source readiness, and exact
+per-event-family coverage counts/hashes, keeping transport diagnostics outside
+the 128K inference context without weakening the no-event proof.
+
+`scripts/build_structured_smoke_fixtures.py` can build an explicitly marked
+`SYNTHETIC_NON_PRODUCTION` PIT bundle for the real-model 29-stage contract
+smoke. It contains no vendor prose and cannot be read by production as a source
+release. Passing that smoke proves structured-output, graph, and scoped-tool
+wiring only; the live Tushare permission/schema probe and every source-specific
+readiness/coverage audit remain separate fail-closed gates.
+
+Market breadth is calculated deterministically from PIT A-share membership and
+prices. It rejects coverage below 90%, applies only adjustment factors known by
+`as_of`, and reports participation, MA20/MA60 breadth, new-high/new-low balance,
+turnover diffusion, dispersion, concentration, eligible/observed counts, and
+coverage. The model interprets the frozen metrics; it does not calculate them.
+
+## Prompt and release boundary
+
+Bundled `cohort_default` prompts are concise fake/offline assets. Production
+loads only the pinned private prompt repository. Prompt files contain role
+behavior, prohibitions, the cohort stress-test lens, and evidence requirements;
+research knobs, Darwinian ranks, KNOT thresholds, endpoint catalogs, and
+handwritten JSON schemas remain runtime-private.
+
+`registry/prompt_checks/execution_behavior_release_manifest_v1.json` atomically
+binds all 448 private variants (8 cohorts × 28 Agents × 2 languages), the 16
+active cohort/language production rosters, prompt and immutable-block hashes,
+ordered structured-output phase bindings, tool-policy hashes, and KNOT champion
+baselines. `agent_prompt_role_contract_manifest_v2.json` pins the same private
+commit and release ID/hash. Production fails closed on a missing file, commit,
+content, language, provider/model, schema, tool, or release mismatch.

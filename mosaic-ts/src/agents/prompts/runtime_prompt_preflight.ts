@@ -12,7 +12,8 @@ export async function assertRuntimePromptPreflight(opts: {
   promptsRoot?: string;
   privatePromptsRoot?: string;
 }): Promise<ResearchKnobsCheckReport> {
-  const manifestReasons = validateRuntimeAgentManifestArtifact(buildRuntimeAgentManifestArtifact());
+  const manifest = buildRuntimeAgentManifestArtifact();
+  const manifestReasons = validateRuntimeAgentManifestArtifact(manifest);
   if (manifestReasons.length > 0) {
     throw new Error(`runtime manifest preflight failed: ${manifestReasons.join(",")}`);
   }
@@ -23,7 +24,11 @@ export async function assertRuntimePromptPreflight(opts: {
     ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
   });
   const failed = report.rows.filter((row) => !row.ready);
-  if (!report.ready || report.total_runtime_agents !== 25 || report.total_runtime_stages !== 26) {
+  if (
+    !report.ready ||
+    report.total_runtime_agents !== manifest.runtime_agent_count ||
+    report.total_runtime_stages !== manifest.runtime_stage_count
+  ) {
     const reasons = failed.flatMap((row) =>
       row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`),
     );

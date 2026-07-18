@@ -20,6 +20,7 @@ import type {
 
 export interface RuntimeEvidenceSnapshot {
   runId: string;
+  agentId: string;
   agentInvocationId: string;
   stage: RuntimeAgentStageId;
   snapshotHash: string;
@@ -52,19 +53,21 @@ export function attachRuntimeOwnedFallbackClaims<T>(input: {
       : null;
   const sourceGraph = sourceRecord?.verified_claim_graph as ClaimEvidenceGraph | undefined;
   if (!sourceGraph) return input.output;
+  const fallbackEvidenceId = sourceGraph.evidence_ledger[0]?.evidence_id;
+  if (!fallbackEvidenceId) return input.output;
 
   const claimId = `runtime-fallback:${input.stage}:${sourceGraph.run_id}`;
-  const withRefs = withFallbackClaimRefs(input.output, claimId);
+  const withRefs = withFallbackClaimRefs(input.output, claimId, fallbackEvidenceId);
   if (withRefs === null || typeof withRefs !== "object" || Array.isArray(withRefs)) {
     return input.output;
   }
   const record = withRefs as Record<string, unknown>;
   const fallbackClaim: LlmResearchClaim = {
     claim_id: claimId,
-    claim_type: "uncertainty",
+    claim_kind: "RISK_FLAG",
     statement: input.statement,
     structured_conclusion: { action_policy: "conservative_fallback" },
-    evidence_refs: [],
+    evidence_ids: [fallbackEvidenceId],
     research_rule_refs: [],
   };
   record.claims = [fallbackClaim];
@@ -74,7 +77,7 @@ export function attachRuntimeOwnedFallbackClaims<T>(input: {
     run_id: sourceGraph.run_id,
     snapshot_hash: sourceGraph.snapshot_hash,
     evidence_ledger: sourceGraph.evidence_ledger,
-    claims: [{ ...fallbackClaim, snapshot_hash: sourceGraph.snapshot_hash }],
+    claims: [fallbackClaim],
     recommendation_claim_refs: references.references,
   };
   const runtimeEvidenceById = new Map(
@@ -85,7 +88,7 @@ export function attachRuntimeOwnedFallbackClaims<T>(input: {
     expectedSnapshotHash: sourceGraph.snapshot_hash,
     runtimeOwnedEvidenceById: runtimeEvidenceById,
     requiredOutputIds: references.requiredOutputIds,
-    allowUncertaintyOnlyOutputIds: references.requiredOutputIds,
+    allowRiskFlagOnlyOutputIds: references.requiredOutputIds,
   });
   if (!validation.accepted) {
     throw new Error(`runtime_owned_fallback_claim_graph_invalid:${validation.reasons.join(";")}`);
@@ -114,11 +117,14 @@ const RUNTIME_SOURCE_ALIASES: Readonly<Record<string, string>> = {
 
 const SECTOR_PICK_AGENTS = new Set([
   "semiconductor",
+  "technology",
   "energy",
   "biotech",
   "consumer",
   "industrials",
+  "real_estate_construction",
   "financials",
+  "agriculture",
 ]);
 const SUPERINVESTOR_AGENTS = new Set<string>(AGENTS_BY_LAYER.superinvestor);
 
@@ -138,23 +144,38 @@ export function buildRuntimeEvidenceSnapshot(input: {
   state: DailyCycleStateType;
   agent: string;
   stage: RuntimeAgentStageId;
-  knobSnapshot: ResearchKnobsSnapshot;
+  knobSnapshot?: ResearchKnobsSnapshot | null;
   toolStatuses?: ReadonlyArray<ToolStatus>;
 }): RuntimeEvidenceSnapshot {
   const runId = input.state.trace_id || input.state.as_of_date || "current_run";
+  const snapshotHash =
+    input.knobSnapshot?.hash ??
+    canonicalHash({
+      schema_version: "runtime_evidence_snapshot_v2",
+      run_id: runId,
+      agent: input.agent,
+      stage: input.stage,
+      tool_statuses: input.toolStatuses ?? [],
+    });
   const agentInvocationId = buildAgentInvocationId({
     runId,
     agent: input.agent,
     stage: input.stage,
     cohort: input.state.active_cohort || "cohort_default",
     asOf: input.state.as_of_date || "live",
-    snapshotHash: input.knobSnapshot.hash,
+    snapshotHash,
   });
   const evidenceLedger: EvidenceLedgerEntry[] = [];
   const seen = new Set<string>();
-  for (const [evidenceKey, registryEntry] of Object.entries(
-    input.knobSnapshot.knobs.evidence_registry,
-  )) {
+  const evidenceRegistry =
+    input.knobSnapshot?.knobs.evidence_registry ??
+    Object.fromEntries(
+      [...new Set((input.toolStatuses ?? []).map((status) => status.name))].map((name) => [
+        name,
+        { tool: name, metric: `${name}_snapshot` },
+      ]),
+    );
+  for (const [evidenceKey, registryEntry] of Object.entries(evidenceRegistry)) {
     if (registryEntry.tool) {
       const statuses = (input.toolStatuses ?? []).filter(
         (status) => status.name === registryEntry.tool,
@@ -166,7 +187,7 @@ export function buildRuntimeEvidenceSnapshot(input: {
           metric: registryEntry.metric,
           runId,
           agentInvocationId,
-          snapshotHash: input.knobSnapshot.hash,
+          snapshotHash,
           asOf: input.state.as_of_date || "live",
         });
         appendUniqueEvidence(evidenceLedger, seen, entry);
@@ -174,7 +195,7 @@ export function buildRuntimeEvidenceSnapshot(input: {
       continue;
     }
     const sourceId = runtimeSourceId(evidenceKey, registryEntry.metric);
-    const statuses = input.knobSnapshot.consumptionSnapshot.runtimeSourceStatuses.filter(
+    const statuses = (input.knobSnapshot?.consumptionSnapshot.runtimeSourceStatuses ?? []).filter(
       (status) => status.source_id === sourceId,
     );
     for (const status of statuses) {
@@ -185,19 +206,22 @@ export function buildRuntimeEvidenceSnapshot(input: {
         metric: registryEntry.metric,
         runId,
         agentInvocationId,
-        snapshotHash: input.knobSnapshot.hash,
+        snapshotHash,
       });
       appendUniqueEvidence(evidenceLedger, seen, entry);
     }
   }
   evidenceLedger.sort((left, right) => left.evidence_id.localeCompare(right.evidence_id));
   const evidenceById = new Map(evidenceLedger.map((entry) => [entry.evidence_id, entry]));
-  const allowedResearchRuleIds = researchRuleIds(input.knobSnapshot);
+  const allowedResearchRuleIds = input.knobSnapshot
+    ? researchRuleIds(input.knobSnapshot)
+    : new Set<string>();
   return {
     runId,
+    agentId: input.agent,
     agentInvocationId,
     stage: input.stage,
-    snapshotHash: input.knobSnapshot.hash,
+    snapshotHash,
     evidenceLedger,
     evidenceById,
     allowedResearchRuleIds,
@@ -253,7 +277,7 @@ export function selectOutputByClaimEvidence<T>(
 export function validateOutputByClaimEvidence<T>(
   rawOutput: T,
   runtime: RuntimeEvidenceSnapshot,
-  options: { allowUncertaintyOnly?: boolean } = {},
+  options: { allowRiskFlagOnly?: boolean } = {},
 ): ClaimGraphSelection<T> {
   const rawGraph = claimGraphFromOutput(rawOutput, runtime);
   if (!rawGraph.graph) {
@@ -269,8 +293,8 @@ export function validateOutputByClaimEvidence<T>(
     expectedSnapshotHash: runtime.snapshotHash,
     runtimeOwnedEvidenceById: runtime.evidenceById,
     requiredOutputIds: rawGraph.requiredOutputIds,
-    ...(isExplicitEmptyDisposition(rawOutput) || options.allowUncertaintyOnly
-      ? { allowUncertaintyOnlyOutputIds: rawGraph.requiredOutputIds }
+    ...(isExplicitEmptyDisposition(rawOutput) || options.allowRiskFlagOnly
+      ? { allowRiskFlagOnlyOutputIds: rawGraph.requiredOutputIds }
       : {}),
     allowedResearchRuleIds: runtime.allowedResearchRuleIds,
   });
@@ -430,11 +454,8 @@ function claimGraphFromOutput(
       ),
     };
   }
-  const references = outputClaimReferences(record, runtime.stage);
-  const claims: ResearchClaim[] = parsedClaims.data.map((claim) => ({
-    ...claim,
-    snapshot_hash: runtime.snapshotHash,
-  }));
+  const references = outputClaimReferences(record, runtime.stage, runtime.agentId);
+  const claims: ResearchClaim[] = parsedClaims.data;
   return {
     graph: {
       schema_version: "evidence_claim_graph_v1",
@@ -452,57 +473,67 @@ function claimGraphFromOutput(
 function outputClaimReferences(
   record: Record<string, unknown>,
   stage: RuntimeAgentStageId,
+  runtimeAgentId?: string,
 ): {
   references: RecommendationClaimReference[];
   requiredOutputIds: ReadonlySet<string>;
 } {
-  const agent = typeof record.agent === "string" ? record.agent : "unknown";
+  const agent =
+    runtimeAgentId ??
+    (typeof record.agent === "string"
+      ? record.agent
+      : typeof record.agent_id === "string"
+        ? record.agent_id
+        : "unknown");
   const configs =
     agent === "alpha_discovery"
       ? [{ field: "novel_picks", prefix: "novel_pick", type: "candidate" as const }]
       : agent === "cro"
         ? [
             {
-              field: "rejected_picks",
-              prefix: "rejected_pick",
-              type: "recommendation" as const,
-            },
-            {
-              field: "required_adjustments",
-              prefix: "cro_adjustment",
+              field: "candidate_actions",
+              prefix: "cro_risk_action",
               type: "recommendation" as const,
             },
           ]
         : agent === "autonomous_execution"
           ? [
-              { field: "trades", prefix: "trade", type: "portfolio_action" as const },
               {
-                field: "execution_checks",
-                prefix: "execution_check",
+                field: "order_assessments",
+                prefix: "execution_assessment",
                 type: "recommendation" as const,
               },
             ]
           : agent === "cio"
             ? [
                 {
-                  field: "portfolio_actions",
-                  prefix: "portfolio_action",
+                  field: "target_positions",
+                  prefix: "target_position",
                   type: "portfolio_action" as const,
                 },
-                ...(stage === "cio_proposal"
+                ...(stage === "cio_final"
                   ? [
                       {
-                        field: "position_reviews",
-                        prefix: "position_review",
-                        type: "position_decision" as const,
+                        field: "cro_control_resolutions",
+                        prefix: "cro_control_resolution",
+                        type: "recommendation" as const,
+                      },
+                      {
+                        field: "execution_control_resolutions",
+                        prefix: "execution_control_resolution",
+                        type: "recommendation" as const,
                       },
                     ]
                   : []),
               ]
             : SECTOR_PICK_AGENTS.has(agent)
               ? [
-                  { field: "longs", prefix: "long_candidate", type: "candidate" as const },
-                  { field: "shorts", prefix: "short_candidate", type: "candidate" as const },
+                  { field: "long_picks", prefix: "long_candidate", type: "candidate" as const },
+                  {
+                    field: "short_or_avoid_picks",
+                    prefix: "short_or_avoid_candidate",
+                    type: "candidate" as const,
+                  },
                 ]
               : SUPERINVESTOR_AGENTS.has(agent)
                 ? [{ field: "picks", prefix: "pick", type: "candidate" as const }]
@@ -512,7 +543,7 @@ function outputClaimReferences(
   if (agent !== "unknown") {
     const outputId = `recommendation:0:${agent}`;
     requiredOutputIds.add(outputId);
-    const authoredRefs = agent === "cio" ? record.decision_claim_refs : record.claim_refs;
+    const authoredRefs = record.claim_refs ?? macroSubmissionClaimRefs(record);
     const claimRefs = Array.isArray(authoredRefs)
       ? authoredRefs.filter((claimId): claimId is string => typeof claimId === "string")
       : [];
@@ -532,7 +563,12 @@ function outputClaimReferences(
         entry !== null && typeof entry === "object" && !Array.isArray(entry)
           ? (entry as Record<string, unknown>)
           : {};
-      const ticker = typeof item.ticker === "string" ? item.ticker : "unknown";
+      const ticker =
+        typeof item.ticker === "string"
+          ? item.ticker
+          : typeof item.ts_code === "string"
+            ? item.ts_code
+            : "unknown";
       const outputId = `${config.prefix}:${index}:${ticker}`;
       requiredOutputIds.add(outputId);
       const claimRefs = Array.isArray(item.claim_refs)
@@ -546,6 +582,31 @@ function outputClaimReferences(
   return { references, requiredOutputIds };
 }
 
+function macroSubmissionClaimRefs(record: Record<string, unknown>): unknown {
+  if (record.mode === "DIRECT") {
+    const signal = record.signal;
+    return signal && typeof signal === "object" && !Array.isArray(signal)
+      ? (signal as Record<string, unknown>).claim_refs
+      : undefined;
+  }
+  if (record.mode !== "COMPONENTS" || !Array.isArray(record.components)) {
+    return undefined;
+  }
+  return [
+    ...new Set(
+      record.components.flatMap((component) => {
+        if (component === null || typeof component !== "object" || Array.isArray(component)) {
+          return [];
+        }
+        const claimRefs = (component as Record<string, unknown>).claim_refs;
+        return Array.isArray(claimRefs)
+          ? claimRefs.filter((claimRef): claimRef is string => typeof claimRef === "string")
+          : [];
+      }),
+    ),
+  ];
+}
+
 function deterministicFallbackSelection<T>(
   fallbackOutput: T,
   runtime: RuntimeEvidenceSnapshot,
@@ -553,7 +614,11 @@ function deterministicFallbackSelection<T>(
   fallbackReasonCode: string,
 ): ClaimGraphSelection<T> {
   const claimId = `runtime-fallback:${runtime.agentInvocationId}`;
-  const output = withFallbackClaimRefs(fallbackOutput, claimId);
+  const fallbackEvidenceId = runtime.evidenceLedger[0]?.evidence_id;
+  if (!fallbackEvidenceId) {
+    throw new Error("deterministic_fallback_claim_graph_build_failed:no_runtime_evidence");
+  }
+  const output = withFallbackClaimRefs(fallbackOutput, claimId, fallbackEvidenceId);
   const graphParts = claimGraphFromOutput(output, runtime);
   if (!graphParts.graph) {
     throw new Error(
@@ -565,7 +630,7 @@ function deterministicFallbackSelection<T>(
     expectedSnapshotHash: runtime.snapshotHash,
     runtimeOwnedEvidenceById: runtime.evidenceById,
     requiredOutputIds: graphParts.requiredOutputIds,
-    allowUncertaintyOnlyOutputIds: graphParts.requiredOutputIds,
+    allowRiskFlagOnlyOutputIds: graphParts.requiredOutputIds,
     allowedResearchRuleIds: runtime.allowedResearchRuleIds,
   });
   if (!validation.accepted) {
@@ -583,7 +648,7 @@ function deterministicFallbackSelection<T>(
   };
 }
 
-function withFallbackClaimRefs<T>(output: T, claimId: string): T {
+function withFallbackClaimRefs<T>(output: T, claimId: string, evidenceId: string): T {
   if (output === null || typeof output !== "object" || Array.isArray(output)) return output;
   const record = { ...(output as Record<string, unknown>) };
   record.claim_refs = [claimId];
@@ -591,21 +656,22 @@ function withFallbackClaimRefs<T>(output: T, claimId: string): T {
   record.claims = [
     {
       claim_id: claimId,
-      claim_type: "uncertainty",
+      claim_kind: "RISK_FLAG",
       statement: "Runtime selected a conservative fallback because raw evidence validation failed.",
       structured_conclusion: { action_policy: "conservative_fallback" },
-      evidence_refs: [],
+      evidence_ids: [evidenceId],
       research_rule_refs: [],
     },
   ];
   for (const field of [
     "novel_picks",
-    "rejected_picks",
-    "required_adjustments",
-    "trades",
-    "execution_checks",
-    "portfolio_actions",
-    "position_reviews",
+    "candidate_actions",
+    "order_assessments",
+    "target_positions",
+    "cro_control_resolutions",
+    "execution_control_resolutions",
+    "long_picks",
+    "short_or_avoid_picks",
   ]) {
     if (!Array.isArray(record[field])) continue;
     record[field] = record[field].map((entry) =>

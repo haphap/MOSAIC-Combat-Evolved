@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const ClaimIdSchema = z.string().trim().min(1).max(128);
+const ClaimTextSchema = z.string().trim().min(1).max(320);
+const ConclusionValueSchema = z.union([
+  z.string().trim().max(256),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
 
 export const EvidenceLedgerEntrySchema = z
   .object({
@@ -22,32 +30,47 @@ export const EvidenceLedgerEntrySchema = z
   })
   .strict();
 
-export const ResearchClaimSchema = z
+export const ClaimSchemaV2 = z
   .object({
-    claim_id: z.string().min(1),
-    claim_type: z
-      .enum(["fact", "inference", "uncertainty"])
+    claim_id: ClaimIdSchema,
+    claim_kind: z.enum(["FACT", "EVENT", "INTERPRETATION", "RISK_FLAG"]),
+    statement: ClaimTextSchema,
+    structured_conclusion: z
+      .record(z.string().trim().min(1).max(96), ConclusionValueSchema)
+      .refine((value) => Object.keys(value).length > 0, {
+        message: "structured_conclusion must not be empty",
+      })
+      .refine((value) => Object.keys(value).length <= 12, {
+        message: "structured_conclusion must contain at most 12 scalar fields",
+      }),
+    evidence_ids: z
+      .array(z.string().min(1).max(256))
+      .min(1)
+      .max(16)
       .describe(
-        "fact and inference require at least one exact runtime evidence_id; inference also requires at least one allowed research_rule_id. Use uncertainty only for an explicit uncertainty statement.",
-      ),
-    statement: z.string().min(1),
-    structured_conclusion: z.record(z.string(), z.unknown()),
-    evidence_refs: z
-      .array(z.string().min(1))
-      .describe(
-        "Exact evidence_id values copied from the runtime-owned evidence catalog. Never invent ids. Must be non-empty for fact and inference claims.",
+        "Exact evidence_id values copied from the runtime-owned evidence catalog. Never invent ids.",
       ),
     research_rule_refs: z
-      .array(z.string().min(1))
+      .array(z.string().min(1).max(256))
+      .max(16)
       .describe(
         "Exact allowed_research_rule_ids copied from the runtime-owned catalog. Must be non-empty for inference claims.",
       ),
-    snapshot_hash: Sha256Schema,
   })
-  .strict();
+  .strict()
+  .superRefine((claim, ctx) => {
+    if (claim.claim_kind === "INTERPRETATION" && claim.research_rule_refs.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["research_rule_refs"],
+        message: "INTERPRETATION requires an allowed research rule",
+      });
+    }
+  });
 
-/** LLM-authored claim fields. Runtime owns and appends snapshot_hash. */
-export const LlmResearchClaimSchema = ResearchClaimSchema.omit({ snapshot_hash: true }).strict();
+/** One production Claim contract. Runtime lineage lives on the graph envelope. */
+export const ResearchClaimSchema = ClaimSchemaV2;
+export const LlmResearchClaimSchema = ClaimSchemaV2;
 
 export const RecommendationClaimReferenceSchema = z
   .object({
@@ -69,6 +92,7 @@ export const ClaimEvidenceGraphSchema = z
   .strict();
 
 export type EvidenceLedgerEntry = z.infer<typeof EvidenceLedgerEntrySchema>;
+export type Claim = z.infer<typeof ClaimSchemaV2>;
 export type ResearchClaim = z.infer<typeof ResearchClaimSchema>;
 export type LlmResearchClaim = z.infer<typeof LlmResearchClaimSchema>;
 export type RecommendationClaimReference = z.infer<typeof RecommendationClaimReferenceSchema>;
@@ -88,7 +112,7 @@ export function validateClaimEvidenceGraph(
     runtimeOwnedEvidenceById?: ReadonlyMap<string, EvidenceLedgerEntry>;
     allowFallbackEvidenceIds?: ReadonlySet<string>;
     requiredOutputIds?: ReadonlySet<string>;
-    allowUncertaintyOnlyOutputIds?: ReadonlySet<string>;
+    allowRiskFlagOnlyOutputIds?: ReadonlySet<string>;
     allowedResearchRuleIds?: ReadonlySet<string>;
   } = {},
 ): ClaimEvidenceGraphValidationResult {
@@ -153,13 +177,7 @@ export function validateClaimEvidenceGraph(
   }
 
   for (const claim of graph.claims) {
-    if (claim.snapshot_hash !== graph.snapshot_hash) {
-      reasons.push(`claim_snapshot_mismatch:${claim.claim_id}`);
-    }
-    if (claim.claim_type !== "uncertainty" && claim.evidence_refs.length === 0) {
-      reasons.push(`claim_evidence_required:${claim.claim_id}`);
-    }
-    if (claim.claim_type === "inference" && claim.research_rule_refs.length === 0) {
+    if (claim.claim_kind === "INTERPRETATION" && claim.research_rule_refs.length === 0) {
       reasons.push(`claim_rule_required:${claim.claim_id}`);
     }
     for (const ruleId of claim.research_rule_refs) {
@@ -167,20 +185,20 @@ export function validateClaimEvidenceGraph(
         reasons.push(`claim_unknown_research_rule_ref:${claim.claim_id}:${ruleId}`);
       }
     }
-    for (const evidenceId of claim.evidence_refs) {
+    for (const evidenceId of claim.evidence_ids) {
       const evidence = evidenceById.get(evidenceId);
       if (!evidence) {
         reasons.push(`claim_unknown_evidence_ref:${claim.claim_id}:${evidenceId}`);
         continue;
       }
       if (
-        claim.claim_type !== "uncertainty" &&
+        claim.claim_kind !== "RISK_FLAG" &&
         ["stale", "missing", "tool_failed"].includes(evidence.freshness)
       ) {
         reasons.push(`claim_unsupported_evidence:${claim.claim_id}:${evidenceId}`);
       }
       if (
-        claim.claim_type !== "uncertainty" &&
+        claim.claim_kind !== "RISK_FLAG" &&
         evidence.freshness === "fallback" &&
         !opts.allowFallbackEvidenceIds?.has(evidence.evidence_id)
       ) {
@@ -200,10 +218,10 @@ export function validateClaimEvidenceGraph(
       .filter((claim): claim is ResearchClaim => claim !== undefined);
     if (
       referencedClaims.length > 0 &&
-      referencedClaims.every((claim) => claim.claim_type === "uncertainty") &&
-      !opts.allowUncertaintyOnlyOutputIds?.has(reference.output_id)
+      referencedClaims.every((claim) => claim.claim_kind === "RISK_FLAG") &&
+      !opts.allowRiskFlagOnlyOutputIds?.has(reference.output_id)
     ) {
-      reasons.push(`output_only_uncertainty_claims:${reference.output_id}`);
+      reasons.push(`output_only_risk_flag_claims:${reference.output_id}`);
     }
   }
   if (opts.requiredOutputIds) {

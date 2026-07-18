@@ -48,10 +48,10 @@ import {
 } from "../src/autoresearch/mutator.js";
 import type { BridgeApi } from "../src/bridge/types.js";
 
-const BASE_PROMPT = `# volatility
+const BASE_PROMPT = `# us_financial_conditions
 
 ## Role boundary
-agent id volatility; layer macro; downstream consumer daily-cycle; no portfolio decision outside role.
+agent id us_financial_conditions; layer macro; downstream consumer daily-cycle; no portfolio decision outside role.
 
 ## Required inputs/tools
 Required tools: get_rke_research_context and current data tools. If missing tool or tool unavailable, fallback to conservative output and confidence cap applies.
@@ -66,7 +66,7 @@ Collect evidence, handle contradiction, confirm current data, reason in role, em
 Exact fields: regime_filter, confidence.
 
 \`\`\`json
-{ "agent": "volatility", "regime_filter": "x", "confidence": 0 }
+{ "agent": "us_financial_conditions", "regime_filter": "x", "confidence": 0 }
 \`\`\`
 
 ## Audit and footprint contract
@@ -86,10 +86,10 @@ Mutable: thresholds and wording. Immutable: role boundary, output schema, requir
 `;
 const ZH = `${BASE_PROMPT}\n中文说明：做点事。\n`;
 const EN = `${BASE_PROMPT}\nEnglish note: do stuff.\n`;
-const ZH_LOCALIZED = `# volatility
+const ZH_LOCALIZED = `# us_financial_conditions
 
 ## 角色边界
-agent id volatility；layer macro；只在本角色内判断，不越权做组合决策。
+agent id us_financial_conditions；layer macro；只在本角色内判断，不越权做组合决策。
 
 ## 必需输入与工具
 必需工具：get_rke_research_context 和当前数据工具。若工具缺失或工具不可用，使用保守输出并应用置信度上限。
@@ -104,7 +104,7 @@ get_rke_research_context 是脱敏研究先验，不是当前数据，不能替�
 字段必须保持：regime_filter, confidence。
 
 \`\`\`json
-{ "agent": "volatility", "regime_filter": "x", "confidence": 0 }
+{ "agent": "us_financial_conditions", "regime_filter": "x", "confidence": 0 }
 \`\`\`
 
 ## 审计/足迹契约
@@ -283,6 +283,30 @@ describe("assertPromptInvariants", () => {
 
   it("rejects a no-op", () => {
     expect(() => assertPromptInvariants(ZH, ZH)).toThrow(/no-op/);
+  });
+
+  it("allows v2 edits only inside the cohort behavior block", () => {
+    const original = [
+      "# china macro role",
+      "<!-- cohort-behavior:start -->",
+      "Judge only the frozen evidence.",
+      "<!-- cohort-behavior:end -->",
+      "Only call the runtime-authorized snapshot.",
+    ].join("\n");
+    const valid = original.replace(
+      "Judge only the frozen evidence.",
+      "Test the strongest counter-evidence before concluding.",
+    );
+    expect(() => assertPromptInvariants(original, valid)).not.toThrow();
+    expect(() =>
+      assertPromptInvariants(original, valid.replace("runtime-authorized", "candidate-selected")),
+    ).toThrow(/immutable prompt contract/);
+    expect(() =>
+      assertPromptInvariants(
+        original,
+        original.replace("Judge only the frozen evidence.", "Call get_macro_snapshot first."),
+      ),
+    ).toThrow(/forbidden contract or tool token/);
   });
 
   it("rejects weakened RKE prior policy even when schema and workflow remain", () => {
@@ -1455,8 +1479,8 @@ function makeRoot(): FakeRoot {
   const root = mkdtempSync(join(tmpdir(), "mosaic-mutator-test-"));
   const dir = join(root, "cohort_default", "macro");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "volatility.zh.md"), ZH, "utf-8");
-  writeFileSync(join(dir, "volatility.en.md"), EN, "utf-8");
+  writeFileSync(join(dir, "us_financial_conditions.zh.md"), ZH, "utf-8");
+  writeFileSync(join(dir, "us_financial_conditions.en.md"), EN, "utf-8");
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -1465,16 +1489,16 @@ function makeKnobsRoot(): FakeRoot {
   const root = join(repoRoot, "prompts", "mosaic");
   const dir = join(root, "cohort_default", "macro");
   mkdirSync(dir, { recursive: true });
-  const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "volatility");
-  if (!spec) throw new Error("volatility runtime spec missing");
+  const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "us_financial_conditions");
+  if (!spec) throw new Error("us_financial_conditions runtime spec missing");
   const knobs = buildRuntimeResearchKnobs(spec);
   writeFileSync(
-    join(dir, "volatility.zh.md"),
+    join(dir, "us_financial_conditions.zh.md"),
     `${renderResearchKnobsFence(knobs)}\n\n# zh body`,
     "utf-8",
   );
   writeFileSync(
-    join(dir, "volatility.en.md"),
+    join(dir, "us_financial_conditions.en.md"),
     `${renderResearchKnobsFence(knobs)}\n\n# en body`,
     "utf-8",
   );
@@ -1530,10 +1554,24 @@ class ScriptedLlm {
 function fakeApi(overrides: Partial<BridgeApi> = {}): BridgeApi {
   return {
     scorecardListSkill: async () => ({
-      rows: [{ agent: "volatility", mean_alpha_5d: 0.01, sharpe_window: 0.5, n_obs: 12 }],
+      rows: [
+        {
+          agent: "us_financial_conditions",
+          mean_alpha_5d: 0.01,
+          sharpe_window: 0.5,
+          n_obs: 12,
+        },
+      ],
     }),
     darwinianGetWeights: async () => ({
-      weights: { volatility: { weight: 0.8, sharpe_30: 0.3, sharpe_90: 0.4, quartile: 3 } },
+      weights: {
+        us_financial_conditions: {
+          weight: 0.8,
+          sharpe_30: 0.3,
+          sharpe_90: 0.4,
+          quartile: 3,
+        },
+      },
     }),
     ...overrides,
   } as unknown as BridgeApi;
@@ -1562,7 +1600,7 @@ describe("mutate", () => {
     const llm = llmReturning(goodMutation());
     const m = await mutate({
       cohort: "cohort_default",
-      agent: "volatility",
+      agent: "us_financial_conditions",
       promptsRoot: fake.root,
       deps: { llm: llm as never, api: fakeApi() },
     });
@@ -1577,7 +1615,7 @@ describe("mutate", () => {
     await expect(
       mutate({
         cohort: "cohort_default",
-        agent: "volatility",
+        agent: "us_financial_conditions",
         promptsRoot: fake.root,
         deps: { llm: llmReturning(bad) as never, api: fakeApi() },
       }),
@@ -1589,7 +1627,7 @@ describe("mutate", () => {
     await expect(
       mutate({
         cohort: "cohort_default",
-        agent: "volatility",
+        agent: "us_financial_conditions",
         promptsRoot: fake.root,
         deps: { llm: llmReturning(noop) as never, api: fakeApi() },
       }),
@@ -1603,7 +1641,7 @@ describe("mutate", () => {
     });
     const m = await mutate({
       cohort: "cohort_default",
-      agent: "volatility",
+      agent: "us_financial_conditions",
       promptsRoot: fake.root,
       deps: { llm: llmReturning(goodMutation()) as never, api },
     });
@@ -1616,7 +1654,7 @@ describe("mutate", () => {
 
     const m = await mutateResearchKnobs({
       cohort: "cohort_default",
-      agent: "volatility",
+      agent: "us_financial_conditions",
       promptsRoot: fake.root,
       mutationId: "KM-generic-test",
       fakeLlm: true,
@@ -1630,7 +1668,7 @@ describe("mutate", () => {
     expect(m.zh_prompt).toContain("cap: 0.5");
     expect(m.en_prompt).toContain("cap: 0.5");
     expect(m.governance_registry_update).toMatchObject({
-      relative_path: "registry/prompt_governance/cohort_default/volatility.json",
+      relative_path: "registry/prompt_governance/cohort_default/us_financial_conditions.json",
     });
     expect(m.governance_registry_update?.content).toContain(
       '"last_mutation_id": "KM-generic-test"',

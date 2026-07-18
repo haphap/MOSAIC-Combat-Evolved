@@ -57,7 +57,7 @@ cd mosaic-ts
 # 冒烟测试 bridge(spawn Python sidecar,列出 tools + config)
 pnpm dev bridge-ping
 
-# 用零成本 mock LLM 跑通一次完整 daily cycle(25 agents)
+# 用零成本 mock LLM 跑通一次完整 daily cycle（28 agents / 29 stages）
 pnpm dev daily-cycle --cohort cohort_default --fake-llm
 
 # 看只读仪表盘

@@ -56,67 +56,67 @@ class MacroPathOutcome:
 
 
 PRIMARY_LABEL_CONFIGS: dict[str, MacroPathLabelConfig] = {
-    "rate_sensitive_path_5d": MacroPathLabelConfig(
+    "pboc_rate_liquidity_a_share_path_5d": MacroPathLabelConfig(
         agent="central_bank",
-        label_type="rate_sensitive_path_5d",
+        label_type="pboc_rate_liquidity_a_share_path_5d",
         path_kind="relative",
         primary_symbols=("159915.SZ",),  # 创业板ETF proxy vs CSI300
         benchmark_relative=True,
         source_description="growth/rate-sensitive ETF relative to benchmark",
     ),
-    "china_growth_proxy_path_5d": MacroPathLabelConfig(
+    "china_macro_transmission_a_share_path_5d": MacroPathLabelConfig(
         agent="china",
-        label_type="china_growth_proxy_path_5d",
+        label_type="china_macro_transmission_a_share_path_5d",
         path_kind="relative",
         primary_symbols=("510500.SH",),  # 中证500ETF cyclical/growth proxy
         benchmark_relative=True,
         source_description="China growth proxy ETF relative to benchmark",
     ),
-    "us_demand_transmission_path_5d": MacroPathLabelConfig(
+    "us_economic_cycle_a_share_path_5d": MacroPathLabelConfig(
         agent="us_economy",
-        label_type="us_demand_transmission_path_5d",
+        label_type="us_economic_cycle_a_share_path_5d",
         path_kind="relative",
         primary_symbols=("513100.SH",),
         benchmark_relative=True,
         source_description="US equity demand-cycle proxy relative to CSI300",
     ),
-    "risk_off_path_5d": MacroPathLabelConfig(
+    "eu_economic_cycle_a_share_path_5d": MacroPathLabelConfig(
+        agent="eu_economy",
+        label_type="eu_economic_cycle_a_share_path_5d",
+        path_kind="relative",
+        primary_symbols=("513030.SH",),
+        benchmark_relative=True,
+        source_description="EU real-economy A-share transmission proxy",
+    ),
+    "geopolitical_transmission_a_share_path_5d": MacroPathLabelConfig(
         agent="geopolitical",
-        label_type="risk_off_path_5d",
+        label_type="geopolitical_transmission_a_share_path_5d",
         path_kind="benchmark",
         primary_symbols=(),
         source_description="benchmark drawdown path as risk-off realised path",
     ),
-    "cny_pressure_path_5d": MacroPathLabelConfig(
-        agent="dollar",
-        label_type="cny_pressure_path_5d",
+    "us_financial_conditions_a_share_path_5d": MacroPathLabelConfig(
+        agent="us_financial_conditions",
+        label_type="us_financial_conditions_a_share_path_5d",
         path_kind="proxy",
         primary_symbols=("USDCNH.FXCM",),
         orientation=-1,
         source_description="inverse USDCNH path; yuan strength is risk-on",
     ),
-    "curve_sensitive_path_5d": MacroPathLabelConfig(
-        agent="yield_curve",
-        label_type="curve_sensitive_path_5d",
+    "euro_area_financial_conditions_a_share_path_5d": MacroPathLabelConfig(
+        agent="euro_area_financial_conditions",
+        label_type="euro_area_financial_conditions_a_share_path_5d",
         path_kind="relative",
         primary_symbols=("510050.SH",),  # large-cap/rate-sensitive proxy
         benchmark_relative=True,
         source_description="rate-sensitive ETF relative to benchmark",
     ),
-    "commodity_basket_path_5d": MacroPathLabelConfig(
+    "commodity_a_share_transmission_path_5d": MacroPathLabelConfig(
         agent="commodities",
-        label_type="commodity_basket_path_5d",
+        label_type="commodity_a_share_transmission_path_5d",
         path_kind="basket",
         primary_symbols=("SC.INE", "CU.SHF", "AU.SHF", "RB.SHF", "I.DCE", "M.DCE"),
         source_description="equal-weight commodity futures basket",
-    ),
-    "volatility_shock_path_5d": MacroPathLabelConfig(
-        agent="volatility",
-        label_type="volatility_shock_path_5d",
-        path_kind="benchmark",
-        primary_symbols=(),
-        drawdown_penalty_lambda=1.5,
-        source_description="benchmark path with stronger drawdown penalty",
     ),
     "market_breadth_confirmation_5d": MacroPathLabelConfig(
         agent="market_breadth",
@@ -132,9 +132,9 @@ PRIMARY_LABEL_CONFIGS: dict[str, MacroPathLabelConfig] = {
             "A-share return relative to benchmark"
         ),
     ),
-    "flow_followthrough_path_5d": MacroPathLabelConfig(
+    "institutional_flow_followthrough_5d": MacroPathLabelConfig(
         agent="institutional_flow",
-        label_type="flow_followthrough_path_5d",
+        label_type="institutional_flow_followthrough_5d",
         path_kind="relative",
         primary_symbols=("510500.SH",),
         benchmark_relative=True,

@@ -106,11 +106,12 @@ rtk proxy env MOSAIC_TEST_LIVE_FRED=1 \
   uv run python -m pytest tests/test_fred.py -q
 ```
 
-## Prompt IR And Domain Knob Catalog
+## Runtime Domain-Knob Catalog
 
-Position-aware prompt evolution uses Prompt IR, the runtime source registry, and
-the domain knob catalog as the machine-readable authority for learnable
-parameters. Do not hand-maintain a second knob list in docs or prompts.
+The runtime source registry and domain-knob catalog remain the machine-readable
+authority for deterministic runtime policy. They are not private-prompt content
+and are not KNOT mutation targets. Do not hand-maintain a second knob list in
+docs or prompts.
 
 ```bash
 rtk pnpm --dir mosaic-ts dev prompts export-domain-knob-catalog \
@@ -205,12 +206,12 @@ Acceptance checks:
   until tool/source result fingerprints, runtime-owned evidence ids, the
   structured-extractor evidence catalog, and required action claim references
   are wired into every enabled stage;
-- private zh/en prompts have exactly one canonical `research-knobs` fence for
-  enabled agents;
+- private zh/en prompts contain no `research-knobs` fence or knob values;
+  the runtime builds the language-neutral policy projection from the public
+  contract and keeps it outside model-visible prompt text;
 - historical runtime-source aliases are rejected in production catalog files.
 
-To synchronize the private prompt repository after a catalog change, run from
-`mosaic-ts/`:
+For legacy fence cleanup and private prompt verification, run from `mosaic-ts/`:
 
 ```bash
 rtk pnpm dev prompts sync-research-knobs \
@@ -225,10 +226,18 @@ rtk pnpm dev prompts prompt-token-budget \
   --out ../.mosaic/prompt_evolution_delivery/prompt-token-budget-candidate.json
 ```
 
-The sync is idempotent. A second run must report zero updated files, and the
-checker must report 26 ready stages with no legacy stage before the prompt
-commit is published. Never stage local `mutation_patches/knob_mutations.jsonl`
-as part of this synchronization.
+The sync is idempotent and removes any legacy embedded fence. A second run must
+report zero updated files, and the checker must report 29 ready stages with no
+legacy stage before the prompt commit is published. The private repository is
+prompt-only; Prompt IR, knob registries, mutation logs, and runtime policy
+values stay in the public/runtime or operator-local stores and must not be
+committed there.
+
+Every private prompt contains exactly one `cohort-behavior` block. KNOT may
+rewrite only the prose inside that block. Role boundaries, tool contracts,
+schemas, evidence instructions, phase instructions, and all bytes outside the
+block are immutable and share one content hash across cohorts after the block is
+normalized.
 
 ## Daily-Cycle Smoke
 
@@ -357,32 +366,42 @@ Acceptance checks:
 - MiroFish remains simulation-only and cannot be the sole evidence for a
   production action.
 
-## Autoresearch Knob-Patch Smoke
+## KNOT Behavior-Mutation Smoke
 
-Use forced knob-patch mode to verify the prompt-evolution path can mutate
-position and MiroFish domain knobs without rewriting prompt prose.
+The v2 production path does not support prompt-embedded knob patches. KNOT
+proposes a minimal private prompt behavior delta, while schema, tools, phase
+instructions, component weights, and runtime research policy remain immutable.
 
 ```bash
-rtk pnpm --dir mosaic-ts dev autoresearch trigger \
-  --cohort cohort_default \
-  --agent cio \
-  --dry-run \
-  --fake-llm \
-  --mutation-mode knob_patch \
-  --eval-days 5
+rtk pnpm --dir mosaic-ts exec vitest run \
+  test/knot_contract.test.ts test/execution_behavior_release.test.ts \
+  test/mutator.test.ts
+rtk proxy env MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m pytest tests/test_knot_v2.py tests/test_knot_v2_ledgers.py -q \
+  --basetemp .mosaic/tmp/pytest-knot-v2
 ```
 
 Acceptance checks:
 
-- the mutation result is `dry_run`, not `error`;
-- the patch summary names an allow-listed domain knob path such as
-  `/learnable_parameters/stop_loss_pct/value` or
-  `/learnable_parameters/mirofish_override_hurdle/value`;
-- no branch, commit, prompt-version row, or prompt-file write is created in
-  dry-run mode;
-- baseline prompts without `research-knobs` fences are bootstrapped from the
-  runtime spec and domain knob catalog, while mixed or duplicate fences still
-  fail closed.
+- champion and candidate bind the same production variant, frozen root bundle,
+  opportunity set, structured-output schema set, and immutable phase instructions;
+- only the candidate prompt behavior version changes;
+- the execution behavior version stays unchanged for a prompt-only candidate;
+- scope-local nomination, layer quota, active-candidate and rollback-cooldown
+  state are keyed by production variant and frozen in an append-only audit;
+- a mutation targeting multiple cohort/language variants publishes every
+  promotion revision and the batch audit in one SQLite savepoint, or publishes
+  none; the champion binding is cross-checked against the active public
+  execution-release catalog;
+- the first 20 mature post-promotion pairs either retain the candidate or
+  publish a prospective rollback; any hard contract/privacy failure rolls back
+  immediately and starts the fixed cooldown;
+- paired research outcomes and operational audits stay outside production
+  Darwinian maturity and usage-weight queries;
+- no `research-knobs` fence, knob value, mutation threshold, or score formula is
+  written into a private or bundled prompt.
+- the legacy Delta-Sharpe path returns `legacy_unverified`; it cannot keep,
+  merge, or publish a v2 prompt.
 
 Governed evaluation and runtime evidence checks are method-specific:
 
@@ -478,14 +497,14 @@ Required warning labels must remain literal:
 
 ## Migration Checklist
 
-1. Keep old prompt text and output schema names intact while adding
-   position-aware optional fields to CIO portfolio actions.
-2. Generate or validate `research-knobs` from Prompt IR and the domain knob
-   catalog; do not hand-maintain a second authority.
+1. Regenerate all 448 bilingual prompt variants from the 28-Agent contract and
+   publish them through one execution-behavior release.
+2. Generate and validate runtime research policy from Prompt IR and the domain
+   knob catalog; never embed that policy or its values in prompt prose.
 3. Reject historical runtime-source aliases in production catalog files. Use a
    one-shot migration adapter only for old inputs.
-4. Confirm private zh/en prompts have exactly one `research-knobs` fence each and
-   canonical knob parity.
+4. Confirm private zh/en prompts have no `research-knobs` fence, correct
+   language, immutable contract parity, and distinct cohort behavior blocks.
 5. Confirm scorecard migration columns exist in the local SQLite DB:
    `current_weight_pct`, `delta_weight_pct`, `position_decision`,
    `position_decision_reason`, `thesis_status`, `risk_flags_json`, and
@@ -593,7 +612,7 @@ runner, not the source head shown on the PR page.
 The committed
 `registry/prompt_checks/prompt_evolution_performance_budget_v1.json` applies
 the 1.5x regression rule and absolute caps to the focused schema check, full
-schema artifact file, and 25-agent bundled checker. A dedicated pytest fixture
+schema artifact file, and 28-Agent/29-stage bundled checker. A dedicated pytest fixture
 copy test enforces public-registry bytes/files caps and rejects private PDF,
 Markdown, and MinerU cache prefixes. Any command, performance, input hash,
 commit, tree, or CI context drift invalidates the artifact.

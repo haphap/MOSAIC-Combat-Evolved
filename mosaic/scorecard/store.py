@@ -4,7 +4,7 @@ State → row expansion convention (Plan §11.3 3A design decisions):
 
     Layer 1 (10 macro agents)  → not persisted (no ticker; regime signals
                                   are inputs, not predictions).
-    Layer 2 (7 sector agents)  → 1 row per longs[] entry; shorts dropped
+    Layer 2 (10 sector agents) → 1 row per accepted security pick
                                   (A-share short-selling not viable).
                                   target_weight_pct = conviction × 100.
     Layer 3 (4 superinvestors) → 1 row per picks[] entry.
@@ -30,9 +30,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional, Sequence
+
+from mosaic.scorecard.macro_aggregation import MACRO_AGENTS as MACRO_AGENT_ORDER
 
 logger = logging.getLogger(__name__)
+
+# The v3 runtime has 28 logical agents and 29 accepted stages because CIO
+# executes distinct proposal and final stages.  Keep the audit cardinality in
+# one Python-side contract so bridge handlers and persistence cannot drift.
+RUNTIME_AGENT_STAGE_COUNT = 29
 
 # Resolve <repoRoot>/data/scorecard.db at import time.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -400,6 +407,750 @@ CREATE TABLE IF NOT EXISTS macro_label_sources (
     updated_at TEXT,
     PRIMARY KEY(agent, label_type)
 );
+
+-- Macro Agent role-contracts v2: namespace-safe append-only Darwinian ledgers.
+-- The legacy darwinian_weights table remains readable for historical audits,
+-- but production v2 readers use only the tables below.
+CREATE TABLE IF NOT EXISTS darwinian_v2_evaluation_tracks (
+    track_key_hash TEXT PRIMARY KEY,
+    production_variant_roster_id TEXT NOT NULL,
+    first_registered_roster_revision_id TEXT NOT NULL,
+    cohort_id TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    agent_id TEXT NOT NULL,
+    darwin_application_mode TEXT NOT NULL CHECK(
+        darwin_application_mode IN ('DOWNSTREAM_USAGE_WEIGHT', 'EVOLUTION_ONLY')
+    ),
+    agent_contract_version TEXT NOT NULL,
+    prompt_behavior_version TEXT NOT NULL,
+    execution_behavior_version TEXT NOT NULL,
+    component_weight_contract_version TEXT,
+    reliability_adapter_contract_version TEXT,
+    confidence_semantics_contract_version TEXT,
+    outcome_contract_version TEXT NOT NULL,
+    scoring_contract_version TEXT NOT NULL,
+    sample_schedule_contract_version TEXT NOT NULL,
+    rank_scope_contract_version TEXT NOT NULL,
+    rank_scope TEXT NOT NULL,
+    primary_label_id TEXT NOT NULL,
+    contract_json TEXT NOT NULL,
+    registered_at TEXT NOT NULL,
+    UNIQUE(
+        production_variant_roster_id, cohort_id, language, agent_id,
+        agent_contract_version, prompt_behavior_version, execution_behavior_version,
+        component_weight_contract_version, reliability_adapter_contract_version,
+        confidence_semantics_contract_version, outcome_contract_version,
+        scoring_contract_version, sample_schedule_contract_version,
+        rank_scope_contract_version, rank_scope, primary_label_id,
+        darwin_application_mode
+    )
+);
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_usage_tracks (
+    usage_track_key_hash TEXT PRIMARY KEY,
+    production_variant_roster_id TEXT NOT NULL,
+    evaluation_track_key_hash TEXT NOT NULL UNIQUE REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    registered_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_production_variant_roster_revisions (
+    production_variant_roster_revision_id TEXT PRIMARY KEY,
+    production_variant_roster_revision_hash TEXT NOT NULL UNIQUE,
+    production_variant_roster_id TEXT NOT NULL,
+    execution_behavior_release_id TEXT NOT NULL,
+    cohort_id TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    evaluation_track_key_hashes_json TEXT NOT NULL,
+    usage_track_key_hashes_json TEXT NOT NULL,
+    decision_evaluation_track_key_hashes_json TEXT NOT NULL,
+    readiness TEXT NOT NULL CHECK(readiness IN ('READY', 'REJECTED')),
+    effective_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_darwin_v2_roster_effective
+    ON darwinian_v2_production_variant_roster_revisions(
+        production_variant_roster_id, effective_at
+    );
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_usage_weight_records (
+    weight_record_id TEXT PRIMARY KEY,
+    weight_record_hash TEXT NOT NULL UNIQUE,
+    usage_track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_usage_tracks(usage_track_key_hash),
+    record_kind TEXT NOT NULL CHECK(record_kind IN ('COLD_START_INITIALIZATION', 'MATURE_UPDATE')),
+    darwin_weight REAL NOT NULL CHECK(darwin_weight >= 0.3 AND darwin_weight <= 2.5),
+    previous_weight_record_id TEXT REFERENCES darwinian_v2_usage_weight_records(weight_record_id),
+    n_eligible_scores INTEGER NOT NULL CHECK(n_eligible_scores >= 0),
+    scoring_window_hash TEXT NOT NULL,
+    update_event_id TEXT,
+    effective_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(usage_track_key_hash, record_kind, update_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_darwin_v2_weight_effective
+    ON darwinian_v2_usage_weight_records(usage_track_key_hash, effective_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_darwin_v2_one_cold_start
+    ON darwinian_v2_usage_weight_records(usage_track_key_hash)
+    WHERE record_kind = 'COLD_START_INITIALIZATION';
+
+CREATE TABLE IF NOT EXISTS accepted_agent_outputs_v2 (
+    accepted_output_id TEXT PRIMARY KEY,
+    accepted_output_hash TEXT NOT NULL UNIQUE,
+    graph_run_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    run_slot_id TEXT NOT NULL,
+    operational_opportunity_audit_id TEXT NOT NULL,
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL REFERENCES darwinian_v2_production_variant_roster_revisions(production_variant_roster_revision_id),
+    execution_behavior_release_id TEXT NOT NULL,
+    cohort_id TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    accepted_output_kind TEXT NOT NULL,
+    sample_origin TEXT NOT NULL CHECK(sample_origin IN (
+        'PRODUCTION_ACTIVE', 'KNOT_RESEARCH_SHADOW',
+        'KNOT_POST_PROMOTION_CHAMPION_SHADOW', 'KNOT_CONTROL_SHADOW'
+    )),
+    run_slot_kind TEXT NOT NULL CHECK(run_slot_kind IN ('OUTCOME_SCHEDULED', 'DOWNSTREAM_ONLY')),
+    scheduled_sample_id TEXT,
+    as_of TEXT NOT NULL,
+    accepted_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(operational_opportunity_audit_id, accepted_output_kind)
+);
+
+CREATE TABLE IF NOT EXISTS operational_opportunity_audits_v2 (
+    operational_opportunity_audit_id TEXT PRIMARY KEY,
+    operational_opportunity_audit_hash TEXT NOT NULL UNIQUE,
+    graph_run_id TEXT NOT NULL,
+    run_slot_id TEXT NOT NULL,
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL REFERENCES darwinian_v2_production_variant_roster_revisions(production_variant_roster_revision_id),
+    execution_behavior_release_id TEXT NOT NULL,
+    cohort_id TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    agent_id TEXT NOT NULL,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    sample_origin TEXT NOT NULL,
+    run_slot_kind TEXT NOT NULL CHECK(run_slot_kind IN ('OUTCOME_SCHEDULED', 'DOWNSTREAM_ONLY')),
+    scheduled_sample_id TEXT,
+    production_reliability_eligible INTEGER NOT NULL CHECK(production_reliability_eligible IN (0, 1)),
+    disposition TEXT NOT NULL CHECK(disposition IN (
+        'ACCEPTED', 'AGENT_FAILURE', 'EXOGENOUS_EXCLUSION',
+        'NO_EVALUATION_OBJECT', 'DEPENDENCY_BLOCKED'
+    )),
+    accountable INTEGER NOT NULL CHECK(accountable IN (0, 1)),
+    run_id TEXT,
+    accepted_output_id TEXT REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    failure_reason TEXT,
+    fallback_used INTEGER NOT NULL CHECK(fallback_used IN (0, 1)),
+    as_of TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_operational_v2_reliability
+    ON operational_opportunity_audits_v2(
+        track_key_hash, production_reliability_eligible, accountable, recorded_at
+    );
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_operational_reliability_records (
+    reliability_record_id TEXT PRIMARY KEY,
+    reliability_record_hash TEXT NOT NULL UNIQUE,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    cutoff_at TEXT NOT NULL,
+    window_size INTEGER NOT NULL CHECK(window_size >= 0 AND window_size <= 30),
+    accepted_count INTEGER NOT NULL CHECK(accepted_count >= 0),
+    accountable_count INTEGER NOT NULL CHECK(accountable_count >= 0),
+    operational_reliability REAL NOT NULL CHECK(operational_reliability >= 0 AND operational_reliability <= 1),
+    reliability_state TEXT NOT NULL CHECK(reliability_state IN ('COLD_START', 'OBSERVED')),
+    opportunity_set_hash TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(track_key_hash, cutoff_at, opportunity_set_hash)
+);
+
+CREATE TABLE IF NOT EXISTS agent_outcome_eligibility_revisions_v2 (
+    audit_revision_id TEXT PRIMARY KEY,
+    audit_revision_hash TEXT NOT NULL UNIQUE,
+    audit_id TEXT NOT NULL,
+    supersedes_revision_id TEXT REFERENCES agent_outcome_eligibility_revisions_v2(audit_revision_id),
+    scheduled_sample_id TEXT NOT NULL,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    sample_origin TEXT NOT NULL,
+    research_pair_side TEXT CHECK(research_pair_side IN ('CHAMPION', 'CANDIDATE')),
+    disposition TEXT NOT NULL CHECK(disposition IN (
+        'PENDING', 'SCORE', 'AGENT_FAILURE', 'EXOGENOUS_EXCLUSION'
+    )),
+    accepted_output_id TEXT REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    opportunity_set_status TEXT NOT NULL CHECK(opportunity_set_status IN ('AVAILABLE', 'UNAVAILABLE')),
+    audit_sequence INTEGER NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(audit_id, audit_sequence)
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_opportunity_sets_v2 (
+    evaluation_opportunity_set_id TEXT PRIMARY KEY,
+    evaluation_opportunity_set_hash TEXT NOT NULL UNIQUE,
+    scheduled_sample_id TEXT NOT NULL UNIQUE,
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL REFERENCES darwinian_v2_production_variant_roster_revisions(production_variant_roster_revision_id),
+    execution_behavior_release_id TEXT NOT NULL,
+    cohort_id TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    sample_origin TEXT NOT NULL,
+    opportunity_set_status TEXT NOT NULL CHECK(opportunity_set_status IN ('AVAILABLE', 'UNAVAILABLE')),
+    member_state TEXT CHECK(member_state IN ('NON_EMPTY', 'EMPTY')),
+    frozen_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outcome_schedule_plans_v2 (
+    outcome_schedule_plan_id TEXT PRIMARY KEY,
+    outcome_schedule_plan_hash TEXT NOT NULL UNIQUE,
+    graph_run_id TEXT NOT NULL UNIQUE,
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL REFERENCES darwinian_v2_production_variant_roster_revisions(production_variant_roster_revision_id),
+    execution_behavior_release_id TEXT NOT NULL,
+    cohort_id TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    trading_calendar_id TEXT NOT NULL,
+    trading_calendar_snapshot_hash TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    prepared_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outcome_schedule_slots_v2 (
+    outcome_schedule_slot_id TEXT PRIMARY KEY,
+    outcome_schedule_slot_hash TEXT NOT NULL UNIQUE,
+    outcome_schedule_plan_id TEXT NOT NULL REFERENCES outcome_schedule_plans_v2(outcome_schedule_plan_id),
+    graph_run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    run_slot_id TEXT NOT NULL,
+    run_slot_kind TEXT NOT NULL CHECK(run_slot_kind IN ('OUTCOME_SCHEDULED', 'DOWNSTREAM_ONLY')),
+    scheduled_sample_id TEXT UNIQUE,
+    trigger_event_id TEXT,
+    record_json TEXT NOT NULL,
+    UNIQUE(outcome_schedule_plan_id, agent_id),
+    UNIQUE(graph_run_id, run_slot_id)
+);
+
+CREATE TABLE IF NOT EXISTS outcome_event_schedule_decisions_v2 (
+    event_schedule_decision_id TEXT PRIMARY KEY,
+    event_schedule_decision_hash TEXT NOT NULL UNIQUE,
+    outcome_schedule_plan_id TEXT NOT NULL REFERENCES outcome_schedule_plans_v2(outcome_schedule_plan_id),
+    outcome_schedule_slot_id TEXT NOT NULL REFERENCES outcome_schedule_slots_v2(outcome_schedule_slot_id),
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    causal_dedupe_key TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK(disposition IN ('SELECTED', 'OVERLAPPING_WINDOW')),
+    record_json TEXT NOT NULL,
+    UNIQUE(track_key_hash, event_id),
+    UNIQUE(track_key_hash, causal_dedupe_key)
+);
+
+CREATE TABLE IF NOT EXISTS evaluation_opportunity_set_generation_failures_v2 (
+    generation_attempt_id TEXT PRIMARY KEY,
+    generation_attempt_hash TEXT NOT NULL UNIQUE,
+    outcome_schedule_plan_id TEXT NOT NULL REFERENCES outcome_schedule_plans_v2(outcome_schedule_plan_id),
+    outcome_schedule_slot_id TEXT NOT NULL UNIQUE REFERENCES outcome_schedule_slots_v2(outcome_schedule_slot_id),
+    scheduled_sample_id TEXT NOT NULL UNIQUE,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    attempted_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS no_evaluation_object_stage_skips_v2 (
+    stage_skip_id TEXT PRIMARY KEY,
+    stage_skip_hash TEXT NOT NULL UNIQUE,
+    graph_run_id TEXT NOT NULL,
+    outcome_schedule_plan_id TEXT NOT NULL REFERENCES outcome_schedule_plans_v2(outcome_schedule_plan_id),
+    outcome_schedule_slot_id TEXT NOT NULL UNIQUE REFERENCES outcome_schedule_slots_v2(outcome_schedule_slot_id),
+    scheduled_sample_id TEXT NOT NULL UNIQUE,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL CHECK(agent_id IN (
+        'druckenmiller', 'munger', 'burry', 'ackman',
+        'cro', 'alpha_discovery', 'autonomous_execution'
+    )),
+    evaluation_opportunity_set_id TEXT NOT NULL UNIQUE REFERENCES evaluation_opportunity_sets_v2(evaluation_opportunity_set_id),
+    eligibility_audit_revision_id TEXT NOT NULL UNIQUE REFERENCES agent_outcome_eligibility_revisions_v2(audit_revision_id),
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS realized_outcome_observations_v2 (
+    realized_outcome_observation_id TEXT PRIMARY KEY,
+    realized_outcome_observation_hash TEXT NOT NULL UNIQUE,
+    scheduled_sample_id TEXT NOT NULL,
+    evaluation_opportunity_set_id TEXT NOT NULL REFERENCES evaluation_opportunity_sets_v2(evaluation_opportunity_set_id),
+    agent_id TEXT NOT NULL,
+    outcome_due_at TEXT NOT NULL,
+    matured_at TEXT NOT NULL,
+    source_evidence_hash TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(scheduled_sample_id, realized_outcome_observation_hash)
+);
+
+CREATE TABLE IF NOT EXISTS agent_outcome_labels_v2 (
+    outcome_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    outcome_label_id TEXT NOT NULL UNIQUE,
+    outcome_label_hash TEXT NOT NULL UNIQUE,
+    audit_revision_id TEXT NOT NULL UNIQUE REFERENCES agent_outcome_eligibility_revisions_v2(audit_revision_id),
+    scheduled_sample_id TEXT NOT NULL,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    primary_label_id TEXT NOT NULL,
+    sample_origin TEXT NOT NULL,
+    darwin_evaluation_eligible INTEGER NOT NULL CHECK(darwin_evaluation_eligible IN (0, 1)),
+    usage_weight_eligible INTEGER NOT NULL CHECK(usage_weight_eligible IN (0, 1)),
+    normalized_score REAL NOT NULL CHECK(normalized_score >= -1 AND normalized_score <= 1),
+    outcome_due_at TEXT NOT NULL,
+    matured_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_outcome_labels_v2_track_sequence
+    ON agent_outcome_labels_v2(track_key_hash, outcome_sequence);
+
+CREATE TABLE IF NOT EXISTS component_calibration_signals_v2 (
+    component_calibration_signal_id TEXT PRIMARY KEY,
+    component_calibration_signal_hash TEXT NOT NULL UNIQUE,
+    accepted_output_id TEXT NOT NULL REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    operational_opportunity_audit_id TEXT NOT NULL REFERENCES operational_opportunity_audits_v2(operational_opportunity_audit_id),
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL,
+    execution_behavior_release_id TEXT NOT NULL,
+    cohort_id TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('en', 'zh')),
+    calibration_sample_role TEXT NOT NULL CHECK(calibration_sample_role IN ('FIT_REFERENCE', 'CROSS_VARIANT_DIAGNOSTIC')),
+    agent_id TEXT NOT NULL,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    component TEXT NOT NULL,
+    scheduled_sample_id TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    outcome_due_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(accepted_output_id, component)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_component_calibration_reference_agent_asof_component
+    ON component_calibration_signals_v2(agent_id, as_of, component)
+    WHERE calibration_sample_role = 'FIT_REFERENCE';
+
+CREATE TABLE IF NOT EXISTS component_calibration_candidates_v2 (
+    component_calibration_candidate_id TEXT PRIMARY KEY,
+    component_calibration_candidate_hash TEXT NOT NULL UNIQUE,
+    agent_id TEXT NOT NULL,
+    previous_component_weight_contract_version TEXT NOT NULL,
+    calibration_contract_version TEXT NOT NULL,
+    calibration_solver_version TEXT NOT NULL,
+    calibration_half_year_slot TEXT NOT NULL,
+    cutoff_at TEXT NOT NULL,
+    fit_sample_count INTEGER NOT NULL CHECK(fit_sample_count >= 0),
+    candidate_status TEXT NOT NULL CHECK(candidate_status IN (
+        'HELD_INSUFFICIENT_SAMPLES', 'HELD_INSUFFICIENT_FOLDS',
+        'REJECTED_GATES', 'SHADOW_CANDIDATE'
+    )),
+    candidate_weight_set_hash TEXT,
+    record_json TEXT NOT NULL,
+    UNIQUE(agent_id, calibration_half_year_slot)
+);
+
+CREATE TABLE IF NOT EXISTS component_calibration_shadow_evaluations_v2 (
+    component_calibration_shadow_evaluation_id TEXT PRIMARY KEY,
+    component_calibration_shadow_evaluation_hash TEXT NOT NULL UNIQUE,
+    component_calibration_candidate_id TEXT NOT NULL REFERENCES component_calibration_candidates_v2(component_calibration_candidate_id),
+    accepted_output_id TEXT NOT NULL REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    outcome_label_id TEXT NOT NULL REFERENCES agent_outcome_labels_v2(outcome_label_id),
+    production_variant_roster_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    regime TEXT NOT NULL CHECK(regime IN ('NORMAL', 'STRESS')),
+    current_loss REAL NOT NULL CHECK(current_loss >= 0),
+    candidate_loss REAL NOT NULL CHECK(candidate_loss >= 0),
+    record_json TEXT NOT NULL,
+    UNIQUE(component_calibration_candidate_id, accepted_output_id)
+);
+
+CREATE TABLE IF NOT EXISTS component_calibration_shadow_checkpoints_v2 (
+    component_calibration_shadow_checkpoint_id TEXT PRIMARY KEY,
+    component_calibration_shadow_checkpoint_hash TEXT NOT NULL UNIQUE,
+    component_calibration_candidate_id TEXT NOT NULL REFERENCES component_calibration_candidates_v2(component_calibration_candidate_id),
+    agent_id TEXT NOT NULL,
+    cutoff_at TEXT NOT NULL,
+    new_shadow_sample_count INTEGER NOT NULL CHECK(new_shadow_sample_count >= 0),
+    checkpoint_status TEXT NOT NULL CHECK(checkpoint_status IN (
+        'HELD_INSUFFICIENT_SAMPLES', 'REJECTED_GATES', 'PROMOTION_ELIGIBLE'
+    )),
+    record_json TEXT NOT NULL,
+    UNIQUE(component_calibration_candidate_id, cutoff_at)
+);
+
+CREATE TABLE IF NOT EXISTS component_weight_release_revisions_v2 (
+    component_weight_release_revision_id TEXT PRIMARY KEY,
+    component_weight_release_revision_hash TEXT NOT NULL UNIQUE,
+    agent_id TEXT NOT NULL,
+    release_sequence INTEGER NOT NULL CHECK(release_sequence >= 1),
+    supersedes_revision_id TEXT REFERENCES component_weight_release_revisions_v2(component_weight_release_revision_id),
+    action TEXT NOT NULL CHECK(action IN ('PUBLISH', 'ROLLBACK')),
+    component_calibration_candidate_id TEXT REFERENCES component_calibration_candidates_v2(component_calibration_candidate_id),
+    component_calibration_shadow_checkpoint_id TEXT REFERENCES component_calibration_shadow_checkpoints_v2(component_calibration_shadow_checkpoint_id),
+    previous_component_weight_contract_version TEXT NOT NULL,
+    target_component_weight_contract_version TEXT NOT NULL,
+    effective_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(agent_id, release_sequence),
+    UNIQUE(agent_id, effective_at)
+);
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_usage_weight_update_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    checkpoint_hash TEXT NOT NULL UNIQUE,
+    usage_track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_usage_tracks(usage_track_key_hash),
+    production_variant_roster_revision_id TEXT NOT NULL,
+    rank_scope TEXT NOT NULL,
+    update_slot_id TEXT NOT NULL,
+    update_disposition TEXT NOT NULL CHECK(update_disposition IN (
+        'UPDATED', 'HELD_INSUFFICIENT_WINDOW',
+        'HELD_INSUFFICIENT_PEERS', 'NO_NEW_OUTCOME'
+    )),
+    max_consumed_outcome_sequence INTEGER NOT NULL CHECK(max_consumed_outcome_sequence >= 0),
+    update_event_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(usage_track_key_hash, update_slot_id, update_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_usage_weight_batch_revisions (
+    batch_revision_id TEXT PRIMARY KEY,
+    batch_revision_hash TEXT NOT NULL UNIQUE,
+    update_event_id TEXT NOT NULL,
+    supersedes_revision_id TEXT REFERENCES darwinian_v2_usage_weight_batch_revisions(batch_revision_id),
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL,
+    rank_scope TEXT NOT NULL,
+    update_slot_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('PREPARED', 'PUBLISHED', 'ABORTED')),
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(update_event_id, status)
+);
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_usage_weight_snapshots (
+    darwinian_snapshot_id TEXT PRIMARY KEY,
+    darwinian_snapshot_hash TEXT NOT NULL UNIQUE,
+    update_event_id TEXT NOT NULL,
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL,
+    rank_scope TEXT NOT NULL,
+    update_slot_id TEXT NOT NULL,
+    effective_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(update_event_id, rank_scope)
+);
+
+CREATE TABLE IF NOT EXISTS darwinian_v2_evaluation_window_checkpoints (
+    evaluation_checkpoint_id TEXT PRIMARY KEY,
+    evaluation_checkpoint_hash TEXT NOT NULL UNIQUE,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    production_variant_roster_revision_id TEXT NOT NULL,
+    rank_scope TEXT NOT NULL,
+    cutoff_at TEXT NOT NULL,
+    maturity_state TEXT NOT NULL CHECK(maturity_state IN ('COLD_START', 'MATURE')),
+    performance_band TEXT CHECK(performance_band IN ('Q1', 'Q2', 'Q3', 'Q4')),
+    n_eligible_scores INTEGER NOT NULL CHECK(n_eligible_scores >= 0),
+    window_coverage REAL NOT NULL CHECK(window_coverage >= 0 AND window_coverage <= 1),
+    mean_normalized_score REAL,
+    scoring_window_hash TEXT NOT NULL,
+    max_consumed_outcome_sequence INTEGER NOT NULL CHECK(max_consumed_outcome_sequence >= 0),
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(track_key_hash, cutoff_at, scoring_window_hash)
+);
+
+CREATE TABLE IF NOT EXISTS knot_nomination_audits_v2 (
+    knot_nomination_audit_id TEXT PRIMARY KEY,
+    knot_nomination_audit_hash TEXT NOT NULL UNIQUE,
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL REFERENCES darwinian_v2_production_variant_roster_revisions(production_variant_roster_revision_id),
+    research_slot_id TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK(disposition IN (
+        'NOMINATED', 'NO_RESEARCH_NOMINATION', 'LAYER_QUOTA_BLOCKED'
+    )),
+    selected_scope_id TEXT,
+    selected_track_key_hash TEXT REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    selected_agent_id TEXT,
+    scheduler_contract_hash TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(production_variant_roster_id, research_slot_id)
+);
+
+CREATE TABLE IF NOT EXISTS knot_research_tracks_v2 (
+    knot_research_track_id TEXT PRIMARY KEY,
+    knot_research_track_hash TEXT NOT NULL UNIQUE,
+    production_variant_roster_id TEXT NOT NULL,
+    production_variant_roster_revision_id TEXT NOT NULL REFERENCES darwinian_v2_production_variant_roster_revisions(production_variant_roster_revision_id),
+    target_evaluation_track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL,
+    mutation_manifest_id TEXT NOT NULL,
+    mutation_manifest_hash TEXT NOT NULL,
+    champion_prompt_behavior_version TEXT NOT NULL,
+    candidate_prompt_behavior_version TEXT NOT NULL,
+    champion_execution_behavior_version TEXT NOT NULL,
+    candidate_execution_behavior_version TEXT NOT NULL,
+    knot_runtime_contract_manifest_hash TEXT NOT NULL,
+    research_score_contract_hash TEXT NOT NULL,
+    scheduler_contract_hash TEXT NOT NULL,
+    maximum_research_slots INTEGER NOT NULL CHECK(maximum_research_slots >= 30),
+    created_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(production_variant_roster_id, target_evaluation_track_key_hash, mutation_manifest_hash)
+);
+
+CREATE TABLE IF NOT EXISTS knot_pair_input_sets_v2 (
+    knot_pair_id TEXT PRIMARY KEY,
+    knot_pair_input_hash TEXT NOT NULL UNIQUE,
+    knot_research_track_id TEXT NOT NULL REFERENCES knot_research_tracks_v2(knot_research_track_id),
+    pair_sequence INTEGER NOT NULL CHECK(pair_sequence >= 1),
+    research_slot_id TEXT NOT NULL,
+    scheduled_sample_id TEXT NOT NULL,
+    evaluation_opportunity_set_id TEXT NOT NULL REFERENCES evaluation_opportunity_sets_v2(evaluation_opportunity_set_id),
+    snapshot_bundle_id TEXT NOT NULL,
+    snapshot_bundle_hash TEXT NOT NULL,
+    runtime_input_hash TEXT NOT NULL,
+    frozen_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(knot_research_track_id, pair_sequence),
+    UNIQUE(knot_research_track_id, research_slot_id),
+    UNIQUE(knot_research_track_id, scheduled_sample_id)
+);
+
+CREATE TABLE IF NOT EXISTS knot_research_score_records_v2 (
+    knot_research_score_record_id TEXT PRIMARY KEY,
+    knot_research_score_record_hash TEXT NOT NULL UNIQUE,
+    knot_pair_id TEXT NOT NULL REFERENCES knot_pair_input_sets_v2(knot_pair_id),
+    pair_side TEXT NOT NULL CHECK(pair_side IN ('CHAMPION', 'CANDIDATE')),
+    agent_id TEXT NOT NULL,
+    score_disposition TEXT NOT NULL CHECK(score_disposition IN ('SCORE', 'AGENT_FAILURE')),
+    outcome_label_id TEXT REFERENCES agent_outcome_labels_v2(outcome_label_id),
+    operational_opportunity_audit_id TEXT REFERENCES operational_opportunity_audits_v2(operational_opportunity_audit_id),
+    sector_inference_cost_audit_hash TEXT,
+    raw_research_score REAL NOT NULL CHECK(raw_research_score >= -2 AND raw_research_score <= 1),
+    sector_cost_adjusted_score REAL,
+    research_comparison_score REAL NOT NULL CHECK(research_comparison_score >= -2 AND research_comparison_score <= 1),
+    research_score_contract_hash TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(knot_pair_id, pair_side)
+);
+
+CREATE TABLE IF NOT EXISTS knot_pairing_audits_v2 (
+    knot_pairing_audit_id TEXT PRIMARY KEY,
+    knot_pairing_audit_hash TEXT NOT NULL UNIQUE,
+    knot_pair_id TEXT NOT NULL UNIQUE REFERENCES knot_pair_input_sets_v2(knot_pair_id),
+    knot_research_track_id TEXT NOT NULL REFERENCES knot_research_tracks_v2(knot_research_track_id),
+    pair_sequence INTEGER NOT NULL,
+    pair_disposition TEXT NOT NULL CHECK(pair_disposition IN (
+        'ACCOUNTABLE', 'EXOGENOUS_EXCLUSION', 'DEPENDENCY_BLOCKED', 'CONTRACT_FAILURE'
+    )),
+    champion_score_record_id TEXT REFERENCES knot_research_score_records_v2(knot_research_score_record_id),
+    candidate_score_record_id TEXT REFERENCES knot_research_score_records_v2(knot_research_score_record_id),
+    exclusion_or_failure_reason TEXT,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS knot_control_stage_skips_v2 (
+    stage_skip_id TEXT PRIMARY KEY,
+    stage_skip_hash TEXT NOT NULL UNIQUE,
+    knot_pair_id TEXT NOT NULL REFERENCES knot_pair_input_sets_v2(knot_pair_id),
+    control_side TEXT NOT NULL CHECK(control_side IN ('SHARED', 'CHAMPION', 'CANDIDATE')),
+    graph_run_id TEXT NOT NULL,
+    run_slot_id TEXT NOT NULL UNIQUE,
+    track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
+    agent_id TEXT NOT NULL CHECK(agent_id IN (
+        'alpha_discovery', 'cro', 'autonomous_execution'
+    )),
+    operational_opportunity_audit_id TEXT NOT NULL UNIQUE REFERENCES operational_opportunity_audits_v2(operational_opportunity_audit_id),
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(knot_pair_id, control_side, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS knot_promotion_revisions_v2 (
+    knot_promotion_revision_id TEXT PRIMARY KEY,
+    knot_promotion_revision_hash TEXT NOT NULL UNIQUE,
+    knot_research_track_id TEXT NOT NULL REFERENCES knot_research_tracks_v2(knot_research_track_id),
+    promotion_sequence INTEGER NOT NULL CHECK(promotion_sequence >= 1),
+    supersedes_revision_id TEXT REFERENCES knot_promotion_revisions_v2(knot_promotion_revision_id),
+    disposition TEXT NOT NULL CHECK(disposition IN ('PROMOTE', 'REJECT', 'ROLLBACK')),
+    effective_from_research_slot_id TEXT,
+    new_execution_behavior_release_id TEXT,
+    new_production_variant_roster_revision_id TEXT,
+    knot_runtime_contract_manifest_hash TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(knot_research_track_id, promotion_sequence)
+);
+
+CREATE TABLE IF NOT EXISTS knot_promotion_batches_v2 (
+    knot_promotion_batch_id TEXT PRIMARY KEY,
+    knot_promotion_batch_hash TEXT NOT NULL UNIQUE,
+    mutation_manifest_id TEXT NOT NULL,
+    mutation_target_set_hash TEXT NOT NULL,
+    target_count INTEGER NOT NULL CHECK(target_count >= 1),
+    effective_from_research_slot_id TEXT NOT NULL,
+    new_execution_behavior_release_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+-- Immutability is enforced by SQLite itself, not by caller convention.
+CREATE TRIGGER IF NOT EXISTS no_update_darwinian_v2_evaluation_tracks
+BEFORE UPDATE ON darwinian_v2_evaluation_tracks BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwinian_v2_evaluation_tracks
+BEFORE DELETE ON darwinian_v2_evaluation_tracks BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwinian_v2_usage_tracks
+BEFORE UPDATE ON darwinian_v2_usage_tracks BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwinian_v2_usage_tracks
+BEFORE DELETE ON darwinian_v2_usage_tracks BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwinian_v2_roster_revisions
+BEFORE UPDATE ON darwinian_v2_production_variant_roster_revisions BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwinian_v2_roster_revisions
+BEFORE DELETE ON darwinian_v2_production_variant_roster_revisions BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwinian_v2_weight_records
+BEFORE UPDATE ON darwinian_v2_usage_weight_records BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwinian_v2_weight_records
+BEFORE DELETE ON darwinian_v2_usage_weight_records BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_accepted_agent_outputs_v2
+BEFORE UPDATE ON accepted_agent_outputs_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_accepted_agent_outputs_v2
+BEFORE DELETE ON accepted_agent_outputs_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_operational_audits_v2
+BEFORE UPDATE ON operational_opportunity_audits_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_operational_audits_v2
+BEFORE DELETE ON operational_opportunity_audits_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_operational_reliability_v2
+BEFORE UPDATE ON darwinian_v2_operational_reliability_records BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_operational_reliability_v2
+BEFORE DELETE ON darwinian_v2_operational_reliability_records BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_eligibility_v2
+BEFORE UPDATE ON agent_outcome_eligibility_revisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_eligibility_v2
+BEFORE DELETE ON agent_outcome_eligibility_revisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_evaluation_opportunity_sets_v2
+BEFORE UPDATE ON evaluation_opportunity_sets_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_evaluation_opportunity_sets_v2
+BEFORE DELETE ON evaluation_opportunity_sets_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_schedule_plans_v2
+BEFORE UPDATE ON outcome_schedule_plans_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_schedule_plans_v2
+BEFORE DELETE ON outcome_schedule_plans_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_schedule_slots_v2
+BEFORE UPDATE ON outcome_schedule_slots_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_schedule_slots_v2
+BEFORE DELETE ON outcome_schedule_slots_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_event_schedule_decisions_v2
+BEFORE UPDATE ON outcome_event_schedule_decisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_event_schedule_decisions_v2
+BEFORE DELETE ON outcome_event_schedule_decisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_opportunity_generation_failures_v2
+BEFORE UPDATE ON evaluation_opportunity_set_generation_failures_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_opportunity_generation_failures_v2
+BEFORE DELETE ON evaluation_opportunity_set_generation_failures_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_no_evaluation_object_stage_skips_v2
+BEFORE UPDATE ON no_evaluation_object_stage_skips_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_no_evaluation_object_stage_skips_v2
+BEFORE DELETE ON no_evaluation_object_stage_skips_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_control_stage_skips_v2
+BEFORE UPDATE ON knot_control_stage_skips_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_control_stage_skips_v2
+BEFORE DELETE ON knot_control_stage_skips_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_realized_outcome_observations_v2
+BEFORE UPDATE ON realized_outcome_observations_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_realized_outcome_observations_v2
+BEFORE DELETE ON realized_outcome_observations_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_labels_v2
+BEFORE UPDATE ON agent_outcome_labels_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_labels_v2
+BEFORE DELETE ON agent_outcome_labels_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_component_calibration_signals_v2
+BEFORE UPDATE ON component_calibration_signals_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_component_calibration_signals_v2
+BEFORE DELETE ON component_calibration_signals_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_component_calibration_candidates_v2
+BEFORE UPDATE ON component_calibration_candidates_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_component_calibration_candidates_v2
+BEFORE DELETE ON component_calibration_candidates_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_component_calibration_shadow_evaluations_v2
+BEFORE UPDATE ON component_calibration_shadow_evaluations_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_component_calibration_shadow_evaluations_v2
+BEFORE DELETE ON component_calibration_shadow_evaluations_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_component_calibration_shadow_checkpoints_v2
+BEFORE UPDATE ON component_calibration_shadow_checkpoints_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_component_calibration_shadow_checkpoints_v2
+BEFORE DELETE ON component_calibration_shadow_checkpoints_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_component_weight_release_revisions_v2
+BEFORE UPDATE ON component_weight_release_revisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_component_weight_release_revisions_v2
+BEFORE DELETE ON component_weight_release_revisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwin_v2_checkpoints
+BEFORE UPDATE ON darwinian_v2_usage_weight_update_checkpoints BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwin_v2_checkpoints
+BEFORE DELETE ON darwinian_v2_usage_weight_update_checkpoints BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwin_v2_batch_revisions
+BEFORE UPDATE ON darwinian_v2_usage_weight_batch_revisions BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwin_v2_batch_revisions
+BEFORE DELETE ON darwinian_v2_usage_weight_batch_revisions BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwin_v2_weight_snapshots
+BEFORE UPDATE ON darwinian_v2_usage_weight_snapshots BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwin_v2_weight_snapshots
+BEFORE DELETE ON darwinian_v2_usage_weight_snapshots BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwin_v2_evaluation_checkpoints
+BEFORE UPDATE ON darwinian_v2_evaluation_window_checkpoints BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwin_v2_evaluation_checkpoints
+BEFORE DELETE ON darwinian_v2_evaluation_window_checkpoints BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_research_tracks_v2
+BEFORE UPDATE ON knot_research_tracks_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_research_tracks_v2
+BEFORE DELETE ON knot_research_tracks_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_pair_inputs_v2
+BEFORE UPDATE ON knot_pair_input_sets_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_pair_inputs_v2
+BEFORE DELETE ON knot_pair_input_sets_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_scores_v2
+BEFORE UPDATE ON knot_research_score_records_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_scores_v2
+BEFORE DELETE ON knot_research_score_records_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_pairing_audits_v2
+BEFORE UPDATE ON knot_pairing_audits_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_pairing_audits_v2
+BEFORE DELETE ON knot_pairing_audits_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_promotions_v2
+BEFORE UPDATE ON knot_promotion_revisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_promotions_v2
+BEFORE DELETE ON knot_promotion_revisions_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_promotion_batches_v2
+BEFORE UPDATE ON knot_promotion_batches_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_promotion_batches_v2
+BEFORE DELETE ON knot_promotion_batches_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_knot_nominations_v2
+BEFORE UPDATE ON knot_nomination_audits_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_knot_nominations_v2
+BEFORE DELETE ON knot_nomination_audits_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 """
 
 
@@ -452,6 +1203,8 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     date = state.get("as_of_date")
     if not isinstance(date, str) or not date:
         raise ValueError("state.as_of_date is required to expand recommendations")
+    if state.get("darwinian_runtime_binding") is not None:
+        return _expand_formal_accepted_recommendations(state, date=date)
 
     # R-A1: provenance — was this cycle's portfolio produced after a CRO-veto
     # replay? Stamped on every row so the scorecard can segment first-pass vs
@@ -592,6 +1345,174 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     return rows
 
 
+def _expand_formal_accepted_recommendations(
+    state: dict[str, Any],
+    *,
+    date: str,
+) -> list[dict[str, Any]]:
+    cohort = state.get("active_cohort") or "cohort_default"
+    replay_flag = 1 if state.get("replay_triggered") else 0
+    day_outcome_status = (
+        "accepted" if state.get("day_outcome_status") == "accepted" else "legacy_unverified"
+    )
+    backtest_run_id = state.get("backtest_run_id")
+    if not isinstance(backtest_run_id, int) or isinstance(backtest_run_id, bool):
+        backtest_run_id = None
+    rows: list[dict[str, Any]] = []
+    records = _formal_accepted_payload_records(state)
+    for record, payload in records:
+        agent_id = str(record["agent_id"])
+        kind = record.get("accepted_output_kind")
+        if kind == "STANDARD_SECTOR_SELECTION":
+            selection = payload.get("selection")
+            if not isinstance(selection, dict):
+                continue
+            for pick in selection.get("long_picks") or []:
+                if not isinstance(pick, dict) or not isinstance(pick.get("ts_code"), str):
+                    continue
+                conviction = float(pick.get("conviction") or 0.0)
+                rows.append(
+                    {
+                        "cohort": cohort,
+                        "agent": agent_id,
+                        "ticker": pick["ts_code"],
+                        "date": date,
+                        "action": "LONG",
+                        "conviction": conviction,
+                        "target_weight_pct": conviction * 100.0,
+                        "current_weight_pct": None,
+                        "delta_weight_pct": None,
+                        "position_decision": None,
+                        "position_decision_reason": None,
+                        "override_reason": None,
+                        "thesis_status": None,
+                        "risk_flags_json": None,
+                        "declared_knob_influence_ids_json": None,
+                        "declared_influence_rationale": None,
+                        "verified_knob_audit_json": None,
+                        "decision_agent_audits_json": None,
+                        "dissent_notes": None,
+                        "rationale_snapshot": _truncate(pick.get("thesis"), 200),
+                        "replay_triggered": replay_flag,
+                        "day_outcome_status": day_outcome_status,
+                        "backtest_run_id": backtest_run_id,
+                    }
+                )
+        elif kind == "SUPERINVESTOR_SELECTION":
+            selection = payload.get("selection")
+            if not isinstance(selection, dict):
+                continue
+            for pick in selection.get("picks") or []:
+                if not isinstance(pick, dict) or not isinstance(pick.get("ts_code"), str):
+                    continue
+                conviction = float(pick.get("conviction") or 0.0)
+                rows.append(
+                    {
+                        "cohort": cohort,
+                        "agent": agent_id,
+                        "ticker": pick["ts_code"],
+                        "date": date,
+                        "action": "LONG",
+                        "conviction": conviction,
+                        "target_weight_pct": conviction * 100.0,
+                        "current_weight_pct": None,
+                        "delta_weight_pct": None,
+                        "position_decision": None,
+                        "position_decision_reason": None,
+                        "override_reason": None,
+                        "thesis_status": None,
+                        "risk_flags_json": None,
+                        "declared_knob_influence_ids_json": None,
+                        "declared_influence_rationale": None,
+                        "verified_knob_audit_json": None,
+                        "decision_agent_audits_json": None,
+                        "dissent_notes": None,
+                        "rationale_snapshot": _truncate(pick.get("thesis"), 200),
+                        "replay_triggered": replay_flag,
+                        "day_outcome_status": day_outcome_status,
+                        "backtest_run_id": backtest_run_id,
+                    }
+                )
+        elif kind == "CIO_FINAL":
+            decision = payload.get("decision")
+            if not isinstance(decision, dict):
+                continue
+            operational_by_ticker = {
+                row.get("ticker"): row
+                for row in state.get("portfolio_actions") or []
+                if isinstance(row, dict) and isinstance(row.get("ticker"), str)
+            }
+            action_by_decision = {
+                "ADD": "BUY",
+                "REDUCE": "REDUCE",
+                "EXIT": "SELL",
+                "HOLD": "HOLD",
+            }
+            for position in decision.get("target_positions") or []:
+                if not isinstance(position, dict) or not isinstance(position.get("ts_code"), str):
+                    continue
+                ticker = position["ts_code"]
+                operational = operational_by_ticker.get(ticker, {})
+                target_weight = float(position.get("target_weight") or 0.0)
+                position_decision = position.get("position_decision")
+                rows.append(
+                    {
+                        "cohort": cohort,
+                        "agent": "cio",
+                        "ticker": ticker,
+                        "date": date,
+                        "action": action_by_decision.get(position_decision, "HOLD"),
+                        "conviction": None,
+                        "target_weight_pct": target_weight * 100.0,
+                        "current_weight_pct": _maybe_pct(operational.get("current_weight")),
+                        "delta_weight_pct": _maybe_pct(operational.get("delta_weight")),
+                        "position_decision": position_decision,
+                        "position_decision_reason": decision.get("decision_reason"),
+                        "override_reason": None,
+                        "thesis_status": position.get("thesis_status"),
+                        "risk_flags_json": _json_list_or_none(position.get("risk_flags")),
+                        "declared_knob_influence_ids_json": None,
+                        "declared_influence_rationale": None,
+                        "verified_knob_audit_json": None,
+                        "decision_agent_audits_json": _json_list_or_none(
+                            [
+                                audit
+                                for audit in state.get("agent_run_audits") or []
+                                if isinstance(audit, dict)
+                                and audit.get("agent")
+                                in {"alpha_discovery", "cro", "autonomous_execution", "cio"}
+                            ]
+                        ),
+                        "dissent_notes": None,
+                        "rationale_snapshot": _truncate(
+                            decision.get("decision_reason"), 200
+                        ),
+                        "replay_triggered": replay_flag,
+                        "day_outcome_status": day_outcome_status,
+                        "backtest_run_id": backtest_run_id,
+                    }
+                )
+    return rows
+
+
+def _formal_accepted_payload_records(
+    state: Mapping[str, Any],
+) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
+    records = state.get("accepted_output_records")
+    if not isinstance(records, list):
+        raise ValueError("formal accepted state requires accepted_output_records")
+    result: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise ValueError("accepted output record must be an object")
+        envelope = record.get("output")
+        payload = envelope.get("payload") if isinstance(envelope, Mapping) else None
+        if not isinstance(payload, Mapping):
+            raise ValueError("accepted output record payload must be an object")
+        result.append((record, payload))
+    return result
+
+
 def _maybe_pct(value: Any) -> float | None:
     if value is None:
         return None
@@ -641,16 +1562,12 @@ def _decision_agent_audits_json(layer4: dict[str, Any]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Macro-signal expansion (Layer 1) — mirrors the TS aggregator vote table
-# (mosaic-ts/src/agents/macro/_aggregator.ts ``voteForAgent``). Keep in sync.
+# Macro-signal expansion (Layer 1) — preserves ten independent v2 transmissions.
+# Legacy consensus/influence database columns remain nullable for old audit rows.
 # ---------------------------------------------------------------------------
 
 MACRO_AGENTS: frozenset[str] = frozenset(
-    {
-        "china", "us_economy", "central_bank", "dollar", "yield_curve",
-        "commodities", "geopolitical", "volatility", "market_breadth",
-        "institutional_flow",
-    }
+    MACRO_AGENT_ORDER
 )
 
 
@@ -700,62 +1617,23 @@ def _macro_signal(agent: str, out: dict[str, Any]) -> float:
 def _macro_equal_weight_influence(
     rows: list[dict[str, Any]],
 ) -> dict[str, Optional[float]]:
-    """Equal-Darwinian-weight leave-one-out influence for Layer 1 diagnostics.
-
-    Formal aggregation rejects partial role sets, so influence is unavailable
-    unless all ten current agents are present. For a complete set, each agent's
-    marginal effect is measured by setting only its reliability to zero while
-    retaining the six fixed group denominators and Darwinian weight 1.0.
-    """
-    agents = [str(row["agent"]) for row in rows]
-    if len(rows) != len(MACRO_AGENTS) or set(agents) != MACRO_AGENTS:
-        return {agent: None for agent in agents}
-
-    from mosaic.scorecard.macro_aggregation import aggregate_macro_transmissions
-
-    outputs: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        agent = str(row["agent"])
-        signal = float(row["signal"])
-        strength = int(round(abs(signal) * 5))
-        outputs[agent] = {
-            "agent": agent,
-            "direction": (
-                "SUPPORTIVE" if signal > 0 else "ADVERSE" if signal < 0 else "NEUTRAL"
-            ),
-            "strength": strength,
-            "confidence": float(row.get("confidence") or 0.0),
-        }
-    with_agent = float(aggregate_macro_transmissions(outputs)["score"])
-    out: dict[str, Optional[float]] = {}
-    for agent in agents:
-        without = {key: dict(value) for key, value in outputs.items()}
-        without[agent]["confidence"] = 0.0
-        without_score = float(aggregate_macro_transmissions(without)["score"])
-        out[agent] = abs(with_agent - without_score)
-    return out
+    """Retained column projection; no cross-role Macro influence exists in v2."""
+    return {str(row["agent"]): None for row in rows}
 
 
 def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Project a daily-cycle state's Layer 1 outputs into macro_signals rows.
 
-    Returns dicts with: cohort / agent / date / vote / confidence /
-    raw_output_json / consensus_stance / consensus_score / prompt_repo_id /
-    prompt_sha256. Scoring columns are filled later by the macro scorer.
+    Returns one row per accepted v2 role. Legacy consensus/influence columns are
+    always ``None``; scoring columns are filled later by the role-owned scorer.
     """
     cohort = state.get("active_cohort") or "cohort_default"
     date = state.get("as_of_date")
     if not isinstance(date, str) or not date:
         raise ValueError("state.as_of_date is required to expand macro signals")
 
-    consensus = state.get("layer1_consensus") or {}
-    consensus_stance = consensus.get("stance") if isinstance(consensus, dict) else None
+    consensus_stance = None
     consensus_score = None
-    if isinstance(consensus, dict):
-        for key in ("score", "layer_1_consensus_score", "confidence"):
-            if consensus.get(key) is not None:
-                consensus_score = float(consensus[key])
-                break
 
     prompt_repo_id = state.get("prompt_repo_id")
     prompt_sha256 = state.get("prompt_sha256")
@@ -767,7 +1645,16 @@ def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]
         backtest_run_id = None
 
     rows: list[dict[str, Any]] = []
-    for agent, out in (state.get("layer1_outputs") or {}).items():
+    macro_outputs = (
+        {
+            str(record["agent_id"]): dict(payload)
+            for record, payload in _formal_accepted_payload_records(state)
+            if record.get("accepted_output_kind") == "MACRO_TRANSMISSION"
+        }
+        if state.get("darwinian_runtime_binding") is not None
+        else state.get("layer1_outputs") or {}
+    )
+    for agent, out in macro_outputs.items():
         if agent not in MACRO_AGENTS or not isinstance(out, dict):
             continue
         conf = out.get("confidence")
@@ -900,6 +1787,12 @@ class ScorecardStore:
                 ("updated_at", "TEXT"),
             ):
                 self._ensure_column(conn, "darwinian_weights", column, ddl)
+            self._ensure_column(
+                conn,
+                "agent_outcome_eligibility_revisions_v2",
+                "research_pair_side",
+                "TEXT CHECK(research_pair_side IN ('CHAMPION', 'CANDIDATE'))",
+            )
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, column: str, ddl: str
@@ -907,6 +1800,275 @@ class ScorecardStore:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+    # ── Darwinian v2 immutable contracts ────────────────────────────────
+
+    def register_darwinian_production_variant(
+        self,
+        *,
+        cohort_id: str,
+        language: str,
+        execution_behavior_release_id: str,
+        behavior_bindings: Mapping[str, Mapping[str, Any]],
+        effective_at: str,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.darwinian_v2 import register_production_variant
+
+        with self._connect() as conn:
+            return register_production_variant(
+                conn,
+                cohort_id=cohort_id,
+                language=language,
+                execution_behavior_release_id=execution_behavior_release_id,
+                behavior_bindings=behavior_bindings,
+                effective_at=effective_at,
+            )
+
+    def get_darwinian_v2_weight_snapshot(
+        self,
+        *,
+        production_variant_roster_revision_id: str,
+        as_of: str,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.darwinian_v2 import get_production_weight_snapshot
+
+        with self._connect() as conn:
+            return get_production_weight_snapshot(
+                conn,
+                production_variant_roster_revision_id=(
+                    production_variant_roster_revision_id
+                ),
+                as_of=as_of,
+            )
+
+    def append_darwinian_v2_accepted_cycle(
+        self,
+        state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.darwinian_v2 import append_accepted_cycle
+
+        with self._connect() as conn:
+            return append_accepted_cycle(conn, state=state)
+
+    def prepare_outcome_schedule_plan(
+        self,
+        *,
+        production_variant_roster_revision_id: str,
+        graph_run_id: str,
+        as_of: str,
+        prepared_at: str,
+        trading_calendar_snapshot: Mapping[str, Any],
+        verified_event_candidates: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.outcome_scheduler import prepare_outcome_schedule_plan
+
+        with self._connect() as conn:
+            return prepare_outcome_schedule_plan(
+                conn,
+                production_variant_roster_revision_id=(
+                    production_variant_roster_revision_id
+                ),
+                graph_run_id=graph_run_id,
+                as_of=as_of,
+                prepared_at=prepared_at,
+                trading_calendar_snapshot=trading_calendar_snapshot,
+                verified_event_candidates=verified_event_candidates,
+            )
+
+    def freeze_scheduled_outcome_opportunity(
+        self,
+        *,
+        outcome_schedule_plan_id: str,
+        agent_id: str,
+        qualification_predicate_version: str,
+        member_refs: Sequence[Mapping[str, Any]],
+        source_evidence_by_required_source_id: Mapping[str, Sequence[str]],
+        projection_snapshot_hash: str,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.outcome_scheduler import freeze_scheduled_opportunity
+
+        with self._connect() as conn:
+            return freeze_scheduled_opportunity(
+                conn,
+                outcome_schedule_plan_id=outcome_schedule_plan_id,
+                agent_id=agent_id,
+                qualification_predicate_version=qualification_predicate_version,
+                member_refs=member_refs,
+                source_evidence_by_required_source_id=(
+                    source_evidence_by_required_source_id
+                ),
+                projection_snapshot_hash=projection_snapshot_hash,
+            )
+
+    def record_scheduled_outcome_opportunity_failure(
+        self,
+        *,
+        outcome_schedule_plan_id: str,
+        agent_id: str,
+        qualification_predicate_version: str,
+        source_evidence_by_required_source_id: Mapping[str, Sequence[str]],
+        error_codes: Sequence[str],
+        attempted_at: str,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.outcome_scheduler import (
+            record_scheduled_opportunity_failure,
+        )
+
+        with self._connect() as conn:
+            return record_scheduled_opportunity_failure(
+                conn,
+                outcome_schedule_plan_id=outcome_schedule_plan_id,
+                agent_id=agent_id,
+                qualification_predicate_version=qualification_predicate_version,
+                source_evidence_by_required_source_id=(
+                    source_evidence_by_required_source_id
+                ),
+                error_codes=error_codes,
+                attempted_at=attempted_at,
+            )
+
+    def create_no_evaluation_object_stage_skip(
+        self,
+        *,
+        outcome_schedule_plan_id: str,
+        agent_id: str,
+        recorded_at: str,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.outcome_scheduler import (
+            create_no_evaluation_object_stage_skip,
+        )
+
+        with self._connect() as conn:
+            return create_no_evaluation_object_stage_skip(
+                conn,
+                outcome_schedule_plan_id=outcome_schedule_plan_id,
+                agent_id=agent_id,
+                recorded_at=recorded_at,
+            )
+
+    def prepare_darwinian_v2_production_variant(
+        self,
+        *,
+        binding: Mapping[str, Any],
+        as_of: str,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.darwinian_v2 import prepare_production_variant
+
+        with self._connect() as conn:
+            return prepare_production_variant(conn, binding=binding, as_of=as_of)
+
+    def refresh_darwinian_v2_evaluation_windows(
+        self,
+        *,
+        production_variant_roster_revision_id: str,
+        cutoff_at: str,
+        trading_dates: Sequence[str],
+    ) -> list[dict[str, Any]]:
+        from mosaic.scorecard.darwinian_updates import refresh_evaluation_windows
+
+        with self._connect() as conn:
+            return refresh_evaluation_windows(
+                conn,
+                production_variant_roster_revision_id=(
+                    production_variant_roster_revision_id
+                ),
+                cutoff_at=cutoff_at,
+                trading_dates=trading_dates,
+            )
+
+    def publish_darwinian_v2_weight_updates(
+        self,
+        *,
+        production_variant_roster_revision_id: str,
+        cutoff_at: str,
+        trading_dates: Sequence[str],
+    ) -> list[dict[str, Any]]:
+        from mosaic.scorecard.darwinian_updates import publish_usage_weight_updates
+
+        with self._connect() as conn:
+            return publish_usage_weight_updates(
+                conn,
+                production_variant_roster_revision_id=(
+                    production_variant_roster_revision_id
+                ),
+                cutoff_at=cutoff_at,
+                trading_dates=trading_dates,
+            )
+
+    def register_knot_research_track(
+        self,
+        *,
+        production_variant_roster_revision_id: str,
+        target_evaluation_track_key_hash: str,
+        mutation_manifest: Mapping[str, Any],
+        created_at: str,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import register_knot_research_track
+
+        with self._connect() as conn:
+            return register_knot_research_track(
+                conn,
+                production_variant_roster_revision_id=(
+                    production_variant_roster_revision_id
+                ),
+                target_evaluation_track_key_hash=target_evaluation_track_key_hash,
+                mutation_manifest=mutation_manifest,
+                created_at=created_at,
+            )
+
+    def publish_knot_nomination_audit(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import publish_knot_nomination_audit
+
+        with self._connect() as conn:
+            return publish_knot_nomination_audit(conn, **kwargs)
+
+    def freeze_knot_pair_input(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import freeze_knot_pair_input
+
+        with self._connect() as conn:
+            return freeze_knot_pair_input(conn, **kwargs)
+
+    def append_knot_research_score_record(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import append_knot_research_score_record
+
+        with self._connect() as conn:
+            return append_knot_research_score_record(conn, **kwargs)
+
+    def append_knot_control_dependency_result(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import append_knot_control_dependency_result
+
+        with self._connect() as conn:
+            return append_knot_control_dependency_result(conn, **kwargs)
+
+    def append_knot_cio_dependency_blocked_audit(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import append_knot_cio_dependency_blocked_audit
+
+        with self._connect() as conn:
+            return append_knot_cio_dependency_blocked_audit(conn, **kwargs)
+
+    def finalize_knot_pair(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import finalize_knot_pair
+
+        with self._connect() as conn:
+            return finalize_knot_pair(conn, **kwargs)
+
+    def publish_knot_promotion_revision(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import publish_knot_promotion_revision
+
+        with self._connect() as conn:
+            return publish_knot_promotion_revision(conn, **kwargs)
+
+    def publish_knot_promotion_batch(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import publish_knot_promotion_batch
+
+        with self._connect() as conn:
+            return publish_knot_promotion_batch(conn, **kwargs)
+
+    def publish_knot_rollback_revision(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_v2 import publish_knot_rollback_revision
+
+        with self._connect() as conn:
+            return publish_knot_rollback_revision(conn, **kwargs)
 
     # ── recommendations ──────────────────────────────────────────────────
 
@@ -1818,11 +2980,14 @@ class ScorecardStore:
             )
         audits = agent_run_audits or []
         audit_keys = {(audit.get("agent"), audit.get("stage")) for audit in audits}
-        accepted = len(audits) == 26 and all(
+        accepted = len(audits) == RUNTIME_AGENT_STAGE_COUNT and all(
             audit.get("status") in ("accepted", "accepted_empty") for audit in audits
-        ) and len(audit_keys) == 26
+        ) and len(audit_keys) == RUNTIME_AGENT_STAGE_COUNT
         if agent_run_audits is not None and not accepted:
-            raise ValueError("backtest day requires 26 unique accepted agent-stage audits")
+            raise ValueError(
+                "backtest day requires "
+                f"{RUNTIME_AGENT_STAGE_COUNT} unique accepted agent-stage audits"
+            )
         if decision_disposition not in (
             None,
             "TARGET_PORTFOLIO",

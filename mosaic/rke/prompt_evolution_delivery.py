@@ -22,7 +22,7 @@ COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v2"
 Status = Literal["pass", "fail", "blocked"]
 
 PROMPT_CHECK_DIR = Path("registry/prompt_checks")
-RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v2.json"
+RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v3.json"
 DOMAIN_CATALOG_PATH = PROMPT_CHECK_DIR / "domain_knob_catalog_v1.json"
 EVALUATION_CONTRACT_PATH = (
     PROMPT_CHECK_DIR / "domain_knob_evaluation_contract_v1.json"
@@ -54,7 +54,7 @@ DELIVERY_INPUT_PATHS = (
     Path("schemas/prompt_evolution_delivery_status_v1.schema.json"),
     Path("schemas/prompt_evolution_performance_budget_v1.schema.json"),
     Path("schemas/prompt_token_budget_manifest_v1.schema.json"),
-    Path("schemas/runtime_agent_manifest_v2.schema.json"),
+    Path("schemas/runtime_agent_manifest_v3.schema.json"),
 )
 
 CHECK_IDS = (
@@ -158,7 +158,7 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 CONDITION_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
-    "C01": {"title": "25 agents and 26 stages", "checks": (), "gates": ("G5",)},
+    "C01": {"title": "28 agents and 29 stages", "checks": (), "gates": ("G5",)},
     "C02": {"title": "claim-to-evidence closure", "checks": (), "gates": ("G2",)},
     "C03": {"title": "scoped real source statuses", "checks": (), "gates": ("G2",)},
     "C04": {"title": "registry and write-back closure", "checks": (), "gates": ("G0", "G3")},
@@ -698,12 +698,23 @@ def verify_prompt_budget_attestation(root: Path) -> tuple[Status, list[str]]:
     rows = budget.get("rows")
     if not isinstance(summary, Mapping) or summary.get("ready") is not True:
         reasons.append("PROMPT_BUDGET_NOT_READY")
-    if not isinstance(rows, list) or len(rows) != 104:
+    agents = runtime_manifest.get("agents")
+    expected_stage_count = (
+        sum(len(row.get("stages", [])) for row in agents if isinstance(row, Mapping))
+        if isinstance(agents, list)
+        else 0
+    )
+    expected_source_rows = expected_stage_count * 2
+    expected_row_count = expected_source_rows * 2
+    if expected_stage_count < 1 or not isinstance(rows, list) or len(rows) != expected_row_count:
         reasons.append("PROMPT_BUDGET_ROW_COUNT_MISMATCH")
         rows = []
     private_rows = [row for row in rows if row.get("source") == "private"]
     bundled_rows = [row for row in rows if row.get("source") == "bundled"]
-    if len(private_rows) != 52 or len(bundled_rows) != 52:
+    if (
+        len(private_rows) != expected_source_rows
+        or len(bundled_rows) != expected_source_rows
+    ):
         reasons.append("PROMPT_BUDGET_SOURCE_COVERAGE_MISMATCH")
     if any(row.get("passed") is not True for row in rows):
         reasons.append("PROMPT_BUDGET_ROW_FAILED")

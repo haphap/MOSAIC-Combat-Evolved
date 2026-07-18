@@ -159,7 +159,7 @@ export function summarizeAgentOutput(output: unknown): string {
   const obj = asRecord(output);
   if (!obj) return "output=unknown";
 
-  const agent = stringField(obj, "agent");
+  const agent = stringField(obj, "agent") ?? stringField(obj, "agent_id");
   const parts: string[] = [];
 
   if (
@@ -167,12 +167,12 @@ export function summarizeAgentOutput(output: unknown): string {
     [
       "china",
       "us_economy",
+      "eu_economy",
       "central_bank",
-      "dollar",
-      "yield_curve",
+      "us_financial_conditions",
+      "euro_area_financial_conditions",
       "commodities",
       "geopolitical",
-      "volatility",
       "market_breadth",
       "institutional_flow",
     ].includes(agent)
@@ -187,8 +187,9 @@ export function summarizeAgentOutput(output: unknown): string {
 
   switch (agent) {
     case "relationship_mapper":
-      pushArrayLength(parts, "chains", obj, "supply_chains");
-      pushArrayLength(parts, "risks", obj, "contagion_risks");
+      pushArrayLength(parts, "factual", obj, "factual_edges");
+      pushArrayLength(parts, "predictive", obj, "predictive_edges");
+      pushArrayLength(parts, "risks", obj, "risks");
       break;
     case "druckenmiller":
     case "munger":
@@ -197,23 +198,34 @@ export function summarizeAgentOutput(output: unknown): string {
       pushArrayLength(parts, "picks", obj, "picks");
       break;
     case "cro":
-      pushArrayLength(parts, "rejected", obj, "rejected_picks");
+      if (Array.isArray(obj.candidate_actions)) {
+        pushArrayLength(parts, "actions", obj, "candidate_actions");
+      } else {
+        pushArrayLength(parts, "rejected", obj, "rejected_picks");
+      }
       pushArrayLength(parts, "black_swan", obj, "black_swan_scenarios");
       break;
     case "alpha_discovery":
       pushArrayLength(parts, "novel", obj, "novel_picks");
       break;
     case "autonomous_execution":
-      pushArrayLength(parts, "trades", obj, "trades");
+      if (Array.isArray(obj.order_assessments)) {
+        pushArrayLength(parts, "assessments", obj, "order_assessments");
+      } else {
+        pushArrayLength(parts, "trades", obj, "trades");
+      }
       break;
     case "cio":
-      pushArrayLength(parts, "actions", obj, "portfolio_actions");
+      if (Array.isArray(obj.target_positions)) {
+        pushArrayLength(parts, "actions", obj, "target_positions");
+      } else {
+        pushArrayLength(parts, "actions", obj, "portfolio_actions");
+      }
       break;
     default:
-      if (Array.isArray(obj.longs) || Array.isArray(obj.shorts)) {
-        pushNumber(parts, "score", obj, "sector_score", 2);
-        pushArrayLength(parts, "longs", obj, "longs");
-        pushArrayLength(parts, "shorts", obj, "shorts");
+      if (Array.isArray(obj.long_picks) || Array.isArray(obj.short_or_avoid_picks)) {
+        pushArrayLength(parts, "longs", obj, "long_picks");
+        pushArrayLength(parts, "shorts_or_avoids", obj, "short_or_avoid_picks");
       } else {
         parts.push("output=ok");
       }

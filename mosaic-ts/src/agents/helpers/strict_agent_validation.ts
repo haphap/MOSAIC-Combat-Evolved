@@ -16,8 +16,8 @@ export function validateStrictAgentOutput<T>(input: {
   runtimeEvidence: RuntimeEvidenceSnapshot | null;
   knobSnapshot: ResearchKnobsSnapshot | null;
   toolStatuses: ReadonlyArray<ToolStatus>;
-  /** Accept uncertainty-only claims for an explicitly neutral/no-action output. */
-  allowUncertaintyOnly?: boolean;
+  /** Accept risk-flag-only claims for an explicitly neutral/no-action output. */
+  allowRiskFlagOnly?: boolean;
   currentPositions?: CurrentPositionsSnapshot;
 }): ContractValidationResult<T> {
   let output = input.output;
@@ -26,8 +26,8 @@ export function validateStrictAgentOutput<T>(input: {
     issues.push(issue("evidence_claim_graph_v1", "EVIDENCE_SNAPSHOT_MISSING", "$"));
   } else {
     const claimValidation = validateOutputByClaimEvidence(output, input.runtimeEvidence, {
-      ...(input.allowUncertaintyOnly !== undefined
-        ? { allowUncertaintyOnly: input.allowUncertaintyOnly }
+      ...(input.allowRiskFlagOnly !== undefined
+        ? { allowRiskFlagOnly: input.allowRiskFlagOnly }
         : {}),
     });
     if (!claimValidation.rawOutputAccepted) {
@@ -114,9 +114,28 @@ function validateDispositionAndCioCoverage(
       position_decision?: string;
       current_weight?: number;
     }>;
+    target_positions?: Array<{
+      ts_code: string;
+      target_weight: number;
+      position_decision: "HOLD" | "ADD" | "REDUCE" | "EXIT";
+    }>;
     position_reviews?: Array<{ ticker: string }>;
   };
-  const actions = record.portfolio_actions ?? [];
+  const actions =
+    record.portfolio_actions ??
+    (record.target_positions ?? []).map((position) => ({
+      ticker: position.ts_code,
+      target_weight: position.target_weight,
+      position_decision: position.position_decision,
+      action:
+        position.position_decision === "ADD"
+          ? "BUY"
+          : position.position_decision === "REDUCE"
+            ? "REDUCE"
+            : position.position_decision === "EXIT"
+              ? "SELL"
+              : "HOLD",
+    }));
   const positions = currentPositions.positions;
   const positionByTicker = new Map(positions.map((position) => [position.ticker, position]));
   const actionByTicker = new Map(actions.map((action) => [action.ticker, action]));

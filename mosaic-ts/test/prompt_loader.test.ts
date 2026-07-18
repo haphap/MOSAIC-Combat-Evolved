@@ -104,13 +104,13 @@ ${extra}\`\`\``;
 }
 
 describe("AGENTS_BY_LAYER + LAYER_BY_AGENT (Plan §5)", () => {
-  it("covers exactly the 25 agents from Plan §5", () => {
+  it("covers exactly the 28 v2 agents", () => {
     expect(AGENTS_BY_LAYER.macro).toHaveLength(10);
-    expect(AGENTS_BY_LAYER.sector).toHaveLength(7);
+    expect(AGENTS_BY_LAYER.sector).toHaveLength(10);
     expect(AGENTS_BY_LAYER.superinvestor).toHaveLength(4);
     expect(AGENTS_BY_LAYER.decision).toHaveLength(4);
-    expect(ALL_AGENTS).toHaveLength(25);
-    expect(new Set(ALL_AGENTS).size).toBe(25);
+    expect(ALL_AGENTS).toHaveLength(28);
+    expect(new Set(ALL_AGENTS).size).toBe(28);
   });
 
   it("LAYER_BY_AGENT inverse map is consistent", () => {
@@ -547,7 +547,7 @@ describe("loadPrompt", () => {
     expect(overlay).toBe("private");
   });
 
-  it("loadPromptWithKnobs injects a parity-checked runtime contract", async () => {
+  it("loadPromptWithKnobs keeps the parity-checked runtime contract out of the prompt", async () => {
     fake.putPrompt({
       cohort: "cohort_default",
       layer: "macro",
@@ -570,13 +570,14 @@ describe("loadPrompt", () => {
       promptsRoot: fake.root,
     });
 
-    expect(out.prompt).toContain("## Runtime Research Knobs Contract");
+    expect(out.prompt).not.toContain("## Runtime Research Knobs Contract");
     expect(out.prompt).toContain("ZH body");
     expect(out.prompt).toContain("EN body");
     expect(out.prompt).not.toContain("```research-knobs");
     expect(out.snapshot.knobs.evidence_weights.pboc_liquidity).toBe(1);
     expect(out.snapshot.stage).toBe("agent_run");
-    expect(out.prompt).toContain('"runtime_stage": "agent_run"');
+    expect(out.prompt).not.toContain('"runtime_stage": "agent_run"');
+    expect(out.snapshot.visibleContract).toContain('"runtime_stage": "agent_run"');
     expect(out.snapshot.hash).toMatch(/^sha256:/);
   });
 
@@ -596,10 +597,11 @@ describe("loadPrompt", () => {
     );
     expect(tools).toContain("get_central_bank_snapshot");
     expect(out.prompt).not.toContain("```research-knobs");
-    expect(out.prompt).toContain("## Runtime Research Knobs Contract");
+    expect(out.prompt).not.toContain("## Runtime Research Knobs Contract");
+    expect(out.snapshot.visibleContract).toContain("## Runtime Research Knobs Contract");
   });
 
-  it("still rejects fence-free private prompt overlays", async () => {
+  it("keeps runtime-owned research knobs out of private prompt overlays", async () => {
     for (const language of ["zh", "en"] as const) {
       privateFake.putPrompt({
         cohort: "cohort_default",
@@ -609,15 +611,18 @@ describe("loadPrompt", () => {
         body: `${language} private body without contract`,
       });
     }
-    await expect(
-      loadPromptWithKnobs({
-        agent: "central_bank",
-        cohort: "cohort_default",
-        stage: "agent_run",
-        privatePromptsRoot: privateFake.root,
-        noCache: true,
-      }),
-    ).rejects.toThrow("expected exactly one research-knobs fence");
+    const loaded = await loadPromptWithKnobs({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      stage: "agent_run",
+      privatePromptsRoot: privateFake.root,
+      noCache: true,
+    });
+    expect(loaded.bodies.zh).toBe("zh private body without contract");
+    expect(loaded.bodies.en).toBe("en private body without contract");
+    expect(loaded.prompt).not.toContain("```research-knobs");
+    expect(loaded.prompt).not.toContain("## Runtime Research Knobs Contract");
+    expect(loaded.snapshot.visibleContract).toContain("## Runtime Research Knobs Contract");
   });
 
   it("freezes the parsed prompt pair across stage-specific snapshot builds", async () => {

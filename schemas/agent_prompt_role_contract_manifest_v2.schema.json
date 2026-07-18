@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent prompt role contract manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "private_prompt_repository",
+    "private_prompt_branch",
+    "private_prompt_commit",
+    "prompt_tree_sha256",
+    "execution_behavior_release_id",
+    "execution_behavior_release_hash",
+    "cohorts",
+    "languages",
+    "agents",
+    "agent_count",
+    "cohort_count",
+    "prompt_count",
+    "tombstoned_macro_agents"
+  ],
+  "properties": {
+    "schema_version": { "const": "agent_prompt_role_contract_manifest_v2" },
+    "private_prompt_repository": { "type": "string", "minLength": 1 },
+    "private_prompt_branch": { "type": "string", "minLength": 1 },
+    "private_prompt_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "prompt_tree_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "execution_behavior_release_id": {
+      "type": "string",
+      "pattern": "^execution-behavior-release:[0-9a-f]{64}$"
+    },
+    "execution_behavior_release_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "cohorts": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "languages": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "enum": ["en", "zh"] }
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 28,
+      "maxItems": 28,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "agent_count": { "const": 28 },
+    "cohort_count": { "const": 8 },
+    "prompt_count": { "const": 448 },
+    "tombstoned_macro_agents": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent", "status"],
+        "properties": {
+          "agent": { "type": "string", "minLength": 1 },
+          "status": { "const": "legacy_unverified" }
+        }
+      }
+    }
+  }
+}

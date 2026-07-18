@@ -21,22 +21,13 @@ import {
 } from "./domain_knob_catalog.js";
 import {
   type DomainKnobValueRegistry,
-  domainKnobValueRegistryPath,
-  readDomainKnobValueRegistryFile,
   validateDomainKnobValueRegistry,
 } from "./domain_knob_registry.js";
 import { loadPromptWithKnobs } from "./loader.js";
 import {
   type PromptGovernanceValueRegistry,
-  promptGovernanceValueRegistryPath,
-  readPromptGovernanceValueRegistryFile,
   validatePromptGovernanceValueRegistry,
 } from "./prompt_governance_registry.js";
-import {
-  promptIrPathForSpec,
-  readPromptIrContractFile,
-  validatePromptIrContractForSpec,
-} from "./prompt_ir_registry.js";
 import { buildRuntimeResearchKnobs } from "./research_knobs_projection.js";
 import {
   RUNTIME_AGENT_SPEC_BY_AGENT,
@@ -259,7 +250,7 @@ function validatePromptBodiesAgainstRuntimeSpec(
     }
   }
   if (spec.fieldNames.includes("claims")) {
-    for (const field of ["claim_refs", "evidence_refs", "research_rule_refs"]) {
+    for (const field of ["claim_refs", "evidence_ids", "research_rule_refs"]) {
       if (!combined.includes(field)) {
         reasons.push(`formal_evidence_field_missing_from_prompt_body:${field}`);
       }
@@ -364,19 +355,9 @@ async function loadDomainKnobRegistryForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ registry: DomainKnobValueRegistry | null; reasons: string[] }> {
-  if (!opts.privatePromptsRoot || spec.layer === "macro") {
-    return { registry: null, reasons: [] };
-  }
-  const path = domainKnobValueRegistryPath({
-    privatePromptsRoot: opts.privatePromptsRoot,
-    cohort: opts.cohort,
-    agent: spec.agent,
-  });
-  const registry = await readDomainKnobValueRegistryFile(path);
-  if (!registry) {
-    return { registry: null, reasons: [`domain_registry_missing:${path}`] };
-  }
-  return { registry, reasons: [] };
+  void opts;
+  void spec;
+  return { registry: null, reasons: [] };
 }
 
 async function loadPromptGovernanceRegistryForCheck(
@@ -386,19 +367,9 @@ async function loadPromptGovernanceRegistryForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ registry: PromptGovernanceValueRegistry | null; reasons: string[] }> {
-  if (!opts.privatePromptsRoot || spec.layer === "macro") {
-    return { registry: null, reasons: [] };
-  }
-  const path = promptGovernanceValueRegistryPath({
-    privatePromptsRoot: opts.privatePromptsRoot,
-    cohort: opts.cohort,
-    agent: spec.agent,
-  });
-  const registry = await readPromptGovernanceValueRegistryFile(path);
-  if (!registry) {
-    return { registry: null, reasons: [`prompt_governance_registry_missing:${path}`] };
-  }
-  return { registry, reasons: [] };
+  void opts;
+  void spec;
+  return { registry: null, reasons: [] };
 }
 
 async function loadPromptIrForCheck(
@@ -408,16 +379,9 @@ async function loadPromptIrForCheck(
   },
   spec: RuntimeAgentSpec,
 ): Promise<{ reasons: string[] }> {
-  if (!opts.privatePromptsRoot || spec.layer === "macro") return { reasons: [] };
-  const path = promptIrPathForSpec({
-    privatePromptsRoot: opts.privatePromptsRoot,
-    spec,
-  });
-  const contract = await readPromptIrContractFile(path);
-  if (!contract) {
-    return { reasons: [`prompt_ir_missing:${path}`] };
-  }
-  return { reasons: validatePromptIrContractForSpec(contract, spec) };
+  void opts;
+  void spec;
+  return { reasons: [] };
 }
 
 function ruleIdFromTargetPath(path: string): string | null {

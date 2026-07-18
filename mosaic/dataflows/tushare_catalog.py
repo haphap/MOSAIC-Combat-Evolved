@@ -1,641 +1,417 @@
-"""Tushare endpoint catalog for macro-agent data-source planning.
+"""Closed, versioned Tushare endpoint registry for the v2 agent runtime.
 
-The live Tushare document site is the source of truth, but CI and backtests
-must work offline. This module therefore keeps a tracked snapshot of the
-endpoint categories MOSAIC currently depends on and exposes a refresh/validate
-surface that can later be wired to a live document crawler without changing
-callers.
+SDK method presence is not permission evidence.  An endpoint is usable only
+after a real permission/schema/PIT smoke promotes it to ``ACTIVE_VERIFIED``.
+The four operator-confirmed unavailable document endpoints are permanently
+disabled in this revision and are never probed at startup.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
+TUSHARE_ENDPOINT_REGISTRY_VERSION = "tushare_endpoint_registry_v2"
+TUSHARE_PREFLIGHT_SCHEMA_VERSION = "tushare_endpoint_preflight_v2"
+TushareEndpointStatus = Literal[
+    "ACTIVE_VERIFIED",
+    "PRECHECK_REQUIRED",
+    "DISABLED_PERMISSION_DENIED",
+]
 
-CATALOG_STATUSES = {
-    "scoring_candidate",
-    "evidence_candidate",
-    "deferred_unverified",
-    "not_macro_relevant",
+OPERATOR_DISABLED_PERMISSION_ENDPOINTS = frozenset(
+    {"major_news", "news", "npr", "monetary_policy"}
+)
+
+# This is the exact closure required by plan §6.1.  Unknown endpoint strings
+# are denied even if the installed Tushare SDK happens to implement them.
+TUSHARE_ENDPOINT_IDS: tuple[str, ...] = (
+    "eco_cal",
+    "cn_pmi",
+    "cn_gdp",
+    "cn_cpi",
+    "cn_ppi",
+    "shibor",
+    "shibor_quote",
+    "yc_cb",
+    "us_tycr",
+    "trade_cal",
+    "stock_basic",
+    "stock_st",
+    "daily",
+    "daily_basic",
+    "adj_factor",
+    "suspend_d",
+    "stk_limit",
+    "index_basic",
+    "index_classify",
+    "index_member_all",
+    "index_daily",
+    "index_weight",
+    "fund_basic",
+    "etf_index",
+    "fund_daily",
+    "fund_adj",
+    "fund_nav",
+    "fund_share",
+    "fund_portfolio",
+    "fut_basic",
+    "fut_daily",
+    "fx_obasic",
+    "fx_daily",
+    "moneyflow",
+    "moneyflow_ind_ths",
+    "top_list",
+    "top10_holders",
+    "top10_floatholders",
+    "stock_company",
+    "fina_indicator",
+    "forecast",
+    "express",
+    "income",
+    "balancesheet",
+    "cashflow",
+    "fina_mainbz",
+    "disclosure_date",
+    "research_report",
+    "major_news",
+    "news",
+    "npr",
+    "monetary_policy",
+)
+
+_DOC_IDS: dict[str, str] = {
+    "daily": "27",
+    "index_classify": "181",
+    "index_member_all": "335",
+    "moneyflow": "170",
+    "moneyflow_ind_ths": "343",
+    "stock_st": "397",
+    "eco_cal": "233",
+    "fx_obasic": "178",
+    "fx_daily": "179",
+    "us_tycr": "219",
+    "disclosure_date": "162",
 }
 
-REQUIRED_MACRO_CATEGORIES = {
-    "沪深股票",
-    "指数",
-    "ETF",
-    "公募基金",
-    "期货",
-    "期权",
-    "外汇",
-    "债券",
-    "宏观经济",
-    "资金流",
-    "两融",
-    "港股",
-    "美股",
-    "热榜",
-    "新闻快讯",
-    "券商研报",
-    "大模型语料专题",
+_PREFLIGHT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "registry"
+    / "data_sources"
+    / "tushare_endpoint_preflight_v2.json"
+)
+
+
+def _canonical_hash(payload: object) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot load Tushare preflight registry: {exc}") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != TUSHARE_PREFLIGHT_SCHEMA_VERSION
+        or payload.get("registry_version") != TUSHARE_ENDPOINT_REGISTRY_VERSION
+    ):
+        raise RuntimeError("Tushare preflight registry version mismatch")
+    without_hash = {
+        key: value for key, value in payload.items() if key != "artifact_hash"
+    }
+    if payload.get("artifact_hash") != _canonical_hash(without_hash):
+        raise RuntimeError("Tushare preflight registry hash mismatch")
+    rows = payload.get("checks")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("Tushare preflight registry has no checks")
+    result: dict[str, dict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError("Tushare preflight rows must be objects")
+        endpoint = row.get("endpoint")
+        status = row.get("status")
+        permission_result = row.get("permission_result")
+        observed_row_count = row.get("observed_row_count")
+        if (
+            endpoint not in TUSHARE_ENDPOINT_IDS
+            or endpoint in result
+            or status
+            not in {
+                "ACTIVE_VERIFIED",
+                "PRECHECK_REQUIRED",
+                "DISABLED_PERMISSION_DENIED",
+            }
+            or permission_result
+            not in {
+                "NON_EMPTY_RESPONSE",
+                "EMPTY_RESPONSE",
+                "TRUNCATION_RISK",
+                "PERMISSION_DENIED",
+            }
+            or row.get("pit_assessment") not in {"LOCAL_CAPTURE_ONLY", "NOT_APPLICABLE"}
+            or row.get("raw_payload_committed") is not False
+            or not isinstance(observed_row_count, int)
+            or observed_row_count < 0
+        ):
+            raise RuntimeError(f"invalid Tushare preflight row: {endpoint!r}")
+        for field in (
+            "permission_checked_at",
+            "permission_evidence_id",
+            "schema_contract_version",
+        ):
+            if not isinstance(row.get(field), str) or not row[field].strip():
+                raise RuntimeError(f"Tushare preflight {endpoint} lacks {field}")
+        expected_columns = row.get("expected_columns")
+        if (
+            not isinstance(expected_columns, list)
+            or permission_result in {"NON_EMPTY_RESPONSE", "TRUNCATION_RISK"}
+            and not expected_columns
+            or len(expected_columns) != len(set(expected_columns))
+            or any(
+                not isinstance(column, str) or not column for column in expected_columns
+            )
+        ):
+            raise RuntimeError(f"Tushare preflight {endpoint} has invalid columns")
+        coverage_smoke = row.get("coverage_smoke")
+        if not isinstance(coverage_smoke, dict):
+            raise RuntimeError(f"Tushare preflight {endpoint} lacks coverage smoke")
+        if status == "ACTIVE_VERIFIED":
+            if (
+                permission_result != "NON_EMPTY_RESPONSE"
+                or observed_row_count < 1
+                or coverage_smoke.get("status") != "COMPLETE"
+                or coverage_smoke.get("truncated_leaf_count") != 0
+                or not isinstance(coverage_smoke.get("query_count"), int)
+                or coverage_smoke["query_count"] < 1
+                or endpoint == "eco_cal"
+                and coverage_smoke.get("registered_currency_count") != 10
+            ):
+                raise RuntimeError(
+                    f"Tushare preflight {endpoint} lacks complete coverage smoke"
+                )
+        elif status == "DISABLED_PERMISSION_DENIED":
+            if permission_result != "PERMISSION_DENIED" or observed_row_count != 0:
+                raise RuntimeError(f"invalid permission denial evidence for {endpoint}")
+        elif coverage_smoke.get("status") not in {
+            "PERMISSION_SCHEMA_ONLY",
+            "EMPTY_RESPONSE",
+            "TRUNCATION_RISK",
+        }:
+            raise RuntimeError(f"invalid precheck coverage status for {endpoint}")
+        result[endpoint] = row
+    return result
+
+
+PREFLIGHT_ENDPOINT_CHECKS = _load_preflight_checks()
+VERIFIED_ENDPOINT_PREFLIGHTS = {
+    endpoint: row
+    for endpoint, row in PREFLIGHT_ENDPOINT_CHECKS.items()
+    if row["status"] == "ACTIVE_VERIFIED"
 }
+DYNAMIC_PERMISSION_DENIAL_ENDPOINTS = frozenset(
+    endpoint
+    for endpoint, row in PREFLIGHT_ENDPOINT_CHECKS.items()
+    if row["status"] == "DISABLED_PERMISSION_DENIED"
+    and endpoint not in OPERATOR_DISABLED_PERMISSION_ENDPOINTS
+)
+DISABLED_PERMISSION_ENDPOINTS = (
+    OPERATOR_DISABLED_PERMISSION_ENDPOINTS | DYNAMIC_PERMISSION_DENIAL_ENDPOINTS
+)
 
 
 @dataclass(frozen=True)
-class TushareEndpointCatalogEntry:
-    endpoint_name: str
-    doc_path: str
-    doc_url: str
-    category: str
-    sub_category: str
-    params: tuple[str, ...]
-    default_fields: tuple[str, ...]
-    optional_fields: tuple[str, ...]
-    date_fields: tuple[str, ...]
-    update_frequency: str
-    min_points_or_permission: str
-    path_capable: bool
-    event_capable: bool
-    point_in_time_rule: str
-    agent_tags: tuple[str, ...]
-    label_candidate_tags: tuple[str, ...]
-    catalog_status: str
-    verification_status: str = "snapshot"
-    verified_at: str = ""
+class TushareEndpointRegistration:
+    endpoint: str
+    status: TushareEndpointStatus
+    permission_checked_at: str | None
+    permission_evidence_id: str | None
+    schema_contract_version: str | None
+    runtime_client_enabled: bool
+    agent_tool_exposed: Literal[False] = False
+    doc_url: str = "https://tushare.pro/document/1?doc_id=108"
+    point_in_time_rule: str = "release/announcement/first-seen time and every observation date must be <= as_of"
+
+    # Compatibility aliases retained for registry reports; they do not restore
+    # the old candidate/fallback semantics.
+    @property
+    def endpoint_name(self) -> str:
+        return self.endpoint
+
+    @property
+    def catalog_status(self) -> str:
+        return self.status
 
     def as_dict(self) -> dict:
-        data = asdict(self)
-        for key, value in list(data.items()):
-            if isinstance(value, tuple):
-                data[key] = list(value)
-        return data
+        payload = asdict(self)
+        payload["registry_version"] = TUSHARE_ENDPOINT_REGISTRY_VERSION
+        payload["endpoint_name"] = self.endpoint
+        payload["catalog_status"] = self.status
+        payload["agent_tags"] = []
+        return payload
 
 
-def _entry(
-    endpoint_name: str,
-    category: str,
-    sub_category: str,
-    *,
-    params: Iterable[str] = (),
-    fields: Iterable[str] = (),
-    optional_fields: Iterable[str] = (),
-    date_fields: Iterable[str] = (),
-    update_frequency: str = "unknown",
-    permission: str = "see Tushare Pro points/permission",
-    path_capable: bool = False,
-    event_capable: bool = False,
-    point_in_time_rule: str = "filter by as_of date; do not use rows published later",
-    agent_tags: Iterable[str] = (),
-    label_tags: Iterable[str] = (),
-    status: str = "deferred_unverified",
-    doc_id: str = "",
-) -> TushareEndpointCatalogEntry:
-    if status not in CATALOG_STATUSES:
-        raise ValueError(f"unsupported catalog status {status!r}")
-    doc_url = "https://tushare.pro/document/2"
-    if doc_id:
-        doc_url = f"{doc_url}?doc_id={doc_id}"
-    return TushareEndpointCatalogEntry(
-        endpoint_name=endpoint_name,
-        doc_path=f"/数据接口/{category}/{sub_category}",
-        doc_url=doc_url,
-        category=category,
-        sub_category=sub_category,
-        params=tuple(params),
-        default_fields=tuple(fields),
-        optional_fields=tuple(optional_fields),
-        date_fields=tuple(date_fields),
-        update_frequency=update_frequency,
-        min_points_or_permission=permission,
-        path_capable=path_capable,
-        event_capable=event_capable,
-        point_in_time_rule=point_in_time_rule,
-        agent_tags=tuple(agent_tags),
-        label_candidate_tags=tuple(label_tags),
-        catalog_status=status,
+def _registration(endpoint: str) -> TushareEndpointRegistration:
+    disabled = endpoint in DISABLED_PERMISSION_ENDPOINTS
+    verified = VERIFIED_ENDPOINT_PREFLIGHTS.get(endpoint)
+    checked = PREFLIGHT_ENDPOINT_CHECKS.get(endpoint)
+    doc_id = _DOC_IDS.get(endpoint)
+    return TushareEndpointRegistration(
+        endpoint=endpoint,
+        status=(
+            "DISABLED_PERMISSION_DENIED"
+            if disabled
+            else "ACTIVE_VERIFIED"
+            if verified
+            else "PRECHECK_REQUIRED"
+        ),
+        permission_checked_at=(
+            str((verified or checked)["permission_checked_at"])
+            if verified or checked
+            else None
+        ),
+        permission_evidence_id=(
+            str(checked["permission_evidence_id"])
+            if checked
+            else "operator_confirmed_permission_denied_v1"
+            if disabled
+            else None
+        ),
+        schema_contract_version=(
+            str((verified or checked)["schema_contract_version"])
+            if verified or checked
+            else None
+        ),
+        runtime_client_enabled=verified is not None,
+        doc_url=(
+            f"https://tushare.pro/document/2?doc_id={doc_id}"
+            if doc_id
+            else "https://tushare.pro/document/1?doc_id=108"
+        ),
     )
 
 
-DEFAULT_ENDPOINT_CATALOG: tuple[TushareEndpointCatalogEntry, ...] = (
-    _entry(
-        "daily", "沪深股票", "行情数据/历史日线",
-        params=("ts_code", "trade_date", "start_date", "end_date"),
-        fields=("ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        agent_tags=("institutional_flow", "market_breadth", "china"),
-        label_tags=("basket_path", "market_breadth_path"),
-        status="scoring_candidate",
-        doc_id="27",
-    ),
-    _entry(
-        "index_daily", "指数", "指数日线行情",
-        params=("ts_code", "trade_date", "start_date", "end_date"),
-        fields=("ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        agent_tags=("central_bank", "china", "yield_curve", "volatility", "market_breadth"),
-        label_tags=("relative_path", "benchmark_path", "drawdown_path"),
-        status="scoring_candidate",
-    ),
-    _entry(
-        "index_basic", "指数", "指数基本信息",
-        params=("ts_code", "market", "publisher", "category", "name"),
-        fields=("ts_code", "name", "fullname", "market", "publisher", "category"),
-        update_frequency="reference",
-        agent_tags=("china", "central_bank", "yield_curve"),
-        label_tags=("proxy_discovery",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "index_member", "指数", "申万行业成分",
-        params=("index_code", "ts_code", "is_new"),
-        fields=("index_code", "con_code", "in_date", "out_date", "is_new"),
-        date_fields=("in_date", "out_date"),
-        update_frequency="reference",
-        event_capable=True,
-        agent_tags=("china", "institutional_flow"),
-        label_tags=("sector_basket_construction",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "fund_daily", "ETF", "ETF日线行情",
-        params=("ts_code", "trade_date", "start_date", "end_date"),
-        fields=("ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        agent_tags=("central_bank", "yield_curve", "volatility", "institutional_flow"),
-        label_tags=("rate_sensitive_path", "flow_followthrough_path", "volatility_proxy_path"),
-        status="scoring_candidate",
-    ),
-    _entry(
-        "fund_nav", "公募基金", "基金净值",
-        params=("ts_code", "nav_date", "start_date", "end_date", "market"),
-        fields=("ts_code", "nav_date", "unit_nav", "accum_nav", "adj_nav"),
-        date_fields=("nav_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        agent_tags=("institutional_flow", "central_bank"),
-        label_tags=("fund_proxy_path",),
-        status="scoring_candidate",
-    ),
-    _entry(
-        "fund_basic", "公募基金", "基金列表",
-        params=("ts_code", "market", "status"),
-        fields=("ts_code", "name", "fund_type", "benchmark", "status", "market"),
-        update_frequency="reference",
-        agent_tags=("central_bank", "institutional_flow"),
-        label_tags=("proxy_discovery",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "fund_share", "公募基金", "基金规模",
-        params=("ts_code", "trade_date", "start_date", "end_date", "market"),
-        fields=("ts_code", "trade_date", "fd_share"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=False,
-        event_capable=True,
-        agent_tags=("institutional_flow",),
-        label_tags=("flow_followthrough_path",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "etf_index", "ETF", "ETF基准指数",
-        params=("ts_code", "pub_date", "base_date"),
-        fields=("ts_code", "indx_name", "indx_csname", "pub_party_name", "pub_date"),
-        date_fields=("pub_date", "base_date"),
-        update_frequency="reference",
-        agent_tags=("central_bank", "institutional_flow"),
-        label_tags=("proxy_discovery",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "fut_daily", "期货", "日线行情",
-        params=("ts_code", "trade_date", "start_date", "end_date", "exchange"),
-        fields=("ts_code", "trade_date", "open", "high", "low", "close", "settle", "vol", "oi"),
-        optional_fields=("oi_chg", "delv_settle"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        agent_tags=("commodities", "geopolitical"),
-        label_tags=("commodity_basket_path", "oil_or_gold_shock_path"),
-        status="scoring_candidate",
-    ),
-    _entry(
-        "fut_basic", "期货", "合约信息",
-        params=("exchange", "fut_code", "fut_type", "list_date"),
-        fields=("ts_code", "symbol", "exchange", "name", "fut_code", "list_date", "delist_date"),
-        date_fields=("list_date", "delist_date"),
-        update_frequency="reference",
-        agent_tags=("commodities",),
-        label_tags=("commodity_contract_mapping",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "rt_fut_min", "期货", "实时分钟行情",
-        params=("ts_code", "freq"),
-        fields=("code", "freq", "time", "open", "close", "high", "low", "vol", "amount", "oi"),
-        date_fields=("time",),
-        update_frequency="realtime",
-        path_capable=True,
-        agent_tags=("commodities", "volatility"),
-        label_tags=("intraday_shock_detection",),
-        status="deferred_unverified",
-    ),
-    _entry(
-        "opt_basic", "期权", "期权合约信息",
-        params=("ts_code", "exchange", "opt_code", "call_put", "list_date"),
-        fields=("ts_code", "exchange", "name", "call_put", "exercise_price", "maturity_date"),
-        date_fields=("list_date", "maturity_date"),
-        update_frequency="reference",
-        agent_tags=("volatility",),
-        label_tags=("volatility_proxy_discovery",),
-        status="deferred_unverified",
-    ),
-    _entry(
-        "ft_tick", "期权", "TICK数据",
-        params=("symbol", "start_date", "end_date"),
-        fields=("symbol", "trade_time", "price", "vol", "amount", "oi"),
-        date_fields=("trade_time", "start_date", "end_date"),
-        update_frequency="realtime",
-        path_capable=True,
-        agent_tags=("volatility", "commodities"),
-        label_tags=("volatility_shock_path",),
-        status="deferred_unverified",
-    ),
-    _entry(
-        "fx_daily", "外汇", "外汇日线行情",
-        params=("ts_code", "trade_date", "start_date", "end_date", "exchange"),
-        fields=("ts_code", "trade_date", "bid_open", "bid_close", "ask_open", "ask_close"),
-        optional_fields=("tick_qty", "exchange"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        agent_tags=("dollar", "geopolitical"),
-        label_tags=("cny_pressure_path", "risk_appetite_path"),
-        status="scoring_candidate",
-        doc_id="179",
-    ),
-    _entry(
-        "fx_obasic", "外汇", "外汇基础信息（海外）",
-        params=("exchange", "classify"),
-        fields=("ts_code", "name", "exchange", "classify"),
-        optional_fields=("min_unit", "max_unit", "pip", "pip_cost"),
-        update_frequency="reference",
-        path_capable=False,
-        event_capable=False,
-        agent_tags=("dollar",),
-        label_tags=("dollar_proxy_discovery", "fx_proxy_discovery"),
-        status="evidence_candidate",
-        doc_id="178",
-    ),
-    _entry(
-        "yc_cb", "债券", "国债收益率曲线",
-        params=("ts_code", "trade_date", "start_date", "end_date", "curve_type", "curve_term"),
-        fields=("trade_date", "ts_code", "curve_name", "curve_type", "curve_term", "yield"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=False,
-        event_capable=True,
-        agent_tags=("central_bank", "yield_curve", "dollar"),
-        label_tags=("curve_state_feature",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "us_tycr", "国际宏观", "美国国债收益率曲线利率",
-        params=("date", "start_date", "end_date", "fields"),
-        fields=("date", "m1", "m2", "m3", "m6", "y1", "y2", "y3", "y5", "y7", "y10", "y20", "y30"),
-        date_fields=("date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        event_capable=True,
-        agent_tags=("yield_curve", "dollar"),
-        label_tags=("us_curve_state_feature", "rate_spread_path"),
-        status="evidence_candidate",
-        doc_id="219",
-    ),
-    _entry(
-        "cb_daily", "债券", "可转债行情",
-        params=("ts_code", "trade_date", "start_date", "end_date"),
-        fields=("ts_code", "trade_date", "open", "high", "low", "close", "pct_chg"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        path_capable=True,
-        agent_tags=("central_bank", "yield_curve"),
-        label_tags=("rate_sensitive_path",),
-        status="scoring_candidate",
-    ),
-    _entry(
-        "cb_rate", "债券", "可转债票面利率",
-        params=("ts_code",),
-        fields=("ts_code", "coupon_rate", "rate_start_date", "rate_end_date"),
-        date_fields=("rate_start_date", "rate_end_date"),
-        update_frequency="reference",
-        status="not_macro_relevant",
-    ),
-    _entry(
-        "cn_pmi", "宏观经济", "国内宏观/景气度/采购经理指数",
-        params=("m", "start_m", "end_m"),
-        fields=("month", "pmi010000", "pmi010100", "pmi010200"),
-        date_fields=("month", "start_m", "end_m"),
-        update_frequency="monthly",
-        event_capable=True,
-        agent_tags=("china",),
-        label_tags=("china_growth_event",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "cn_gdp", "宏观经济", "国内宏观/国民经济/GDP",
-        params=("q", "start_q", "end_q"),
-        fields=("quarter", "gdp", "gdp_yoy", "pi_yoy", "si_yoy", "ti_yoy"),
-        date_fields=("quarter", "start_q", "end_q"),
-        update_frequency="quarterly",
-        event_capable=True,
-        agent_tags=("china",),
-        label_tags=("china_growth_event",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "cn_cpi", "宏观经济", "国内宏观/价格指数/CPI",
-        params=("m", "start_m", "end_m"),
-        fields=("month", "nt_val", "nt_yoy", "nt_mom"),
-        date_fields=("month", "start_m", "end_m"),
-        update_frequency="monthly",
-        event_capable=True,
-        agent_tags=("china", "central_bank"),
-        label_tags=("inflation_event",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "cn_ppi", "宏观经济", "国内宏观/价格指数/PPI",
-        params=("m", "start_m", "end_m"),
-        fields=("month", "ppi_yoy", "ppi_mom", "ppi_accu"),
-        date_fields=("month", "start_m", "end_m"),
-        update_frequency="monthly",
-        event_capable=True,
-        agent_tags=("china", "commodities"),
-        label_tags=("inflation_event", "commodity_demand_event"),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "shibor", "宏观经济", "国内宏观/利率数据/Shibor利率",
-        params=("date", "start_date", "end_date"),
-        fields=("date", "on", "1w", "2w", "1m", "3m", "6m", "9m", "1y"),
-        date_fields=("date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("central_bank", "yield_curve"),
-        label_tags=("liquidity_state_feature",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "shibor_quote", "宏观经济", "国内宏观/利率数据/Shibor报价数据",
-        params=("date", "start_date", "end_date", "bank"),
-        fields=("date", "bank", "on_b", "on_a", "1w_b", "1w_a", "3m_b", "3m_a"),
-        date_fields=("date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("central_bank",),
-        label_tags=("liquidity_state_feature",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "hibor", "宏观经济", "国内宏观/利率数据/Hibor利率",
-        params=("date", "start_date", "end_date"),
-        fields=("date", "on", "1w", "1m", "3m", "6m", "12m"),
-        date_fields=("date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("yield_curve", "dollar"),
-        label_tags=("offshore_liquidity_feature",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "moneyflow", "资金流", "沪深股票/个股资金流向",
-        params=("ts_code", "trade_date", "start_date", "end_date"),
-        fields=("ts_code", "trade_date", "buy_lg_amount", "sell_lg_amount", "buy_elg_amount", "sell_elg_amount", "net_mf_amount"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("institutional_flow",),
-        label_tags=("flow_followthrough_path",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "moneyflow_ind_ths", "资金流", "沪深股票/行业资金流向（THS）",
-        params=("ts_code", "trade_date", "start_date", "end_date"),
-        fields=("trade_date", "ts_code", "industry", "lead_stock", "net_amount", "pct_change"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("institutional_flow",),
-        label_tags=("sector_flow_followthrough_path", "market_breadth_path"),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "top_list", "资金流", "沪深股票/龙虎榜",
-        params=("trade_date",),
-        fields=("trade_date", "ts_code", "name", "close", "pct_change", "net_amount"),
-        date_fields=("trade_date",),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("institutional_flow",),
-        label_tags=("concentrated_flow_event",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "margin_secs", "两融", "融资融券标的（盘前）",
-        params=("ts_code", "trade_date", "start_date", "end_date", "exchange"),
-        fields=("trade_date", "ts_code", "name", "exchange"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("institutional_flow",),
-        label_tags=("risk_appetite_feature",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "limit_list_ths", "热榜", "同花顺涨跌停榜单",
-        params=("ts_code", "trade_date", "start_date", "end_date", "limit_type", "market"),
-        fields=("trade_date", "ts_code", "name", "pct_chg", "limit_type", "tag", "status"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        agent_tags=("market_breadth",),
-        label_tags=("post_2020_limit_diagnostic",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "ths_hot", "热榜", "同花顺App热榜数",
-        params=("ts_code", "trade_date", "market", "is_new"),
-        fields=("trade_date", "data_type", "ts_code", "ts_name", "rank", "pct_change", "hot", "rank_time"),
-        date_fields=("trade_date", "rank_time"),
-        update_frequency="intraday",
-        event_capable=True,
-        agent_tags=(),
-        label_tags=("non_formal_attention_diagnostic",),
-        status="deferred_unverified",
-    ),
-    _entry(
-        "dc_hot", "热榜", "东方财富App热榜",
-        params=("ts_code", "trade_date", "market", "hot_type", "is_new"),
-        fields=("trade_date", "data_type", "ts_code", "ts_name", "rank", "pct_change", "rank_time"),
-        date_fields=("trade_date", "rank_time"),
-        update_frequency="intraday",
-        event_capable=True,
-        agent_tags=(),
-        label_tags=("non_formal_attention_diagnostic",),
-        status="deferred_unverified",
-    ),
-    _entry(
-        "news", "新闻快讯", "大模型语料专题/新闻快讯（短讯）",
-        params=("src", "start_date", "end_date"),
-        fields=("datetime", "content", "title"),
-        optional_fields=("channels",),
-        date_fields=("datetime", "start_date", "end_date"),
-        update_frequency="realtime",
-        event_capable=True,
-        point_in_time_rule="published datetime must be <= signal as_of datetime",
-        agent_tags=("china", "geopolitical"),
-        label_tags=("policy_event", "geopolitical_event"),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "llm_corpus_topic", "大模型语料专题", "语料专题目录",
-        params=("src", "start_date", "end_date"),
-        fields=("datetime", "content", "title", "channels"),
-        date_fields=("datetime", "start_date", "end_date"),
-        update_frequency="realtime",
-        event_capable=True,
-        point_in_time_rule="corpus rows must be discovered/published before signal scoring",
-        agent_tags=("china", "geopolitical"),
-        label_tags=("document_event_pipeline",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "research_report", "券商研报", "券商研究报告",
-        params=("ts_code", "trade_date", "start_date", "end_date", "report_type", "ind_name", "inst_csname"),
-        fields=("trade_date", "abstr", "title", "report_type", "author", "name", "ts_code", "inst_csname", "ind_name", "url"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="twice daily",
-        event_capable=True,
-        point_in_time_rule="trade_date must be <= signal date; publication lag must be respected when available",
-        agent_tags=("china", "commodities", "geopolitical"),
-        label_tags=("policy_event", "commodity_demand_event"),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "hk_basic", "港股", "港股基础信息",
-        params=("ts_code", "list_status"),
-        fields=("ts_code", "name", "fullname", "market", "list_status", "list_date", "delist_date"),
-        date_fields=("list_date", "delist_date"),
-        update_frequency="reference",
-        agent_tags=("dollar",),
-        label_tags=("hk_proxy_discovery",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "hk_tradecal", "港股", "港股交易日历",
-        params=("start_date", "end_date", "is_open"),
-        fields=("cal_date", "is_open", "pretrade_date"),
-        date_fields=("cal_date", "start_date", "end_date"),
-        update_frequency="calendar",
-        agent_tags=("dollar",),
-        label_tags=("calendar_alignment",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "rt_hk_tick", "港股", "港股实时行情",
-        params=("ts_code",),
-        fields=("code", "trade_time", "pre_close", "price", "high", "open", "low", "close", "vol", "amount"),
-        date_fields=("trade_time",),
-        update_frequency="realtime",
-        path_capable=True,
-        agent_tags=("dollar",),
-        label_tags=("intraday_hk_proxy_path",),
-        status="deferred_unverified",
-    ),
-    _entry(
-        "us_basic", "美股", "美股基础信息",
-        params=("ts_code", "classify", "limit", "offset"),
-        fields=("ts_code", "name", "classify", "list_date", "delist_date"),
-        date_fields=("list_date", "delist_date"),
-        update_frequency="reference",
-        agent_tags=("us_economy", "dollar", "geopolitical"),
-        label_tags=("us_proxy_discovery",),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "stock_basic", "沪深股票", "基础数据/股票列表",
-        params=("ts_code", "name", "market", "list_status", "exchange", "is_hs"),
-        fields=("ts_code", "symbol", "name", "area", "industry", "market", "list_date", "delist_date"),
-        date_fields=("list_date", "delist_date"),
-        update_frequency="reference",
-        agent_tags=("institutional_flow", "china", "market_breadth"),
-        label_tags=("basket_construction", "industry_mapping"),
-        status="evidence_candidate",
-    ),
-    _entry(
-        "stock_vx", "沪深股票", "小佩数据/估值因子",
-        params=("ts_code", "trade_date", "start_date", "end_date"),
-        fields=("trade_date", "ts_code", "level1", "level2", "vxx", "vs"),
-        date_fields=("trade_date", "start_date", "end_date"),
-        update_frequency="daily",
-        event_capable=True,
-        status="not_macro_relevant",
-    ),
+DEFAULT_ENDPOINT_CATALOG: tuple[TushareEndpointRegistration, ...] = tuple(
+    _registration(endpoint) for endpoint in TUSHARE_ENDPOINT_IDS
 )
 
 
 def list_endpoint_catalog() -> list[dict]:
-    """Return the tracked endpoint catalog as JSON-serialisable dictionaries."""
     return [entry.as_dict() for entry in DEFAULT_ENDPOINT_CATALOG]
 
 
 def catalog_by_endpoint() -> dict[str, dict]:
-    return {row["endpoint_name"]: row for row in list_endpoint_catalog()}
+    return {row["endpoint"]: row for row in list_endpoint_catalog()}
+
+
+def endpoint_registration(endpoint: str) -> TushareEndpointRegistration:
+    if endpoint not in TUSHARE_ENDPOINT_IDS:
+        raise ValueError(f"DENY_UNKNOWN_ENDPOINT:{endpoint}")
+    return DEFAULT_ENDPOINT_CATALOG[TUSHARE_ENDPOINT_IDS.index(endpoint)]
+
+
+def assert_endpoint_runtime_enabled(endpoint: str) -> TushareEndpointRegistration:
+    registration = endpoint_registration(endpoint)
+    if (
+        registration.status != "ACTIVE_VERIFIED"
+        or not registration.runtime_client_enabled
+    ):
+        raise PermissionError(
+            f"TUSHARE_ENDPOINT_NOT_ACTIVE:{endpoint}:{registration.status}"
+        )
+    return registration
+
+
+def promote_verified_endpoint(
+    endpoint: str,
+    *,
+    permission_checked_at: str,
+    permission_evidence_id: str,
+    schema_contract_version: str,
+) -> TushareEndpointRegistration:
+    """Pure builder used by a future audited registry-release command.
+
+    It deliberately refuses the four permission-denied endpoints; changing
+    those requires a new registry revision and shadow validation.
+    """
+    current = endpoint_registration(endpoint)
+    if endpoint in DISABLED_PERMISSION_ENDPOINTS:
+        raise ValueError(
+            f"disabled endpoint requires a new registry revision: {endpoint}"
+        )
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (
+            permission_checked_at,
+            permission_evidence_id,
+            schema_contract_version,
+        )
+    ):
+        raise ValueError(
+            "verified endpoint promotion requires complete evidence fields"
+        )
+    return replace(
+        current,
+        status="ACTIVE_VERIFIED",
+        permission_checked_at=permission_checked_at,
+        permission_evidence_id=permission_evidence_id,
+        schema_contract_version=schema_contract_version,
+        runtime_client_enabled=True,
+    )
 
 
 def validate_catalog_coverage(
-    entries: Iterable[TushareEndpointCatalogEntry] = DEFAULT_ENDPOINT_CATALOG,
+    entries: Iterable[TushareEndpointRegistration] = DEFAULT_ENDPOINT_CATALOG,
 ) -> dict[str, object]:
     rows = list(entries)
-    categories = {row.category for row in rows}
-    missing_categories = sorted(REQUIRED_MACRO_CATEGORIES - categories)
-    invalid_status = sorted(
-        {row.catalog_status for row in rows if row.catalog_status not in CATALOG_STATUSES}
-    )
-    missing_pit = sorted(row.endpoint_name for row in rows if not row.point_in_time_rule)
+    ids = [row.endpoint for row in rows]
+    missing = sorted(set(TUSHARE_ENDPOINT_IDS) - set(ids))
+    unknown = sorted(set(ids) - set(TUSHARE_ENDPOINT_IDS))
+    duplicates = sorted({endpoint for endpoint in ids if ids.count(endpoint) > 1})
+    invalid: list[str] = []
+    for row in rows:
+        if row.agent_tool_exposed is not False:
+            invalid.append(f"{row.endpoint}:agent_tool_exposed")
+        if row.status == "ACTIVE_VERIFIED":
+            if not (
+                row.runtime_client_enabled
+                and row.permission_checked_at
+                and row.permission_evidence_id
+                and row.schema_contract_version
+            ):
+                invalid.append(f"{row.endpoint}:active_without_evidence")
+        elif row.runtime_client_enabled:
+            invalid.append(f"{row.endpoint}:inactive_client_enabled")
+        if row.endpoint in DISABLED_PERMISSION_ENDPOINTS and row.status != (
+            "DISABLED_PERMISSION_DENIED"
+        ):
+            invalid.append(f"{row.endpoint}:disabled_status_drift")
+        if not row.point_in_time_rule:
+            invalid.append(f"{row.endpoint}:missing_pit_rule")
     return {
-        "ok": not missing_categories and not invalid_status and not missing_pit,
+        "ok": not missing and not unknown and not duplicates and not invalid,
+        "registry_version": TUSHARE_ENDPOINT_REGISTRY_VERSION,
         "n_endpoints": len(rows),
-        "categories": sorted(categories),
-        "missing_categories": missing_categories,
-        "invalid_status": invalid_status,
-        "missing_point_in_time_rule": missing_pit,
+        "missing_endpoints": missing,
+        "unknown_endpoints": unknown,
+        "duplicate_endpoints": duplicates,
+        "invalid_registrations": sorted(invalid),
     }
 
 
 def refresh_catalog(snapshot_path: str | Path | None = None) -> list[dict]:
-    """Write the current tracked snapshot to disk and return it.
-
-    The function name is intentionally future-proof: a live document crawler can
-    replace the body later while keeping CLI/tests stable.
-    """
-    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    rows = []
-    for entry in DEFAULT_ENDPOINT_CATALOG:
-        data = entry.as_dict()
-        data["verified_at"] = data.get("verified_at") or generated_at
-        rows.append(data)
+    """Write the public registration metadata; no vendor response is included."""
+    rows = list_endpoint_catalog()
     if snapshot_path is not None:
         path = Path(snapshot_path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -647,19 +423,22 @@ def refresh_catalog(snapshot_path: str | Path | None = None) -> list[dict]:
 
 
 def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Refresh or validate the Tushare endpoint catalog snapshot.")
+    parser = argparse.ArgumentParser(description="Inspect the closed Tushare registry")
     parser.add_argument("command", choices=("refresh", "validate", "list"))
-    parser.add_argument("--out", default="", help="Optional JSON snapshot output path for refresh.")
+    parser.add_argument("--out", default="")
     args = parser.parse_args(argv)
     if args.command == "refresh":
-        rows = refresh_catalog(args.out or None)
-        print(json.dumps({"n_endpoints": len(rows)}, ensure_ascii=False, sort_keys=True))
+        print(json.dumps({"n_endpoints": len(refresh_catalog(args.out or None))}))
         return 0
     if args.command == "validate":
         result = validate_catalog_coverage()
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0 if result["ok"] else 1
-    print(json.dumps(list_endpoint_catalog(), ensure_ascii=False, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            list_endpoint_catalog(), ensure_ascii=False, indent=2, sort_keys=True
+        )
+    )
     return 0
 
 
@@ -668,12 +447,21 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 __all__ = [
-    "CATALOG_STATUSES",
     "DEFAULT_ENDPOINT_CATALOG",
-    "REQUIRED_MACRO_CATEGORIES",
-    "TushareEndpointCatalogEntry",
+    "DISABLED_PERMISSION_ENDPOINTS",
+    "DYNAMIC_PERMISSION_DENIAL_ENDPOINTS",
+    "OPERATOR_DISABLED_PERMISSION_ENDPOINTS",
+    "PREFLIGHT_ENDPOINT_CHECKS",
+    "TUSHARE_ENDPOINT_IDS",
+    "TUSHARE_ENDPOINT_REGISTRY_VERSION",
+    "TUSHARE_PREFLIGHT_SCHEMA_VERSION",
+    "TushareEndpointRegistration",
+    "VERIFIED_ENDPOINT_PREFLIGHTS",
+    "assert_endpoint_runtime_enabled",
     "catalog_by_endpoint",
+    "endpoint_registration",
     "list_endpoint_catalog",
+    "promote_verified_endpoint",
     "refresh_catalog",
     "validate_catalog_coverage",
 ]

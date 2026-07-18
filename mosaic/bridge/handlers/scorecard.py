@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
+from mosaic.scorecard.store import RUNTIME_AGENT_STAGE_COUNT
 
 
 # Annualization constant — must match scorecard.weights.ANNUALIZATION
@@ -85,25 +86,41 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(state, dict):
         raise RpcError(INVALID_PARAMS, "'state' must be an object")
     audits = state.get("agent_run_audits")
-    audit_keys = {
-        (audit.get("agent"), audit.get("stage"))
-        for audit in audits or []
-        if isinstance(audit, dict)
-    }
-    if (
-        not isinstance(audits, list)
-        or len(audits) != 26
-        or len(audit_keys) != 26
-        or any(
-            not isinstance(audit, dict)
-            or audit.get("status") not in ("accepted", "accepted_empty")
-            for audit in audits
-        )
-    ):
-        raise RpcError(
-            INVALID_PARAMS,
-            "scorecard append requires 26 unique accepted agent-stage audits",
-        )
+    if state.get("darwinian_runtime_binding") is not None:
+        try:
+            from mosaic.scorecard.darwinian_v2 import validate_runtime_stage_completion
+
+            validate_runtime_stage_completion(
+                audits,
+                state.get("outcome_stage_skips", {}),
+            )
+        except ValueError as exc:
+            raise RpcError(
+                INVALID_PARAMS,
+                f"scorecard append requires {RUNTIME_AGENT_STAGE_COUNT} "
+                f"accepted-or-skipped Agent stages: {exc}",
+            ) from exc
+    else:
+        audit_keys = {
+            (audit.get("agent"), audit.get("stage"))
+            for audit in audits or []
+            if isinstance(audit, dict)
+        }
+        if (
+            not isinstance(audits, list)
+            or len(audits) != RUNTIME_AGENT_STAGE_COUNT
+            or len(audit_keys) != RUNTIME_AGENT_STAGE_COUNT
+            or any(
+                not isinstance(audit, dict)
+                or audit.get("status") not in ("accepted", "accepted_empty")
+                for audit in audits
+            )
+        ):
+            raise RpcError(
+                INVALID_PARAMS,
+                "scorecard append requires "
+                f"{RUNTIME_AGENT_STAGE_COUNT} unique accepted agent-stage audits",
+            )
     if state.get("day_outcome_status") != "accepted":
         raise RpcError(INVALID_PARAMS, "scorecard append requires an accepted day outcome")
     try:
@@ -126,12 +143,21 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
                 )
         n = store.append_from_state(state)
         macro_n = store.append_macro_signals_from_state(state)
+        darwinian_v2 = (
+            store.append_darwinian_v2_accepted_cycle(state)
+            if state.get("darwinian_runtime_binding") is not None
+            else None
+        )
     except ValueError as exc:
         # expand_* raises ValueError when as_of_date is missing
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
-    return {"ingested": n, "macro_ingested": macro_n}
+    return {
+        "ingested": n,
+        "macro_ingested": macro_n,
+        **({"darwinian_v2": darwinian_v2} if darwinian_v2 is not None else {}),
+    }
 
 
 # ---------------------------------------------------------------------------

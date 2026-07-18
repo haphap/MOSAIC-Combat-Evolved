@@ -52,7 +52,7 @@ def _runtime_context_proof(rank: int = 1) -> dict:
     }
 
 
-def _model_config_output_counts(count: int = 425) -> dict:
+def _model_config_output_counts(count: int = 476) -> dict:
     return {
         "baseline_current_config": count,
         "local_qwen_27b": count,
@@ -72,7 +72,7 @@ def _benchmark_quality_summary(
         "fallback_prompt_run_count": 0,
         "covered_episode_count": 8,
         "covered_as_of_date_count": 17,
-        "covered_agent_count": 25,
+        "covered_agent_count": 28,
     }
     row.update(overrides)
     return row
@@ -132,8 +132,8 @@ def _replay_evidence(
         "downstream_outcome_metrics_ref": (
             f"rke-shadow:{benchmark_run_id}:{replay_run_id}:runtime-metrics"
         ),
-        "replay_output_count": 25,
-        "replay_footprint_count": 25,
+        "replay_output_count": 28,
+        "replay_footprint_count": 28,
         "privacy_scan_passed": True,
         "current_data_confirmed": True,
     }
@@ -292,7 +292,7 @@ def _darwinian_consumption_evidence(
         "autoresearch_update_ref": "autoresearch-update-1",
         "rejected_update_reasons_ref": "rejected-update-1",
         "rollback_readiness_ref": "rollback-readiness-1",
-        "agent_weight_count": 25,
+        "agent_weight_count": 28,
         "non_stub_weight_count": 4,
         "layer_weight_sum_ready": True,
         "darwinian_consumed": True,
@@ -393,10 +393,10 @@ def test_fixed_episode_manifest_blocks_without_private_prompt_source():
     assert result["benchmark_status"] == "blocked_preflight"
     assert result["episode_count"] == 8
     assert result["as_of_date_count"] == 17
-    assert result["agent_count"] == 25
+    assert result["agent_count"] == 28
     assert result["model_config_count"] == 4
-    assert result["planned_run_count"] == 1700
-    assert result["prompt_preflight"]["blocked_count"] == 50
+    assert result["planned_run_count"] == 1904
+    assert result["prompt_preflight"]["blocked_count"] == 56
     assert result["prompt_preflight"]["blocked_reasons"] == [
         "private_prompt_unavailable"
     ]
@@ -422,7 +422,7 @@ def test_fixed_episode_manifest_is_ready_with_all_private_prompts(
     assert result["benchmark_status"] == "ready_to_run"
     assert result["prompt_preflight"] == {
         "ready": True,
-        "row_count": 50,
+        "row_count": 56,
         "blocked_count": 0,
         "blocked_reasons": [],
         "source_status": {
@@ -452,7 +452,7 @@ def test_all_agent_prompt_provenance_readiness_blocks_missing_source():
     result = dispatch("rke_benchmark.all_agent_prompt_provenance_readiness", {})
 
     assert result["readiness_status"] == "blocked_preflight"
-    assert result["prompt_row_count"] == 50
+    assert result["prompt_row_count"] == 56
     assert result["release_check_count"] == 0
     assert result["prompt_source_status"]["blocked_reason"] == (
         "private_prompt_unavailable"
@@ -479,10 +479,10 @@ def test_all_agent_prompt_provenance_readiness_accepts_private_release_checks(
     )
 
     assert result["readiness_status"] == "ready"
-    assert result["agent_count"] == 25
-    assert result["prompt_row_count"] == 50
-    assert result["ready_prompt_row_count"] == 50
-    assert result["release_check_count"] == 50
+    assert result["agent_count"] == 28
+    assert result["prompt_row_count"] == 56
+    assert result["ready_prompt_row_count"] == 56
+    assert result["release_check_count"] == 56
     assert result["all_agent_prompt_provenance_ready"] is True
     assert result["fallback_used"] is False
     assert result["prompt_rows"][0]["audit_version_ref"].startswith("audit-all-")
@@ -623,9 +623,9 @@ def test_all_agent_prompt_provenance_readiness_blocks_extra_release_rows(
     )
 
     assert result["readiness_status"] == "blocked_preflight"
-    assert "release_checks[51]: unknown agent/lang" in result["blocked_reasons"]
-    assert "release_checks[52]: duplicate agent/lang" in result["blocked_reasons"]
-    assert result["ready_prompt_row_count"] == 50
+    assert "release_checks[57]: unknown agent/lang" in result["blocked_reasons"]
+    assert "release_checks[58]: duplicate agent/lang" in result["blocked_reasons"]
+    assert result["ready_prompt_row_count"] == 56
     assert result["all_agent_prompt_provenance_ready"] is False
 
 
@@ -645,7 +645,7 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_proof(
     )
 
     assert result["evidence_status"] == "blocked_preflight"
-    assert result["required_paired_output_count"] == 1275
+    assert result["required_paired_output_count"] == 1428
     assert result["prompt_source_status"]["blocked_reason"] == (
         "private_prompt_unavailable"
     )
@@ -676,7 +676,7 @@ def test_fixed_episode_benchmark_evidence_accepts_no_body_proof(
         "rke_benchmark.fixed_episode_benchmark_evidence",
         {
             "benchmark_run_id": "bench-ready",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(),
             "evidence_refs": _benchmark_evidence_refs(),
@@ -712,7 +712,7 @@ def test_fixed_episode_benchmark_evidence_requires_runner_and_independent_review
         "rke_benchmark.fixed_episode_benchmark_evidence",
         {
             "benchmark_run_id": "bench-review-blocked",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-review-blocked"
@@ -740,7 +740,7 @@ def test_fixed_episode_benchmark_evidence_blocks_cross_run_proof_refs(
         "rke_benchmark.fixed_episode_benchmark_evidence",
         {
             "benchmark_run_id": "bench-ready",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary("other-run"),
             "evidence_refs": _benchmark_evidence_refs("other-run"),
@@ -771,7 +771,7 @@ def test_fixed_episode_benchmark_evidence_blocks_missing_required_model_counts(
         "rke_benchmark.fixed_episode_benchmark_evidence",
         {
             "benchmark_run_id": "bench-missing-model",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": counts,
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-missing-model"
@@ -799,13 +799,13 @@ def test_fixed_episode_benchmark_evidence_blocks_unknown_model_counts(
     monkeypatch.setenv("MOSAIC_REPO_ROOT", str(project_root))
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
     counts = _model_config_output_counts()
-    counts["ghost_model"] = 425
+    counts["ghost_model"] = 476
 
     result = dispatch(
         "rke_benchmark.fixed_episode_benchmark_evidence",
         {
             "benchmark_run_id": "bench-unknown-model",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": counts,
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-unknown-model"
@@ -835,13 +835,13 @@ def test_fixed_episode_benchmark_evidence_blocks_incomplete_coverage_counts(
         "rke_benchmark.fixed_episode_benchmark_evidence",
         {
             "benchmark_run_id": "bench-coverage-gap",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-coverage-gap",
                 covered_episode_count=7,
                 covered_as_of_date_count=16,
-                covered_agent_count=24,
+                covered_agent_count=27,
             ),
             "evidence_refs": _benchmark_evidence_refs("bench-coverage-gap"),
             "manual_review": _manual_review("bench-coverage-gap"),
@@ -868,7 +868,7 @@ def test_fixed_episode_benchmark_evidence_blocks_quality_gate_failures(
         "rke_benchmark.fixed_episode_benchmark_evidence",
         {
             "benchmark_run_id": "bench-quality-fail",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-quality-fail",
@@ -900,7 +900,7 @@ def test_capture_agent_claim_footprints_writes_private_redacted_rows(
                     "replay_run_id": "replay-001",
                     "episode_id": "episode-001",
                     "model_config_id": "local_qwen_27b",
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {
@@ -966,7 +966,7 @@ def test_capture_agent_claim_footprints_blocks_private_text_fields(
             "benchmark_run_id": "bench-002",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1002,7 +1002,7 @@ def test_capture_agent_claim_footprints_blocks_unsafe_flags(
                 "benchmark_run_id": f"bench-unsafe-{flag}",
                 "rows": [
                     {
-                        "agent": "dollar",
+                        "agent": "us_financial_conditions",
                         "as_of_date": "2026-06-18",
                         "claim_type": "macro_series_claim",
                         "target": {
@@ -1034,7 +1034,7 @@ def test_capture_agent_claim_footprints_blocks_non_shadow_use_policy(
             "benchmark_run_id": "bench-bad-use-policy",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1070,7 +1070,7 @@ def test_capture_agent_claim_footprints_blocks_invalid_boolean_evidence(
                 "benchmark_run_id": f"bench-invalid-boolean-{key}",
                 "rows": [
                     {
-                        "agent": "dollar",
+                        "agent": "us_financial_conditions",
                         "as_of_date": "2026-06-18",
                         "claim_type": "macro_series_claim",
                         "target": {
@@ -1103,7 +1103,7 @@ def test_capture_agent_claim_footprints_blocks_cross_run_rows(
             "rows": [
                 {
                     "benchmark_run_id": "other-run",
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1131,7 +1131,7 @@ def test_capture_agent_claim_footprints_blocks_invalid_context_hash(
             "benchmark_run_id": "bench-invalid-context-hash",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1162,7 +1162,7 @@ def test_capture_agent_claim_footprints_blocks_invalid_retrieval_rank(
             "benchmark_run_id": "bench-invalid-retrieval-rank",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1192,7 +1192,7 @@ def test_capture_agent_claim_footprints_blocks_wrong_ranking_policy(
             "benchmark_run_id": "bench-wrong-ranking-policy",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1225,7 +1225,7 @@ def test_capture_agent_claim_footprints_blocks_unsupported_priority_bucket(
             "benchmark_run_id": "bench-wrong-priority-bucket",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1255,7 +1255,7 @@ def test_capture_agent_claim_footprints_blocks_invalid_truncation_count(
             "benchmark_run_id": "bench-invalid-truncation-count",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1286,7 +1286,7 @@ def test_agent_footprint_summary_reads_private_rows_as_redacted_aggregate(
             "benchmark_run_id": "bench-003",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1381,7 +1381,7 @@ def test_agent_profile_evolution_readiness_blocks_missing_report_claim_link(
             "benchmark_run_id": "bench-profile-missing-report-link",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1413,7 +1413,7 @@ def test_agent_profile_evolution_readiness_blocks_partial_report_claim_links(
             "benchmark_run_id": "bench-profile-partial-report-link",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1454,7 +1454,7 @@ def test_agent_profile_evolution_readiness_blocks_missing_runtime_metadata(
             "benchmark_run_id": "bench-profile-missing-runtime-metadata",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1494,7 +1494,7 @@ def test_agent_profile_evolution_readiness_counts_runtime_proof_on_rke_rows_only
             "benchmark_run_id": "bench-profile-runtime-row-scope",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1544,7 +1544,7 @@ def test_agent_profile_evolution_readiness_blocks_partial_current_data_confirmat
             "benchmark_run_id": "bench-profile-partial-current-data",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1593,7 +1593,7 @@ def test_agent_profile_evolution_readiness_accepts_redacted_all_layer_profile(
             "benchmark_run_id": "bench-profile-ready",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1672,7 +1672,7 @@ def test_agent_profile_evolution_readiness_blocks_cross_run_profile_evidence(
             "benchmark_run_id": "bench-profile-ready",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1767,7 +1767,7 @@ def test_darwinian_autoresearch_manifest_distinguishes_rke_prior_from_current_da
             "benchmark_run_id": "bench-004",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1829,7 +1829,7 @@ def test_darwinian_autoresearch_manifest_rejects_bool_outcome_metrics(
             "benchmark_run_id": "bench-bool-outcome-metrics",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1875,7 +1875,7 @@ def test_darwinian_autoresearch_manifest_blocks_partial_current_data_confirmatio
             "benchmark_run_id": "bench-partial-current-data-input",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1937,7 +1937,7 @@ def test_darwinian_autoresearch_manifest_blocks_missing_runtime_metadata(
             "benchmark_run_id": "bench-darwinian-missing-runtime",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -1982,7 +1982,7 @@ def test_darwinian_autoresearch_manifest_blocks_cross_run_inputs(
             "benchmark_run_id": "bench-004",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -2048,7 +2048,7 @@ def test_darwinian_autoresearch_consumption_accepts_replay_refs(
             "benchmark_run_id": "bench-consumption-ready",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -2096,7 +2096,7 @@ def test_darwinian_autoresearch_consumption_blocks_cross_run_evidence(
             "benchmark_run_id": "bench-consumption-ready",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -2137,7 +2137,7 @@ def _mutation_candidate(**overrides):
         "schema_version": "report_intelligence_prompt_mutation_candidate_v1",
         "candidate_type": "macro_prior_rule_parameter_refusal",
         "target_scope": "macro",
-        "target_component": "macro.dollar",
+        "target_component": "macro.us_financial_conditions",
         "proposed_change": "redacted aggregate rule evidence only",
         "trigger_sources": ["rke_prior_compiler"],
         "evidence_refs": [{"artifact": "prompt_mutation_candidates"}],
@@ -3530,7 +3530,7 @@ def test_shadow_replay_readiness_accepts_ready_shadow_evidence(
         "all_agent_prompt_release_checks": _all_prompt_release_checks(
             preflight["rows"], "bench-shadow-ready"
         ),
-        "paired_output_count": 1275,
+        "paired_output_count": 1428,
         "model_config_output_counts": _model_config_output_counts(),
         "benchmark_quality_summary": _benchmark_quality_summary(
             "bench-shadow-ready"
@@ -3652,7 +3652,7 @@ def test_shadow_replay_blocks_partial_current_data_confirmation(
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
                 preflight["rows"], "bench-shadow-partial-current-data"
             ),
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-shadow-partial-current-data"
@@ -3740,7 +3740,7 @@ def test_shadow_replay_readiness_blocks_unbound_replay_refs(
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
                 preflight["rows"], "bench-shadow-unbound-ref"
             ),
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-shadow-unbound-ref"
@@ -3847,7 +3847,7 @@ def test_paper_trading_readiness_accepts_reviewed_shadow_plan(
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
                 preflight["rows"], "bench-paper-ready"
             ),
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-paper-ready"
@@ -3931,7 +3931,7 @@ def test_paper_trading_readiness_blocks_cross_run_plan(
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
                 preflight["rows"], "bench-paper-ready"
             ),
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-paper-ready"
@@ -4037,7 +4037,7 @@ def test_paper_trading_readiness_blocks_unapproved_operator_review(
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
                 preflight["rows"], "bench-paper-unapproved"
             ),
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-paper-unapproved"
@@ -4238,7 +4238,7 @@ def test_promotion_decision_readiness_accepts_reviewed_paper_evidence(
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
                 preflight["rows"], "bench-promotion-ready"
             ),
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-promotion-ready"
@@ -4329,7 +4329,7 @@ def test_promotion_decision_readiness_blocks_cross_run_evidence(
             "all_agent_prompt_release_checks": _all_prompt_release_checks(
                 preflight["rows"], "bench-promotion-ready"
             ),
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-promotion-ready"
@@ -4445,7 +4445,7 @@ def test_delivery_readiness_marks_runtime_context_condition_independently(
             "benchmark_run_id": "bench-delivery-runtime-ready",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -4703,7 +4703,7 @@ def test_delivery_evidence_audit_reports_recorded_and_missing_keys(
         "rke_benchmark.record_delivery_evidence",
         {
             "benchmark_run_id": "bench-delivery-audit",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "manual_review": _manual_review("bench-delivery-audit"),
         },
     )
@@ -4736,21 +4736,21 @@ def test_delivery_evidence_audit_keeps_complete_keys_separate_from_readiness(
             "benchmark_run_id": benchmark_run_id,
             "all_agent_prompt_release_checks": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "lang": "zh",
-                    "prompt_file_path": "prompts/mosaic/cohort_default/macro/dollar.zh.md",
+                    "prompt_file_path": "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md",
                     "benchmark_run_id": benchmark_run_id,
                 }
             ],
             "prompt_contract_checks": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "lang": "zh",
                     "prompt_contract_check_ref": "prompt-contract:rke_prompt_contract_v1:a",
                     "benchmark_run_id": benchmark_run_id,
                 }
             ],
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(benchmark_run_id),
             "benchmark_evidence_refs": _benchmark_evidence_refs(benchmark_run_id),
@@ -4924,7 +4924,7 @@ def test_delivery_evidence_records_merge_incrementally(tmp_path: Path, monkeypat
         "rke_benchmark.record_delivery_evidence",
         {
             "benchmark_run_id": "bench-delivery-incremental",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
         },
     )
     dispatch(
@@ -4967,7 +4967,7 @@ def test_delivery_readiness_uses_recorded_cohort(tmp_path: Path, monkeypatch):
         {
             "benchmark_run_id": "bench-delivery-cohort",
             "cohort": "cohort_custom",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
         },
     )
 
@@ -5000,7 +5000,7 @@ def test_delivery_evidence_store_blocks_empty_proof_values(
         {
             "benchmark_run_id": "bench-delivery-empty",
             "all_agent_prompt_release_checks": [],
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": {},
         },
     )
@@ -5010,7 +5010,7 @@ def test_delivery_evidence_store_blocks_empty_proof_values(
                 "schema_version": "rke_delivery_evidence_v1",
                 "benchmark_run_id": "bench-delivery-empty",
                 "evidence": {
-                    "paired_output_count": 1275,
+                    "paired_output_count": 1428,
                     "model_config_output_counts": {},
                 },
             }
@@ -5283,12 +5283,12 @@ def test_delivery_evidence_store_rejects_schema_mismatch(
         {
             "schema_version": "legacy_delivery_evidence_v0",
             "benchmark_run_id": "other-run",
-            "evidence": {"paired_output_count": 1275},
+            "evidence": {"paired_output_count": 1428},
         },
         {
             "schema_version": "legacy_delivery_evidence_v0",
             "benchmark_run_id": "bench-delivery-schema",
-            "evidence": {"paired_output_count": 1275},
+            "evidence": {"paired_output_count": 1428},
         },
     ]
     (evidence_dir / "delivery_evidence.jsonl").write_text(
@@ -5319,7 +5319,7 @@ def test_delivery_readiness_loads_recorded_private_evidence(
         "rke_benchmark.record_delivery_evidence",
         {
             "benchmark_run_id": "bench-delivery-recorded",
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-delivery-recorded"
@@ -5435,7 +5435,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
             "benchmark_run_id": "bench-delivery-ready",
             "rows": [
                 {
-                    "agent": "dollar",
+                    "agent": "us_financial_conditions",
                     "as_of_date": "2026-06-18",
                     "claim_type": "macro_series_claim",
                     "target": {"target_type": "macro_series", "target_id": "USDCNY"},
@@ -5492,7 +5492,7 @@ def test_delivery_readiness_accepts_all_no_write_gate_evidence(
         {
             "benchmark_run_id": "bench-delivery-ready",
             "all_agent_prompt_release_checks": all_prompt_release_checks,
-            "paired_output_count": 1275,
+            "paired_output_count": 1428,
             "model_config_output_counts": _model_config_output_counts(),
             "benchmark_quality_summary": _benchmark_quality_summary(
                 "bench-delivery-ready"

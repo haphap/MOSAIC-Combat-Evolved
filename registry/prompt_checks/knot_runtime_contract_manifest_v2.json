@@ -1,0 +1,54 @@
+{
+  "knot_runtime_contract_manifest_id": "knot-runtime-contract",
+  "knot_runtime_contract_manifest_version": "knot_runtime_contract_manifest_v2",
+  "knot_runtime_contract_manifest_hash": "sha256:d13a82b0204b243c55d3c9f1e9c98a39c55b611e13132d81fbd98e36dbf89e3d",
+  "research_score_contract": {
+    "research_score_contract_id": "knot-research-score",
+    "research_score_contract_version": "knot_research_score_v2",
+    "research_score_contract_hash": "sha256:2ff2cdedb25b0208323190eed716498bfad6c8c18631f3bc5a1c6a01ae3843ec",
+    "normalized_inference_cost_formula": "HALF_INPUT_CAP_RATIO_PLUS_HALF_OUTPUT_CAP_RATIO",
+    "input_token_cost_weight": 0.5,
+    "output_token_cost_weight": 0.5,
+    "sector_inference_cost_penalty_per_unit": 0.2,
+    "sector_conflict_review_penalty": 0.05,
+    "maximum_sector_success_penalty": 0.25,
+    "sector_success_score_range": [
+      -1.25,
+      1
+    ],
+    "non_sector_success_score_range": [
+      -1,
+      1
+    ],
+    "agent_failure_score": -2,
+    "promotion_mean_delta_floor": 0.05,
+    "rollback_mean_delta_ceiling": -0.05
+  },
+  "scheduler_contract": {
+    "scheduler_contract_id": "knot-scheduler",
+    "scheduler_contract_version": "knot_scheduler_v2",
+    "scheduler_contract_hash": "sha256:06fc0d82c3910ec3c9ec9b6840d6152133cc318a01414917001f975596701b02",
+    "minimum_accountable_pairs": 30,
+    "block_bootstrap_resamples": 2000,
+    "block_bootstrap_block_length": 5,
+    "confidence_level": 0.95,
+    "benjamini_hochberg_q_max": 0.05,
+    "candidate_reliability_tolerance": 0.05,
+    "holdout_regime_degradation_max": 0.05,
+    "post_promotion_shadow_pairs": 20,
+    "rollback_reliability_gap": 0.1,
+    "self_scope_q2_minimum": 0,
+    "self_scope_operational_reliability_floor": 0.8,
+    "rollback_cooldown_research_slots": 20,
+    "layer_active_candidate_quotas": {
+      "MACRO": 1,
+      "SECTOR": 1,
+      "SUPERINVESTOR": 1,
+      "DECISION": 1
+    },
+    "source_window_kind": "FIRST_N_ACCOUNTABLE_NON_OVERLAPPING_PAIRS",
+    "agent_failure_score_included": true,
+    "exogenous_exclusion_included": false,
+    "decision_usage_weight_enabled": false
+  }
+}

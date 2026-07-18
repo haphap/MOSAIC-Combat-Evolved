@@ -7,9 +7,44 @@ import pytest
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.macro_snapshots import (
     ALFRED_SERIES_MAP,
+    ALFRED_SERIES_ROLE_MAP,
+    MACRO_SNAPSHOT_SCHEMA_VERSION,
     mark_legacy_macro_output,
     validate_role_snapshot,
 )
+
+
+ROLE_SERIES = {
+    "china": ("cn_gdp", "cn_cpi", "cn_credit", "cn_export", "cn_fiscal"),
+    "us_economy": ("GDPC1", "CPIAUCSL", "PAYEMS", "RSAFS"),
+    "eu_economy": ("eu_gdp", "eu_hicp", "eu_unemployment", "eu_retail"),
+    "central_bank": (
+        "pboc_omo_net_injection",
+        "domestic_liquidity_dr007",
+        "cn_curve_10y",
+        "credit_condition_spread",
+    ),
+    "us_financial_conditions": (
+        "fed_balance_sheet",
+        "us_curve_2s10s",
+        "us_credit_spread",
+        "broad_dollar_index",
+    ),
+    "euro_area_financial_conditions": (
+        "ecb_deposit_rate",
+        "euro_area_curve_2s10s",
+        "euro_area_bank_credit_growth",
+        "eur_financial_stress",
+    ),
+    "commodities": (
+        "energy_crude_oil",
+        "industrial_metal_copper",
+        "gold_spot",
+        "agriculture_food_basket",
+    ),
+    "geopolitical": ("geopolitical_event_severity",),
+    "institutional_flow": ("market_flow_net_amount",),
+}
 
 
 def observation(**overrides):
@@ -28,15 +63,24 @@ def observation(**overrides):
         "evidence_id": "macro:cn_cpi:2024-05:20240612",
     }
     row.update(overrides)
+    if "evidence_id" not in overrides:
+        row["evidence_id"] = f"macro:{row['series_id']}:2024-05:20240612"
     return row
 
 
 def payload(role="china", **overrides):
+    observations = [
+        observation(
+            series_id=series_id,
+            source="ALFRED" if role == "us_economy" else "tushare",
+        )
+        for series_id in ROLE_SERIES[role]
+    ]
     value = {
-        "schema_version": "macro_role_snapshot_v1",
+        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
         "role": role,
         "as_of_date": "2024-06-30",
-        "observations": [observation()],
+        "observations": observations,
         "events": [],
     }
     value.update(overrides)
@@ -102,15 +146,14 @@ def test_unregistered_alfred_series_has_no_implicit_fallback():
 
 def test_role_snapshot_rejects_cross_role_series():
     bad = payload(role="central_bank", observations=[observation(series_id="cn_cpi")])
-    with pytest.raises(DataVendorUnavailable, match="outside the central_bank snapshot contract"):
+    with pytest.raises(
+        DataVendorUnavailable, match="outside the central_bank snapshot contract"
+    ):
         validate_role_snapshot(bad, "central_bank", "2024-06-30")
 
 
 def test_central_bank_snapshot_is_pboc_and_domestic_liquidity_only():
-    accepted = payload(
-        role="central_bank",
-        observations=[observation(series_id="pboc_omo_net_injection")],
-    )
+    accepted = payload(role="central_bank")
     assert validate_role_snapshot(accepted, "central_bank", "2024-06-30")[
         "observations"
     ]
@@ -127,57 +170,89 @@ def test_central_bank_snapshot_is_pboc_and_domestic_liquidity_only():
             validate_role_snapshot(bad, "central_bank", "2024-06-30")
 
 
-def test_alfred_revision_series_is_us_economy_only():
+def test_alfred_series_use_exact_role_ownership_without_cross_role_fallback():
     bad = payload(observations=[observation(series_id="GDPC1", source="ALFRED")])
-    with pytest.raises(DataVendorUnavailable, match="not permitted for role china"):
+    with pytest.raises(DataVendorUnavailable, match="belongs to us_economy, not china"):
         validate_role_snapshot(bad, "china", "2024-06-30")
+    financial = payload(
+        role="us_financial_conditions",
+        observations=[
+            observation(series_id="fed_balance_sheet", source="official"),
+            observation(series_id="DFII10", source="ALFRED"),
+            observation(series_id="NFCI", source="ALFRED"),
+            observation(series_id="DTWEXBGS", source="ALFRED"),
+        ],
+    )
+    accepted = validate_role_snapshot(
+        financial, "us_financial_conditions", "2024-06-30"
+    )
+    assert {row["series_id"] for row in accepted["observations"]} == {
+        "fed_balance_sheet",
+        "DFII10",
+        "NFCI",
+        "DTWEXBGS",
+    }
+    assert ALFRED_SERIES_ROLE_MAP["VIXCLS"] == "us_financial_conditions"
 
 
-def test_news_events_are_only_available_to_china_and_geopolitical():
+def test_generic_macro_snapshots_cannot_embed_event_prose():
     event = {
         "event_id": "event-1",
         "published_at": "2024-06-20T02:00:00Z",
-        "source": "tushare.major_news",
+        "source": "gdelt_event_gkg",
         "content_hash": "sha256:abc",
         "title": "policy event",
         "evidence_id": "event:event-1",
     }
-    allowed = payload(observations=[], events=[event])
-    assert validate_role_snapshot(allowed, "china", "2024-06-30")["events"]
-    denied = payload(role="volatility", observations=[], events=[event])
-    with pytest.raises(DataVendorUnavailable, match="not permitted"):
-        validate_role_snapshot(denied, "volatility", "2024-06-30")
+    for role in ("geopolitical", "china"):
+        denied = payload(role=role, observations=[], events=[event])
+        with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
+            validate_role_snapshot(denied, role, "2024-06-30")
+
+
+def test_geopolitical_uses_dedicated_registry_snapshot_contract():
+    with pytest.raises(DataVendorUnavailable, match="GeopoliticalEventsSnapshot"):
+        validate_role_snapshot(
+            payload(role="geopolitical", observations=[], events=[]),
+            "geopolitical",
+            "2024-06-30",
+        )
 
 
 def test_observations_reject_news_and_unregistered_sources():
-    news = payload(observations=[observation(source="tushare.major_news")])
-    with pytest.raises(DataVendorUnavailable, match="event library"):
+    news = payload(observations=[observation(source="gdelt_event_gkg")])
+    with pytest.raises(DataVendorUnavailable, match="event library|unapproved"):
         validate_role_snapshot(news, "china", "2024-06-30")
 
     unknown = payload(observations=[observation(source="unregistered_vendor")])
-    with pytest.raises(DataVendorUnavailable, match="unapproved macro observation source"):
+    with pytest.raises(
+        DataVendorUnavailable, match="unapproved macro observation source"
+    ):
         validate_role_snapshot(unknown, "china", "2024-06-30")
 
 
-def test_event_library_rejects_duplicate_content_hashes():
+def test_event_library_input_is_not_accepted_through_generic_macro_contract():
     first = {
         "event_id": "event-1",
         "published_at": "2024-06-20T02:00:00Z",
-        "source": "tushare.major_news",
+        "source": "gdelt_event_gkg",
         "content_hash": "sha256:abc",
         "title": "policy event",
         "evidence_id": "event:event-1",
     }
     duplicate = {**first, "event_id": "event-2", "evidence_id": "event:event-2"}
-    with pytest.raises(DataVendorUnavailable, match="duplicate event content hashes"):
+    with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
         validate_role_snapshot(
-            payload(observations=[], events=[first, duplicate]),
-            "china",
+            payload(role="geopolitical", observations=[], events=[first, duplicate]),
+            "geopolitical",
             "2024-06-30",
         )
 
 
-@pytest.mark.parametrize("agent", ["emerging_markets", "news_sentiment"])
+@pytest.mark.parametrize(
+    "agent",
+    ["dollar", "yield_curve", "volatility", "emerging_markets", "news_sentiment"],
+)
 def test_legacy_outputs_are_readable_but_unverified(agent):
     marked = mark_legacy_macro_output({"agent": agent, "old_value": 1})
     assert marked["legacy_status"] == "legacy_unverified"

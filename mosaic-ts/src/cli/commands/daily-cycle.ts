@@ -2,11 +2,13 @@
  * Phase 2F MVP CLI command: ``pnpm dev daily-cycle``.
  *
  * Drives one full L1→L2→L3→L4 cycle via the composite graph from
- * ``graph/daily_cycle.ts``. Covers two LLM modes:
+ * ``graph/daily_cycle.ts``. Covers three LLM modes:
  *
  *   1. ``--fake-llm``: in-memory canned mock; sidecar + bridge tools are
  *      still real (FRED / Tushare). Validates wiring without LLM cost.
- *   2. Default: real LLM via createLlmFromConfig (lemonade by default
+ *   2. ``--structured-smoke``: real LLM + bundled prompts, with every
+ *      production ledger/release writer disabled.
+ *   3. Default: real LLM via createLlmFromConfig (lemonade by default
  *      when LEMONADE_BASE_URL is set; otherwise the bridge config's
  *      provider).
  *
@@ -16,11 +18,13 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseMessage } from "@langchain/core/messages";
 import { AIMessage } from "@langchain/core/messages";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { AcceptedAgentOutputStore } from "../../agents/accepted_output.js";
 import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
 import { buildPositionAuditToolStatusSummary } from "../../agents/helpers/position_audit.js";
 import {
@@ -28,7 +32,7 @@ import {
   parseAgentTimeoutSeconds,
   resolveAgentTimeoutMs,
 } from "../../agents/helpers/runtime.js";
-import { formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
+import { findBundledPromptsRoot, formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import { type DailyCycleStateType, emptyCurrentPositions } from "../../agents/state.js";
@@ -38,6 +42,12 @@ import type {
   PortfolioAction,
   PositionAudit,
 } from "../../agents/types.js";
+import { loadExecutionBehaviorReleaseManifest } from "../../autoresearch/execution_behavior_release.js";
+import { parseOutcomeStageSkips } from "../../autoresearch/outcome_stage_skip.js";
+import {
+  buildDarwinianRuntimeBinding,
+  validateComponentWeightRuntimeSnapshot,
+} from "../../autoresearch/production_variant.js";
 import { assertAcceptedDailyCycle } from "../../backtest/decision_health.js";
 import {
   BridgeApi,
@@ -57,6 +67,7 @@ interface DailyCycleOptions {
   cohort?: string;
   date?: string;
   fakeLlm?: boolean;
+  structuredSmoke?: boolean;
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
@@ -65,6 +76,7 @@ interface DailyCycleOptions {
   out?: string;
   vetoThreshold?: string;
   agentTimeoutSeconds?: string;
+  maxTokens?: string;
   paperPositions?: boolean;
   currentPositionsJson?: string;
   currentPositionsFile?: string;
@@ -97,6 +109,10 @@ export function registerDailyCycle(program: Command): void {
     .option("--cohort <name>", "Cohort id (default cohort_default)")
     .option("--date <YYYY-MM-DD>", "as_of_date (default today)")
     .option("--fake-llm", "Use a canned mock LLM (still calls real bridge tools)")
+    .option(
+      "--structured-smoke",
+      "Use a real structured-output LLM with bundled prompts and no production writes",
+    )
     .option("--llm-provider <name>", "Override LLM provider from bridge config")
     .option("--model <name>", "Override LLM model id (e.g. local Lemonade Qwen)")
     .option("--base-url <url>", "Override LLM base URL (e.g. http://127.0.0.1:8020/api/v0)")
@@ -111,6 +127,7 @@ export function registerDailyCycle(program: Command): void {
       "--agent-timeout-seconds <seconds>",
       "Per-agent wall-clock timeout in seconds (default 300; 0/off disables)",
     )
+    .option("--max-tokens <count>", "Per-request completion cap (structured-smoke default 8192)")
     .option("--paper-positions", "Seed current_positions from the active paper account")
     .option("--current-positions-json <json>", "Seed current_positions from an inline JSON fixture")
     .option("--current-positions-file <path>", "Seed current_positions from a JSON fixture file")
@@ -122,18 +139,47 @@ export function registerDailyCycle(program: Command): void {
       const client = new BridgeClient();
       const api = new BridgeApi(client);
       try {
-        applyPromptSourceOverrides(opts);
+        if (opts.fakeLlm && opts.structuredSmoke) {
+          throw new Error("--fake-llm and --structured-smoke are mutually exclusive");
+        }
+        const nonProductionSmoke = Boolean(opts.fakeLlm || opts.structuredSmoke);
+        if (nonProductionSmoke && opts.promptsRepo) {
+          throw new Error(
+            "non-production smoke must use bundled prompts, not a private prompt repo",
+          );
+        }
+        const runtimePromptsRoot = nonProductionSmoke
+          ? (opts.promptsRoot ?? findBundledPromptsRoot())
+          : opts.promptsRoot;
+        if (nonProductionSmoke && !runtimePromptsRoot) {
+          throw new Error("bundled prompts are unavailable for non-production smoke");
+        }
+        if (nonProductionSmoke) {
+          applyPromptSourceOverrides({ promptsRoot: runtimePromptsRoot as string });
+        } else {
+          applyPromptSourceOverrides(opts);
+        }
 
         await client.start();
         const config = await api.configGet();
+        const maxTokens = opts.maxTokens
+          ? Number.parseInt(opts.maxTokens, 10)
+          : opts.structuredSmoke
+            ? 8192
+            : undefined;
+        if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0)) {
+          throw new Error("--max-tokens must be a positive integer");
+        }
 
         const llmHandle: LlmHandle = opts.fakeLlm
           ? buildFakeLlmHandle()
           : createLlmFromConfig(config, {
               tier: "deep",
+              ...(opts.structuredSmoke ? { temperature: 0 } : {}),
               ...(opts.llmProvider ? { provider: opts.llmProvider } : {}),
               ...(opts.model ? { model: opts.model } : {}),
               ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+              ...(maxTokens ? { maxTokens } : {}),
             });
 
         console.log(
@@ -141,14 +187,25 @@ export function registerDailyCycle(program: Command): void {
             redactSensitiveText(
               `provider=${llmHandle.provider} model=${llmHandle.model}` +
                 (llmHandle.baseUrl ? ` base=${llmHandle.baseUrl}` : "") +
-                (opts.fakeLlm ? " (fake-llm)" : ""),
+                (opts.fakeLlm ? " (fake-llm)" : opts.structuredSmoke ? " (structured-smoke)" : ""),
             ),
           ),
         );
-        console.log(pc.dim(redactSensitiveText(`prompts=${formatPromptSourceLabel()}`)));
+        console.log(
+          pc.dim(
+            redactSensitiveText(
+              nonProductionSmoke
+                ? "prompts=bundled-non-production"
+                : `prompts=${formatPromptSourceLabel()}`,
+            ),
+          ),
+        );
 
         const cohort = opts.cohort ?? config.active_cohort ?? "cohort_default";
         const asOfDate = opts.date ?? new Date().toISOString().slice(0, 10);
+        if (nonProductionSmoke && opts.paperExecuteDeltas) {
+          throw new Error("non-production smoke cannot submit paper orders");
+        }
         const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
         const agentTimeoutSeconds = parseAgentTimeoutSeconds(opts.agentTimeoutSeconds);
         const agentTimeoutMs = resolveAgentTimeoutMs(agentTimeoutSeconds);
@@ -157,22 +214,89 @@ export function registerDailyCycle(program: Command): void {
         };
         const currentPositions = await loadDailyCycleCurrentPositions(opts, api);
         await assertStructuredOutputCapability(llmHandle.llm);
-        const promptSource = await api.promptsPreflight({ cohort, langs: ["zh", "en"] });
-        if (!promptSource.ready) {
+        const promptSource = nonProductionSmoke
+          ? null
+          : await api.promptsPreflight({ cohort, langs: ["zh", "en"] });
+        if (promptSource && !promptSource.ready) {
           throw new Error(
             `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
           );
         }
+        const executionBehaviorRelease = nonProductionSmoke
+          ? null
+          : loadExecutionBehaviorReleaseManifest(
+              resolve(
+                findBundledPromptsRoot(),
+                "..",
+                "..",
+                "registry",
+                "prompt_checks",
+                "execution_behavior_release_manifest_v1.json",
+              ),
+            );
         await assertRuntimePromptPreflight({
           cohort,
-          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+          ...(runtimePromptsRoot ? { promptsRoot: runtimePromptsRoot } : {}),
         });
+        const asOfTimestamp = `${asOfDate}T15:00:00+08:00`;
+        let darwinianRuntimeBinding = null;
+        if (!nonProductionSmoke) {
+          if (!promptSource || !executionBehaviorRelease) {
+            throw new Error("live execution requires pinned prompt and behavior releases");
+          }
+          darwinianRuntimeBinding = buildDarwinianRuntimeBinding({
+            cohortId: cohort,
+            config,
+            llmHandle,
+            promptPreflight: promptSource,
+            executionBehaviorRelease,
+            effectiveAt: asOfTimestamp,
+          });
+        }
+        const preparedDarwinian = darwinianRuntimeBinding
+          ? await api.darwinianPrepareVariant(darwinianRuntimeBinding, asOfTimestamp)
+          : null;
+        const componentWeightSnapshot = preparedDarwinian
+          ? validateComponentWeightRuntimeSnapshot(
+              preparedDarwinian.component_weight_snapshot,
+              preparedDarwinian.runtime_binding,
+              asOfTimestamp,
+            )
+          : null;
+        const rosterRevisionId =
+          preparedDarwinian?.roster_revision.production_variant_roster_revision_id;
+        if (preparedDarwinian && typeof rosterRevisionId !== "string") {
+          throw new Error("Darwinian preparation did not return a roster revision ID");
+        }
+        const traceId = nonProductionSmoke
+          ? `${opts.fakeLlm ? "fake" : "structured"}-smoke-${Date.now()}`
+          : `daily-${createHash("sha256")
+              .update(`${cohort}\u0000${asOfDate}\u0000${rosterRevisionId}`)
+              .digest("hex")
+              .slice(0, 24)}`;
+        const preparedOutcomes = preparedDarwinian
+          ? await api.darwinianPrepareDailyCycleOutcomes({
+              production_variant_roster_revision_id: rosterRevisionId as string,
+              graph_run_id: traceId,
+              as_of: asOfTimestamp,
+              prepared_at: asOfTimestamp,
+            })
+          : null;
+        if (preparedOutcomes && preparedOutcomes.run_blockers.length > 0) {
+          throw new Error(
+            `outcome pre-run blocked: ${preparedOutcomes.run_blockers
+              .map((row) => `${row.agent_id}:${row.reason}`)
+              .join(",")}`,
+          );
+        }
 
+        const acceptedOutputStore = new AcceptedAgentOutputStore();
         const graph = buildDailyCycleGraph({
           llmHandle,
           api,
           config,
           vetoThreshold,
+          acceptedOutputStore,
           onLog: onAgentLog,
           ...(agentTimeoutSeconds !== undefined ? { agentTimeoutSeconds } : {}),
         });
@@ -182,14 +306,20 @@ export function registerDailyCycle(program: Command): void {
           active_cohort: cohort,
           as_of_date: asOfDate,
           mode: "live",
-          trace_id: `cli-${Date.now()}`,
+          trace_id: traceId,
+          darwinian_runtime_binding: preparedDarwinian?.runtime_binding ?? null,
+          darwinian_weight_snapshot: preparedDarwinian?.weight_snapshot ?? null,
+          component_weight_snapshot: componentWeightSnapshot,
+          outcome_schedule_plan: preparedOutcomes?.outcome_schedule_plan ?? null,
+          outcome_stage_skips: parseOutcomeStageSkips(preparedOutcomes?.stage_skips ?? {}),
+          accepted_output_refs: {},
           continuity_context: {},
           lesson_context: {},
           method_context: {},
           layer1_outputs: {},
-          layer1_consensus: null,
+          component_calibration_inputs: {},
+          macro_input_gate: null,
           layer2_outputs: {},
-          layer2_consensus: null,
           layer3_outputs: {},
           layer4_outputs: {
             cro: null,
@@ -212,6 +342,50 @@ export function registerDailyCycle(program: Command): void {
         const t0 = Date.now();
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
         assertAcceptedDailyCycle(final);
+        const agentRunAudits = final.llm_calls.flatMap((call) =>
+          call.agent_run_audit ? [call.agent_run_audit] : [],
+        );
+        const stageSkipCount = Object.keys(final.outcome_stage_skips).length;
+        const localSmokeStageSkipCount = nonProductionSmoke
+          ? new Set(
+              (final.layer4_outputs.runtime?.stage_trace ?? [])
+                .filter((entry) => entry.operation === "stage_skip")
+                .map((entry) => entry.stage),
+            ).size
+          : 0;
+        if (agentRunAudits.length + stageSkipCount + localSmokeStageSkipCount !== 29) {
+          throw new Error(
+            "accepted daily cycle must expose exactly 29 accepted-or-skipped Agent stages; " +
+              `got accepted=${agentRunAudits.length} skipped=${stageSkipCount + localSmokeStageSkipCount}`,
+          );
+        }
+        const decisionDisposition = final.layer4_outputs.cio?.decision_disposition;
+        if (!decisionDisposition) {
+          throw new Error("accepted daily cycle is missing CIO decision_disposition");
+        }
+        if (!nonProductionSmoke) {
+          const scorecardWrite = await api.scorecardAppend({
+            active_cohort: final.active_cohort,
+            as_of_date: final.as_of_date,
+            trace_id: final.trace_id,
+            mode: "live",
+            darwinian_runtime_binding: final.darwinian_runtime_binding,
+            outcome_schedule_plan: final.outcome_schedule_plan,
+            outcome_stage_skips: final.outcome_stage_skips,
+            accepted_output_refs: final.accepted_output_refs,
+            accepted_output_records: acceptedOutputStore.records(),
+            component_calibration_inputs: final.component_calibration_inputs,
+            macro_input_gate: final.macro_input_gate,
+            final_target_state: final.layer4_outputs.runtime?.final_target_state ?? null,
+            portfolio_actions: final.portfolio_actions,
+            agent_run_audits: agentRunAudits,
+            decision_disposition: decisionDisposition,
+            day_outcome_status: "accepted",
+          });
+          if (!scorecardWrite.darwinian_v2) {
+            throw new Error("accepted live cycle did not create Darwinian v2 ledgers");
+          }
+        }
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
         if (opts.paperExecuteDeltas) {
           const finalTarget = final.layer4_outputs.runtime?.final_target_state;
@@ -245,19 +419,21 @@ export function registerDailyCycle(program: Command): void {
             }
           }
         }
-        try {
-          const capture = await captureDailyCycleRkeFootprints(api, final);
-          if (capture) {
-            const detail =
-              capture.capture_status === "captured"
-                ? `rke_footprints=${capture.captured_count}`
-                : `rke_footprints_blocked=${(capture.failures ?? []).slice(0, 2).join(" | ")}`;
-            console.log(pc.dim(redactSensitiveText(detail)));
+        if (!nonProductionSmoke) {
+          try {
+            const capture = await captureDailyCycleRkeFootprints(api, final);
+            if (capture) {
+              const detail =
+                capture.capture_status === "captured"
+                  ? `rke_footprints=${capture.captured_count}`
+                  : `rke_footprints_blocked=${(capture.failures ?? []).slice(0, 2).join(" | ")}`;
+              console.log(pc.dim(redactSensitiveText(detail)));
+            }
+          } catch (err) {
+            console.log(
+              pc.dim(redactSensitiveText(`rke_footprints_skipped=${(err as Error).message}`)),
+            );
           }
-        } catch (err) {
-          console.log(
-            pc.dim(redactSensitiveText(`rke_footprints_skipped=${(err as Error).message}`)),
-          );
         }
 
         if (opts.out) {
@@ -300,18 +476,18 @@ export function registerDailyCycle(program: Command): void {
 // ---------------------------------------------------------------------------
 
 function printCycleSummary(state: DailyCycleStateType, elapsed: string): void {
-  console.log(pc.cyan("\n=== Layer 1 — macro regime ==="));
-  const regime = state.layer1_consensus;
-  if (regime) {
+  console.log(pc.cyan("\n=== Layer 1 — accepted Macro transmissions ==="));
+  console.log(
+    state.macro_input_gate
+      ? pc.dim(`gate=READY hash=${state.macro_input_gate.input_hash}`)
+      : pc.red("gate=NOT_READY"),
+  );
+  for (const output of Object.values(state.layer1_outputs)) {
     console.log(
-      `stance=${pc.bold(regime.stance)} confidence=${regime.confidence.toFixed(2)} ` +
-        `score=${regime.layer_1_consensus_score.toFixed(2)}`,
+      `  ${output.agent_id}: ${output.direction} ${output.strength}/5 ` +
+        `confidence=${output.confidence.toFixed(2)}`,
     );
-    for (const d of regime.key_drivers.slice(0, 5)) console.log(`  • ${d}`);
-  } else {
-    console.log(pc.dim("(no consensus)"));
   }
-  console.log(pc.dim(`  agents: ${Object.keys(state.layer1_outputs).join(", ") || "(none)"}`));
 
   console.log(pc.cyan("\n=== Layer 2 — sector picks ==="));
   const sectors = state.layer2_outputs ?? {};
@@ -320,17 +496,21 @@ function printCycleSummary(state: DailyCycleStateType, elapsed: string): void {
   }
   for (const [id, out] of Object.entries(sectors)) {
     if (out.agent === "relationship_mapper") {
-      const chains = out.supply_chains.map((c) => c.name).join(" | ");
       console.log(
-        `${pc.bold(id)}  conf=${out.confidence.toFixed(2)}  chains=${chains || "(none)"}`,
+        `${pc.bold(id)}  ${out.predictive_graph_status}  ` +
+          `factual=${out.factual_edges.length} predictive=${out.predictive_edges.length}`,
       );
     } else {
-      const longs = out.longs
+      const longs = out.long_picks
         .slice(0, 3)
-        .map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`)
+        .map((p) => `${p.ts_code}(${p.conviction.toFixed(2)})`)
         .join(", ");
+      const preferred =
+        "direction_id" in out.preferred_direction
+          ? out.preferred_direction.direction_id
+          : "NO_QUALIFIED_DIRECTION";
       console.log(
-        `${pc.bold(id)}  score=${out.sector_score.toFixed(2)}  conf=${out.confidence.toFixed(2)}  longs: ${longs || "(none)"}`,
+        `${pc.bold(id)}  preferred=${preferred}  conf=${out.confidence.toFixed(2)}  longs: ${longs || "(none)"}`,
       );
     }
   }
@@ -343,7 +523,7 @@ function printCycleSummary(state: DailyCycleStateType, elapsed: string): void {
   for (const [id, out] of Object.entries(supers)) {
     const picks = out.picks
       .slice(0, 4)
-      .map((p) => `${p.ticker}(${p.holding_period},${p.conviction.toFixed(2)})`)
+      .map((p) => `${p.ts_code}(${out.holding_period},${p.conviction.toFixed(2)})`)
       .join(", ");
     console.log(`${pc.bold(id)}  conf=${out.confidence.toFixed(2)}  ${picks || "(no picks)"}`);
   }
@@ -877,6 +1057,7 @@ class FakeChatModel {
   ): { invoke: (messages: unknown) => Promise<unknown> } {
     return {
       invoke: async (messages) => ({
+        raw: new AIMessage("(--fake-llm) deterministic structured smoke output."),
         parsed: fakeAgentStructuredOutput(schema, options?.name ?? "fake_agent", messages),
       }),
     };

@@ -16,8 +16,8 @@ describe("stage-aware runtime agent manifest", () => {
   it("covers all runtime agents and the canonical L4 invocation stages", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
 
-    expect(artifact.runtime_agent_count).toBe(25);
-    expect(artifact.runtime_stage_count).toBe(26);
+    expect(artifact.runtime_agent_count).toBe(28);
+    expect(artifact.runtime_stage_count).toBe(29);
     expect(artifact.default_cohort).toBe("cohort_default");
     expect(artifact.research_knobs_cohort_enablement).toEqual([
       {
@@ -26,7 +26,7 @@ describe("stage-aware runtime agent manifest", () => {
         legacy_agent_stages: [],
       },
     ]);
-    expect(artifact.research_knobs_cohort_enablement[0]?.enabled_agent_stages).toHaveLength(26);
+    expect(artifact.research_knobs_cohort_enablement[0]?.enabled_agent_stages).toHaveLength(29);
     expect(artifact.canonical_l4_sequence).toEqual(CANONICAL_L4_STAGE_SEQUENCE);
     expect(validateRuntimeAgentManifestArtifact(artifact)).toEqual([]);
     expect(
@@ -86,7 +86,7 @@ describe("stage-aware runtime agent manifest", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
     const committed = JSON.parse(
       readFileSync(
-        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v2.json"),
+        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v3.json"),
         "utf-8",
       ),
     );

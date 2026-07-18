@@ -57,7 +57,7 @@ cd mosaic-ts
 # Smoke-test the bridge (spawns the Python sidecar, lists tools + config)
 pnpm dev bridge-ping
 
-# Run one full daily cycle (25 agents) with a zero-cost mock LLM
+# Run one full daily cycle (28 agents / 29 stages) with a zero-cost mock LLM
 pnpm dev daily-cycle --cohort cohort_default --fake-llm
 
 # Look at the read-only dashboard

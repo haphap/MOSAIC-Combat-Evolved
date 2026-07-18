@@ -1,15 +1,17 @@
 /**
- * Autoresearch orchestration loop (Plan 11.5 Phase 4E).
+ * Legacy autoresearch diagnostic loop.
  *
- * Ties together trigger/mutate/commit/eval/decide into a single automated
- * cycle. The orchestrator:
+ * Ties together trigger/mutate/commit/evaluation for historical audit. It has
+ * no production promotion edge; KNOT owns v2 behavior research and promotion.
+ * The orchestrator:
  *   1. Triggers a new prompt version (selects agent via constraints).
  *   2. Generates a mutation via the mutator LLM call.
  *   3. Commits the rewritten prompt on the feature branch.
  *   4. Records the mutation in the autoresearch store.
  *   5. Prepares a worktree for backtest evaluation.
  *   6. Attempts evaluation (may require backtest-fill to run separately).
- *   7. Cleans up the worktree.
+ *   7. Cleans up the worktree. A completed aggregate evaluation is retained as
+ *      ``legacy_unverified`` and cannot merge into a production prompt.
  *
  * In dry-run mode, step 3+ are skipped (mutation is generated but not
  * persisted).
@@ -19,7 +21,6 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { isResearchKnobsEnabled } from "../agents/helpers/research_knobs.js";
 import { LAYER_BY_AGENT } from "../agents/prompts/cohorts.js";
 import type { MutationTransactionManifest } from "../agents/prompts/prompt_release_contract.js";
 import type { AutoresearchMissingRun, BridgeApi, PromptWriteResult } from "../bridge/types.js";
@@ -84,6 +85,7 @@ export interface MutationResult {
     | "dry_run"
     | "needs_fill"
     | "incompatible"
+    | "legacy_unverified"
     | "error";
   delta_sharpe?: number;
   summary?: string;
@@ -670,12 +672,12 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     }
     const cycleMutationId = `KM-${triggerResult.version_id ?? "dry"}-${simulatedNow ?? Date.now()}-${n}`;
 
-    // 2. Mutate: parameter-level research-knobs patch when enabled, otherwise legacy rewrite.
+    // 2. Mutate production-visible behavior prose. Runtime research policy is
+    // never projected back into private prompt files; the explicit
+    // ``knob_patch`` branch remains a legacy internal migration path only.
     let mutation: Awaited<ReturnType<typeof mutate>>;
     try {
-      const useKnobMutation =
-        mutationMode === "knob_patch" ||
-        (mutationMode === "auto" && isResearchKnobsEnabled(triggerResult.agent));
+      const useKnobMutation = mutationMode === "knob_patch";
       mutation = useKnobMutation
         ? await mutateResearchKnobs({
             cohort,
@@ -880,7 +882,8 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
             thisEval.status === "kept" ||
             thisEval.status === "reverted" ||
             thisEval.status === "eligible_for_promotion" ||
-            thisEval.status === "invalid"
+            thisEval.status === "invalid" ||
+            thisEval.status === "legacy_unverified"
           ) {
             evalStatus = thisEval.status;
             deltaSharpe = thisEval.delta_sharpe;

@@ -1,5 +1,10 @@
 # Part 1：RKE 个股、行业、宏观研报市场反馈、评级与 Agent 演化闭环计划
 
+> **范围说明（2026-07）：** 本文只保留 RKE report-feedback 的历史设计语境。
+> 当前运行角色、prompt 消费和演化/晋级边由
+> `docs/plans/macro-agent-role-contracts-v2-plan.md` 覆盖；RKE 在 v2 中保持
+> shadow-only，不向生产 prompt 或交易决策提供晋级边。
+
 ## 背景
 
 Report Intelligence 已经把个股、行业、宏观三类研报接入抽取链路，并形成了同一条基本

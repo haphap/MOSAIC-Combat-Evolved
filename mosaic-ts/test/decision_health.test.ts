@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import { emptyCurrentPositions, emptyLayer4 } from "../src/agents/state.js";
+import { fallbackSuperinvestorOutput } from "../src/agents/superinvestor/_factory.js";
 import { evaluateHistoricalDecisionHealth } from "../src/backtest/decision_health.js";
 
 function acceptedCalls() {
-  return Array.from({ length: 26 }, (_, index) => ({
+  return Array.from({ length: 29 }, (_, index) => ({
     ts: "2026-01-01T00:00:00Z",
-    agent: index === 25 ? "cio" : `agent_${index}`,
+    agent: index === 28 ? "cio" : `agent_${index}`,
     model: "fake",
     prompt_tokens: 1,
     completion_tokens: 1,
@@ -15,8 +16,8 @@ function acceptedCalls() {
     agent_run_audit: {
       schema_version: "agent_run_audit_v1" as const,
       run_id: "run-1",
-      agent: index === 25 ? "cio" : `agent_${index}`,
-      stage: index === 25 ? "cio_final" : `stage_${index}`,
+      agent: index === 28 ? "cio" : `agent_${index}`,
+      stage: index === 28 ? "cio_final" : `stage_${index}`,
       status: "accepted" as const,
       output_source: "structured_primary" as const,
       attempt_count: 1,
@@ -39,13 +40,19 @@ function state(): DailyCycleStateType {
     as_of_date: "2009-01-05",
     mode: "backtest",
     trace_id: "run-1",
+    darwinian_runtime_binding: null,
+    darwinian_weight_snapshot: null,
+    component_weight_snapshot: null,
+    component_calibration_inputs: {},
+    outcome_schedule_plan: null,
+    outcome_stage_skips: {},
+    accepted_output_refs: {},
     continuity_context: {},
     lesson_context: {},
     method_context: {},
     layer1_outputs: {},
-    layer1_consensus: null,
+    macro_input_gate: null,
     layer2_outputs: {},
-    layer2_consensus: null,
     layer3_outputs: {},
     layer4_outputs: emptyLayer4(),
     current_positions: emptyCurrentPositions(),
@@ -77,17 +84,20 @@ function withUpstreamCandidate(value: DailyCycleStateType): DailyCycleStateType 
     ...value,
     layer3_outputs: {
       munger: {
+        ...fallbackSuperinvestorOutput("munger", "quality"),
         agent: "munger",
+        selection_status: "SELECTED",
         picks: [
           {
-            ticker: "600519.SH",
+            pick_local_id: "munger-pick-1",
+            ts_code: "600519.SH",
+            position_action: "LONG",
             conviction: 0.8,
-            holding_period: "1Y",
             thesis: "quality",
+            claim_refs: ["fallback-munger-claim"],
           },
         ],
-        philosophy_note: "quality",
-        key_drivers: ["quality"],
+        holding_period: "YEARS",
         confidence: 0.8,
       },
     },

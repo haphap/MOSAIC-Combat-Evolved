@@ -3,7 +3,7 @@
   "contract_version": "domain_knob_evaluation_contract_v1",
   "catalog_version": "domain_knob_catalog_v1",
   "schema_hash": "sha256:ab8e7bef2e22dfadd080b19f2f4181aec145afadd27de2900ddb3b4c7e102adc",
-  "catalog_hash": "sha256:0af48463646de7033ca13351a95b5731ea7a3518db2fe34b9e0b3a26922f21b3",
+  "catalog_hash": "sha256:4edd99f3c8be897e905231d555050df06e04b6b8b11c4a48e57daefafa40f855",
   "metric_registry_hash": "sha256:aafb67d08764b43316c4732500d7e9d9eca481f53741591cd720a1ae01c1194a",
   "calculator_registry_hash": "sha256:f76785cc56ed7361bf9bf0f2e29ccd6d06bc19163f63917bbdb05e6c46406cc4",
   "evaluation_metrics": {
@@ -1086,7 +1086,7 @@
       ]
     },
     {
-      "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/upstream_context_weight/value",
+      "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/alpha_candidate_snapshot_weight/value",
       "owner_agent": "decision.alpha_discovery",
       "owner_stages": [
         "alpha_discovery"
@@ -1098,7 +1098,40 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/alpha_discovery.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.alpha_discovery.runtime.v1~1rules~1decision.alpha_discovery.policy.001~1learnable_parameters~1upstream_context_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.alpha_discovery.runtime.v1~1rules~1decision.alpha_discovery.policy.001~1learnable_parameters~1alpha_candidate_snapshot_weight~1value",
+      "evaluation_metrics": [
+        "alpha_discovery_quality_20d",
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate"
+      ],
+      "horizons": [
+        "20d",
+        "5d"
+      ],
+      "rollback_metrics": [
+        "alpha_discovery_quality_20d",
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate"
+      ]
+    },
+    {
+      "path": "/rule_packs/decision.alpha_discovery.runtime.v1/rules/decision.alpha_discovery.policy.001/learnable_parameters/role_event_snapshot_weight/value",
+      "owner_agent": "decision.alpha_discovery",
+      "owner_stages": [
+        "alpha_discovery"
+      ],
+      "target_type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "step": 0.05,
+      "weight_group": "evidence_weights",
+      "write_back_repo_id": "MOSAIC-Prompts",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/alpha_discovery.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.alpha_discovery.runtime.v1~1rules~1decision.alpha_discovery.policy.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "alpha_discovery_quality_20d",
         "confidence_calibration_error",
@@ -1183,7 +1216,7 @@
       ]
     },
     {
-      "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/upstream_context_weight/value",
+      "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/execution_snapshot_weight/value",
       "owner_agent": "decision.autonomous_execution",
       "owner_stages": [
         "execution_feasibility"
@@ -1195,7 +1228,39 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/autonomous_execution.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.autonomous_execution.runtime.v1~1rules~1decision.autonomous_execution.policy.001~1learnable_parameters~1upstream_context_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.autonomous_execution.runtime.v1~1rules~1decision.autonomous_execution.policy.001~1learnable_parameters~1execution_snapshot_weight~1value",
+      "evaluation_metrics": [
+        "confidence_calibration_error",
+        "execution_quality_5d",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate"
+      ],
+      "horizons": [
+        "5d"
+      ],
+      "rollback_metrics": [
+        "confidence_calibration_error",
+        "execution_quality_5d",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate"
+      ]
+    },
+    {
+      "path": "/rule_packs/decision.autonomous_execution.runtime.v1/rules/decision.autonomous_execution.policy.001/learnable_parameters/role_event_snapshot_weight/value",
+      "owner_agent": "decision.autonomous_execution",
+      "owner_stages": [
+        "execution_feasibility"
+      ],
+      "target_type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "step": 0.05,
+      "weight_group": "evidence_weights",
+      "write_back_repo_id": "MOSAIC-Prompts",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/autonomous_execution.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.autonomous_execution.runtime.v1~1rules~1decision.autonomous_execution.policy.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "execution_quality_5d",
@@ -1283,7 +1348,7 @@
       ]
     },
     {
-      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/upstream_context_weight/value",
+      "path": "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/cio_decision_snapshot_weight/value",
       "owner_agent": "decision.cio",
       "owner_stages": [
         "cio_proposal",
@@ -1296,7 +1361,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/cio.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.cio.runtime.v1~1rules~1decision.cio.policy.001~1learnable_parameters~1upstream_context_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.cio.runtime.v1~1rules~1decision.cio.policy.001~1learnable_parameters~1cio_decision_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -1383,7 +1448,7 @@
       ]
     },
     {
-      "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/upstream_context_weight/value",
+      "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/cro_risk_snapshot_weight/value",
       "owner_agent": "decision.cro",
       "owner_stages": [
         "cro_review"
@@ -1395,7 +1460,40 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/cro.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.cro.runtime.v1~1rules~1decision.cro.risk.001~1learnable_parameters~1upstream_context_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.cro.runtime.v1~1rules~1decision.cro.risk.001~1learnable_parameters~1cro_risk_snapshot_weight~1value",
+      "evaluation_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizons": [
+        "20d",
+        "5d"
+      ],
+      "rollback_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate",
+        "portfolio_risk_quality_20d"
+      ]
+    },
+    {
+      "path": "/rule_packs/decision.cro.runtime.v1/rules/decision.cro.risk.001/learnable_parameters/role_event_snapshot_weight/value",
+      "owner_agent": "decision.cro",
+      "owner_stages": [
+        "cro_review"
+      ],
+      "target_type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "step": 0.05,
+      "weight_group": "evidence_weights",
+      "write_back_repo_id": "MOSAIC-Prompts",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/cro.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1decision.cro.runtime.v1~1rules~1decision.cro.risk.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -1704,8 +1802,8 @@
       ]
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/confidence_policy/fallback_primary_tool/cap",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/confidence_policy/fallback_primary_tool/cap",
+      "owner_agent": "macro.eu_economy",
       "owner_stages": [
         "agent_run"
       ],
@@ -1715,8 +1813,8 @@
       "step": 0.05,
       "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/dollar.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.dollar.runtime.v1~1rules~1macro.dollar.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/eu_economy.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.eu_economy.runtime.v1~1rules~1macro.eu_economy.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -1736,8 +1834,8 @@
       ]
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/confidence_policy/missing_current_data/cap",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/confidence_policy/missing_current_data/cap",
+      "owner_agent": "macro.eu_economy",
       "owner_stages": [
         "agent_run"
       ],
@@ -1747,8 +1845,8 @@
       "step": 0.05,
       "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/dollar.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.dollar.runtime.v1~1rules~1macro.dollar.soft.001~1confidence_policy~1missing_current_data~1cap",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/eu_economy.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.eu_economy.runtime.v1~1rules~1macro.eu_economy.soft.001~1confidence_policy~1missing_current_data~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -1768,8 +1866,8 @@
       ]
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fx_conditions_snapshot_weight/value",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/eu_macro_snapshot_weight/value",
+      "owner_agent": "macro.eu_economy",
       "owner_stages": [
         "agent_run"
       ],
@@ -1779,8 +1877,104 @@
       "step": 0.05,
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/dollar.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.dollar.runtime.v1~1rules~1macro.dollar.soft.001~1learnable_parameters~1fx_conditions_snapshot_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/eu_economy.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.eu_economy.runtime.v1~1rules~1macro.eu_economy.soft.001~1learnable_parameters~1eu_macro_snapshot_weight~1value",
+      "evaluation_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "macro_signal_accuracy_5d",
+        "missing_rate"
+      ],
+      "horizons": [
+        "5d"
+      ],
+      "rollback_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "macro_signal_accuracy_5d",
+        "missing_rate"
+      ]
+    },
+    {
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/confidence_policy/fallback_primary_tool/cap",
+      "owner_agent": "macro.euro_area_financial_conditions",
+      "owner_stages": [
+        "agent_run"
+      ],
+      "target_type": "number",
+      "minimum": 0.25,
+      "maximum": 0.75,
+      "step": 0.05,
+      "weight_group": null,
+      "write_back_repo_id": "MOSAIC-Prompts",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/euro_area_financial_conditions.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.euro_area_financial_conditions.runtime.v1~1rules~1macro.euro_area_financial_conditions.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
+      "evaluation_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "macro_signal_accuracy_5d",
+        "missing_rate"
+      ],
+      "horizons": [
+        "5d"
+      ],
+      "rollback_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "macro_signal_accuracy_5d",
+        "missing_rate"
+      ]
+    },
+    {
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/confidence_policy/missing_current_data/cap",
+      "owner_agent": "macro.euro_area_financial_conditions",
+      "owner_stages": [
+        "agent_run"
+      ],
+      "target_type": "number",
+      "minimum": 0.25,
+      "maximum": 0.75,
+      "step": 0.05,
+      "weight_group": null,
+      "write_back_repo_id": "MOSAIC-Prompts",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/euro_area_financial_conditions.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.euro_area_financial_conditions.runtime.v1~1rules~1macro.euro_area_financial_conditions.soft.001~1confidence_policy~1missing_current_data~1cap",
+      "evaluation_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "macro_signal_accuracy_5d",
+        "missing_rate"
+      ],
+      "horizons": [
+        "5d"
+      ],
+      "rollback_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "macro_signal_accuracy_5d",
+        "missing_rate"
+      ]
+    },
+    {
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/euro_area_financial_conditions_snapshot_weight/value",
+      "owner_agent": "macro.euro_area_financial_conditions",
+      "owner_stages": [
+        "agent_run"
+      ],
+      "target_type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "step": 0.05,
+      "weight_group": "evidence_weights",
+      "write_back_repo_id": "MOSAIC-Prompts",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/euro_area_financial_conditions.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.euro_area_financial_conditions.runtime.v1~1rules~1macro.euro_area_financial_conditions.soft.001~1learnable_parameters~1euro_area_financial_conditions_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -2184,8 +2378,8 @@
       ]
     },
     {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/confidence_policy/fallback_primary_tool/cap",
-      "owner_agent": "macro.volatility",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/confidence_policy/fallback_primary_tool/cap",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stages": [
         "agent_run"
       ],
@@ -2195,8 +2389,8 @@
       "step": 0.05,
       "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/volatility.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.volatility.runtime.v1~1rules~1macro.volatility.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/us_financial_conditions.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.us_financial_conditions.runtime.v1~1rules~1macro.us_financial_conditions.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -2216,8 +2410,8 @@
       ]
     },
     {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/confidence_policy/missing_current_data/cap",
-      "owner_agent": "macro.volatility",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/confidence_policy/missing_current_data/cap",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stages": [
         "agent_run"
       ],
@@ -2227,8 +2421,8 @@
       "step": 0.05,
       "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/volatility.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.volatility.runtime.v1~1rules~1macro.volatility.soft.001~1confidence_policy~1missing_current_data~1cap",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/us_financial_conditions.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.us_financial_conditions.runtime.v1~1rules~1macro.us_financial_conditions.soft.001~1confidence_policy~1missing_current_data~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -2248,8 +2442,8 @@
       ]
     },
     {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/volatility_snapshot_weight/value",
-      "owner_agent": "macro.volatility",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/us_financial_conditions_snapshot_weight/value",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stages": [
         "agent_run"
       ],
@@ -2259,8 +2453,8 @@
       "step": 0.05,
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/volatility.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.volatility.runtime.v1~1rules~1macro.volatility.soft.001~1learnable_parameters~1volatility_snapshot_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/us_financial_conditions.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.us_financial_conditions.runtime.v1~1rules~1macro.us_financial_conditions.soft.001~1learnable_parameters~1us_financial_conditions_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -2280,8 +2474,8 @@
       ]
     },
     {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/confidence_policy/fallback_primary_tool/cap",
-      "owner_agent": "macro.yield_curve",
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/confidence_policy/fallback_primary_tool/cap",
+      "owner_agent": "sector.agriculture",
       "owner_stages": [
         "agent_run"
       ],
@@ -2291,29 +2485,30 @@
       "step": 0.05,
       "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/yield_curve.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.yield_curve.runtime.v1~1rules~1macro.yield_curve.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/agriculture.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.agriculture.runtime.v1~1rules~1sector.agriculture.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
         "hit_rate_5d",
-        "macro_signal_accuracy_5d",
-        "missing_rate"
+        "missing_rate",
+        "sector_rank_correlation_20d"
       ],
       "horizons": [
+        "20d",
         "5d"
       ],
       "rollback_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
         "hit_rate_5d",
-        "macro_signal_accuracy_5d",
-        "missing_rate"
+        "missing_rate",
+        "sector_rank_correlation_20d"
       ]
     },
     {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/confidence_policy/missing_current_data/cap",
-      "owner_agent": "macro.yield_curve",
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/confidence_policy/missing_current_data/cap",
+      "owner_agent": "sector.agriculture",
       "owner_stages": [
         "agent_run"
       ],
@@ -2323,29 +2518,30 @@
       "step": 0.05,
       "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/yield_curve.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.yield_curve.runtime.v1~1rules~1macro.yield_curve.soft.001~1confidence_policy~1missing_current_data~1cap",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/agriculture.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.agriculture.runtime.v1~1rules~1sector.agriculture.soft.001~1confidence_policy~1missing_current_data~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
         "hit_rate_5d",
-        "macro_signal_accuracy_5d",
-        "missing_rate"
+        "missing_rate",
+        "sector_rank_correlation_20d"
       ],
       "horizons": [
+        "20d",
         "5d"
       ],
       "rollback_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
         "hit_rate_5d",
-        "macro_signal_accuracy_5d",
-        "missing_rate"
+        "missing_rate",
+        "sector_rank_correlation_20d"
       ]
     },
     {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/rates_credit_snapshot_weight/value",
-      "owner_agent": "macro.yield_curve",
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/role_event_snapshot_weight/value",
+      "owner_agent": "sector.agriculture",
       "owner_stages": [
         "agent_run"
       ],
@@ -2355,24 +2551,58 @@
       "step": 0.05,
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/yield_curve.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1macro.yield_curve.runtime.v1~1rules~1macro.yield_curve.soft.001~1learnable_parameters~1rates_credit_snapshot_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/agriculture.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.agriculture.runtime.v1~1rules~1sector.agriculture.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
         "hit_rate_5d",
-        "macro_signal_accuracy_5d",
-        "missing_rate"
+        "missing_rate",
+        "sector_rank_correlation_20d"
       ],
       "horizons": [
+        "20d",
         "5d"
       ],
       "rollback_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
         "hit_rate_5d",
-        "macro_signal_accuracy_5d",
-        "missing_rate"
+        "missing_rate",
+        "sector_rank_correlation_20d"
+      ]
+    },
+    {
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
+      "owner_agent": "sector.agriculture",
+      "owner_stages": [
+        "agent_run"
+      ],
+      "target_type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "step": 0.05,
+      "weight_group": "evidence_weights",
+      "write_back_repo_id": "MOSAIC-Prompts",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/agriculture.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.agriculture.runtime.v1~1rules~1sector.agriculture.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
+      "evaluation_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate",
+        "sector_rank_correlation_20d"
+      ],
+      "horizons": [
+        "20d",
+        "5d"
+      ],
+      "rollback_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate",
+        "hit_rate_5d",
+        "missing_rate",
+        "sector_rank_correlation_20d"
       ]
     },
     {
@@ -2442,7 +2672,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/broker_research_weight/value",
+      "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
       "owner_agent": "sector.biotech",
       "owner_stages": [
         "agent_run"
@@ -2454,172 +2684,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/biotech.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.biotech.runtime.v1~1rules~1sector.biotech.soft.001~1learnable_parameters~1broker_research_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/etf_holdings_weight/value",
-      "owner_agent": "sector.biotech",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/biotech.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.biotech.runtime.v1~1rules~1sector.biotech.soft.001~1learnable_parameters~1etf_holdings_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/indicators_weight/value",
-      "owner_agent": "sector.biotech",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/biotech.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.biotech.runtime.v1~1rules~1sector.biotech.soft.001~1learnable_parameters~1indicators_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/industry_moneyflow_weight/value",
-      "owner_agent": "sector.biotech",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/biotech.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.biotech.runtime.v1~1rules~1sector.biotech.soft.001~1learnable_parameters~1industry_moneyflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/industry_policy_digest_weight/value",
-      "owner_agent": "sector.biotech",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/biotech.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.biotech.runtime.v1~1rules~1sector.biotech.soft.001~1learnable_parameters~1industry_policy_digest_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.biotech.runtime.v1/rules/sector.biotech.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "sector.biotech",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/biotech.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.biotech.runtime.v1~1rules~1sector.biotech.soft.001~1learnable_parameters~1stock_data_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.biotech.runtime.v1~1rules~1sector.biotech.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -2706,7 +2771,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/broker_research_weight/value",
+      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/role_event_snapshot_weight/value",
       "owner_agent": "sector.consumer",
       "owner_stages": [
         "agent_run"
@@ -2718,7 +2783,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/consumer.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1broker_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -2739,7 +2804,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/etf_holdings_weight/value",
+      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
       "owner_agent": "sector.consumer",
       "owner_stages": [
         "agent_run"
@@ -2751,139 +2816,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/consumer.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1etf_holdings_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/indicators_weight/value",
-      "owner_agent": "sector.consumer",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/consumer.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1indicators_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/industry_moneyflow_weight/value",
-      "owner_agent": "sector.consumer",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/consumer.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1industry_moneyflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/industry_policy_digest_weight/value",
-      "owner_agent": "sector.consumer",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/consumer.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1industry_policy_digest_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.consumer.runtime.v1/rules/sector.consumer.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "sector.consumer",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/consumer.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1stock_data_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.consumer.runtime.v1~1rules~1sector.consumer.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -2970,7 +2903,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/broker_research_weight/value",
+      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/role_event_snapshot_weight/value",
       "owner_agent": "sector.energy",
       "owner_stages": [
         "agent_run"
@@ -2982,7 +2915,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/energy.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1broker_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3003,7 +2936,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/etf_holdings_weight/value",
+      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
       "owner_agent": "sector.energy",
       "owner_stages": [
         "agent_run"
@@ -3015,139 +2948,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/energy.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1etf_holdings_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/indicators_weight/value",
-      "owner_agent": "sector.energy",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/energy.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1indicators_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/industry_moneyflow_weight/value",
-      "owner_agent": "sector.energy",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/energy.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1industry_moneyflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/industry_policy_digest_weight/value",
-      "owner_agent": "sector.energy",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/energy.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1industry_policy_digest_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.energy.runtime.v1/rules/sector.energy.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "sector.energy",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/energy.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1stock_data_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.energy.runtime.v1~1rules~1sector.energy.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3234,7 +3035,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/broker_research_weight/value",
+      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/role_event_snapshot_weight/value",
       "owner_agent": "sector.financials",
       "owner_stages": [
         "agent_run"
@@ -3246,7 +3047,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/financials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1broker_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3267,7 +3068,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/etf_holdings_weight/value",
+      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
       "owner_agent": "sector.financials",
       "owner_stages": [
         "agent_run"
@@ -3279,172 +3080,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/financials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1etf_holdings_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/indicators_weight/value",
-      "owner_agent": "sector.financials",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/financials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1indicators_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/industry_moneyflow_weight/value",
-      "owner_agent": "sector.financials",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/financials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1industry_moneyflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/industry_policy_digest_weight/value",
-      "owner_agent": "sector.financials",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/financials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1industry_policy_digest_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "sector.financials",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/financials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1stock_data_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.financials.runtime.v1/rules/sector.financials.soft.001/learnable_parameters/yield_curve_cn_weight/value",
-      "owner_agent": "sector.financials",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/financials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1yield_curve_cn_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.financials.runtime.v1~1rules~1sector.financials.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3531,7 +3167,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/broker_research_weight/value",
+      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/role_event_snapshot_weight/value",
       "owner_agent": "sector.industrials",
       "owner_stages": [
         "agent_run"
@@ -3543,7 +3179,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/industrials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1broker_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3564,7 +3200,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/etf_holdings_weight/value",
+      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
       "owner_agent": "sector.industrials",
       "owner_stages": [
         "agent_run"
@@ -3576,7 +3212,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/industrials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1etf_holdings_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3597,19 +3233,19 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/indicators_weight/value",
-      "owner_agent": "sector.industrials",
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/confidence_policy/fallback_primary_tool/cap",
+      "owner_agent": "sector.real_estate_construction",
       "owner_stages": [
         "agent_run"
       ],
       "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
+      "minimum": 0.25,
+      "maximum": 0.75,
       "step": 0.05,
-      "weight_group": "evidence_weights",
+      "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/industrials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1indicators_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/real_estate_construction.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.real_estate_construction.runtime.v1~1rules~1sector.real_estate_construction.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3630,19 +3266,19 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/industry_moneyflow_weight/value",
-      "owner_agent": "sector.industrials",
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/confidence_policy/missing_current_data/cap",
+      "owner_agent": "sector.real_estate_construction",
       "owner_stages": [
         "agent_run"
       ],
       "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
+      "minimum": 0.25,
+      "maximum": 0.75,
       "step": 0.05,
-      "weight_group": "evidence_weights",
+      "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/industrials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1industry_moneyflow_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/real_estate_construction.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.real_estate_construction.runtime.v1~1rules~1sector.real_estate_construction.soft.001~1confidence_policy~1missing_current_data~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3663,8 +3299,8 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/industry_policy_digest_weight/value",
-      "owner_agent": "sector.industrials",
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/role_event_snapshot_weight/value",
+      "owner_agent": "sector.real_estate_construction",
       "owner_stages": [
         "agent_run"
       ],
@@ -3674,8 +3310,8 @@
       "step": 0.05,
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/industrials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1industry_policy_digest_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/real_estate_construction.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.real_estate_construction.runtime.v1~1rules~1sector.real_estate_construction.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3696,8 +3332,8 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.industrials.runtime.v1/rules/sector.industrials.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "sector.industrials",
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
+      "owner_agent": "sector.real_estate_construction",
       "owner_stages": [
         "agent_run"
       ],
@@ -3707,8 +3343,8 @@
       "step": 0.05,
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/industrials.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.industrials.runtime.v1~1rules~1sector.industrials.soft.001~1learnable_parameters~1stock_data_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/real_estate_construction.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.real_estate_construction.runtime.v1~1rules~1sector.real_estate_construction.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3795,7 +3431,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/stock_research_weight/value",
+      "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/relationship_graph_snapshot_weight/value",
       "owner_agent": "sector.relationship_mapper",
       "owner_stages": [
         "agent_run"
@@ -3807,7 +3443,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/relationship_mapper.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.relationship_mapper.runtime.v1~1rules~1sector.relationship_mapper.soft.001~1learnable_parameters~1stock_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.relationship_mapper.runtime.v1~1rules~1sector.relationship_mapper.soft.001~1learnable_parameters~1relationship_graph_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3894,7 +3530,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/balance_sheet_weight/value",
+      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/role_event_snapshot_weight/value",
       "owner_agent": "sector.semiconductor",
       "owner_stages": [
         "agent_run"
@@ -3906,7 +3542,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1balance_sheet_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3927,7 +3563,7 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/broker_research_weight/value",
+      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
       "owner_agent": "sector.semiconductor",
       "owner_stages": [
         "agent_run"
@@ -3939,7 +3575,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1broker_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3960,19 +3596,19 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/cashflow_weight/value",
-      "owner_agent": "sector.semiconductor",
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/confidence_policy/fallback_primary_tool/cap",
+      "owner_agent": "sector.technology",
       "owner_stages": [
         "agent_run"
       ],
       "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
+      "minimum": 0.25,
+      "maximum": 0.75,
       "step": 0.05,
-      "weight_group": "evidence_weights",
+      "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1cashflow_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/technology.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.technology.runtime.v1~1rules~1sector.technology.soft.001~1confidence_policy~1fallback_primary_tool~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -3993,19 +3629,19 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/etf_holdings_weight/value",
-      "owner_agent": "sector.semiconductor",
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/confidence_policy/missing_current_data/cap",
+      "owner_agent": "sector.technology",
       "owner_stages": [
         "agent_run"
       ],
       "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
+      "minimum": 0.25,
+      "maximum": 0.75,
       "step": 0.05,
-      "weight_group": "evidence_weights",
+      "weight_group": null,
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1etf_holdings_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/technology.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.technology.runtime.v1~1rules~1sector.technology.soft.001~1confidence_policy~1missing_current_data~1cap",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -4026,8 +3662,8 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/income_statement_weight/value",
-      "owner_agent": "sector.semiconductor",
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/role_event_snapshot_weight/value",
+      "owner_agent": "sector.technology",
       "owner_stages": [
         "agent_run"
       ],
@@ -4037,8 +3673,8 @@
       "step": 0.05,
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1income_statement_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/technology.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.technology.runtime.v1~1rules~1sector.technology.soft.001~1learnable_parameters~1role_event_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -4059,8 +3695,8 @@
       ]
     },
     {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/indicators_weight/value",
-      "owner_agent": "sector.semiconductor",
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/sector_research_snapshot_weight/value",
+      "owner_agent": "sector.technology",
       "owner_stages": [
         "agent_run"
       ],
@@ -4070,107 +3706,8 @@
       "step": 0.05,
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1indicators_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/industry_moneyflow_weight/value",
-      "owner_agent": "sector.semiconductor",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1industry_moneyflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/industry_policy_digest_weight/value",
-      "owner_agent": "sector.semiconductor",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1industry_policy_digest_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ],
-      "horizons": [
-        "20d",
-        "5d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "sector_rank_correlation_20d"
-      ]
-    },
-    {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "sector.semiconductor",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/semiconductor.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.semiconductor.runtime.v1~1rules~1sector.semiconductor.soft.001~1learnable_parameters~1stock_data_weight~1value",
+      "write_back_path_template": "registry/prompt_governance/{cohort}/technology.json",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1sector.technology.runtime.v1~1rules~1sector.technology.soft.001~1learnable_parameters~1sector_research_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -4257,7 +3794,7 @@
       ]
     },
     {
-      "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/balance_sheet_weight/value",
+      "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/superinvestor_candidate_snapshot_weight/value",
       "owner_agent": "superinvestor.ackman",
       "owner_stages": [
         "agent_run"
@@ -4269,172 +3806,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/ackman.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.ackman.runtime.v1~1rules~1superinvestor.ackman.soft.001~1learnable_parameters~1balance_sheet_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/cashflow_weight/value",
-      "owner_agent": "superinvestor.ackman",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/ackman.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.ackman.runtime.v1~1rules~1superinvestor.ackman.soft.001~1learnable_parameters~1cashflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/fundamentals_weight/value",
-      "owner_agent": "superinvestor.ackman",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/ackman.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.ackman.runtime.v1~1rules~1superinvestor.ackman.soft.001~1learnable_parameters~1fundamentals_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/income_statement_weight/value",
-      "owner_agent": "superinvestor.ackman",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/ackman.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.ackman.runtime.v1~1rules~1superinvestor.ackman.soft.001~1learnable_parameters~1income_statement_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "superinvestor.ackman",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/ackman.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.ackman.runtime.v1~1rules~1superinvestor.ackman.soft.001~1learnable_parameters~1stock_data_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.ackman.runtime.v1/rules/superinvestor.ackman.soft.001/learnable_parameters/stock_research_weight/value",
-      "owner_agent": "superinvestor.ackman",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/ackman.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.ackman.runtime.v1~1rules~1superinvestor.ackman.soft.001~1learnable_parameters~1stock_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.ackman.runtime.v1~1rules~1superinvestor.ackman.soft.001~1learnable_parameters~1superinvestor_candidate_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -4521,7 +3893,7 @@
       ]
     },
     {
-      "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/balance_sheet_weight/value",
+      "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/superinvestor_candidate_snapshot_weight/value",
       "owner_agent": "superinvestor.burry",
       "owner_stages": [
         "agent_run"
@@ -4533,172 +3905,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/burry.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.burry.runtime.v1~1rules~1superinvestor.burry.soft.001~1learnable_parameters~1balance_sheet_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/cashflow_weight/value",
-      "owner_agent": "superinvestor.burry",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/burry.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.burry.runtime.v1~1rules~1superinvestor.burry.soft.001~1learnable_parameters~1cashflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/fundamentals_weight/value",
-      "owner_agent": "superinvestor.burry",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/burry.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.burry.runtime.v1~1rules~1superinvestor.burry.soft.001~1learnable_parameters~1fundamentals_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/income_statement_weight/value",
-      "owner_agent": "superinvestor.burry",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/burry.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.burry.runtime.v1~1rules~1superinvestor.burry.soft.001~1learnable_parameters~1income_statement_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "superinvestor.burry",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/burry.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.burry.runtime.v1~1rules~1superinvestor.burry.soft.001~1learnable_parameters~1stock_data_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.burry.runtime.v1/rules/superinvestor.burry.soft.001/learnable_parameters/stock_research_weight/value",
-      "owner_agent": "superinvestor.burry",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/burry.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.burry.runtime.v1~1rules~1superinvestor.burry.soft.001~1learnable_parameters~1stock_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.burry.runtime.v1~1rules~1superinvestor.burry.soft.001~1learnable_parameters~1superinvestor_candidate_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -4785,7 +3992,7 @@
       ]
     },
     {
-      "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/fundamentals_weight/value",
+      "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/superinvestor_candidate_snapshot_weight/value",
       "owner_agent": "superinvestor.druckenmiller",
       "owner_stages": [
         "agent_run"
@@ -4797,172 +4004,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/druckenmiller.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.druckenmiller.runtime.v1~1rules~1superinvestor.druckenmiller.soft.001~1learnable_parameters~1fundamentals_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/indicators_weight/value",
-      "owner_agent": "superinvestor.druckenmiller",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/druckenmiller.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.druckenmiller.runtime.v1~1rules~1superinvestor.druckenmiller.soft.001~1learnable_parameters~1indicators_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/industry_policy_digest_weight/value",
-      "owner_agent": "superinvestor.druckenmiller",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/druckenmiller.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.druckenmiller.runtime.v1~1rules~1superinvestor.druckenmiller.soft.001~1learnable_parameters~1industry_policy_digest_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "superinvestor.druckenmiller",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/druckenmiller.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.druckenmiller.runtime.v1~1rules~1superinvestor.druckenmiller.soft.001~1learnable_parameters~1stock_data_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/stock_research_weight/value",
-      "owner_agent": "superinvestor.druckenmiller",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/druckenmiller.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.druckenmiller.runtime.v1~1rules~1superinvestor.druckenmiller.soft.001~1learnable_parameters~1stock_research_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.druckenmiller.runtime.v1/rules/superinvestor.druckenmiller.soft.001/learnable_parameters/yield_curve_cn_weight/value",
-      "owner_agent": "superinvestor.druckenmiller",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/druckenmiller.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.druckenmiller.runtime.v1~1rules~1superinvestor.druckenmiller.soft.001~1learnable_parameters~1yield_curve_cn_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.druckenmiller.runtime.v1~1rules~1superinvestor.druckenmiller.soft.001~1learnable_parameters~1superinvestor_candidate_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -5049,7 +4091,7 @@
       ]
     },
     {
-      "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/balance_sheet_weight/value",
+      "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/superinvestor_candidate_snapshot_weight/value",
       "owner_agent": "superinvestor.munger",
       "owner_stages": [
         "agent_run"
@@ -5061,172 +4103,7 @@
       "weight_group": "evidence_weights",
       "write_back_repo_id": "MOSAIC-Prompts",
       "write_back_path_template": "registry/prompt_governance/{cohort}/munger.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.munger.runtime.v1~1rules~1superinvestor.munger.soft.001~1learnable_parameters~1balance_sheet_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/cashflow_weight/value",
-      "owner_agent": "superinvestor.munger",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/munger.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.munger.runtime.v1~1rules~1superinvestor.munger.soft.001~1learnable_parameters~1cashflow_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/fundamentals_weight/value",
-      "owner_agent": "superinvestor.munger",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/munger.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.munger.runtime.v1~1rules~1superinvestor.munger.soft.001~1learnable_parameters~1fundamentals_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/income_statement_weight/value",
-      "owner_agent": "superinvestor.munger",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/munger.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.munger.runtime.v1~1rules~1superinvestor.munger.soft.001~1learnable_parameters~1income_statement_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/stock_data_weight/value",
-      "owner_agent": "superinvestor.munger",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/munger.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.munger.runtime.v1~1rules~1superinvestor.munger.soft.001~1learnable_parameters~1stock_data_weight~1value",
-      "evaluation_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ],
-      "horizons": [
-        "5d",
-        "60d"
-      ],
-      "rollback_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate",
-        "hit_rate_5d",
-        "missing_rate",
-        "style_pick_alpha_60d"
-      ]
-    },
-    {
-      "path": "/rule_packs/superinvestor.munger.runtime.v1/rules/superinvestor.munger.soft.001/learnable_parameters/stock_research_weight/value",
-      "owner_agent": "superinvestor.munger",
-      "owner_stages": [
-        "agent_run"
-      ],
-      "target_type": "number",
-      "minimum": 0,
-      "maximum": 1,
-      "step": 0.05,
-      "weight_group": "evidence_weights",
-      "write_back_repo_id": "MOSAIC-Prompts",
-      "write_back_path_template": "registry/prompt_governance/{cohort}/munger.json",
-      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.munger.runtime.v1~1rules~1superinvestor.munger.soft.001~1learnable_parameters~1stock_research_weight~1value",
+      "write_back_json_pointer": "/values_by_path/~1rule_packs~1superinvestor.munger.runtime.v1~1rules~1superinvestor.munger.soft.001~1learnable_parameters~1superinvestor_candidate_snapshot_weight~1value",
       "evaluation_metrics": [
         "confidence_calibration_error",
         "fallback_rate",
@@ -6668,12 +5545,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/a_share_fx_liquidity_weight/value",
-      "card_id": "a_share_fx_liquidity_weight",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/a_share_external_demand_weight/value",
+      "card_id": "a_share_external_demand_weight",
+      "owner_agent": "macro.eu_economy",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.a_share_fx_liquidity_weight.5d",
+      "prediction_target": "macro.eu_economy.a_share_external_demand_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6687,12 +5564,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/broad_dollar_trend_window_days/value",
-      "card_id": "broad_dollar_trend_window_days",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/demand_weight/value",
+      "card_id": "demand_weight",
+      "owner_agent": "macro.eu_economy",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.broad_dollar_trend_window_days.5d",
+      "prediction_target": "macro.eu_economy.demand_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6706,12 +5583,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/dollar_pressure_cap/value",
-      "card_id": "dollar_pressure_cap",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/employment_weight/value",
+      "card_id": "employment_weight",
+      "owner_agent": "macro.eu_economy",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.dollar_pressure_cap.5d",
+      "prediction_target": "macro.eu_economy.employment_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6725,12 +5602,126 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/fx_volatility_weight/value",
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/growth_weight/value",
+      "card_id": "growth_weight",
+      "owner_agent": "macro.eu_economy",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.eu_economy.growth_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/inflation_weight/value",
+      "card_id": "inflation_weight",
+      "owner_agent": "macro.eu_economy",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.eu_economy.inflation_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.eu_economy.runtime.v1/rules/macro.eu_economy.soft.001/learnable_parameters/surprise_window_days/value",
+      "card_id": "surprise_window_days",
+      "owner_agent": "macro.eu_economy",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.eu_economy.surprise_window_days.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/a_share_external_demand_weight/value",
+      "card_id": "a_share_external_demand_weight",
+      "owner_agent": "macro.euro_area_financial_conditions",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.euro_area_financial_conditions.a_share_external_demand_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/credit_spread_discount/value",
+      "card_id": "credit_spread_discount",
+      "owner_agent": "macro.euro_area_financial_conditions",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.euro_area_financial_conditions.credit_spread_discount.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/duration_risk_weight/value",
+      "card_id": "duration_risk_weight",
+      "owner_agent": "macro.euro_area_financial_conditions",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "macro.euro_area_financial_conditions.duration_risk_weight.5d",
+      "evaluation_metric": "macro_signal_accuracy_5d",
+      "secondary_metrics": [
+        "confidence_calibration_error",
+        "fallback_rate"
+      ],
+      "horizon": "5d",
+      "rollback_condition": {
+        "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/fx_volatility_weight/value",
       "card_id": "fx_volatility_weight",
-      "owner_agent": "macro.dollar",
+      "owner_agent": "macro.euro_area_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.fx_volatility_weight.5d",
+      "prediction_target": "macro.euro_area_financial_conditions.fx_volatility_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6744,12 +5735,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/onshore_offshore_spread_weight/value",
-      "card_id": "onshore_offshore_spread_weight",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/policy_conflict_cap/value",
+      "card_id": "policy_conflict_cap",
+      "owner_agent": "macro.euro_area_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.onshore_offshore_spread_weight.5d",
+      "prediction_target": "macro.euro_area_financial_conditions.policy_conflict_cap.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -6763,12 +5754,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.dollar.runtime.v1/rules/macro.dollar.soft.001/learnable_parameters/rmb_pressure_weight/value",
-      "card_id": "rmb_pressure_weight",
-      "owner_agent": "macro.dollar",
+      "path": "/rule_packs/macro.euro_area_financial_conditions.runtime.v1/rules/macro.euro_area_financial_conditions.soft.001/learnable_parameters/term_spread_window_days/value",
+      "card_id": "term_spread_window_days",
+      "owner_agent": "macro.euro_area_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.dollar.rmb_pressure_weight.5d",
+      "prediction_target": "macro.euro_area_financial_conditions.term_spread_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7257,12 +6248,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/china_realized_vol_weight/value",
-      "card_id": "china_realized_vol_weight",
-      "owner_agent": "macro.volatility",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/a_share_fx_liquidity_weight/value",
+      "card_id": "a_share_fx_liquidity_weight",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.volatility.china_realized_vol_weight.5d",
+      "prediction_target": "macro.us_financial_conditions.a_share_fx_liquidity_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7276,12 +6267,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/cross_market_stress_weight/value",
-      "card_id": "cross_market_stress_weight",
-      "owner_agent": "macro.volatility",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/broad_dollar_trend_window_days/value",
+      "card_id": "broad_dollar_trend_window_days",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.volatility.cross_market_stress_weight.5d",
+      "prediction_target": "macro.us_financial_conditions.broad_dollar_trend_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7295,88 +6286,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/risk_off_threshold/value",
-      "card_id": "risk_off_threshold",
-      "owner_agent": "macro.volatility",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.volatility.risk_off_threshold.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/vix_weight/value",
-      "card_id": "vix_weight",
-      "owner_agent": "macro.volatility",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.volatility.vix_weight.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/vol_amplification_window_days/value",
-      "card_id": "vol_amplification_window_days",
-      "owner_agent": "macro.volatility",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.volatility.vol_amplification_window_days.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.soft.001/learnable_parameters/volatility_cap/value",
-      "card_id": "volatility_cap",
-      "owner_agent": "macro.volatility",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.volatility.volatility_cap.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/credit_spread_discount/value",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/credit_spread_discount/value",
       "card_id": "credit_spread_discount",
-      "owner_agent": "macro.yield_curve",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.yield_curve.credit_spread_discount.5d",
+      "prediction_target": "macro.us_financial_conditions.credit_spread_discount.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7390,12 +6305,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/duration_risk_weight/value",
-      "card_id": "duration_risk_weight",
-      "owner_agent": "macro.yield_curve",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/fx_volatility_weight/value",
+      "card_id": "fx_volatility_weight",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.yield_curve.duration_risk_weight.5d",
+      "prediction_target": "macro.us_financial_conditions.fx_volatility_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7409,31 +6324,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/flattening_threshold_bps/value",
-      "card_id": "flattening_threshold_bps",
-      "owner_agent": "macro.yield_curve",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "macro.yield_curve.flattening_threshold_bps.5d",
-      "evaluation_metric": "macro_signal_accuracy_5d",
-      "secondary_metrics": [
-        "confidence_calibration_error",
-        "fallback_rate"
-      ],
-      "horizon": "5d",
-      "rollback_condition": {
-        "metric": "macro_signal_accuracy_5d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/inversion_threshold_bps/value",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/inversion_threshold_bps/value",
       "card_id": "inversion_threshold_bps",
-      "owner_agent": "macro.yield_curve",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.yield_curve.inversion_threshold_bps.5d",
+      "prediction_target": "macro.us_financial_conditions.inversion_threshold_bps.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7447,12 +6343,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/steepening_threshold_bps/value",
-      "card_id": "steepening_threshold_bps",
-      "owner_agent": "macro.yield_curve",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/rmb_pressure_weight/value",
+      "card_id": "rmb_pressure_weight",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.yield_curve.steepening_threshold_bps.5d",
+      "prediction_target": "macro.us_financial_conditions.rmb_pressure_weight.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7466,12 +6362,12 @@
       }
     },
     {
-      "path": "/rule_packs/macro.yield_curve.runtime.v1/rules/macro.yield_curve.soft.001/learnable_parameters/term_spread_window_days/value",
+      "path": "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.soft.001/learnable_parameters/term_spread_window_days/value",
       "card_id": "term_spread_window_days",
-      "owner_agent": "macro.yield_curve",
+      "owner_agent": "macro.us_financial_conditions",
       "owner_stage": "agent_run",
       "activation_state": "active",
-      "prediction_target": "macro.yield_curve.term_spread_window_days.5d",
+      "prediction_target": "macro.us_financial_conditions.term_spread_window_days.5d",
       "evaluation_metric": "macro_signal_accuracy_5d",
       "secondary_metrics": [
         "confidence_calibration_error",
@@ -7480,6 +6376,120 @@
       "horizon": "5d",
       "rollback_condition": {
         "metric": "macro_signal_accuracy_5d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/capacity_utilization_weight/value",
+      "card_id": "capacity_utilization_weight",
+      "owner_agent": "sector.agriculture",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.agriculture.capacity_utilization_weight.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/financial_statement_quarters/value",
+      "card_id": "financial_statement_quarters",
+      "owner_agent": "sector.agriculture",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.agriculture.financial_statement_quarters.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/industry_moneyflow_days/value",
+      "card_id": "industry_moneyflow_days",
+      "owner_agent": "sector.agriculture",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.agriculture.industry_moneyflow_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/inventory_confirmation_window_days/value",
+      "card_id": "inventory_confirmation_window_days",
+      "owner_agent": "sector.agriculture",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.agriculture.inventory_confirmation_window_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/policy_catalyst_window_days/value",
+      "card_id": "policy_catalyst_window_days",
+      "owner_agent": "sector.agriculture",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.agriculture.policy_catalyst_window_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.agriculture.runtime.v1/rules/sector.agriculture.soft.001/learnable_parameters/price_momentum_days/value",
+      "card_id": "price_momentum_days",
+      "owner_agent": "sector.agriculture",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.agriculture.price_momentum_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
         "worse_by": 0.02,
         "unit": "ratio"
       }
@@ -8055,6 +7065,120 @@
       }
     },
     {
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/financial_statement_quarters/value",
+      "card_id": "financial_statement_quarters",
+      "owner_agent": "sector.real_estate_construction",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.real_estate_construction.financial_statement_quarters.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/industry_moneyflow_days/value",
+      "card_id": "industry_moneyflow_days",
+      "owner_agent": "sector.real_estate_construction",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.real_estate_construction.industry_moneyflow_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/policy_catalyst_window_days/value",
+      "card_id": "policy_catalyst_window_days",
+      "owner_agent": "sector.real_estate_construction",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.real_estate_construction.policy_catalyst_window_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/price_momentum_days/value",
+      "card_id": "price_momentum_days",
+      "owner_agent": "sector.real_estate_construction",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.real_estate_construction.price_momentum_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/property_chain_weight/value",
+      "card_id": "property_chain_weight",
+      "owner_agent": "sector.real_estate_construction",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.real_estate_construction.property_chain_weight.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.real_estate_construction.runtime.v1/rules/sector.real_estate_construction.soft.001/learnable_parameters/valuation_risk_threshold/value",
+      "card_id": "valuation_risk_threshold",
+      "owner_agent": "sector.real_estate_construction",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.real_estate_construction.valuation_risk_threshold.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
       "path": "/rule_packs/sector.relationship_mapper.runtime.v1/rules/sector.relationship_mapper.soft.001/learnable_parameters/cross_sector_spillover_threshold/value",
       "card_id": "cross_sector_spillover_threshold",
       "owner_agent": "sector.relationship_mapper",
@@ -8454,25 +7578,6 @@
       }
     },
     {
-      "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/max_verified_constituents/value",
-      "card_id": "max_verified_constituents",
-      "owner_agent": "sector.semiconductor",
-      "owner_stage": "agent_run",
-      "activation_state": "active",
-      "prediction_target": "sector.semiconductor.max_verified_constituents.20d",
-      "evaluation_metric": "sector_rank_correlation_20d",
-      "secondary_metrics": [
-        "max_drawdown_after_hold",
-        "portfolio_risk_quality_20d"
-      ],
-      "horizon": "20d",
-      "rollback_condition": {
-        "metric": "sector_rank_correlation_20d",
-        "worse_by": 0.02,
-        "unit": "ratio"
-      }
-    },
-    {
       "path": "/rule_packs/sector.semiconductor.runtime.v1/rules/sector.semiconductor.soft.001/learnable_parameters/min_long_conviction/value",
       "card_id": "min_long_conviction",
       "owner_agent": "sector.semiconductor",
@@ -8593,6 +7698,120 @@
       "owner_stage": "agent_run",
       "activation_state": "active",
       "prediction_target": "sector.semiconductor.valuation_risk_max.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/broker_research_days/value",
+      "card_id": "broker_research_days",
+      "owner_agent": "sector.technology",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.technology.broker_research_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/export_control_discount/value",
+      "card_id": "export_control_discount",
+      "owner_agent": "sector.technology",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.technology.export_control_discount.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/financial_statement_quarters/value",
+      "card_id": "financial_statement_quarters",
+      "owner_agent": "sector.technology",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.technology.financial_statement_quarters.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/industry_moneyflow_days/value",
+      "card_id": "industry_moneyflow_days",
+      "owner_agent": "sector.technology",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.technology.industry_moneyflow_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/policy_digest_days/value",
+      "card_id": "policy_digest_days",
+      "owner_agent": "sector.technology",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.technology.policy_digest_days.20d",
+      "evaluation_metric": "sector_rank_correlation_20d",
+      "secondary_metrics": [
+        "max_drawdown_after_hold",
+        "portfolio_risk_quality_20d"
+      ],
+      "horizon": "20d",
+      "rollback_condition": {
+        "metric": "sector_rank_correlation_20d",
+        "worse_by": 0.02,
+        "unit": "ratio"
+      }
+    },
+    {
+      "path": "/rule_packs/sector.technology.runtime.v1/rules/sector.technology.soft.001/learnable_parameters/price_momentum_days/value",
+      "card_id": "price_momentum_days",
+      "owner_agent": "sector.technology",
+      "owner_stage": "agent_run",
+      "activation_state": "active",
+      "prediction_target": "sector.technology.price_momentum_days.20d",
       "evaluation_metric": "sector_rank_correlation_20d",
       "secondary_metrics": [
         "max_drawdown_after_hold",
@@ -8926,5 +8145,5 @@
       }
     }
   ],
-  "contract_hash": "sha256:60adea35b87f1b1740261bb1af6bcdc989d400d32bda59aad5c2790183eb1907"
+  "contract_hash": "sha256:d51cab6374d94a425fc7728f8ba1a4704290c192416266dc07c409a7637b0e8f"
 }

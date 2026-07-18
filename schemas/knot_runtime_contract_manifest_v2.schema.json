@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KNOT runtime contract manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "knot_runtime_contract_manifest_id",
+    "knot_runtime_contract_manifest_version",
+    "knot_runtime_contract_manifest_hash",
+    "research_score_contract",
+    "scheduler_contract"
+  ],
+  "properties": {
+    "knot_runtime_contract_manifest_id": { "const": "knot-runtime-contract" },
+    "knot_runtime_contract_manifest_version": { "const": "knot_runtime_contract_manifest_v2" },
+    "knot_runtime_contract_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "research_score_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "research_score_contract_id",
+        "research_score_contract_version",
+        "research_score_contract_hash",
+        "normalized_inference_cost_formula",
+        "input_token_cost_weight",
+        "output_token_cost_weight",
+        "sector_inference_cost_penalty_per_unit",
+        "sector_conflict_review_penalty",
+        "maximum_sector_success_penalty",
+        "sector_success_score_range",
+        "non_sector_success_score_range",
+        "agent_failure_score",
+        "promotion_mean_delta_floor",
+        "rollback_mean_delta_ceiling"
+      ],
+      "properties": {
+        "research_score_contract_id": { "const": "knot-research-score" },
+        "research_score_contract_version": { "const": "knot_research_score_v2" },
+        "research_score_contract_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "normalized_inference_cost_formula": { "const": "HALF_INPUT_CAP_RATIO_PLUS_HALF_OUTPUT_CAP_RATIO" },
+        "input_token_cost_weight": { "const": 0.5 },
+        "output_token_cost_weight": { "const": 0.5 },
+        "sector_inference_cost_penalty_per_unit": { "const": 0.2 },
+        "sector_conflict_review_penalty": { "const": 0.05 },
+        "maximum_sector_success_penalty": { "const": 0.25 },
+        "sector_success_score_range": { "const": [-1.25, 1] },
+        "non_sector_success_score_range": { "const": [-1, 1] },
+        "agent_failure_score": { "const": -2 },
+        "promotion_mean_delta_floor": { "const": 0.05 },
+        "rollback_mean_delta_ceiling": { "const": -0.05 }
+      }
+    },
+    "scheduler_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scheduler_contract_id",
+        "scheduler_contract_version",
+        "scheduler_contract_hash",
+        "minimum_accountable_pairs",
+        "block_bootstrap_resamples",
+        "block_bootstrap_block_length",
+        "confidence_level",
+        "benjamini_hochberg_q_max",
+        "candidate_reliability_tolerance",
+        "holdout_regime_degradation_max",
+        "post_promotion_shadow_pairs",
+        "rollback_reliability_gap",
+        "self_scope_q2_minimum",
+        "self_scope_operational_reliability_floor",
+        "rollback_cooldown_research_slots",
+        "layer_active_candidate_quotas",
+        "source_window_kind",
+        "agent_failure_score_included",
+        "exogenous_exclusion_included",
+        "decision_usage_weight_enabled"
+      ],
+      "properties": {
+        "scheduler_contract_id": { "const": "knot-scheduler" },
+        "scheduler_contract_version": { "const": "knot_scheduler_v2" },
+        "scheduler_contract_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "minimum_accountable_pairs": { "const": 30 },
+        "block_bootstrap_resamples": { "const": 2000 },
+        "block_bootstrap_block_length": { "const": 5 },
+        "confidence_level": { "const": 0.95 },
+        "benjamini_hochberg_q_max": { "const": 0.05 },
+        "candidate_reliability_tolerance": { "const": 0.05 },
+        "holdout_regime_degradation_max": { "const": 0.05 },
+        "post_promotion_shadow_pairs": { "const": 20 },
+        "rollback_reliability_gap": { "const": 0.1 },
+        "self_scope_q2_minimum": { "const": 0 },
+        "self_scope_operational_reliability_floor": { "const": 0.8 },
+        "rollback_cooldown_research_slots": { "const": 20 },
+        "layer_active_candidate_quotas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["MACRO", "SECTOR", "SUPERINVESTOR", "DECISION"],
+          "properties": {
+            "MACRO": { "const": 1 },
+            "SECTOR": { "const": 1 },
+            "SUPERINVESTOR": { "const": 1 },
+            "DECISION": { "const": 1 }
+          }
+        },
+        "source_window_kind": { "const": "FIRST_N_ACCOUNTABLE_NON_OVERLAPPING_PAIRS" },
+        "agent_failure_score_included": { "const": true },
+        "exogenous_exclusion_included": { "const": false },
+        "decision_usage_weight_enabled": { "const": false }
+      }
+    }
+  }
+}

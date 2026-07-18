@@ -89,7 +89,7 @@ describe("research knob cap enforcement", () => {
     expect(isResearchKnobsStageEnabled("cio", "cio_final", migrated)).toBe(true);
     expect(isResearchKnobsStageEnabled("central_bank", "agent_run", migrated)).toBe(true);
 
-    expect(researchKnobsEnabledAgentStages("", "").size).toBe(26);
+    expect(researchKnobsEnabledAgentStages("", "").size).toBe(29);
     expect(researchKnobsEnabledAgentStages("unknown:*", "").size).toBe(0);
     expect(researchKnobsEnabledAgentStages("*", "", "crisis_2008").size).toBe(0);
     expect(isResearchKnobsStageEnabled("central_bank", "agent_run", undefined, "crisis_2008")).toBe(
@@ -939,8 +939,8 @@ research-knobs:
             fired_cap_ids: [],
           },
         },
-        dollar: {
-          agent: "dollar",
+        us_financial_conditions: {
+          agent_id: "us_financial_conditions",
           confidence: 0.7,
           verified_knob_audit: {
             fired_cap_ids: [],
@@ -981,7 +981,7 @@ research-knobs:
     expect(statuses).toContainEqual(
       expect.objectContaining({
         source_id: "upstream_agent_outputs",
-        scope: expect.stringContaining("agent:dollar|"),
+        scope: expect.stringContaining("agent:us_financial_conditions|"),
         status: "loaded",
       }),
     );

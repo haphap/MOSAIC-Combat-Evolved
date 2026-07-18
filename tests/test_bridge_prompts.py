@@ -21,8 +21,8 @@ from mosaic.bridge.registry import get_handler
 from mosaic.autoresearch.prompt_repo import init_private_prompt_repo
 from mosaic.scorecard.store import ScorecardStore
 
-DEFAULT_REL = "prompts/mosaic/cohort_default/macro/volatility.zh.md"
-BRANCH = "cohort/crisis_2008/auto/volatility/2008-09-15"
+DEFAULT_REL = "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md"
+BRANCH = "cohort/crisis_2008/auto/us_financial_conditions/2008-09-15"
 _MACRO_SCHEMA_FIELDS = (
     "direction",
     "strength",
@@ -100,7 +100,7 @@ get_rke_research_context 是脱敏研究先验，不是当前数据，不能替�
 """.strip()
 
 
-def _research_knobs_fence(agent: str = "volatility") -> str:
+def _research_knobs_fence(agent: str = "us_financial_conditions") -> str:
     return f"""```research-knobs
 research-knobs:
   schema_version: research_knobs_v1
@@ -142,7 +142,7 @@ research-knobs:
 def _write_contract_prompt(
     private_repo: Path,
     *,
-    agent: str = "volatility",
+    agent: str = "us_financial_conditions",
     layer: str = "macro",
     lang: str = "zh",
     text: str | None = None,
@@ -175,8 +175,12 @@ def repo(tmp_path: Path, monkeypatch) -> Path:
     _git(repo, "config", "user.email", "test@example.com")
     seed = repo / "prompts" / "mosaic" / "cohort_default" / "macro"
     seed.mkdir(parents=True)
-    (seed / "volatility.zh.md").write_text("base zh\n## 输出 schema\n", encoding="utf-8")
-    (seed / "volatility.en.md").write_text("base en\n## Output schema\n", encoding="utf-8")
+    (seed / "us_financial_conditions.zh.md").write_text(
+        "base zh\n## 输出 schema\n", encoding="utf-8"
+    )
+    (seed / "us_financial_conditions.en.md").write_text(
+        "base en\n## Output schema\n", encoding="utf-8"
+    )
     super_seed = repo / "prompts" / "mosaic" / "cohort_default" / "superinvestor"
     super_seed.mkdir(parents=True)
     for agent in ("druckenmiller", "munger", "burry", "ackman"):
@@ -201,18 +205,18 @@ def repo(tmp_path: Path, monkeypatch) -> Path:
 
 class TestRead:
     def test_working_tree(self, repo: Path):
-        r = dispatch("prompts.read", {"agent": "volatility", "cohort": "cohort_default", "lang": "zh"})
+        r = dispatch("prompts.read", {"agent": "us_financial_conditions", "cohort": "cohort_default", "lang": "zh"})
         assert r["content"].startswith("base zh")
         assert r["path"] == DEFAULT_REL
 
     def test_cohort_default_fallback(self, repo: Path):
         # crisis_2008 has no file → falls back to cohort_default.
-        r = dispatch("prompts.read", {"agent": "volatility", "cohort": "crisis_2008", "lang": "en"})
+        r = dispatch("prompts.read", {"agent": "us_financial_conditions", "cohort": "crisis_2008", "lang": "en"})
         assert r["content"].startswith("base en")
         assert "cohort_default" in r["path"]
 
     def test_at_ref(self, repo: Path):
-        r = dispatch("prompts.read", {"agent": "volatility", "cohort": "cohort_default", "lang": "zh", "ref": "main"})
+        r = dispatch("prompts.read", {"agent": "us_financial_conditions", "cohort": "cohort_default", "lang": "zh", "ref": "main"})
         assert r["content"].startswith("base zh")
 
     def test_unknown_agent(self, repo: Path):
@@ -237,7 +241,7 @@ class TestRead:
 
     def test_bad_lang(self, repo: Path):
         with pytest.raises(RpcError, match="lang"):
-            dispatch("prompts.read", {"agent": "volatility", "cohort": "cohort_default", "lang": "fr"})
+            dispatch("prompts.read", {"agent": "us_financial_conditions", "cohort": "cohort_default", "lang": "fr"})
 
     def test_missing_file(self, repo: Path):
         with pytest.raises(RpcError, match="not found"):
@@ -253,7 +257,7 @@ class TestWrite:
         # no escape hatch / private repo required (keeps the autoresearch loop
         # working until Phase 5 moves eval/read to the private repo).
         r = dispatch("prompts.write", {
-            "agent": "volatility", "cohort": "crisis_2008",
+            "agent": "us_financial_conditions", "cohort": "crisis_2008",
             "contents": {"zh": "new zh\n## 输出 schema\n"},
             "branch": BRANCH,
         })
@@ -264,7 +268,7 @@ class TestWrite:
     def test_private_git_requires_config(self, repo: Path):
         with pytest.raises(RpcError, match="MOSAIC_PROMPTS_REPO"):
             dispatch("prompts.write", {
-                "agent": "volatility", "cohort": "crisis_2008",
+                "agent": "us_financial_conditions", "cohort": "crisis_2008",
                 "contents": {"zh": "new zh\n"},
                 "target": "private_git",
                 "branch": BRANCH,
@@ -276,7 +280,7 @@ class TestWrite:
         monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
 
         r = dispatch("prompts.write", {
-            "agent": "volatility", "cohort": "crisis_2008",
+            "agent": "us_financial_conditions", "cohort": "crisis_2008",
             "contents": {"zh": "new zh\n## 输出 schema\n", "en": "new en\n## Output schema\n"},
             "target": "private_git",
             "branch": BRANCH,
@@ -293,7 +297,7 @@ class TestWrite:
         prompt_at_branch = _git(
             private_repo,
             "show",
-            f"{BRANCH}:prompts/mosaic/crisis_2008/macro/volatility.zh.md",
+            f"{BRANCH}:prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md",
         )
         assert prompt_at_branch.startswith("new zh")
 
@@ -342,16 +346,16 @@ class TestWrite:
         private_repo = tmp_path / "private-prompts"
         init_private_prompt_repo(private_repo, project_root=repo)
         monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
-        registry_path = "registry/prompt_governance/cohort_default/volatility.json"
+        registry_path = "registry/prompt_governance/cohort_default/us_financial_conditions.json"
         registry = {
             "schema_version": "prompt_governance_values_v1",
-            "agent": "macro.volatility",
+            "agent": "macro.us_financial_conditions",
             "cohort": "cohort_default",
             "prompt_ir_scope": "*",
             "prompt_ir_hash": f"sha256:{'1' * 64}",
             "generator_version": "prompt_governance_projection_v1",
             "values_by_path": {
-                "/rule_packs/macro.volatility.runtime.v1/rules/macro.volatility.confidence.001/confidence_policy/missing_current_data/cap": 0.5
+                "/rule_packs/macro.us_financial_conditions.runtime.v1/rules/macro.us_financial_conditions.confidence.001/confidence_policy/missing_current_data/cap": 0.5
             },
             "weight_groups": {},
             "last_mutation_id": "KM-test-2",
@@ -360,7 +364,7 @@ class TestWrite:
         result = dispatch(
             "prompts.write",
             {
-                "agent": "volatility",
+                "agent": "us_financial_conditions",
                 "cohort": "cohort_default",
                 "contents": {"zh": "new zh\n", "en": "new en\n"},
                 "extra_files": {
@@ -410,11 +414,11 @@ class TestWrite:
         init_private_prompt_repo(private_repo, project_root=repo)
         monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
         content = "candidate prompt\n"
-        path = "prompts/mosaic/crisis_2008/macro/volatility.zh.md"
+        path = "prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md"
         dispatch(
             "prompts.write",
             {
-                "agent": "volatility",
+                "agent": "us_financial_conditions",
                 "cohort": "crisis_2008",
                 "contents": {"zh": content},
                 "target": "private_git",
@@ -447,7 +451,7 @@ class TestWrite:
         monkeypatch.setenv("MOSAIC_PROMPTS_REPO_ID", "haphap/MOSAIC-Prompts")
 
         r = dispatch("prompts.write", {
-            "agent": "volatility", "cohort": "crisis_2008",
+            "agent": "us_financial_conditions", "cohort": "crisis_2008",
             "contents": {"zh": "new zh\n"},
             "target": "private_git",
             "branch": BRANCH,
@@ -462,7 +466,7 @@ class TestWrite:
         zh_content = "new zh\n## 输出 schema\n"
         en_content = "new en\n## Output schema\n"
         r = dispatch("prompts.write", {
-            "agent": "volatility", "cohort": "crisis_2008",
+            "agent": "us_financial_conditions", "cohort": "crisis_2008",
             "contents": {"zh": zh_content, "en": en_content},
             "target": "project_git",
             "branch": BRANCH,
@@ -480,14 +484,14 @@ class TestWrite:
         assert not (repo / "prompts/mosaic/crisis_2008").exists()
         # readable back at the branch ref
         back = dispatch("prompts.read", {
-            "agent": "volatility", "cohort": "crisis_2008", "lang": "zh", "ref": BRANCH,
+            "agent": "us_financial_conditions", "cohort": "crisis_2008", "lang": "zh", "ref": BRANCH,
         })
         assert back["content"].startswith("new zh")
         expected_hashes = {
-            "prompts/mosaic/crisis_2008/macro/volatility.zh.md": (
+            "prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md": (
                 f"sha256:{hashlib.sha256(zh_content.encode('utf-8')).hexdigest()}"
             ),
-            "prompts/mosaic/crisis_2008/macro/volatility.en.md": (
+            "prompts/mosaic/crisis_2008/macro/us_financial_conditions.en.md": (
                 f"sha256:{hashlib.sha256(en_content.encode('utf-8')).hexdigest()}"
             ),
         }
@@ -507,12 +511,12 @@ class TestWrite:
         assert _git(repo, "branch", "--list", BRANCH).strip() == ""
 
     def test_project_git_rejects_stale_candidate_base(self, repo: Path):
-        path = "prompts/mosaic/cohort_default/macro/volatility.zh.md"
+        path = "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md"
         with pytest.raises(RpcError, match="base files do not match expected hashes"):
             dispatch(
                 "prompts.write",
                 {
-                    "agent": "volatility",
+                    "agent": "us_financial_conditions",
                     "cohort": "cohort_default",
                     "contents": {"zh": "candidate zh\n"},
                     "target": "project_git",
@@ -525,29 +529,32 @@ class TestWrite:
 
     def test_to_working_tree(self, repo: Path):
         r = dispatch("prompts.write", {
-            "agent": "volatility", "cohort": "crisis_2008",
+            "agent": "us_financial_conditions", "cohort": "crisis_2008",
             "contents": {"zh": "wt zh\n"},
             "allow_public_prompt_write": True,
         })
         assert "commit_hash" not in r
         assert r["target"] == "working_tree"
         assert len(r["prompt_sha256"]) == 64
-        assert (repo / "prompts/mosaic/crisis_2008/macro/volatility.zh.md").exists()
+        assert (
+            repo
+            / "prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md"
+        ).exists()
 
     def test_working_tree_requires_allow(self, repo: Path):
         with pytest.raises(RpcError, match="allow_public_prompt_write"):
             dispatch("prompts.write", {
-                "agent": "volatility", "cohort": "crisis_2008",
+                "agent": "us_financial_conditions", "cohort": "crisis_2008",
                 "contents": {"zh": "wt zh\n"},
             })
 
     def test_bad_contents(self, repo: Path):
         with pytest.raises(RpcError, match="contents"):
-            dispatch("prompts.write", {"agent": "volatility", "cohort": "c", "contents": {}})
+            dispatch("prompts.write", {"agent": "us_financial_conditions", "cohort": "c", "contents": {}})
 
     def test_bad_lang_key(self, repo: Path):
         with pytest.raises(RpcError, match="contents"):
-            dispatch("prompts.write", {"agent": "volatility", "cohort": "c", "contents": {"fr": "x"}})
+            dispatch("prompts.write", {"agent": "us_financial_conditions", "cohort": "c", "contents": {"fr": "x"}})
 
 
 def test_prompts_methods_registered():
@@ -584,7 +591,7 @@ def test_init_private_repo_rpc_can_seed_baseline(repo: Path, tmp_path: Path):
         / "mosaic"
         / "cohort_default"
         / "macro"
-        / "volatility.zh.md"
+        / "us_financial_conditions.zh.md"
     ).read_text(encoding="utf-8").startswith("base zh")
 
 
@@ -593,7 +600,7 @@ def test_audit_versions_returns_metadata_only(repo: Path, tmp_path: Path, monkey
     monkeypatch.setattr(_prompts, "_store", lambda: store)
     vid = store.create_prompt_version(
         cohort="cohort_default",
-        agent="volatility",
+        agent="us_financial_conditions",
         branch_name=BRANCH,
         base_commit_hash="a" * 40,
     )
@@ -616,7 +623,7 @@ def test_audit_versions_returns_metadata_only(repo: Path, tmp_path: Path, monkey
 def test_preflight_blocks_without_private_prompt_source(repo: Path):
     result = dispatch(
         "prompts.preflight",
-        {"agents": ["volatility"], "langs": ["zh"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh"]},
     )
 
     assert result["ready"] is False
@@ -643,7 +650,7 @@ def test_preflight_records_private_prompt_provenance(repo: Path, tmp_path: Path,
 
     result = dispatch(
         "prompts.preflight",
-        {"agents": ["volatility"], "langs": ["zh", "en"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh", "en"]},
     )
 
     assert result["ready"] is True
@@ -675,13 +682,13 @@ def test_preflight_blocks_dirty_private_prompt_repo(
         / "mosaic"
         / "cohort_default"
         / "macro"
-        / "volatility.zh.md"
+        / "us_financial_conditions.zh.md"
     )
     prompt_file.write_text("dirty zh\n## 输出 schema\n", encoding="utf-8")
 
     result = dispatch(
         "prompts.preflight",
-        {"agents": ["volatility"], "langs": ["zh"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh"]},
     )
 
     assert result["ready"] is False
@@ -705,7 +712,7 @@ def test_preflight_allows_git_backed_prompts_root(repo: Path, tmp_path: Path, mo
 
     result = dispatch(
         "prompts.preflight",
-        {"agents": ["volatility"], "langs": ["zh"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh"]},
     )
 
     assert result["ready"] is True
@@ -713,7 +720,9 @@ def test_preflight_allows_git_backed_prompts_root(repo: Path, tmp_path: Path, mo
     assert result["source_status"]["prompt_repo_dirty_count"] == 0
     row = result["rows"][0]
     assert row["resolved_source"] == "private_root"
-    assert row["prompt_file_path"] == "prompts/mosaic/cohort_default/macro/volatility.zh.md"
+    assert row["prompt_file_path"] == (
+        "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md"
+    )
 
 
 def test_preflight_blocks_dirty_prompts_root(repo: Path, tmp_path: Path, monkeypatch):
@@ -726,13 +735,13 @@ def test_preflight_blocks_dirty_prompts_root(repo: Path, tmp_path: Path, monkeyp
         / "mosaic"
         / "cohort_default"
         / "macro"
-        / "volatility.zh.md"
+        / "us_financial_conditions.zh.md"
     )
     prompt_file.write_text("dirty zh\n## 输出 schema\n", encoding="utf-8")
 
     result = dispatch(
         "prompts.preflight",
-        {"agents": ["volatility"], "langs": ["zh"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh"]},
     )
 
     assert result["ready"] is False
@@ -752,7 +761,7 @@ def test_preflight_rejects_project_prompt_root(repo: Path, monkeypatch):
 
     result = dispatch(
         "prompts.preflight",
-        {"agents": ["volatility"], "langs": ["zh"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh"]},
     )
 
     assert result["ready"] is False
@@ -767,7 +776,7 @@ def test_verify_release_checks_pin_metadata(repo: Path, tmp_path: Path, monkeypa
     init_private_prompt_repo(private_repo, project_root=repo)
     monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
     write = dispatch("prompts.write", {
-        "agent": "volatility",
+        "agent": "us_financial_conditions",
         "cohort": "cohort_default",
         "contents": {
             "zh": "release zh\n## 输出 schema\n",
@@ -778,7 +787,7 @@ def test_verify_release_checks_pin_metadata(repo: Path, tmp_path: Path, monkeypa
     })
     vid = store.create_prompt_version(
         cohort="cohort_default",
-        agent="volatility",
+        agent="us_financial_conditions",
         branch_name=BRANCH,
         base_commit_hash="a" * 40,
         code_commit_hash="c" * 40,
@@ -809,7 +818,7 @@ def test_contract_check_accepts_valid_private_prompts_by_layer(
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
     agents = {
-        "volatility": "macro",
+        "us_financial_conditions": "macro",
         "semiconductor": "sector",
         "munger": "superinvestor",
         "cro": "decision",
@@ -845,13 +854,13 @@ def test_contract_check_accepts_localized_zh_contract(repo: Path, tmp_path: Path
     fields = _MACRO_SCHEMA_FIELDS
     _write_contract_prompt(
         private_repo,
-        text=_valid_zh_contract_prompt("volatility", "macro", fields),
+        text=_valid_zh_contract_prompt("us_financial_conditions", "macro", fields),
     )
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "localized zh contract prompt")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
 
-    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+    result = dispatch("prompts.contract_check", {"agents": ["us_financial_conditions"], "langs": ["zh"]})
 
     assert result["ready"] is True
     assert result["blocked_reasons"] == []
@@ -866,9 +875,9 @@ def test_contract_check_blocks_enabled_agent_missing_research_knobs(
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "contract prompt")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
-    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "volatility")
+    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "us_financial_conditions")
 
-    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+    result = dispatch("prompts.contract_check", {"agents": ["us_financial_conditions"], "langs": ["zh"]})
 
     assert result["ready"] is False
     assert "research_knobs_fence_count_0" in result["blocked_reasons"]
@@ -882,7 +891,7 @@ def test_contract_check_blocks_research_knobs_bilingual_drift(
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
     fields = _MACRO_SCHEMA_FIELDS
-    prompt = _valid_contract_prompt("volatility", "macro", fields)
+    prompt = _valid_contract_prompt("us_financial_conditions", "macro", fields)
     _write_contract_prompt(
         private_repo,
         lang="zh",
@@ -896,11 +905,11 @@ def test_contract_check_blocks_research_knobs_bilingual_drift(
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "bilingual research knobs drift")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
-    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "volatility")
+    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "us_financial_conditions")
 
     result = dispatch(
         "prompts.contract_check",
-        {"agents": ["volatility"], "langs": ["zh", "en"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh", "en"]},
     )
 
     assert result["ready"] is False
@@ -912,7 +921,7 @@ def test_formal_release_checks_emit_no_body_rows(repo: Path, tmp_path: Path, mon
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
     agents = {
-        "volatility": "macro",
+        "us_financial_conditions": "macro",
         "semiconductor": "sector",
         "munger": "superinvestor",
         "cro": "decision",
@@ -951,7 +960,7 @@ def test_formal_release_checks_include_research_knobs_status(
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
     fields = _MACRO_SCHEMA_FIELDS
-    prompt = _valid_contract_prompt("volatility", "macro", fields)
+    prompt = _valid_contract_prompt("us_financial_conditions", "macro", fields)
     for lang in ("zh", "en"):
         _write_contract_prompt(
             private_repo,
@@ -961,12 +970,12 @@ def test_formal_release_checks_include_research_knobs_status(
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "contract prompt with research knobs")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
-    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "volatility")
+    monkeypatch.setenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "us_financial_conditions")
 
     result = dispatch(
         "prompts.formal_release_checks",
         {
-            "agents": ["volatility"],
+            "agents": ["us_financial_conditions"],
             "langs": ["zh", "en"],
             "benchmark_run_id": "bench-release",
         },
@@ -990,7 +999,7 @@ def test_formal_release_checks_block_invalid_contract(
 
     result = dispatch(
         "prompts.formal_release_checks",
-        {"agents": ["volatility"], "langs": ["zh"], "benchmark_run_id": "bench-release"},
+        {"agents": ["us_financial_conditions"], "langs": ["zh"], "benchmark_run_id": "bench-release"},
     )
 
     assert result["ready"] is False
@@ -1004,7 +1013,7 @@ def test_formal_release_checks_block_invalid_contract(
 def test_contract_check_blocks_missing_section(repo: Path, tmp_path: Path, monkeypatch):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    text = _valid_contract_prompt("volatility", "macro", _MACRO_SCHEMA_FIELDS).replace(
+    text = _valid_contract_prompt("us_financial_conditions", "macro", _MACRO_SCHEMA_FIELDS).replace(
         "## Privacy boundary", "## Privacy rules"
     )
     _write_contract_prompt(private_repo, text=text)
@@ -1012,7 +1021,7 @@ def test_contract_check_blocks_missing_section(repo: Path, tmp_path: Path, monke
     _git(private_repo, "commit", "-m", "bad contract prompt")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
 
-    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+    result = dispatch("prompts.contract_check", {"agents": ["us_financial_conditions"], "langs": ["zh"]})
 
     assert result["ready"] is False
     assert "required_section_missing:privacy_boundary" in result["blocked_reasons"]
@@ -1050,7 +1059,7 @@ def test_contract_check_blocks_rke_prior_as_current_data(
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
     text = (
-        _valid_contract_prompt("volatility", "macro", _MACRO_SCHEMA_FIELDS)
+        _valid_contract_prompt("us_financial_conditions", "macro", _MACRO_SCHEMA_FIELDS)
         + "\nRKE prior is current data."
     )
     _write_contract_prompt(private_repo, text=text)
@@ -1058,7 +1067,7 @@ def test_contract_check_blocks_rke_prior_as_current_data(
     _git(private_repo, "commit", "-m", "unsafe rke prompt")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
 
-    result = dispatch("prompts.contract_check", {"agents": ["volatility"], "langs": ["zh"]})
+    result = dispatch("prompts.contract_check", {"agents": ["us_financial_conditions"], "langs": ["zh"]})
 
     assert result["ready"] is False
     assert "rke_prior_treated_as_current_data" in result["blocked_reasons"]
@@ -1073,7 +1082,9 @@ def test_contract_check_blocks_cross_run_prompt_row(
     _git(private_repo, "add", "prompts/mosaic")
     _git(private_repo, "commit", "-m", "contract prompt")
     monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
-    preflight = dispatch("prompts.preflight", {"agents": ["volatility"], "langs": ["zh"]})
+    preflight = dispatch(
+        "prompts.preflight", {"agents": ["us_financial_conditions"], "langs": ["zh"]}
+    )
     row = {**preflight["rows"][0], "benchmark_run_id": "other-run"}
 
     result = dispatch(
@@ -1090,7 +1101,7 @@ def test_contract_check_blocks_bilingual_category_drift(
 ):
     private_repo = tmp_path / "MOSAIC-Prompts"
     _init_private_prompt_repo_for_test(private_repo, repo)
-    good = _valid_contract_prompt("volatility", "macro", _MACRO_SCHEMA_FIELDS)
+    good = _valid_contract_prompt("us_financial_conditions", "macro", _MACRO_SCHEMA_FIELDS)
     _write_contract_prompt(private_repo, lang="zh", text=good)
     _write_contract_prompt(private_repo, lang="en", text=good.replace("## Workflow", "## Steps"))
     _git(private_repo, "add", "prompts/mosaic")
@@ -1099,7 +1110,7 @@ def test_contract_check_blocks_bilingual_category_drift(
 
     result = dispatch(
         "prompts.contract_check",
-        {"agents": ["volatility"], "langs": ["zh", "en"]},
+        {"agents": ["us_financial_conditions"], "langs": ["zh", "en"]},
     )
 
     assert result["ready"] is False

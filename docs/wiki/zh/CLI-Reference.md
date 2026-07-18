@@ -17,7 +17,17 @@
 ```bash
 pnpm dev daily-cycle --cohort cohort_default --fake-llm
 ```
-选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`。跑全部 25 agents,CIO 写出 `portfolio_actions`(落库 `recommendations` 表)。
+选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--structured-smoke`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--max-tokens <count>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`。跑全部 28 个逻辑 Agent、29 个执行阶段。`--structured-smoke` 使用真实 structured-output provider 和 bundled prompt，固定 temperature 0、默认每次 completion 最多 6144 tokens，并关闭 production release、scorecard、outcome、RKE 与纸单写入。
+
+如需在不使用许可数据正文的前提下复现真实模型合同 smoke，请先生成显式合成 PIT bundle：
+
+```bash
+cd ..
+uv run python scripts/build_structured_smoke_fixtures.py \
+  --root .mosaic/tmp/structured-smoke-cache --date 2026-07-17
+```
+
+运行 `daily-cycle --structured-smoke` 时使用生成器输出的两个环境变量。该 bundle 标记为 `SYNTHETIC_NON_PRODUCTION`，不含供应商正文，只验证图、schema 与工具接线；它不能替代独立的 Tushare 实时权限/schema probe 或数据源 readiness 审计。
 
 current-position fixture 文件可以是 JSON 数组,也可以是包含 `current_positions` 的对象;每行必须包含 ticker、当前权重、成本、市场价格、未实现盈亏、持有天数、建仓日期、来源 agent、entry thesis id 和最近复盘日期。`sector` 可选,但用于测试 `max_sector_weight` 时必须提供。CIO 校验会拒绝 action 或 target/current/delta 权重与 `ADD`/`REDUCE`/`EXIT` 语义矛盾的 `position_decision` 行。
 输出的 `position_audit` 会带 `tool_status_summary`,记录持仓来源与市场价格 evidence scope 状态。
@@ -39,14 +49,17 @@ pnpm dev darwinian --cohort cohort_default
 
 > forward-return 回填是 `scorecard.score_pending` **RPC**(`BridgeApi.scorecardScorePending`),由程序/日常流水线调用 —— 目前不是独立 CLI 子命令。见[评分与纸上交易](Scorecard-and-Paper-Trading.md)。
 
-## Autoresearch(提示词自进化)
+## 旧 Autoresearch 诊断
 
 ```bash
-pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
-pnpm dev autoresearch trigger --cohort cohort_default --agent cio --dry-run --fake-llm --mutation-mode knob_patch --eval-days 5
+pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm --eval-days 5
+pnpm dev autoresearch evaluate --cohort crisis_2008
 pnpm dev autoresearch log --cohort crisis_2008
 ```
-子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`。`trigger` 选项含 `--cohort`、`--agent`、`--max <n>`、`--dry-run`、`--fake-llm`、`--mutation-mode <auto|knob_patch|prompt_rewrite>`、`--eval-days <n>`、`--llm-provider/--model/--base-url`。`knob_patch` 模式改动 Prompt IR / domain-knob 路径,包括持仓与 MiroFish 卡片,不改写提示词正文。
+子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`、`review-domain`。
+该接口只供审计：评价终态为 `legacy_unverified`，`review-domain` 只接受
+`--decision revert`，任何子命令都不能发布生产行为。生产演化只能走 KNOT 配对研究与
+受治理的 release RPC 流程。
 
 ## Prompt 运维
 
@@ -164,7 +177,7 @@ pnpm dev dashboard --cohort cohort_default [--user <name>]
 
 ```bash
 cd mosaic-ts
-pnpm dev daily-cycle --cohort cohort_default     # 25 agents → CIO 组合(recommendations 表)
+pnpm dev daily-cycle --cohort cohort_default     # 28 agents / 29 stages → CIO 组合
 # forward_return 回填:调用 scorecard.score_pending RPC(T+5 后成熟)
 pnpm dev darwinian --cohort cohort_default
 pnpm dev janus run

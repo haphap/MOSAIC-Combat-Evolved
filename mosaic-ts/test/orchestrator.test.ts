@@ -68,8 +68,8 @@ function fakeBridgeApi(overrides: Partial<Record<string, unknown>> = {}): Bridge
   return {
     autoresearchTrigger: vi.fn().mockResolvedValue({
       version_id: 1,
-      agent: "volatility",
-      branch_name: "autoresearch/volatility/20260101",
+      agent: "us_financial_conditions",
+      branch_name: "autoresearch/us_financial_conditions/20260101",
       base_commit: "abc1234",
     }),
     promptsWrite: vi.fn().mockResolvedValue({
@@ -79,8 +79,8 @@ function fakeBridgeApi(overrides: Partial<Record<string, unknown>> = {}): Bridge
       prompt_commit_hash: "def456",
       prompt_sha256: "f".repeat(64),
       commit_hash: "def456",
-      branch: "autoresearch/volatility/20260101",
-      paths: ["prompts/mosaic/cohort_default/macro/volatility.zh.md"],
+      branch: "autoresearch/us_financial_conditions/20260101",
+      paths: ["prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md"],
     }),
     autoresearchRecordMutation: vi.fn().mockResolvedValue({ ok: true }),
     autoresearchPrepareWorktree: vi.fn().mockResolvedValue({ path: "/tmp/wt" }),
@@ -145,7 +145,7 @@ describe("runAutoresearchCycle", () => {
         en: { old_sha256: `sha256:${"3".repeat(64)}`, new_sha256: `sha256:${"4".repeat(64)}` },
       },
       governance_registry_update: {
-        relative_path: "registry/prompt_governance/cohort_default/volatility.json",
+        relative_path: "registry/prompt_governance/cohort_default/us_financial_conditions.json",
         content: '{"schema_version":"prompt_governance_values_v1"}\n',
         old_sha256: `sha256:${"8".repeat(64)}`,
         new_sha256: `sha256:${"9".repeat(64)}`,
@@ -206,13 +206,13 @@ describe("runAutoresearchCycle", () => {
 
     expect(mockedMutate).toHaveBeenCalledWith({
       cohort: "cohort_default",
-      agent: "volatility",
+      agent: "us_financial_conditions",
       deps: { llm: llm as never, api },
       fakeLlm: true,
     });
   });
 
-  it("auto mode uses parameter-level knob mutation for enabled agents", async () => {
+  it("auto mode keeps research knobs runtime-owned and mutates prompt behavior", async () => {
     const api = fakeBridgeApi();
     const llm = new FakeLlm();
     const oldEnv = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS;
@@ -226,15 +226,14 @@ describe("runAutoresearchCycle", () => {
         deps: { llm: llm as never, api },
       });
 
-      expect(result.mutations[0]?.summary).toBe("knob patch: missing_current_data");
-      expect(mockedMutateResearchKnobs).toHaveBeenCalledWith({
+      expect(result.mutations[0]?.summary).toBe("tighten thresholds");
+      expect(mockedMutate).toHaveBeenCalledWith({
         cohort: "cohort_default",
-        agent: "volatility",
+        agent: "us_financial_conditions",
         deps: { llm: llm as never, api },
         fakeLlm: true,
-        mutationId: expect.stringMatching(/^KM-1-/),
       });
-      expect(mockedMutate).not.toHaveBeenCalled();
+      expect(mockedMutateResearchKnobs).not.toHaveBeenCalled();
       expect(api.promptsWrite).not.toHaveBeenCalled();
     } finally {
       if (oldEnv === undefined) {
@@ -262,10 +261,10 @@ describe("runAutoresearchCycle", () => {
               prompt_base_commit_hash: "abc1234",
               prompt_commit_hash: "code4567",
               commit_hash: "code4567",
-              branch: "autoresearch/volatility/20260101",
+              branch: "autoresearch/us_financial_conditions/20260101",
               paths: [
-                "prompts/mosaic/cohort_default/macro/volatility.zh.md",
-                "prompts/mosaic/cohort_default/macro/volatility.en.md",
+                "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md",
+                "prompts/mosaic/cohort_default/macro/us_financial_conditions.en.md",
               ],
             }
           : {
@@ -274,10 +273,10 @@ describe("runAutoresearchCycle", () => {
               prompt_base_commit_hash: "baseprompt123",
               prompt_commit_hash: "def4567",
               commit_hash: "def4567",
-              branch: "autoresearch/volatility/20260101",
+              branch: "autoresearch/us_financial_conditions/20260101",
               paths: [
-                "prompts/mosaic/cohort_default/macro/volatility.zh.md",
-                "prompts/mosaic/cohort_default/macro/volatility.en.md",
+                "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md",
+                "prompts/mosaic/cohort_default/macro/us_financial_conditions.en.md",
               ],
             },
       ),
@@ -290,6 +289,7 @@ describe("runAutoresearchCycle", () => {
       const result = await runAutoresearchCycle({
         cohort: "cohort_default",
         fakeLlm: true,
+        mutationMode: "knob_patch",
         maxMutations: 1,
         deps: { llm: new FakeLlm() as never, api },
       });
@@ -348,22 +348,22 @@ describe("runAutoresearchCycle", () => {
     });
 
     expect(result.mutations).toHaveLength(1);
-    expect(result.mutations[0]?.agent).toBe("volatility");
+    expect(result.mutations[0]?.agent).toBe("us_financial_conditions");
     expect(result.mutations[0]?.version_id).toBe(1);
 
     // Full cycle calls: trigger -> mutate -> write -> record -> worktree -> eval -> cleanup
     expect(api.autoresearchTrigger).toHaveBeenCalledWith({ cohort: "cohort_default" });
     expect(mockedMutate).toHaveBeenCalledWith({
       cohort: "cohort_default",
-      agent: "volatility",
+      agent: "us_financial_conditions",
       deps: { llm: llm as never, api },
     });
     expect(api.promptsWrite).toHaveBeenCalledWith({
-      agent: "volatility",
+      agent: "us_financial_conditions",
       cohort: "cohort_default",
       contents: { zh: "rewritten zh", en: "rewritten en" },
       target: "private_git",
-      branch: "autoresearch/volatility/20260101",
+      branch: "autoresearch/us_financial_conditions/20260101",
       message: "autoresearch: tighten thresholds",
     });
     expect(api.autoresearchRecordMutation).toHaveBeenCalledWith({
@@ -495,7 +495,7 @@ describe("runAutoresearchCycle", () => {
         callCount++;
         return {
           version_id: callCount,
-          agent: callCount === 1 ? "volatility" : "sentiment",
+          agent: callCount === 1 ? "us_financial_conditions" : "sentiment",
           branch_name: `autoresearch/agent${callCount}/20260101`,
           base_commit: `commit${callCount}`,
         };
@@ -511,7 +511,7 @@ describe("runAutoresearchCycle", () => {
 
     expect(result.mutations).toHaveLength(2);
     expect(result.mutations[0]?.version_id).toBe(1);
-    expect(result.mutations[0]?.agent).toBe("volatility");
+    expect(result.mutations[0]?.agent).toBe("us_financial_conditions");
     expect(result.mutations[1]?.version_id).toBe(2);
     expect(result.mutations[1]?.agent).toBe("sentiment");
     expect(api.autoresearchTrigger).toHaveBeenCalledTimes(2);
@@ -598,10 +598,10 @@ describe("runAutoresearchCycle", () => {
     });
   });
 
-  it("records kept status when evaluation succeeds", async () => {
+  it("records legacy_unverified when the diagnostic evaluation succeeds", async () => {
     const api = fakeBridgeApi({
       autoresearchEvaluatePending: vi.fn().mockResolvedValue({
-        results: [{ version_id: 1, status: "kept", delta_sharpe: 0.15 }],
+        results: [{ version_id: 1, status: "legacy_unverified", delta_sharpe: 0.15 }],
       }),
     });
     const llm = new FakeLlm();
@@ -612,7 +612,7 @@ describe("runAutoresearchCycle", () => {
       deps: { llm: llm as never, api },
     });
 
-    expect(result.mutations[0]?.status).toBe("kept");
+    expect(result.mutations[0]?.status).toBe("legacy_unverified");
     expect(result.mutations[0]?.delta_sharpe).toBe(0.15);
     // §11.6 O(N²) fix: evaluation is scoped to the version just triggered.
     expect(api.autoresearchEvaluatePending).toHaveBeenCalledWith({

@@ -107,7 +107,7 @@ const DEFAULT_FORBIDDEN_EVOLUTION_PATHS = [
   "/guardrails",
   "/compliance_gates",
   "/validation_acceptance_standards",
-  "/sector_score",
+  "/sector_direction_selection",
   "/portfolio_sizing",
   "/action_policy",
   "/prompt_ir/action_policy",

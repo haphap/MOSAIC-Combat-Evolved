@@ -1,4 +1,8 @@
-"""LangChain ``@tool`` wrappers around the macro_data layer.
+"""Legacy LangChain wrappers around the raw macro-data layer.
+
+The production v2 bridge registers none of these arbitrary-query tools. They
+remain importable for historical tests and diagnostics; signed role snapshot
+capabilities are the only model-callable production surface.
 
 Each function delegates to ``mosaic.dataflows.interface.route_to_vendor``
 which:
@@ -797,27 +801,35 @@ def get_us_macro_snapshot(
 
 
 @tool
+def get_eu_macro_snapshot(
+    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
+) -> str:
+    """Return the validated EU real-economy cycle snapshot."""
+    return render_role_snapshot("eu_economy", as_of_date)
+
+
+@tool
 def get_central_bank_snapshot(
     as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
 ) -> str:
-    """Return deterministic China summaries plus PBOC operations and domestic liquidity."""
+    """Return PBOC, Chinese money-market, nominal-curve, and credit conditions."""
     return render_role_snapshot("central_bank", as_of_date)
 
 
 @tool
-def get_rates_credit_snapshot(
+def get_us_financial_conditions_snapshot(
     as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
 ) -> str:
-    """Return Chinese/US nominal-real curves, money-market, and credit conditions."""
-    return render_role_snapshot("yield_curve", as_of_date)
+    """Return Fed, US curve, credit/stress, USD/RMB, and VIX transmission inputs."""
+    return render_role_snapshot("us_financial_conditions", as_of_date)
 
 
 @tool
-def get_fx_conditions_snapshot(
+def get_euro_area_financial_conditions_snapshot(
     as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
 ) -> str:
-    """Return broad-dollar, RMB, FX-pressure, and A-share liquidity-transmission inputs."""
-    return render_role_snapshot("dollar", as_of_date)
+    """Return ECB, euro-area curve, bank-credit, EUR, and financial-stress inputs."""
+    return render_role_snapshot("euro_area_financial_conditions", as_of_date)
 
 
 @tool
@@ -834,14 +846,6 @@ def get_geopolitical_events_snapshot(
 ) -> str:
     """Return deduplicated, timestamp-filtered geopolitical and official-policy events."""
     return render_role_snapshot("geopolitical", as_of_date)
-
-
-@tool
-def get_volatility_snapshot(
-    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
-) -> str:
-    """Return US implied volatility, China realized volatility, and cross-market stress."""
-    return render_role_snapshot("volatility", as_of_date)
 
 
 @tool
@@ -886,12 +890,12 @@ __all__ = [
     "get_industry_moneyflow",
     "get_china_macro_snapshot",
     "get_us_macro_snapshot",
+    "get_eu_macro_snapshot",
     "get_central_bank_snapshot",
-    "get_rates_credit_snapshot",
-    "get_fx_conditions_snapshot",
+    "get_us_financial_conditions_snapshot",
+    "get_euro_area_financial_conditions_snapshot",
     "get_commodity_conditions_snapshot",
     "get_geopolitical_events_snapshot",
-    "get_volatility_snapshot",
     "get_market_breadth_snapshot",
     "get_market_positioning_snapshot",
 ]

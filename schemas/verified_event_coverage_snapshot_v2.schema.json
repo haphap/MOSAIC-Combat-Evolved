@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "verified_event_coverage_snapshot_v2"
+    },
+    "snapshot_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "pit_status": {
+      "type": "string",
+      "const": "VERIFIED"
+    },
+    "event_coverage": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "coverage_status": {
+            "type": "string",
+            "const": "COMPLETE"
+          },
+          "coverage_evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "event_registry_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "event_priority_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "coverage_status",
+          "coverage_evidence_ids",
+          "event_registry_version",
+          "event_priority_version",
+          "candidates"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "snapshot_hash",
+    "as_of",
+    "generated_at",
+    "pit_status",
+    "event_coverage"
+  ],
+  "additionalProperties": false
+}

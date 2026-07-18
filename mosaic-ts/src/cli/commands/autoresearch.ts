@@ -1,5 +1,5 @@
 /**
- * Phase 4F CLI: ``pnpm dev autoresearch``.
+ * Legacy diagnostic CLI. Production v2 behavior promotion is KNOT-only.
  *
  * Subcommands:
  *   - trigger: run the autoresearch mutation cycle
@@ -41,7 +41,7 @@ interface EvaluateOptions {
 
 interface PromotionOptions {
   versionId: string;
-  decision: "keep" | "revert";
+  decision: "revert";
   approvedBy: string;
   approvalPolicy: "domain_release_manual_v1" | "decision_release_manual_v1";
   reason: string;
@@ -63,13 +63,13 @@ interface RevertOptions {
 export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
-    .description("Autoresearch prompt mutation system (Phase 4E/4F).");
+    .description("Legacy prompt diagnostics; production v2 promotion is KNOT-only.");
 
   // ── autoresearch trigger ──────────────────────────────────────────────
 
   cmd
     .command("trigger")
-    .description("Run the autoresearch mutation cycle: trigger + mutate + commit + evaluate.")
+    .description("Generate a legacy research candidate; it cannot promote a v2 prompt.")
     .option("--cohort <name>", "Cohort id (default cohort_default)")
     .option("--agent <name>", "Force a specific agent (skip constraint selection)")
     .option("--max <n>", "Max mutations per cycle (default 1)")
@@ -77,7 +77,7 @@ export function registerAutoresearch(program: Command): void {
     .option("--fake-llm", "Use in-memory mock LLM (zero cost)")
     .option(
       "--mutation-mode <mode>",
-      "auto | knob_patch | prompt_rewrite (default auto; auto uses knob patches for enabled research-knobs agents)",
+      "auto | prompt_rewrite (knob_patch is disabled for the v2 prompt-only release)",
     )
     .option("--eval-days <n>", "Evaluation window in trading days (default 60)")
     .option("--llm-provider <name>", "Override LLM provider")
@@ -89,6 +89,11 @@ export function registerAutoresearch(program: Command): void {
       const cohort = opts.cohort ?? "cohort_default";
 
       try {
+        if (opts.mutationMode === "knob_patch") {
+          throw new Error(
+            "knob_patch is disabled: v2 KNOT candidates change private prompt behavior without embedding research knobs",
+          );
+        }
         await client.start();
         const config = await api.configGet();
 
@@ -153,7 +158,7 @@ export function registerAutoresearch(program: Command): void {
 
   cmd
     .command("evaluate")
-    .description("Evaluate pending mutations (compute delta Sharpe + decide keep/revert).")
+    .description("Evaluate pending legacy candidates for audit; never keep or promote.")
     .option("--cohort <name>", "Cohort id (default cohort_default)")
     .action(async (opts: EvaluateOptions) => {
       const client = new BridgeClient();
@@ -200,9 +205,9 @@ export function registerAutoresearch(program: Command): void {
 
   cmd
     .command("review-domain")
-    .description("Record an authorized domain-mutation promotion decision.")
+    .description("Reject a legacy diagnostic mutation; KNOT is the only production promoter.")
     .requiredOption("--version-id <id>", "Prompt version id")
-    .requiredOption("--decision <decision>", "keep | revert")
+    .requiredOption("--decision <decision>", "revert")
     .requiredOption("--approved-by <operator>", "Operator identity, prefixed with operator:")
     .requiredOption(
       "--approval-policy <policy>",
@@ -214,8 +219,8 @@ export function registerAutoresearch(program: Command): void {
       const api = new BridgeApi(client);
       try {
         await client.start();
-        if (!(["keep", "revert"] as const).includes(opts.decision)) {
-          throw new Error("--decision must be keep or revert");
+        if (opts.decision !== "revert") {
+          throw new Error("--decision must be revert; production promotion is KNOT-only");
         }
         if (
           !(["domain_release_manual_v1", "decision_release_manual_v1"] as const).includes(
@@ -226,7 +231,7 @@ export function registerAutoresearch(program: Command): void {
         }
         const result = await api.autoresearchReviewDomainPromotion({
           version_id: Number.parseInt(opts.versionId, 10),
-          decision: opts.decision,
+          decision: "revert",
           approved_by: opts.approvedBy,
           approval_policy_id: opts.approvalPolicy,
           review_reason: opts.reason,

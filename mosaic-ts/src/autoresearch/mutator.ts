@@ -32,7 +32,13 @@ import {
   replaceResearchKnobsFence,
 } from "../agents/helpers/research_knobs.js";
 import { bindStructured } from "../agents/helpers/structured_output.js";
-import { ALL_MACRO_AGENTS } from "../agents/macro/_aggregator.js";
+import { MACRO_AGENT_IDS } from "../agents/macro/_contracts.js";
+import {
+  COHORT_BEHAVIOR_START,
+  extractCohortBehavior,
+  immutablePromptContractText,
+  replaceCohortBehavior,
+} from "../agents/prompts/cohort_behavior.js";
 import { findBundledPromptsRoot, findPrivatePromptsRoot } from "../agents/prompts/cohorts.js";
 import {
   buildDomainKnobEvaluationContractArtifact,
@@ -69,7 +75,7 @@ import { RUNTIME_AGENT_SPEC_BY_AGENT } from "../agents/prompts/runtime_agent_spe
 import type { BridgeApi } from "../bridge/types.js";
 
 /** Layer-1 macro agents use their own skill metric (no recommendation alpha). */
-const MACRO_AGENT_SET: ReadonlySet<string> = new Set(ALL_MACRO_AGENTS);
+const MACRO_AGENT_SET: ReadonlySet<string> = new Set(MACRO_AGENT_IDS);
 
 /** Max allowed length swing for a rewrite (Plan §11.5 4B decision #5). */
 export const MAX_LENGTH_DELTA = 0.4;
@@ -1418,6 +1424,10 @@ function writeJsonPointer(root: unknown, path: string, value: unknown): void {
  * {@link PromptInvariantError} on any violation (Plan §11.5 4B decision #5).
  */
 export function assertPromptInvariants(original: string, rewritten: string): void {
+  if (original.includes(COHORT_BEHAVIOR_START)) {
+    assertV2PromptBehaviorInvariants(original, rewritten);
+    return;
+  }
   const rewrittenLower = rewritten.toLowerCase();
 
   // 1. structure: every E0.5 required section must be present.
@@ -1503,6 +1513,30 @@ export function assertPromptInvariants(original: string, rewritten: string): voi
   }
 }
 
+function assertV2PromptBehaviorInvariants(original: string, rewritten: string): void {
+  let originalBehavior: string;
+  let rewrittenBehavior: string;
+  try {
+    originalBehavior = extractCohortBehavior(original);
+    rewrittenBehavior = extractCohortBehavior(rewritten);
+  } catch (error) {
+    throw new PromptInvariantError((error as Error).message);
+  }
+  if (immutablePromptContractText(original) !== immutablePromptContractText(rewritten)) {
+    throw new PromptInvariantError("rewrite changed the immutable prompt contract block");
+  }
+  if (normalize(originalBehavior) === normalize(rewrittenBehavior)) {
+    throw new PromptInvariantError("rewrite is a no-op (cohort behavior did not change)");
+  }
+  const lo = original.length * (1 - MAX_LENGTH_DELTA);
+  const hi = original.length * (1 + MAX_LENGTH_DELTA);
+  if (rewritten.length < lo || rewritten.length > hi) {
+    throw new PromptInvariantError(
+      `rewrite length ${rewritten.length} outside ±${MAX_LENGTH_DELTA * 100}% of ${original.length}`,
+    );
+  }
+}
+
 /** Pull JSON field keys out of the first ```json fenced block. */
 function extractSchemaFields(prompt: string): string[] {
   const m = prompt.match(/```json\s*([\s\S]*?)```/);
@@ -1522,15 +1556,12 @@ const META_SYSTEM = [
   "performance. Propose ONE focused improvement, rewriting BOTH languages so",
   "they stay semantically identical.",
   "",
-  "Hard rules:",
-  "- Keep every E0.5 section: role boundary, required inputs/tools, RKE prior",
-  "  policy, workflow, output schema, audit/footprint contract, privacy",
-  "  boundary, confidence policy, refusal/no-action behavior, and autoresearch",
-  "  evolution contract.",
-  "- Do not change the output schema's field names or structure.",
-  "- Preserve required tools, missing-tool fallback, confidence caps,",
-  "  current-data gate, RKE-prior-is-not-current-data rule, privacy/no-source",
-  "  prose rule, and mutable versus immutable autoresearch boundaries.",
+  "Hard rules for v2 prompts:",
+  "- Change only the text inside the cohort-behavior markers; every byte outside",
+  "  those markers is an immutable role/tool/schema/evidence contract.",
+  "- Improve only reasoning order, counter-evidence checks, or expression strategy.",
+  "- Do not mention tools, schemas, Agent contracts, RKE, Darwin/KNOT state,",
+  "  research knobs, weights, thresholds, endpoints, or series catalogs.",
   "- Keep length within ±40% of the original; this is a focused edit, not a",
   "  rewrite from scratch.",
   "- zh_prompt must be Chinese, en_prompt must be English, same meaning.",
@@ -1593,11 +1624,24 @@ export interface ResearchKnobPromptMutation extends Mutation {
 
 /** Deterministic rewrite for ``--fake-llm`` mode (Plan §11.5 4F decision). */
 function cannedMutation(zh: string, en: string): Mutation {
-  const marker = "autoresearch fake-llm marker";
+  if (!zh.includes(COHORT_BEHAVIOR_START) || !en.includes(COHORT_BEHAVIOR_START)) {
+    const marker = "autoresearch fake-llm marker";
+    return {
+      zh_prompt: `${zh.replace(/\s+$/, "")}\n\n<!-- ${marker} -->\n`,
+      en_prompt: `${en.replace(/\s+$/, "")}\n\n<!-- ${marker} -->\n`,
+      modification_summary: "fake-llm: append deterministic marker",
+      rationale: "fake-llm smoke mutation (no real LLM call)",
+    };
+  }
+  const zhBehavior = extractCohortBehavior(zh);
+  const enBehavior = extractCohortBehavior(en);
   return {
-    zh_prompt: `${zh.replace(/\s+$/, "")}\n\n<!-- ${marker} -->\n`,
-    en_prompt: `${en.replace(/\s+$/, "")}\n\n<!-- ${marker} -->\n`,
-    modification_summary: "fake-llm: append deterministic marker",
+    zh_prompt: replaceCohortBehavior(zh, `${zhBehavior} 先检查最强反证，再形成结论。`),
+    en_prompt: replaceCohortBehavior(
+      en,
+      `${enBehavior} Test the strongest counter-evidence before concluding.`,
+    ),
+    modification_summary: "fake-llm: add deterministic counter-evidence ordering",
     rationale: "fake-llm smoke mutation (no real LLM call)",
   };
 }

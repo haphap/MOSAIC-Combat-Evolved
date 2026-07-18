@@ -23,12 +23,14 @@ changes are accepted or reverted by measured lift.
 
 ## Highlights
 
-- **25-agent decision graph**: 10 macro agents, 7 sector agents, 4
-  superinvestor agents, and 4 decision agents (CRO / Alpha / Execution / CIO).
-- **A-share data layer**: Tushare, akshare, FRED, yfinance, Xueqiu heat,
-  financial statements, technical indicators, ETF data, and research reports.
-- **Autoresearch loop**: mutate prompts, commit to a git branch, run two-stage
-  backtests, and keep/revert by delta Sharpe under cooldown and lockout rules.
+- **28-agent decision graph**: 10 macro agents, 10 sector/relationship agents,
+  4 superinvestor agents, and 4 decision agents (CRO / Alpha / Execution / CIO)
+  run through 29 execution stages.
+- **A-share data layer**: role-scoped PIT snapshots backed by registered
+  Tushare and official macro sources, financial statements, market breadth,
+  technical indicators, and ETF data. RKE research reports remain shadow-only.
+- **Governed evolution loop**: KNOT paired research, Agent-owned deterministic
+  outcome labels, and Darwinian usage weights with atomic promotion/rollback.
 - **PRISM / JANUS / MiroFish**: regime-cohort training, cross-cohort
   meta-weighting, and synthetic forward scenarios.
 - **Backtest and paper trading**: qlib replay, scorecard, Darwinian weights,
@@ -129,7 +131,7 @@ pnpm dev dashboard
 All development CLI commands run from `mosaic-ts/`:
 
 ```bash
-# Daily 25-agent cycle
+# Daily 28-agent / 29-stage cycle
 pnpm dev daily-cycle --cohort cohort_default --fake-llm
 
 # Scorecard and Darwinian weights
