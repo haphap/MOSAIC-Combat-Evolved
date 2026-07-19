@@ -43,6 +43,8 @@ def test_advertised_fake_daily_cycle_builds_hash_bound_fixtures_first():
         assert "daily-cycle" in text and "--fake-llm" in text
         assert "build_structured_smoke_fixtures.py" in text
         assert "--shell-exports" in text
+        assert 'SMOKE_DATE="${SMOKE_DATE:-2026-07-17}"' in text
+        assert "date +%F" not in text
 
 
 def test_chinese_home_keeps_report_intelligence_shadow_only():

@@ -329,7 +329,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "tests/test_knot_private_boundary.py",
                 "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
             ),
-            junit_expected_tests=4,
+            junit_expected_tests=16,
             junit_path=run_dir / "focused-schema.xml",
         ),
         CommandSpec(
@@ -383,7 +383,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             REPRESENTATIVE_EVALUATION_TESTS,
-            junit_expected_tests=3,
+            junit_expected_tests=15,
             junit_path=run_dir / "representative-evaluation.xml",
         ),
         CommandSpec(
