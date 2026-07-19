@@ -45,13 +45,11 @@ pnpm build                   # emit dist/
 
 # Phase 1 CLI commands (run via tsx during development)
 pnpm dev bridge-ping
-pnpm dev tool-call <name> [argsJson]
 pnpm dev tool-loop [--tool name] [--model name] [--question text]
 
-# Phase 4 autoresearch (prompt mutation loop)
-pnpm dev autoresearch trigger --cohort crisis_2008 --agent volatility --fake-llm  # one-shot generate+commit+eval+decide (zero-cost smoke)
-pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm           # select+generate only, no branch/DB side effects
-pnpm dev autoresearch evaluate --cohort crisis_2008                               # evaluate pending mutations (resume)
+# Legacy autoresearch diagnostics (never a v2 production promotion path)
+pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm           # generate only, no branch/DB side effects
+pnpm dev autoresearch evaluate --cohort crisis_2008                               # legacy audit; terminal result is legacy_unverified
 pnpm dev autoresearch log --cohort crisis_2008 --days 7                           # audit log
 pnpm dev autoresearch branches --cohort crisis_2008                               # active feature branches
 pnpm dev autoresearch revert --version-id 12                                      # manual revert (respects 3-day keep-lockout)
@@ -145,7 +143,7 @@ propagation across the language boundary.
 
 ## What's NOT in Phase 1
 
-- LangGraph orchestration of the 4-layer 25-agent graph (Phase 2)
+- LangGraph orchestration of the 4-layer 28-Agent / 29-stage graph (Phase 2)
 - Agent prompts, schemas, debate, manager (Phase 2)
 - Memory, validation, reflection (Phase 2)
 - Scorecard / Darwinian weights (Phase 3)

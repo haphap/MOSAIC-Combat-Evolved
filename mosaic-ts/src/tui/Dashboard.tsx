@@ -2,13 +2,15 @@
  * Phase 10: Ink dashboard. Aggregates existing read RPCs into one screen.
  * Tabs: 1 Today (latest CIO picks) / 2 WinRate (per-ticker hit rate) / 3 Skill /
  * 4 Paper / 5 Cohorts / 6 MiroFish (scenario context + recent runs) /
- * 7 Settings (curated, editable, persisted config via config.save); r=refresh
+ * 7 Settings (curated, editable, persisted config via config.save) /
+ * 8 Agents (UI-only human-readable decision explanations); r=refresh
  * (manual; no auto-poll), q=quit. The BridgeApi is injected so it is testable.
  */
 
 import { Box, Text, useApp, useInput } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AgentDisplayNarratives,
   BacktestActionSummary,
   BacktestRunInfo,
   BridgeApi,
@@ -25,13 +27,23 @@ import type {
   WinRateRow,
 } from "../bridge/types.js";
 
-type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts" | "mirofish" | "settings";
-const TABS: Tab[] = ["today", "winrate", "skill", "paper", "cohorts", "mirofish", "settings"];
+type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts" | "mirofish" | "settings" | "agents";
+const TABS: Tab[] = [
+  "today",
+  "winrate",
+  "skill",
+  "paper",
+  "cohorts",
+  "mirofish",
+  "settings",
+  "agents",
+];
 
 interface Props {
   api: Pick<
     BridgeApi,
     | "scorecardLatestCioActions"
+    | "scorecardLatestAgentNarratives"
     | "scorecardWinRate"
     | "scorecardListSkill"
     | "paperGetAccount"
@@ -62,6 +74,7 @@ interface Data {
   cohorts: CohortInfo[];
   mirofishContext: MirofishContext | null;
   mirofishRuns: MirofishHistoryEntry[];
+  agentNarratives: AgentDisplayNarratives;
 }
 
 export function Dashboard({ api, cohort, user }: Props) {
@@ -70,25 +83,36 @@ export function Dashboard({ api, cohort, user }: Props) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settingsEditing, setSettingsEditing] = useState(false);
+  const [agentNarrativeIndex, setAgentNarrativeIndex] = useState(0);
   const mounted = useRef(true);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [today, winrate, skill, account, positions, trades, backtestRuns, cohorts] =
-        await Promise.all([
-          api.scorecardLatestCioActions(cohort),
-          api.scorecardWinRate(cohort).then((r) => r.rows),
-          api.scorecardListSkill(cohort).then((r) => r.rows),
-          api.paperGetAccount(user ? { user_id: user } : {}).catch(() => null),
-          api.paperGetPositions(user ? { user_id: user } : {}).catch(() => []),
-          api.paperGetTrades(user ? { user_id: user, limit: 30 } : { limit: 30 }).catch(() => []),
-          api
-            .backtestListRuns({ cohort })
-            .then((r) => r.runs)
-            .catch(() => []),
-          api.prismListCohorts().then((r) => r.cohorts),
-        ]);
+      const [
+        today,
+        winrate,
+        skill,
+        account,
+        positions,
+        trades,
+        backtestRuns,
+        cohorts,
+        agentNarratives,
+      ] = await Promise.all([
+        api.scorecardLatestCioActions(cohort),
+        api.scorecardWinRate(cohort).then((r) => r.rows),
+        api.scorecardListSkill(cohort).then((r) => r.rows),
+        api.paperGetAccount(user ? { user_id: user } : {}).catch(() => null),
+        api.paperGetPositions(user ? { user_id: user } : {}).catch(() => []),
+        api.paperGetTrades(user ? { user_id: user, limit: 30 } : { limit: 30 }).catch(() => []),
+        api
+          .backtestListRuns({ cohort })
+          .then((r) => r.runs)
+          .catch(() => []),
+        api.prismListCohorts().then((r) => r.cohorts),
+        api.scorecardLatestAgentNarratives(cohort),
+      ]);
       const mirofishContext = await api
         .mirofishGetContext()
         .then((r) => r.context)
@@ -113,6 +137,7 @@ export function Dashboard({ api, cohort, user }: Props) {
           cohorts,
           mirofishContext,
           mirofishRuns,
+          agentNarratives,
         });
     } catch (err) {
       if (mounted.current) setError((err as Error).message);
@@ -126,18 +151,25 @@ export function Dashboard({ api, cohort, user }: Props) {
     };
   }, [load]);
 
-  useInput((input) => {
+  useInput((input, key) => {
     // When the settings tab is in edit mode, it owns all keystrokes.
     if (settingsEditing) return;
     if (input === "q") exit();
     else if (input === "r") void load();
-    else if (input === "1") setTab("today");
+    else if (tab === "agents" && (input === "j" || key.downArrow)) {
+      const count = data?.agentNarratives.narratives.length ?? 0;
+      if (count > 0) setAgentNarrativeIndex((index) => (index + 1) % count);
+    } else if (tab === "agents" && (input === "k" || key.upArrow)) {
+      const count = data?.agentNarratives.narratives.length ?? 0;
+      if (count > 0) setAgentNarrativeIndex((index) => (index - 1 + count) % count);
+    } else if (input === "1") setTab("today");
     else if (input === "2") setTab("winrate");
     else if (input === "3") setTab("skill");
     else if (input === "4") setTab("paper");
     else if (input === "5") setTab("cohorts");
     else if (input === "6") setTab("mirofish");
     else if (input === "7") setTab("settings");
+    else if (input === "8") setTab("agents");
   });
 
   return (
@@ -173,13 +205,41 @@ export function Dashboard({ api, cohort, user }: Props) {
           />
         ) : tab === "cohorts" ? (
           <CohortsTab cohorts={data.cohorts} />
-        ) : (
+        ) : tab === "mirofish" ? (
           <MirofishTab context={data.mirofishContext} runs={data.mirofishRuns} />
+        ) : (
+          <AgentNarrativesTab bundle={data.agentNarratives} index={agentNarrativeIndex} />
         )}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>[1-7] switch · [r] refresh · [q] quit · cohort={cohort}</Text>
+        <Text dimColor>
+          [1-8] switch · [j/k] Agent explanation · [r] refresh · [q] quit · cohort={cohort}
+        </Text>
       </Box>
+    </Box>
+  );
+}
+
+function AgentNarrativesTab({ bundle, index }: { bundle: AgentDisplayNarratives; index: number }) {
+  if (!bundle.date || bundle.narratives.length === 0) {
+    return <Text dimColor>no Agent explanations yet — run a live daily cycle first</Text>;
+  }
+  const boundedIndex = Math.min(index, bundle.narratives.length - 1);
+  const narrative = bundle.narratives[boundedIndex];
+  if (!narrative) return <Text dimColor>no Agent explanation selected</Text>;
+  return (
+    <Box flexDirection="column">
+      <Text bold color="cyan">
+        Agent decision explanations ({bundle.date}) [{boundedIndex + 1}/{bundle.narratives.length}]
+      </Text>
+      <Text>
+        <Text bold>{narrative.agent_id}</Text>
+        {` · ${narrative.layer} · ${narrative.source}`}
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text>{narrative.narrative_text}</Text>
+      </Box>
+      <Text dimColor>j/↓ next · k/↑ previous · UI-only (not consumed downstream)</Text>
     </Box>
   );
 }
@@ -479,8 +539,6 @@ interface ActionDisplayRow {
   deltaWeightPct: number;
   thesisStatus: string;
   riskFlags: string[];
-  influenceIds: string[];
-  firedCaps: string[];
   notes: string;
 }
 
@@ -501,13 +559,10 @@ function actionDisplay(
     deltaWeightPct,
     thesisStatus: action.thesis_status ?? "-",
     riskFlags: parseRiskFlags(action.risk_flags_json),
-    influenceIds: parseStringArrayJson(action.declared_knob_influence_ids_json),
-    firedCaps: parseAuditStringArray(action.verified_knob_audit_json, "fired_cap_ids"),
     notes: firstNonEmpty(
       action.dissent_notes,
       action.override_reason,
       action.position_decision_reason,
-      action.declared_influence_rationale,
       action.rationale_snapshot,
     ),
   };
@@ -536,24 +591,11 @@ function parseStringArrayJson(value: string | null | undefined): string[] {
 
 function formatFlagsAndNotes(row: ActionDisplayRow): string {
   const flags = row.riskFlags.length > 0 ? row.riskFlags.join("|") : "-";
-  const caps = row.firedCaps.length > 0 ? row.firedCaps.join("|") : "-";
-  const influence = row.influenceIds.length > 0 ? row.influenceIds.join("|") : "-";
-  return `${flags} caps=${caps} influence=${influence} ${row.notes}`;
+  return `${flags} ${row.notes}`;
 }
 
 function firstNonEmpty(...values: Array<string | null | undefined>): string {
   return values.find((value) => value != null && value.trim().length > 0) ?? "";
-}
-
-function parseAuditStringArray(value: string | null | undefined, key: string): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    const raw = parsed[key];
-    return Array.isArray(raw) ? raw.map((item) => String(item)) : [];
-  } catch {
-    return [];
-  }
 }
 
 function formatDecisionAgentAudits(actions: ReadonlyArray<CioAction>): string | null {
@@ -566,11 +608,9 @@ function formatDecisionAgentAudits(actions: ReadonlyArray<CioAction>): string | 
     const parts = ["cro", "autonomous_execution", "cio"].flatMap((agent) => {
       const audit = parsed[agent];
       if (!audit) return [];
-      const caps = stringArrayField(audit, "fired_cap_ids").join("|") || "-";
-      const influence = stringArrayField(audit, "declared_knob_influence_ids").join("|") || "-";
-      const unsupported =
-        stringArrayField(audit, "unsupported_knob_influence_ids").join("|") || "-";
-      return [`${agent} caps=${caps} influence=${influence} unsupported=${unsupported}`];
+      const accepted = audit.accepted === true ? "accepted" : "rejected";
+      const reasons = stringArrayField(audit, "reason_codes").join("|") || "-";
+      return [`${agent} ${accepted} reasons=${reasons}`];
     });
     return parts.length > 0 ? `agent detail ${parts.join(" ; ")}` : null;
   } catch {

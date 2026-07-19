@@ -9,15 +9,25 @@ Output defaults to Chinese reports; CLI flags stay English. `--lang zh|en|biling
 | Command | Purpose |
 | --- | --- |
 | `bridge-ping` | Spawn the Python sidecar and verify `tools.list` / `config.get`. |
-| `tool-call <name> [argsJson]` | Invoke a single sidecar tool. |
 | `tool-loop` | Run the tool-report loop. |
 
 ## Daily cycle
 
 ```bash
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
+cd ..
+mkdir -p .mosaic/tmp
+SMOKE_DATE="$(date +%F)"
+SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
+eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
+  --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"
+pnpm --dir mosaic-ts dev daily-cycle \
+  --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
 ```
-Options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--fake-llm`, `--llm-provider <name>`, `--model <name>`, `--base-url <url>`, `--prompts-repo <path>`, `--prompts-root <path>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--paper-positions`, `--paper-execute-deltas`, `--out <path>`. Runs all 25 agents through the LangGraph.js graph; the CIO writes `portfolio_actions` (persisted to the `recommendations` table).
+Options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--fake-llm`, `--structured-smoke`, `--llm-provider <name>`, `--model <name>`, `--base-url <url>`, `--max-tokens <count>`, `--prompts-repo <path>`, `--prompts-root <path>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--paper-positions`, `--paper-execute-deltas`, `--out <path>`. Runs all 28 logical agents through 29 LangGraph.js stages. Both smoke modes use bundled prompts and the explicitly marked synthetic PIT bundle; `--fake-llm` adds a canned model, while `--structured-smoke` uses a real structured-output provider with temperature 0 and a default 8192-token completion cap. Neither mode performs production release, scorecard, outcome, RKE, or paper-order writes.
+
+The same fresh bundle can drive a real-model contract smoke without licensed payloads; replace `--fake-llm` with `--structured-smoke` and the desired provider options. The builder refuses a nonempty root and never deletes existing data.
+
+The CLI enables the matching non-production gate only for those two flags and clears it for production. The hash-bound bundle is marked `SYNTHETIC_NON_PRODUCTION`, contains no vendor prose, and verifies graph/schema/tool wiring only. It does not replace the separate live Tushare permission/schema probe or source-readiness audits.
 
 Current-position fixture files may be a JSON array or an object with `current_positions`; each row must include ticker, current weight, cost basis, market price, unrealized PnL, holding days, entry date, source agent, entry thesis id, and last review date. `sector` is optional, but required for fixtures that exercise `max_sector_weight`. CIO validation rejects `position_decision` rows whose action or target/current/delta weights contradict `ADD`/`REDUCE`/`EXIT` semantics.
 The resulting `position_audit` includes a `tool_status_summary` for the position source and market-price evidence scope.
@@ -26,7 +36,7 @@ When the position snapshot is missing, runtime evidence audit records
 `current_market_data:ticker_scope:unknown`; confirmed empty portfolios still use
 an empty market-data scope and do not trigger the missing-data cap.
 
-Prompt source: by default agents load bundled prompts from `MOSAIC-Combat-Evolved/prompts/mosaic`. Set `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` in `.env` to make all subsequent agent runs prefer a private prompt repo, or use `daily-cycle --prompts-repo <path>` / `--prompts-root <path>` for a single run.
+Prompt source: `--fake-llm` and `--structured-smoke` explicitly use bundled prompts. Formal paper/backtest/live runs require the hash-pinned private prompt repository and fail closed if it is unavailable or drifts; they never fall back to bundled prompts. Configure `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` or use `daily-cycle --prompts-repo <path>`. `--prompts-root` is restricted to non-production smoke/authoring paths.
 
 ## Scorecard / Darwinian
 
@@ -36,18 +46,23 @@ pnpm dev darwinian --cohort cohort_default
 ```
 - `scorecard` options: `--cohort <name>`, `--since <date>` (YYYY-MM-DD), `--out <path>`. `scorecard` is a single view command (no subcommands).
 - `darwinian` options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--compute`, `--out <path>`.
+  This command exposes the `legacy_unverified`, audit-only v1 table; production
+  weights come from a frozen Darwinian-v2 production variant.
 
 > Forward-return back-fill is the `scorecard.score_pending` **RPC** (`BridgeApi.scorecardScorePending`), invoked programmatically / by the daily pipeline — it is not currently a standalone CLI subcommand. See [Scorecard & Paper Trading](Scorecard-and-Paper-Trading.md).
 
-## Autoresearch (prompt self-evolution)
+## Legacy Autoresearch diagnostics
 
 ```bash
-pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
-pnpm dev autoresearch trigger --cohort cohort_default --agent cio --dry-run --fake-llm --mutation-mode knob_patch --eval-days 5
+pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm --eval-days 5
+pnpm dev autoresearch evaluate --cohort crisis_2008
 pnpm dev autoresearch log --cohort crisis_2008
 ```
-Subcommands: `trigger`, `evaluate`, `log`, `branches`, `revert`.
-`trigger` options include `--cohort`, `--agent`, `--max <n>`, `--dry-run`, `--fake-llm`, `--mutation-mode <auto|knob_patch|prompt_rewrite>`, `--eval-days <n>`, `--llm-provider/--model/--base-url`. `knob_patch` mode mutates Prompt IR/domain-knob paths, including position and MiroFish cards, without rewriting prompt prose.
+Subcommands: `trigger`, `evaluate`, `log`, `branches`, `revert`, and
+`review-domain`. This surface is audit-only: evaluation terminates as
+`legacy_unverified`, `review-domain` accepts only `--decision revert`, and no
+command can publish a production behavior. Production evolution is KNOT-only
+through the governed paired-research RPC/release workflow.
 
 ## Prompt Operations
 
@@ -65,8 +80,9 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 - `init-private-repo` creates the sparse private prompt repo. `--seed-baseline` is migration-only and creates broad override shadowing.
 - `audit-versions` prints metadata only: ids, hashes, repo id, status, metrics, and branches. It does not show prompt content.
 - `verify-release` checks the pinned release tuple (`code_commit_hash`, `prompt_repo_id`, `prompt_commit_hash`, `prompt_sha256`), recomputes the prompt SHA at the commit, and runs the tool compatibility gate.
-- `prompts export-domain-knob-catalog` renders the executable domain-card catalog and validates schema conditions for in-run dependency scopes, numeric bounds, and code-enforced validator/audit fields.
-- `prompt-token-budget` measures all 104 private/bundled stage-language rows
+- Domain/research-knob catalogs are generated and tested only in the private
+  KNOT repository; the public CLI does not export their contents.
+- `prompt-token-budget` measures all 116 private/bundled stage-language rows
   with the pinned tokenizer, validates semantic parity and absolute caps, and
   applies the 1.25x committed-baseline growth gate.
 - Before release, also run `pnpm prompt:drift -- --base-ref origin/main` or the scheduled drift check in the private operator environment.
@@ -165,7 +181,7 @@ Long-running (minutes) — run as cron, not alongside latency-sensitive RPCs. Se
 ```bash
 pnpm dev dashboard --cohort cohort_default [--user <name>]
 ```
-See [TUI](TUI.md).
+See [TUI](TUI.md). Key 8 shows the latest UI-only human-readable explanation for each Agent; `j/k` moves through the 28-Agent roster.
 
 ## Daily operation
 
@@ -173,7 +189,7 @@ The system is semi-automatic. A typical post-close cron pipeline:
 
 ```bash
 cd mosaic-ts
-pnpm dev daily-cycle --cohort cohort_default     # 25 agents → CIO portfolio (recommendations table)
+pnpm dev daily-cycle --cohort cohort_default     # 28 agents / 29 stages → CIO portfolio
 # forward_return back-fill: call the scorecard.score_pending RPC (matures after T+5)
 pnpm dev darwinian --cohort cohort_default
 pnpm dev janus run

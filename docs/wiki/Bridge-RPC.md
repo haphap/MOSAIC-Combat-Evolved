@@ -7,10 +7,13 @@ Error envelopes map to `RpcError` with a numeric code (`mosaic/bridge/protocol.p
 ## Full method surface
 
 ### tools
-- `tools.list` — list registered sidecar tools.
-- `tools.call` — invoke a tool by name + args.
+- `tools.prepare_capability` — materialize one frozen, role-bound snapshot bundle.
+- `tools.issue_capability` — issue a stage-bound handle for an existing bundle.
+- `tools.list` — list only the zero-argument snapshots authorized by a signed capability.
+- `tools.call` — return one immutable authorized snapshot; it never runs a collector.
+- `tools.terminate_capability` — close the stage capability after use.
 
-Registered tool modules (`mosaic/bridge/handlers/tools.py` `_TOOL_MODULES`): `macro_tools` (20 macro tools), `etf_tools` (4: ETF info/NAV/holdings/universe), `financial_tools` (4: fundamentals/balance-sheet/income/cashflow), `research_report_tools` (2: broker/stock research), `technical_tools` (2: price/indicators). See [Agents](Agents.md) for which agents use which tools.
+`mosaic/bridge/handlers/tools.py` deliberately keeps `_TOOL_MODULES=()`. Generic macro, ETF, financial, technical, news, and research-report helpers are not registered on the model-visible RPC surface; raw collectors run only behind the controller's capability preparation boundary. See [Agents](Agents.md) for the exact role-to-snapshot matrix.
 
 ### config
 - `config.default` — deep-copied `DEFAULT_CONFIG`.
@@ -32,7 +35,12 @@ Registered tool modules (`mosaic/bridge/handlers/tools.py` `_TOOL_MODULES`): `ma
 - `scorecard.latest_cio_actions` — latest CIO portfolio for a cohort.
 
 ### darwinian
-- `darwinian.compute`, `darwinian.get_weights`.
+- Production v2: `darwinian.prepare_variant`,
+  `darwinian.prepare_daily_cycle_outcomes`, `darwinian.refresh_v2_windows`, and
+  `darwinian.publish_v2_updates`; calendar and opportunity-denominator inputs
+  are server-owned.
+- `darwinian.compute` and `darwinian.get_weights` require explicit
+  `audit_only=true`, return `legacy_unverified`, and never feed production.
 
 ### prompts
 - `prompts.read` (file at a git ref), `prompts.write` (commit on a branch via git_ops).

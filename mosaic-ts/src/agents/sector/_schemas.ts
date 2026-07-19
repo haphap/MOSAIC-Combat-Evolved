@@ -1,217 +1,538 @@
-/**
- * Zod schemas for Layer-2 sector agents (Plan §5.2).
- *
- * Six "standard" sector agents share the same shape (longs/shorts/sector_score/
- * key_drivers/confidence) but use ``z.literal`` to discriminate. The seventh,
- * relationship_mapper, has a different output shape (supply chains / ownership
- * clusters / contagion risks) but uses the same Layer-2 factory.
- */
-
 import { z } from "zod";
-import { LlmResearchClaimSchema } from "../evidence_contract.js";
+import { ClaimSchemaV2 } from "../evidence_contract.js";
+import { MacroInputAttributionSubmissionArraySchema } from "../helpers/macro_attribution.js";
 import type {
-  BiotechOutput,
-  ConsumerOutput,
-  EnergyOutput,
-  FinancialsOutput,
-  IndustrialsOutput,
   RelationshipMapperOutput,
   SectorAgentOutput,
-  SemiconductorOutput,
+  SectorAgentOutputBase,
+  StandardSectorAgentId,
 } from "../types.js";
+import { STANDARD_SECTOR_ROLE_CONTRACTS } from "./_contracts.js";
 
-// ---------------------------------------------------------------------------
-// Shared building blocks
-// ---------------------------------------------------------------------------
-
-const SECTOR_PICK = z.object({
-  ticker: z
-    .string()
-    .min(1)
-    .describe(
-      "MOSAIC ticker form (e.g. '600519.SH'). Use exact tickers from tool returns; " +
-        "do not invent.",
-    ),
-  thesis: z
-    .string()
-    .min(1)
-    .describe(
-      "Short rationale (≤ 50 chars) tying the pick to a concrete macro / policy / flow signal.",
-    ),
-  conviction: z.number().min(0).max(1).describe("[0, 1] strength of conviction."),
-  claim_refs: z.array(z.string().min(1)).min(1).describe("Claim ids supporting this candidate."),
+const LocalId = z.string().trim().min(1).max(128);
+const ConciseText = z.string().trim().min(1).max(320);
+const ClaimRefs = z.array(LocalId).min(1).max(12);
+const Strength = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]);
+const SecurityPick = z
+  .object({
+    pick_local_id: LocalId,
+    ts_code: z.string().regex(/^\d{6}\.(?:SH|SZ|BJ)$/),
+    direction_local_id: LocalId,
+    position_action: z.enum(["LONG", "SHORT", "AVOID"]),
+    conviction: z.number().gt(0).max(1),
+    thesis: ConciseText,
+    claim_refs: ClaimRefs,
+  })
+  .strict();
+const Driver = z
+  .object({
+    driver_local_id: LocalId,
+    summary: ConciseText,
+    claim_refs: ClaimRefs,
+  })
+  .strict();
+const Risk = z
+  .object({
+    risk_local_id: LocalId,
+    summary: ConciseText,
+    claim_refs: ClaimRefs,
+  })
+  .strict();
+const SectorFinalClaimSchema = ClaimSchemaV2.safeExtend({
+  structured_conclusion: z
+    .object({
+      conclusion_type: z.enum([
+        "SECTOR_DIRECTION",
+        "SECTOR_SECURITY",
+        "SECTOR_DRIVER",
+        "SECTOR_RISK",
+        "MACRO_ATTRIBUTION",
+      ]),
+      target_local_ref: LocalId.nullable(),
+      selection_status: z.literal("SELECTED").nullable(),
+      direction_id: z.string().trim().min(1).max(128).nullable(),
+      position_action: z.enum(["LONG", "SHORT", "AVOID"]).nullable(),
+      summary: ConciseText,
+    })
+    .strict(),
 });
 
-const KEY_DRIVERS = z
-  .array(z.string().min(1).describe("≤ 30-char evidence bullet"))
-  .min(1)
-  .max(8)
-  .describe("3-5 concrete evidence bullets, each citing a number / ticker / policy keyword.");
-
-const CONFIDENCE = z
-  .number()
-  .min(0)
-  .max(1)
-  .describe(
-    "Self-rated certainty. Phase 0/1 sector tools incomplete — cap ≤ 0.5 until Phase 4 ETF tools land.",
-  );
-
-const KNOB_INFLUENCE_FIELDS = {
-  declared_knob_influence_ids: z
-    .array(z.string().min(1))
-    .optional()
-    .describe("Visible domain knob card ids explicitly used in this conclusion."),
-  declared_influence_rationale: z
-    .string()
-    .optional()
-    .describe("Optional short rationale for declared knob influence ids."),
-  claims: z
-    .array(LlmResearchClaimSchema)
-    .min(1)
-    .describe("Claim declarations referencing only runtime-provided evidence ids."),
-  claim_refs: z
-    .array(z.string().min(1))
-    .min(1)
-    .describe("Claim ids supporting the top-level sector recommendation."),
+const common = {
+  persistence_horizon: z.enum(["DAYS", "WEEKS", "MONTHS"]),
+  confidence: z.number().min(0).max(1),
+  key_drivers: z.array(Driver).min(1).max(3),
+  risks: z.array(Risk).min(1).max(3),
+  claims: z.array(SectorFinalClaimSchema).min(1).max(6),
+  claim_refs: ClaimRefs,
+  macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
 };
 
-/** Common shape factory for the 6 standard sector agents. */
-function buildStandardSectorSchema<L extends string>(literal: L) {
+export function buildStandardSectorSchema<TAgent extends StandardSectorAgentId>(
+  agent: TAgent,
+  requiredSelectionStatus?: "SELECTED",
+  directive?: {
+    selection_status: "SELECTED";
+    preferred_direction_id: string;
+    least_preferred_direction_id: string;
+    allowed_preferred_security_ids: string[];
+    allowed_least_preferred_security_ids: string[];
+  },
+): z.ZodType<SectorAgentOutputBase & { agent: TAgent }> {
+  void requiredSelectionStatus;
+  const directionIds = STANDARD_SECTOR_ROLE_CONTRACTS[agent].directionIds;
+  if (directive && directive.least_preferred_direction_id === directive.preferred_direction_id) {
+    throw new Error(`${agent}: selected runtime directive requires two distinct directions`);
+  }
+  const direction = z.enum(directionIds);
+  const preferredDirection = directive ? z.literal(directive.preferred_direction_id) : direction;
+  const preferredSecurityUnavailable = directive?.allowed_preferred_security_ids.length === 0;
+  const leastSecurityUnavailable = directive?.allowed_least_preferred_security_ids.length === 0;
+  const leastPreferredDirection = z
+    .object({
+      selection_role: z.literal("LEAST_PREFERRED"),
+      direction_local_id: directive ? z.literal(directive.least_preferred_direction_id) : LocalId,
+      direction_id: directive ? z.literal(directive.least_preferred_direction_id) : direction,
+      allocation_action: z.literal("UNDERWEIGHT"),
+      strength: Strength,
+      thesis: ConciseText,
+      claim_refs: ClaimRefs,
+    })
+    .strict();
   return z
     .object({
-      agent: z.literal(literal),
-      selection_disposition: z.enum(["CANDIDATES", "NO_QUALIFIED_CANDIDATES"]),
-      longs: z
-        .array(SECTOR_PICK)
-        .max(10)
-        .describe("Up to 10 long picks; empty allowed when conviction is low."),
-      shorts: z.array(SECTOR_PICK).max(10).describe("Up to 10 short picks; empty allowed."),
-      sector_score: z
-        .number()
-        .min(-1)
-        .max(1)
-        .describe("[-1, 1] aggregate sector tilt; +1 = max bullish."),
-      key_drivers: KEY_DRIVERS,
-      confidence: CONFIDENCE,
-      ...KNOB_INFLUENCE_FIELDS,
+      agent: z.literal(agent),
+      selection_status: z.literal("SELECTED"),
+      preferred_direction: z
+        .object({
+          selection_role: z.literal("PREFERRED"),
+          direction_local_id: directive ? z.literal(directive.preferred_direction_id) : LocalId,
+          direction_id: preferredDirection,
+          allocation_action: z.literal("OVERWEIGHT"),
+          strength: Strength,
+          thesis: ConciseText,
+          claim_refs: ClaimRefs,
+        })
+        .strict(),
+      least_preferred_direction: leastPreferredDirection,
+      ...common,
+      preferred_security_status: preferredSecurityUnavailable
+        ? z.literal("NO_QUALIFIED_SECURITY")
+        : directive
+          ? z.literal("PICKS_PRESENT")
+          : z.enum(["PICKS_PRESENT", "NO_QUALIFIED_SECURITY"]),
+      preferred_security_abstention_confidence: preferredSecurityUnavailable
+        ? z.number().min(0).max(1)
+        : directive
+          ? z.null()
+          : z.number().min(0).max(1).nullable(),
+      long_picks: preferredSecurityUnavailable
+        ? z.tuple([])
+        : directive
+          ? z.array(SecurityPick).min(1).max(5)
+          : z.array(SecurityPick).max(5),
+      least_preferred_security_status: leastSecurityUnavailable
+        ? z.literal("NO_QUALIFIED_SECURITY")
+        : directive
+          ? z.literal("PICKS_PRESENT")
+          : z.enum(["PICKS_PRESENT", "NO_QUALIFIED_SECURITY"]),
+      least_preferred_security_abstention_confidence: leastSecurityUnavailable
+        ? z.number().min(0).max(1)
+        : directive
+          ? z.null()
+          : z.number().min(0).max(1).nullable(),
+      short_or_avoid_picks: leastSecurityUnavailable
+        ? z.tuple([])
+        : directive
+          ? z.array(SecurityPick).min(1).max(5)
+          : z.array(SecurityPick).max(5),
     })
-    .superRefine((value, ctx) => {
-      const hasCandidates = value.longs.length + value.shorts.length > 0;
-      if ((value.selection_disposition === "CANDIDATES") !== hasCandidates) {
+    .strict()
+    .superRefine((output, ctx) => {
+      const claimIds = new Set(output.claims.map((claim) => claim.claim_id));
+      for (const ref of output.claim_refs) {
+        if (!claimIds.has(ref))
+          ctx.addIssue({
+            code: "custom",
+            path: ["claim_refs"],
+            message: `unknown claim_ref ${ref}`,
+          });
+      }
+      const validAttributionTargets = new Set<string>([
+        `SECTOR_THESIS\0${output.preferred_direction.direction_local_id}`,
+        `SECTOR_THESIS\0${output.least_preferred_direction.direction_local_id}`,
+      ]);
+      for (const pick of [...output.long_picks, ...output.short_or_avoid_picks]) {
+        validAttributionTargets.add(`SECURITY_PICK\0${pick.pick_local_id}`);
+      }
+      for (const row of output.macro_input_attributions) {
+        if (row.target_type === "SUBMISSION_SUMMARY") continue;
+        if (!validAttributionTargets.has(`${row.target_type}\0${row.target_local_ref}`)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["macro_input_attributions"],
+            message: `unresolved attribution target ${row.target_type}:${row.target_local_ref}`,
+          });
+        }
+      }
+      if (
+        output.least_preferred_direction.direction_id === output.preferred_direction.direction_id
+      ) {
         ctx.addIssue({
           code: "custom",
-          path: ["selection_disposition"],
-          message:
-            "CANDIDATES requires at least one long/short; empty arrays require NO_QUALIFIED_CANDIDATES",
+          path: ["least_preferred_direction"],
+          message: "preferred and least-preferred must differ",
         });
       }
-    })
-    .describe(
-      `Layer-2 sector pick output for ${literal}. Picks must reference tickers from ` +
-        `tool returns; speculation is not allowed.`,
-    );
+      {
+        const picks = [...output.long_picks, ...output.short_or_avoid_picks];
+        if (new Set(picks.map((pick) => pick.pick_local_id)).size !== picks.length) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["long_picks"],
+            message: "pick_local_id must be unique across both security legs",
+          });
+        }
+        if (new Set(picks.map((pick) => pick.ts_code)).size !== picks.length) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["long_picks"],
+            message: "ts_code must be unique across both security legs",
+          });
+        }
+        if (output.long_picks.reduce((sum, pick) => sum + pick.conviction, 0) > 1 + 1e-9) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["long_picks"],
+            message: "preferred-leg conviction sum must not exceed 1",
+          });
+        }
+        if (
+          output.short_or_avoid_picks.reduce((sum, pick) => sum + pick.conviction, 0) >
+          1 + 1e-9
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["short_or_avoid_picks"],
+            message: "least-preferred-leg conviction sum must not exceed 1",
+          });
+        }
+        validateSecurityLeg(
+          {
+            status: output.preferred_security_status,
+            abstentionConfidence: output.preferred_security_abstention_confidence,
+            picks: output.long_picks,
+            directionLocalId: output.preferred_direction.direction_local_id,
+            allowedActions: new Set(["LONG"]),
+          },
+          ctx,
+          "preferred_security_status",
+        );
+        validateSecurityLeg(
+          {
+            status: output.least_preferred_security_status,
+            abstentionConfidence: output.least_preferred_security_abstention_confidence,
+            picks: output.short_or_avoid_picks,
+            directionLocalId: output.least_preferred_direction.direction_local_id,
+            allowedActions: new Set(["SHORT", "AVOID"]),
+          },
+          ctx,
+          "least_preferred_security_status",
+        );
+      }
+      const entryRefs = [
+        ...output.key_drivers.flatMap((entry) => entry.claim_refs),
+        ...output.risks.flatMap((entry) => entry.claim_refs),
+        ...output.long_picks.flatMap((entry) => entry.claim_refs),
+        ...output.short_or_avoid_picks.flatMap((entry) => entry.claim_refs),
+        ...output.preferred_direction.claim_refs,
+        ...output.least_preferred_direction.claim_refs,
+      ];
+      for (const ref of entryRefs) {
+        if (!claimIds.has(ref)) {
+          ctx.addIssue({ code: "custom", path: ["claims"], message: `unknown entry claim ${ref}` });
+        }
+      }
+    }) as z.ZodType<SectorAgentOutputBase & { agent: TAgent }>;
 }
 
-// ---------------------------------------------------------------------------
-// 6 standard sector schemas
-// ---------------------------------------------------------------------------
+function validateSecurityLeg(
+  input: {
+    status: "PICKS_PRESENT" | "NO_QUALIFIED_SECURITY";
+    abstentionConfidence: number | null;
+    picks: Array<z.infer<typeof SecurityPick>>;
+    directionLocalId: string;
+    allowedActions: ReadonlySet<string>;
+  },
+  ctx: z.core.$RefinementCtx,
+  path: string,
+): void {
+  if (input.status === "PICKS_PRESENT") {
+    if (input.picks.length === 0 || input.abstentionConfidence !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: [path],
+        message: "PICKS_PRESENT requires picks and null abstention confidence",
+      });
+    }
+  } else if (input.status === "NO_QUALIFIED_SECURITY") {
+    if (input.picks.length !== 0 || input.abstentionConfidence === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: [path],
+        message: "NO_QUALIFIED_SECURITY requires no picks and an abstention confidence",
+      });
+    }
+  }
+  for (const pick of input.picks) {
+    if (
+      pick.direction_local_id !== input.directionLocalId ||
+      !input.allowedActions.has(pick.position_action)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: [path],
+        message: "pick direction/action does not match its selection leg",
+      });
+    }
+  }
+}
 
 export const SemiconductorSchema = buildStandardSectorSchema("semiconductor");
+export const TechnologySchema = buildStandardSectorSchema("technology");
 export const EnergySchema = buildStandardSectorSchema("energy");
 export const BiotechSchema = buildStandardSectorSchema("biotech");
 export const ConsumerSchema = buildStandardSectorSchema("consumer");
 export const IndustrialsSchema = buildStandardSectorSchema("industrials");
+export const RealEstateConstructionSchema = buildStandardSectorSchema("real_estate_construction");
 export const FinancialsSchema = buildStandardSectorSchema("financials");
+export const AgricultureSchema = buildStandardSectorSchema("agriculture");
 
 export const STANDARD_SECTOR_FIELD_NAMES = [
-  "longs",
-  "shorts",
-  "selection_disposition",
-  "sector_score",
-  "key_drivers",
+  "agent",
+  "selection_status",
+  "preferred_direction",
+  "least_preferred_direction",
+  "persistence_horizon",
   "confidence",
+  "key_drivers",
+  "risks",
   "claims",
   "claim_refs",
+  "preferred_security_status",
+  "preferred_security_abstention_confidence",
+  "long_picks",
+  "least_preferred_security_status",
+  "least_preferred_security_abstention_confidence",
+  "short_or_avoid_picks",
+  "macro_input_attributions",
 ] as const;
 
-// ---------------------------------------------------------------------------
-// 7. relationship_mapper (different shape)
-// ---------------------------------------------------------------------------
+export function buildRelationshipMapperSchema(bounds?: {
+  maxFactualEdges: number;
+  maxPredictiveEdges: number;
+  factualRelationships?: readonly {
+    source_entity: string;
+    target_entity: string;
+    edge_type: string;
+  }[];
+  predictiveOpportunities?: readonly {
+    edge_candidate_id: string;
+    source_entity: string;
+    target_entity: string;
+    edge_type: string;
+  }[];
+}) {
+  const factualBase = relationshipGraphBase(bounds?.maxFactualEdges, bounds?.factualRelationships);
+  const predictiveEdges = z
+    .array(relationshipPredictiveEdge(bounds?.predictiveOpportunities))
+    .min(1);
+  const boundedPredictiveEdges =
+    bounds === undefined ? predictiveEdges : predictiveEdges.max(bounds.maxPredictiveEdges);
+  return z
+    .discriminatedUnion("predictive_graph_status", [
+      factualBase.extend({
+        predictive_graph_status: z.literal("EDGES_PRESENT"),
+        predictive_edges: boundedPredictiveEdges,
+        predictive_graph_abstention_confidence: z.null(),
+      }),
+      factualBase.extend({
+        predictive_graph_status: z.literal("NO_QUALIFIED_PREDICTIVE_EDGE"),
+        predictive_edges: z.tuple([]),
+        predictive_graph_abstention_confidence: z.number().min(0).max(1),
+      }),
+    ])
+    .superRefine((output, ctx) => {
+      const claimIds = new Set(output.claims.map((claim) => claim.claim_id));
+      for (const ref of output.claim_refs) {
+        if (!claimIds.has(ref)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["claim_refs"],
+            message: `unknown claim_ref ${ref}`,
+          });
+        }
+      }
+      const entryRefs = [
+        ...output.factual_edges.flatMap((edge) => edge.claim_refs),
+        ...output.predictive_edges.flatMap((edge) => edge.claim_refs),
+        ...output.key_drivers.flatMap((driver) => driver.claim_refs),
+        ...output.risks.flatMap((risk) => risk.claim_refs),
+      ];
+      for (const ref of entryRefs) {
+        if (!claimIds.has(ref)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["claims"],
+            message: `unknown entry claim_ref ${ref}`,
+          });
+        }
+      }
+      const candidateIds = output.predictive_edges.map((edge) => edge.edge_candidate_id);
+      if (new Set(candidateIds).size !== candidateIds.length) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["predictive_edges"],
+          message: "duplicate edge_candidate_id",
+        });
+      }
+      if (output.macro_input_attributions.some((row) => row.target_type !== "SUBMISSION_SUMMARY")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["macro_input_attributions"],
+          message: "relationship mapper supports submission-summary Macro attribution only",
+        });
+      }
+    }) satisfies z.ZodType<RelationshipMapperOutput>;
+}
 
-export const RelationshipMapperSchema = z
-  .object({
-    agent: z.literal("relationship_mapper"),
-    supply_chains: z
-      .array(
-        z.object({
-          name: z
-            .string()
-            .min(1)
-            .describe("Industry chain name, e.g. '半导体设备', '新能源车整车'"),
-          tickers: z.array(z.string().min(1)).min(1).max(10),
-          risk: z.string().min(1).describe("Concrete contagion risk for this chain"),
-        }),
-      )
-      .min(1)
-      .max(8),
-    ownership_clusters: z
-      .array(
-        z.object({
-          cluster_id: z.string().min(1),
-          tickers: z.array(z.string().min(1)).min(2).max(20),
-        }),
-      )
-      .max(8)
-      .describe(
-        "Cross-holdings / common-shareholder clusters (Phase 4 ETF tools required for richer detection).",
-      ),
-    contagion_risks: z
-      .array(z.string().min(1))
-      .min(1)
-      .max(8)
-      .describe("Cross-sector contagion concerns inferred from shared exposures."),
-    key_drivers: KEY_DRIVERS,
-    confidence: CONFIDENCE,
-    ...KNOB_INFLUENCE_FIELDS,
-  })
-  .describe(
-    "Layer-2 cross-sector relationship mapper. Supply-chain + ownership data is " +
-      "Phase-0-incomplete; until Phase 4 ETF holdings tools land, supply_chains uses a " +
-      "small hard-coded reference set + tool-derived risk signals.",
-  );
+export const RelationshipMapperSchema = buildRelationshipMapperSchema();
+
+function relationshipGraphBase(
+  maxFactualEdges?: number,
+  factualRelationships?: readonly {
+    source_entity: string;
+    target_entity: string;
+    edge_type: string;
+  }[],
+) {
+  const factualEdges = z.array(relationshipFactualEdge(factualRelationships));
+  return z
+    .object({
+      agent: z.literal("relationship_mapper"),
+      factual_edges:
+        maxFactualEdges === undefined ? factualEdges : factualEdges.max(maxFactualEdges),
+      key_drivers: z.array(Driver).min(1).max(8),
+      risks: z.array(Risk).min(1).max(8),
+      claims: z.array(ClaimSchemaV2).min(1),
+      claim_refs: ClaimRefs,
+      macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
+    })
+    .strict();
+}
+
+function relationshipFactualEdge(
+  relationships?: readonly {
+    source_entity: string;
+    target_entity: string;
+    edge_type: string;
+  }[],
+) {
+  const commonFields = {
+    edge_local_id: z.string().trim().min(1),
+    claim_refs: ClaimRefs,
+  };
+  if (relationships && relationships.length > 0) {
+    const variants = relationships.map((relationship) =>
+      z
+        .object({
+          ...commonFields,
+          source_entity: z.literal(relationship.source_entity),
+          target_entity: z.literal(relationship.target_entity),
+          edge_type: z.literal(relationship.edge_type),
+        })
+        .strict(),
+    );
+    const onlyVariant = variants.length === 1 ? variants[0] : undefined;
+    if (onlyVariant) return onlyVariant;
+    return z.union(
+      variants as [
+        (typeof variants)[number],
+        (typeof variants)[number],
+        ...(typeof variants)[number][],
+      ],
+    );
+  }
+  return z
+    .object({
+      ...commonFields,
+      source_entity: z.string().trim().min(1),
+      target_entity: z.string().trim().min(1),
+      edge_type: z.string().trim().min(1),
+    })
+    .strict();
+}
+
+function relationshipPredictiveEdge(
+  opportunities?: readonly {
+    edge_candidate_id: string;
+    source_entity: string;
+    target_entity: string;
+    edge_type: string;
+  }[],
+) {
+  const decisionFields = {
+    transmission_direction: z.enum(["POSITIVE", "NEGATIVE", "MIXED"]),
+    activation_trigger: z.string().trim().min(1),
+    evaluation_horizon_trading_days: z.literal(20),
+    model_confidence: z.number().min(0).max(1),
+    claim_refs: ClaimRefs,
+  };
+  if (opportunities && opportunities.length > 0) {
+    const variants = opportunities.map((opportunity) =>
+      z
+        .object({
+          edge_local_id: z.string().trim().min(1),
+          edge_candidate_id: z.literal(opportunity.edge_candidate_id),
+          source_entity: z.literal(opportunity.source_entity),
+          target_entity: z.literal(opportunity.target_entity),
+          edge_type: z.literal(opportunity.edge_type),
+          ...decisionFields,
+        })
+        .strict(),
+    );
+    const onlyVariant = variants.length === 1 ? variants[0] : undefined;
+    if (onlyVariant) return onlyVariant;
+    return z.union(
+      variants as [
+        (typeof variants)[number],
+        (typeof variants)[number],
+        ...(typeof variants)[number][],
+      ],
+    );
+  }
+  return z
+    .object({
+      edge_local_id: z.string().trim().min(1),
+      edge_candidate_id: z.string().trim().min(1),
+      source_entity: z.string().trim().min(1),
+      target_entity: z.string().trim().min(1),
+      edge_type: z.string().trim().min(1),
+      ...decisionFields,
+    })
+    .strict();
+}
 
 export const RELATIONSHIP_MAPPER_FIELD_NAMES = [
-  "supply_chains",
-  "ownership_clusters",
-  "contagion_risks",
+  "agent",
+  "factual_edges",
+  "predictive_edges",
+  "predictive_graph_status",
+  "predictive_graph_abstention_confidence",
   "key_drivers",
-  "confidence",
+  "risks",
   "claims",
   "claim_refs",
+  "macro_input_attributions",
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Type-check guards
-// ---------------------------------------------------------------------------
-
-type _GuardEqShape<T, U> = T extends U ? true : never;
-
-const _semiCheck: _GuardEqShape<z.infer<typeof SemiconductorSchema>, SemiconductorOutput> = true;
-const _energyCheck: _GuardEqShape<z.infer<typeof EnergySchema>, EnergyOutput> = true;
-const _bioCheck: _GuardEqShape<z.infer<typeof BiotechSchema>, BiotechOutput> = true;
-const _consumerCheck: _GuardEqShape<z.infer<typeof ConsumerSchema>, ConsumerOutput> = true;
-const _industrialsCheck: _GuardEqShape<z.infer<typeof IndustrialsSchema>, IndustrialsOutput> = true;
-const _financialsCheck: _GuardEqShape<z.infer<typeof FinancialsSchema>, FinancialsOutput> = true;
-const _relCheck: _GuardEqShape<
-  z.infer<typeof RelationshipMapperSchema>,
-  RelationshipMapperOutput
-> = true;
-
 export type _SectorSchemaGuards = SectorAgentOutput;
-void _semiCheck;
-void _energyCheck;
-void _bioCheck;
-void _consumerCheck;
-void _industrialsCheck;
-void _financialsCheck;
-void _relCheck;

@@ -1,57 +1,11 @@
-/** biotech Layer-2 (Plan §5.2). 医药生物 sector. */
+import type { BiotechOutput } from "../types.js";
+import { buildLayerTwoAgentNode, type LayerTwoAgentDeps } from "./_factory.js";
+import { BiotechSchema } from "./_schemas.js";
+import { renderStandardSector, standardSectorSpec } from "./_spec.js";
 
-import type { BiotechOutput, RegimeSignal } from "../types.js";
-import {
-  buildLayerTwoAgentNode,
-  type LayerTwoAgentDeps,
-  type LayerTwoAgentNode,
-  type LayerTwoAgentSpec,
-} from "./_factory.js";
-import { BiotechSchema, STANDARD_SECTOR_FIELD_NAMES } from "./_schemas.js";
-
-export const REQUIRED_TOOLS = [
-  "get_rke_research_context",
-  "get_industry_policy_digest",
-  "get_broker_research",
-  "get_etf_holdings",
-  "get_stock_data",
-  "get_indicators",
-  "get_industry_moneyflow",
-] as const;
-
-export const biotechSpec: LayerTwoAgentSpec<BiotechOutput> = {
-  agentId: "biotech",
-  schema: BiotechSchema,
-  fieldNames: STANDARD_SECTOR_FIELD_NAMES,
-  requiredTools: REQUIRED_TOOLS,
-  render: renderBiotech,
-};
-
-export function buildBiotechNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {
-  return buildLayerTwoAgentNode(biotechSpec, deps);
-}
-
-export function renderBiotech(o: BiotechOutput): string {
-  const longs = o.longs.map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`).join(", ");
-  const shorts = o.shorts.map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`).join(", ");
-  return (
-    `biotech analysis (confidence=${o.confidence.toFixed(2)}, score=${o.sector_score.toFixed(2)})\n` +
-    `  longs:  ${longs || "(none)"}\n` +
-    `  shorts: ${shorts || "(none)"}\n` +
-    `  drivers: ${o.key_drivers.join(" | ")}`
-  );
-}
-
-export function fallbackBiotech(text: string, _regime: RegimeSignal | null): BiotechOutput {
-  const trimmed = (text ?? "").trim();
-  return {
-    agent: "biotech",
-    longs: [],
-    shorts: [],
-    sector_score: 0,
-    key_drivers: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],
-    confidence: 0,
-  };
-}
-
-export { BiotechSchema, STANDARD_SECTOR_FIELD_NAMES };
+export const biotechSpec = standardSectorSpec<BiotechOutput>("biotech", BiotechSchema);
+export const REQUIRED_TOOLS = biotechSpec.requiredTools;
+export const buildBiotechNode = (deps: LayerTwoAgentDeps) =>
+  buildLayerTwoAgentNode(biotechSpec, deps);
+export const renderBiotech = renderStandardSector;
+export { BiotechSchema };

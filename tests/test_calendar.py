@@ -139,6 +139,60 @@ class TestFallback:
         assert cal.is_trading_day("2024-06-24") is True
 
 
+class TestVerifiedSnapshot:
+    def test_requires_complete_tushare_rows(self, monkeypatch):
+        def fetch(start, end):
+            rows = []
+            current = start
+            while current <= end:
+                rows.append(
+                    {
+                        "cal_date": current.strftime("%Y%m%d"),
+                        "is_open": int(current.weekday() < 5),
+                    }
+                )
+                from datetime import timedelta
+
+                current += timedelta(days=1)
+            return cal.pd.DataFrame(rows)
+
+        monkeypatch.setattr(cal, "_fetch_trade_cal_via_tushare", fetch)
+        snapshot = cal.verified_trading_calendar_snapshot(
+            "2024-06-21",
+            "2024-06-24",
+            as_of="2024-06-24T09:00:00+08:00",
+        )
+        assert snapshot["pit_status"] == "VERIFIED"
+        assert snapshot["trading_dates"] == ["2024-06-21", "2024-06-24"]
+        assert snapshot["source_evidence_ids"][0].startswith(
+            "tushare:trade_cal:SSE:"
+        )
+
+    def test_missing_calendar_day_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            cal,
+            "_fetch_trade_cal_via_tushare",
+            lambda start, end: cal.pd.DataFrame(
+                [{"cal_date": "20240624", "is_open": 1}]
+            ),
+        )
+        with pytest.raises(RuntimeError, match="cover every calendar date"):
+            cal.verified_trading_calendar_snapshot(
+                "2024-06-23",
+                "2024-06-24",
+                as_of="2024-06-24T09:00:00+08:00",
+            )
+
+    def test_unavailable_source_has_no_weekday_fallback(self, monkeypatch):
+        monkeypatch.setattr(cal, "_fetch_trade_cal_via_tushare", lambda start, end: None)
+        with pytest.raises(RuntimeError, match="trade_cal unavailable"):
+            cal.verified_trading_calendar_snapshot(
+                "2024-06-24",
+                "2024-06-24",
+                as_of="2024-06-24T09:00:00+08:00",
+            )
+
+
 class TestCacheCap:
     """PR #3 review hotfix #5: cache must not grow unbounded."""
 

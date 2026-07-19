@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type ClaimEvidenceGraph,
+  ClaimSchemaV2,
   validateClaimEvidenceGraph,
 } from "../src/agents/evidence_contract.js";
 
@@ -34,12 +35,11 @@ function validGraph(): ClaimEvidenceGraph {
     claims: [
       {
         claim_id: "claim-1",
-        claim_type: "inference",
+        claim_kind: "INTERPRETATION",
         statement: "Momentum is positive on current data.",
         structured_conclusion: { signal: "positive" },
-        evidence_refs: ["ev-1"],
+        evidence_ids: ["ev-1"],
         research_rule_refs: ["sector.semiconductor.soft.001"],
-        snapshot_hash: SNAPSHOT_HASH,
       },
     ],
     recommendation_claim_refs: [
@@ -65,7 +65,7 @@ describe("claim-to-evidence graph", () => {
 
   it("rejects dangling evidence and action claim references", () => {
     const graph = validGraph();
-    graph.claims[0]?.evidence_refs.push("ev-missing");
+    graph.claims[0]?.evidence_ids.push("ev-missing");
     graph.recommendation_claim_refs[0]?.claim_refs.push("claim-missing");
 
     const result = validateClaimEvidenceGraph(graph);
@@ -116,17 +116,16 @@ describe("claim-to-evidence graph", () => {
     });
     expect(missing.reasons).toContain("required_output_claim_reference_missing:action-2");
 
-    const uncertaintyGraph = validGraph();
-    const claim = uncertaintyGraph.claims[0];
+    const riskGraph = validGraph();
+    const claim = riskGraph.claims[0];
     if (!claim) return;
-    claim.claim_type = "uncertainty";
-    claim.evidence_refs = [];
+    claim.claim_kind = "RISK_FLAG";
     claim.research_rule_refs = [];
-    const rejected = validateClaimEvidenceGraph(uncertaintyGraph);
-    expect(rejected.reasons).toContain("output_only_uncertainty_claims:action-1");
+    const rejected = validateClaimEvidenceGraph(riskGraph);
+    expect(rejected.reasons).toContain("output_only_risk_flag_claims:action-1");
 
-    const allowed = validateClaimEvidenceGraph(uncertaintyGraph, {
-      allowUncertaintyOnlyOutputIds: new Set(["action-1"]),
+    const allowed = validateClaimEvidenceGraph(riskGraph, {
+      allowRiskFlagOnlyOutputIds: new Set(["action-1"]),
     });
     expect(allowed).toEqual({ accepted: true, reasons: [] });
   });
@@ -174,23 +173,36 @@ describe("claim-to-evidence graph", () => {
     );
   });
 
-  it("allows failed evidence to explain uncertainty but not an inference", () => {
+  it("allows failed evidence to explain a risk flag but not an interpretation", () => {
     const graph = validGraph();
     const evidence = graph.evidence_ledger[0];
     const claim = graph.claims[0];
     if (!evidence || !claim) return;
     evidence.freshness = "tool_failed";
-    claim.claim_type = "uncertainty";
+    claim.claim_kind = "RISK_FLAG";
     claim.research_rule_refs = [];
 
-    const uncertainty = validateClaimEvidenceGraph(graph, {
-      allowUncertaintyOnlyOutputIds: new Set(["action-1"]),
+    const riskFlag = validateClaimEvidenceGraph(graph, {
+      allowRiskFlagOnlyOutputIds: new Set(["action-1"]),
     });
-    expect(uncertainty.accepted).toBe(true);
+    expect(riskFlag.accepted).toBe(true);
 
-    claim.claim_type = "inference";
+    claim.claim_kind = "INTERPRETATION";
     claim.research_rule_refs = ["sector.semiconductor.soft.001"];
     const inference = validateClaimEvidenceGraph(graph);
     expect(inference.reasons).toContain("claim_unsupported_evidence:claim-1:ev-1");
+  });
+
+  it("rejects the pre-cutover claim fields", () => {
+    expect(
+      ClaimSchemaV2.safeParse({
+        claim_id: "legacy",
+        claim_type: "fact",
+        statement: "legacy",
+        structured_conclusion: { value: 1 },
+        evidence_refs: ["ev-1"],
+        research_rule_refs: [],
+      }).success,
+    ).toBe(false);
   });
 });

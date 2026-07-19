@@ -1,0 +1,78 @@
+{
+  "schema_version": "agent_prompt_role_contract_manifest_v2",
+  "private_prompt_repository": "haphap/MOSAIC-Prompts",
+  "private_prompt_branch": "codex/macro-agent-role-contracts-v2",
+  "private_prompt_commit": "1eb7a6b86f1003c8a2b335cbd08453df810c8537",
+  "prompt_tree_sha256": "8cd632e00bef930c4419df35b9785f1aac2421530adf7f2a21f66c4cbd019388",
+  "execution_behavior_release_id": "execution-behavior-release:c3777f87d7271cd19c88d099e09102057b050450f69da827015e19aced49bad8",
+  "execution_behavior_release_hash": "sha256:992115aea09b0b11c16db22f9300f32dd4644335302d549260978ae5f7044017",
+  "cohorts": [
+    "cohort_bull_2007",
+    "cohort_bull_2016",
+    "cohort_crisis_2008",
+    "cohort_crisis_covid",
+    "cohort_default",
+    "cohort_euphoria_2021",
+    "cohort_rate_tightening",
+    "cohort_recovery_2020"
+  ],
+  "languages": [
+    "en",
+    "zh"
+  ],
+  "agents": [
+    "china",
+    "us_economy",
+    "eu_economy",
+    "central_bank",
+    "us_financial_conditions",
+    "euro_area_financial_conditions",
+    "commodities",
+    "geopolitical",
+    "market_breadth",
+    "institutional_flow",
+    "semiconductor",
+    "technology",
+    "energy",
+    "biotech",
+    "consumer",
+    "industrials",
+    "real_estate_construction",
+    "financials",
+    "agriculture",
+    "relationship_mapper",
+    "druckenmiller",
+    "munger",
+    "burry",
+    "ackman",
+    "cro",
+    "alpha_discovery",
+    "autonomous_execution",
+    "cio"
+  ],
+  "agent_count": 28,
+  "cohort_count": 8,
+  "prompt_count": 448,
+  "tombstoned_macro_agents": [
+    {
+      "agent": "dollar",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent": "yield_curve",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent": "volatility",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent": "emerging_markets",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent": "news_sentiment",
+      "status": "legacy_unverified"
+    }
+  ]
+}

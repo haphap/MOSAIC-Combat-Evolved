@@ -5,19 +5,25 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "lifecycle_status",
+    "production_selectable",
+    "superseded_by",
     "runtime_agent_count",
     "runtime_stage_count",
     "default_cohort",
-    "research_knobs_cohort_enablement",
+    "private_knot_cohort_enablement",
     "canonical_l4_sequence",
     "agents"
   ],
   "properties": {
     "schema_version": { "const": "runtime_agent_manifest_v2" },
+    "lifecycle_status": { "const": "legacy_unverified" },
+    "production_selectable": { "const": false },
+    "superseded_by": { "const": "runtime_agent_manifest_v4" },
     "runtime_agent_count": { "const": 25 },
     "runtime_stage_count": { "const": 26 },
     "default_cohort": { "const": "cohort_default" },
-    "research_knobs_cohort_enablement": {
+    "private_knot_cohort_enablement": {
       "type": "array",
       "minItems": 1,
       "items": {

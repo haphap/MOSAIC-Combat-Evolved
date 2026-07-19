@@ -5,6 +5,9 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "lifecycle_status",
+    "production_selectable",
+    "superseded_by",
     "private_prompt_repository",
     "private_prompt_branch",
     "private_prompt_commit",
@@ -17,6 +20,9 @@
   ],
   "properties": {
     "schema_version": { "const": "macro_prompt_role_contract_manifest_v1" },
+    "lifecycle_status": { "const": "legacy_unverified" },
+    "production_selectable": { "const": false },
+    "superseded_by": { "const": "agent_prompt_role_contract_manifest_v2" },
     "private_prompt_repository": { "const": "haphap/MOSAIC-Prompts" },
     "private_prompt_branch": { "const": "codex/macro-agent-role-contracts" },
     "private_prompt_commit": {

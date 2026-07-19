@@ -3,11 +3,14 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   MACRO_AGENT_IDS,
+  MACRO_PROMPT_COHORT_IDS,
   MACRO_ROLE_CONTRACTS,
   renderMacroPromptBody,
 } from "../src/agents/macro/_contracts.js";
-import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/research_knobs_projection.js";
+import { renderBundledPrompt } from "../src/agents/prompts/bundled_prompt_renderer.js";
+import { ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
+import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/runtime_evidence_contract.js";
 
 const root = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default", "macro");
 const privateManifest = JSON.parse(
@@ -17,7 +20,7 @@ const privateManifest = JSON.parse(
       "..",
       "registry",
       "prompt_checks",
-      "macro_prompt_role_contract_manifest_v1.json",
+      "agent_prompt_role_contract_manifest_v2.json",
     ),
     "utf8",
   ),
@@ -25,10 +28,12 @@ const privateManifest = JSON.parse(
   agents: string[];
   cohort_count: number;
   languages: string[];
-  legacy_agents: Array<{ agent: string; status: string }>;
+  tombstoned_macro_agents: Array<{ agent: string; status: string }>;
   private_prompt_commit: string;
   prompt_count: number;
   prompt_tree_sha256: string;
+  execution_behavior_release_id: string;
+  execution_behavior_release_hash: string;
 };
 
 function prompt(agent: string, language: "zh" | "en") {
@@ -45,27 +50,58 @@ describe("generated bundled macro prompts", () => {
   });
 
   it("pins the rebuilt private prompt tree", () => {
-    expect(privateManifest.agents).toEqual(MACRO_AGENT_IDS);
+    expect(privateManifest.agents).toEqual(ALL_AGENTS);
     expect(privateManifest.languages).toEqual(["en", "zh"]);
     expect(privateManifest.cohort_count).toBe(8);
-    expect(privateManifest.prompt_count).toBe(160);
+    expect(privateManifest.prompt_count).toBe(448);
     expect(privateManifest.private_prompt_commit).toMatch(/^[0-9a-f]{40}$/);
     expect(privateManifest.prompt_tree_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(privateManifest.legacy_agents).toEqual([
+    expect(privateManifest.execution_behavior_release_id).toMatch(
+      /^execution-behavior-release:[0-9a-f]{64}$/,
+    );
+    expect(privateManifest.execution_behavior_release_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(privateManifest.tombstoned_macro_agents).toEqual([
+      { agent: "dollar", status: "legacy_unverified" },
+      { agent: "yield_curve", status: "legacy_unverified" },
+      { agent: "volatility", status: "legacy_unverified" },
       { agent: "emerging_markets", status: "legacy_unverified" },
       { agent: "news_sentiment", status: "legacy_unverified" },
     ]);
   });
 
-  it.each(MACRO_AGENT_IDS)("binds %s to one role-scoped tool and common schema", (agent) => {
+  it.each(MACRO_AGENT_IDS)("binds %s to one role-scoped tool and exact mode schema", (agent) => {
     for (const language of ["zh", "en"] as const) {
       const text = prompt(agent, language);
       const tools = [...new Set(text.match(/\bget_[a-z0-9_]+\b/g) ?? [])];
       expect(tools).toEqual(MACRO_ROLE_CONTRACTS[agent].requiredTools);
       expect(text).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
-      expect(text).toContain("direction");
-      expect(text).toContain("strength");
-      expect(text).toContain("claim_refs");
+      expect(text).toContain(language === "zh" ? "运行时 schema" : "runtime schema");
+      const block = text.match(
+        /<!-- runtime-evidence-contract:start -->([\s\S]*?)<!-- runtime-evidence-contract:end -->/,
+      )?.[1];
+      expect(block).toBeDefined();
+      const fieldLine = block
+        ?.split("\n")
+        .find((line) => /(?:输出字段包括|Output fields include)/u.test(line));
+      expect(fieldLine).toBeDefined();
+      expect(fieldLine).not.toContain("`claim_refs`");
+      expect(block).toContain(
+        language === "zh"
+          ? "不得输出顶层 `claim_refs`"
+          : "do not emit a top-level `claim_refs` field",
+      );
+      if (MACRO_ROLE_CONTRACTS[agent].mode === "DIRECT") {
+        expect(fieldLine).toContain("`signal`");
+        expect(block).toContain("`signal.claim_refs`");
+        expect(fieldLine).not.toContain("`components`");
+      } else {
+        expect(fieldLine).toContain("`components`");
+        expect(block).toContain("`components[].claim_refs`");
+        expect(fieldLine).not.toContain("`signal`");
+      }
+      expect(text).not.toMatch(
+        /direction[^\n]+strength[^\n]+persistence_horizon[^\n]+evaluation_horizon_trading_days/,
+      );
       expect(text).not.toContain("```json");
       expect(text).not.toContain("```research-knobs");
       expect(text).not.toMatch(/domain knob|knob influence/i);
@@ -84,7 +120,6 @@ describe("generated bundled macro prompts", () => {
         renderMacroPromptBody(agent, language, "cohort_default"),
         spec,
         language,
-        { includeResearchKnobDetails: false },
       );
       expect(prompt(agent, language)).toBe(expected);
     }
@@ -95,11 +130,66 @@ describe("generated bundled macro prompts", () => {
     const files = readdirSync(bundledRoot, { recursive: true, encoding: "utf8" }).filter((file) =>
       file.endsWith(".md"),
     );
-    expect(files).toHaveLength(50);
+    expect(files).toHaveLength(56);
+    expect(files.every((file) => file.startsWith("cohort_default/"))).toBe(true);
     for (const file of files) {
       const text = readFileSync(join(bundledRoot, file), "utf8");
       expect(text).not.toContain("```research-knobs");
       expect(text).not.toMatch(/domain knob|knob influence/i);
+      if (file.endsWith(".zh.md")) {
+        expect(text).toContain("## 运行时证据输出合同");
+        expect(text).not.toContain("## Runtime Evidence Output Contract");
+      } else {
+        expect(text).toContain("## Runtime Evidence Output Contract");
+      }
+    }
+  });
+
+  it("keeps all 28 default bundled agents bilingual and private cohorts absent", () => {
+    const bundledRoot = resolve(process.cwd(), "..", "prompts", "mosaic");
+    for (const agent of ALL_AGENTS) {
+      const layer = LAYER_BY_AGENT[agent];
+      expect(layer).toBeDefined();
+      for (const language of ["zh", "en"] as const) {
+        const text = readFileSync(
+          join(bundledRoot, "cohort_default", String(layer), `${agent}.${language}.md`),
+          "utf8",
+        );
+        if (language === "zh") {
+          expect(text).toContain("## 运行时证据输出合同");
+          expect(text).toMatch(/[\u3400-\u9fff]/u);
+          expect(text).not.toContain("## Runtime Evidence Output Contract");
+        } else {
+          expect(text).toContain("## Runtime Evidence Output Contract");
+          expect(text).not.toMatch(/[\u3400-\u9fff]/u);
+          expect(text).not.toContain("## 运行时证据输出合同");
+        }
+      }
+    }
+    for (const cohort of MACRO_PROMPT_COHORT_IDS.filter(
+      (candidate) => candidate !== "cohort_default",
+    )) {
+      const files = readdirSync(join(bundledRoot, cohort), {
+        recursive: true,
+        encoding: "utf8",
+      });
+      expect(
+        files.filter((file) => file.endsWith(".md")),
+        cohort,
+      ).toEqual([]);
+    }
+  });
+
+  it("fails closed when public renderers are asked for private cohort behavior", () => {
+    for (const cohort of MACRO_PROMPT_COHORT_IDS.filter(
+      (candidate) => candidate !== "cohort_default",
+    )) {
+      expect(() => renderMacroPromptBody("china", "en", cohort)).toThrow(
+        "private cohort prompt generation is unavailable publicly",
+      );
+      expect(() => renderBundledPrompt("energy", "en", cohort)).toThrow(
+        "private cohort prompt generation is unavailable publicly",
+      );
     }
   });
 
@@ -117,12 +207,17 @@ describe("generated bundled macro prompts", () => {
 
   it("removes search/social dependencies and old required-role mistakes", () => {
     const china = prompt("china", "en");
-    const dollar = prompt("dollar", "en");
-    const volatility = prompt("volatility", "en");
+    const centralBank = prompt("central_bank", "en");
+    const usFinancialConditions = prompt("us_financial_conditions", "en");
+    const euEconomy = prompt("eu_economy", "en");
     expect(china).not.toMatch(/must[^\n]{0,40}property/i);
     expect(china).toContain("Do not require property");
-    expect(dollar).toContain("Do not label a broad-dollar index as DXY");
-    expect(volatility).toContain("Do not call realized volatility iVX");
+    expect(centralBank).toContain("PBOC reaction function");
+    expect(centralBank).toContain("Do not judge foreign central banks");
+    expect(centralBank).not.toContain("PBOC/Fed");
+    expect(usFinancialConditions).toContain("Fed, US curves, credit/financial stress, and USD/RMB");
+    expect(usFinancialConditions).toContain("Do not split the Fed, dollar, and curve");
+    expect(euEconomy).toContain("Do not include the UK, Switzerland, or Norway");
     for (const agent of MACRO_AGENT_IDS) {
       const text = `${prompt(agent, "zh")}\n${prompt(agent, "en")}`;
       expect(text).not.toContain("get_news");

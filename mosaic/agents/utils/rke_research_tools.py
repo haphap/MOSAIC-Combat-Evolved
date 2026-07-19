@@ -467,7 +467,8 @@ def _is_iso_date(value: Any) -> bool:
 def get_rke_research_context(
     agent_id: Annotated[
         str,
-        "MOSAIC agent id, e.g. 'dollar', 'macro.dollar', 'semiconductor', "
+        "MOSAIC agent id, e.g. 'us_financial_conditions', "
+        "'macro.us_financial_conditions', 'semiconductor', "
         "'sector.semiconductor', 'ackman', or 'superinvestor.ackman'.",
     ],
     as_of_date: Annotated[

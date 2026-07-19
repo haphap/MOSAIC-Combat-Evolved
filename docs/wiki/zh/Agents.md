@@ -1,58 +1,62 @@
 # 智能体
 
-MOSAIC 跑 **4 层共 25 个智能体**,由 LangGraph.js(`mosaic-ts/src/graph/daily_cycle.ts`)装配成单次 daily cycle。各 agent 在 `mosaic-ts/src/agents/<layer>/`;每层工厂(`_factory.ts`)与 schema(`_schemas.ts`)共享。
-Canonical roster 为 `AGENTS_BY_LAYER`，其分阶段 committed form 是
-`registry/prompt_checks/runtime_agent_manifest_v2.json`。
+MOSAIC 由四层 28 个逻辑 Agent、29 个可接受或跳过的执行阶段组成。CIO 包含
+proposal 与 final 两个阶段，其余逻辑 Agent 各一个阶段。标准 roster 来自
+`AGENTS_BY_LAYER`，提交后的运行时合同是
+`registry/prompt_checks/runtime_agent_manifest_v4.json`。
 
-状态按层经 `mosaic-ts/src/agents/state.ts` 的逐层 map 流转(`layer1_outputs` … `layer4_outputs`,加顶层 `portfolio_actions` 镜像)。
+## 第一层：宏观（10）
 
-## 第 1 层 —— 宏观 (10)
+`china`、`us_economy`、`eu_economy`、`central_bank`、
+`us_financial_conditions`、`euro_area_financial_conditions`、`commodities`、
+`geopolitical`、`market_breadth`、`institutional_flow`。
 
-`china`、`us_economy`、`central_bank`、`dollar`、`yield_curve`、
-`commodities`、`geopolitical`、`volatility`、`market_breadth`、
-`institutional_flow`。`emerging_markets` 与 `news_sentiment` 仅保留为
-`legacy_unverified` 审计记录。(`_aggregator.ts` 汇总 Layer-1 输出。)
-
-每个 Layer-1 角色只读取一个职责限定的 PIT 快照。Tushare 是结构化主来源；
-美国历史修订只使用预注册的 ALFRED/官方 vintage，不做隐式 fallback。新闻仅作为
-`china` 与 `geopolitical` 的事件证据。`market_breadth` 读取确定性生成的等权
-A 股广度指标，模型不自行计算。详见
+十个 accepted transmission 分别交给下游。`macro_input_gate` 要求十个命名输出全部
+通过；系统不再生成 Macro consensus、stance 或因子组聚合。详见
 [Macro Agent 职责合同](../../macro_agent_role_contracts.md)。
 
-## 第 2 层 —— 行业 (7)
+## 第二层：行业与关系（10）
 
-`biotech`、`consumer`、`energy`、`financials`、`industrials`、`semiconductor`、`relationship_mapper`。把宏观语境转成行业选择 → 候选标的池。
+九个标准行业 Agent 是 `semiconductor`、`technology`、`energy`、`biotech`、
+`consumer`、`industrials`、`real_estate_construction`、`financials` 和
+`agriculture`；第十个是 `relationship_mapper`。
 
-六个行业 agent 共享 8 个核心工具 —— `get_industry_policy`、`get_xueqiu_heat`、`get_lhb_ranking`、`get_broker_research`(行业研报)、`get_etf_holdings`、`get_stock_data`、`get_indicators`、`get_industry_moneyflow`。行业特定补充:`energy` 额外调 `get_fred_series`;`financials` 额外调 `get_yield_curve_cn`。
+标准行业 Agent 只比较冻结 PIT 股票池内已注册的细分方向。每次先做方向研究；只有
+发生冲突时才进行一次复核；随后单独完成最终选择。accepted 输出始终包含一个最看好
+方向和一个不同的最不看好方向、受约束的 long/short-or-avoid 个股、驱动、风险、
+claims/证据、十个必需的 Macro submission summary，以及适用的目标级 Macro
+attribution。一次冲突复核后仍不能形成唯一最优/最差组合时，该阶段拒绝。输出不包含
+多行业综合分。细分行业 ETF 的价格与份额变化只是补充确认；可选 ETF 证据缺失不能被
+解释为负面票。
 
-`relationship_mapper` 在个股层面工作,用 `get_lhb_ranking` + `get_stock_research`(个股研报)。
+## 第三层：投资哲学（4）
 
-## 第 3 层 —— 投资哲学 (4)
+`druckenmiller`、`munger`、`burry`、`ackman` 使用不同投资哲学筛选运行时冻结的
+候选域。它们只能调用 `get_superinvestor_candidate_snapshot`，不能扩展证券范围，
+并输出有证据支持的候选或明确主动弃权。运行前机会集为空时直接跳过阶段，不产生
+Darwinian 样本。
 
-`ackman`、`burry`、`druckenmiller`、`munger`。各以一种投资哲学视角审视 Layer-2 候选池(只引用上游分析中出现的 ticker —— 绝不杜撰代码)。四者都调用 `get_stock_research`(个股研报)、`get_fundamentals`、`get_stock_data`、`get_indicators`。`ackman` 和 `munger` 额外调 `get_income_statement` / `get_cashflow` / `get_balance_sheet`(三张财报);`burry` 调同样的财报工具，并结合情绪/资金流检查逆向语境;`druckenmiller` 调 `get_yield_curve_cn`。各 agent 还从各自基础画像继承少量情绪/政策工具(`get_industry_policy`、`get_xueqiu_heat`、`get_lhb_ranking` 中的若干),故上面每个 agent 列出的是其区分性工具,并非完整集合。
+## 第四层：决策（4 个 Agent、5 个阶段）
 
-## 第 4 层 —— 决策 (4)
+固定顺序是：
 
-`cro`、`alpha_discovery`、`autonomous_execution`、`cio`(`mosaic-ts/src/agents/decision/`)。第 4 层是**纯综合** —— 不调工具;各自读上游状态推理:
+`alpha_discovery → cio proposal → cro → autonomous_execution → cio final`。
 
-- **cro** —— 风控 / 否决。
-- **alpha_discovery** —— alpha 综合。
-- **autonomous_execution** —— 把决策转成交易(读 CRO + alpha + L3 + Darwinian 权重)。
-- **cio** —— 最终组合。写 `layer4_outputs.cio` 并把 `portfolio_actions` 镜像到顶层(单写者)。CIO 可推荐宽基 ETF 也可推荐个股。
+各角色拥有专属快照和 outcome 合同。CIO proposal 冻结候选目标与 pre-CIO lineage；
+CRO 只能审查该 proposal；Execution 只能判断经过 CRO 调整的订单意图；CIO final
+不得加入新候选或替换 proposal 快照。四个 Decision Agent 参与 KNOT 演化评价，但没有
+下游 Darwinian usage weight。
 
-### MiroFish 上下文注入
+MiroFish 始终为 simulation-only。RKE 报告上下文始终为 `RKE_SHADOW`，不得进入生产图
+state、候选域、accepted output、Decision 输入、label 或 Darwinian 更新。
 
-当 `config.mirofish.inject_context` 为真(默认开启)时,第 4 层 **CRO**、**autonomous_execution** 和 **CIO** 在同一次 run 中共享同一段追加的 MiroFish 前瞻信息(最新情景上下文,带「仅模拟」免责声明、context hash 和 `as_of_date` 防前视边界)。成功执行 `mirofish generate` 或非 dry-run 的 `mirofish train` 会自动刷新 context。context 必须带 `scenario_count`、`horizon_days`、`as_of_date`、`context_hash` 和 `generator_version`;字段不完整或 lookahead 的 context 会在 prompt injection 前禁用。MiroFish 仍是 simulation-only:不能替代当前账户或当前市场证据,受其影响的持仓变更也必须通过 L4 position validator。autonomous_execution 节点还会在输出进入 CIO 前,对已激活的最小交易 delta、滑点上限和流动性下限 execution cards 做运行时校验。见 `decision/_factory.ts` 的 `maybeAppendMirofishContext` 和 L4 validators。
+## Prompt 与演化
 
-RKE report context 仍是 shadow-only research prior。若 portfolio action 声明的
-影响来源只有 RKE prior 和/或 MiroFish simulation context,CIO 校验会拒绝。
-当 CIO action 覆盖已激活的 `max_single_name_weight` guard 时,L4 position
-validator 还要求同时提供 `override_reason` 和 `cro_risk_override` risk flag。
-若 stop-loss 已触发但仍 `HOLD`,还必须在 decision reason 或 dissent notes
-中给出明确反证。
+生产 prompt 私有仓共 448 份：8 个 cohort × 28 个 Agent × 2 种语言。中文文件使用
+中文自然语言，英文文件使用英文；cohort 保留不同压力测试视角，但不得编码方向先验。
+公库只保留 56 份双语 `cohort_default` fake/offline prompt；公开代码不能生成其余 7 个
+私有 cohort 的观察镜头。
 
-## 提示词
-
-提示词双语,按 cohort 版本化于 `prompts/mosaic/` —— `cohort_default` 加 7 个 regime cohort(`cohort_bull_2007`、`cohort_crisis_2008`、`cohort_bull_2016`、`cohort_crisis_covid`、`cohort_recovery_2020`、`cohort_euphoria_2021`、`cohort_rate_tightening`)。Autoresearch 在 git 分支上演化它们(见[自我改进](Self-Improvement.md))。
-
-提示词语言跟随 `config.output_language`(`pickPromptLanguage`:Chinese | English | Bilingual)。
+execution-behavior release manifest 原子绑定全部 prompt hash、结构化输出阶段、工具策略、
+provider/model 行为、16 个 active production roster 和 KNOT baseline。prompt 正文不暴露
+research knobs、Darwinian 排名、label 公式或 KNOT 阈值。

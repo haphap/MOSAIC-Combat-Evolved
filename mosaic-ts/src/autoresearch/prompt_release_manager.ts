@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { clearPrivateKnotRuntime } from "../agents/helpers/private_knot_boundary.js";
+import { checkPrivateKnotPromptBoundary } from "../agents/prompts/private_knot_prompt_checker.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
@@ -14,11 +16,11 @@ import {
   loadPromptReleaseClosureAtCommit,
   promptPairVersionShaAtCommit,
 } from "../agents/prompts/release_prompt_loader.js";
-import { checkResearchKnobsPrompts } from "../agents/prompts/research_knobs_checker.js";
 import type { RuntimeAgentSpec } from "../agents/prompts/runtime_agent_spec.js";
 import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import { findRepoRoot } from "../bridge/python.js";
 import type { PromptReleaseCheckResult } from "../bridge/types.js";
+import { initializePrivateKnotRuntime } from "./private_knot_runtime.js";
 import {
   buildPromptReleaseCanarySloArtifact,
   PromptReleaseCanaryEventJournal,
@@ -49,6 +51,8 @@ interface CandidateCheckOptions {
   commit: string;
   cohort: string;
   source: "private" | "bundled";
+  privateRuntimeRepo: string;
+  privateRuntimeCommit: string;
 }
 
 export interface PromptReleaseCandidateCheckResult {
@@ -126,26 +130,45 @@ async function withDetachedWorktree<T>(
 async function checkCandidateAtCommit(
   opts: CandidateCheckOptions,
 ): Promise<PromptReleaseCandidateCheckResult> {
-  return withDetachedWorktree(opts.repo, opts.commit, async (root) => {
-    const promptRoot = join(root, "prompts", "mosaic");
-    const report = await checkResearchKnobsPrompts({
-      cohort: opts.cohort,
-      ...(opts.source === "private"
-        ? { privatePromptsRoot: promptRoot }
-        : { promptsRoot: promptRoot }),
-      enabledAgentStages: new Set(["*"]),
-    });
-    if (!report.ready || report.legacy_agent_stages.length > 0) {
-      const failures = report.rows
-        .filter((row) => !row.ready)
-        .flatMap((row) => row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`));
-      throw new Error(`prompt_release_candidate_check_failed:${failures.slice(0, 10).join("|")}`);
+  const check = async (promptRoot: string, privateRuntimeRoot: string) => {
+    try {
+      await initializePrivateKnotRuntime({ required: true, privateRoot: privateRuntimeRoot });
+      const report = await checkPrivateKnotPromptBoundary({
+        cohort: opts.cohort,
+        ...(opts.source === "private"
+          ? { privatePromptsRoot: join(promptRoot, "prompts", "mosaic") }
+          : { promptsRoot: join(promptRoot, "prompts", "mosaic") }),
+        requirePrivateKnot: true,
+        enabledAgentStages: new Set(["*"]),
+      });
+      if (
+        !report.ready ||
+        report.bundled_fallback_agent_stages.length > 0 ||
+        report.unavailable_agent_stages.length > 0
+      ) {
+        const failures = report.rows
+          .filter((row) => !row.ready)
+          .flatMap((row) => row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`));
+        throw new Error(`prompt_release_candidate_check_failed:${failures.slice(0, 10).join("|")}`);
+      }
+      return {
+        snapshotHashes: Object.fromEntries(
+          report.rows.map((row) => [`${row.agent}:${row.stage}`, row.snapshot_hash ?? ""]),
+        ),
+      };
+    } finally {
+      clearPrivateKnotRuntime();
     }
-    return {
-      snapshotHashes: Object.fromEntries(
-        report.rows.map((row) => [`${row.agent}:${row.stage}`, row.snapshot_hash ?? ""]),
-      ),
-    };
+  };
+  return withDetachedWorktree(opts.repo, opts.commit, async (promptRoot) => {
+    if (opts.repo === opts.privateRuntimeRepo && opts.commit === opts.privateRuntimeCommit) {
+      return check(promptRoot, promptRoot);
+    }
+    return withDetachedWorktree(
+      opts.privateRuntimeRepo,
+      opts.privateRuntimeCommit,
+      (privateRuntimeRoot) => check(promptRoot, privateRuntimeRoot),
+    );
   });
 }
 
@@ -254,6 +277,8 @@ export async function stagePromptRelease(
     commit: promptCommit,
     cohort: opts.cohort,
     source: "private",
+    privateRuntimeRepo: opts.privatePromptRepo,
+    privateRuntimeCommit: promptCommit,
   });
   const promptPairs = await buildReleasePromptPairsAtCommit({
     repo: opts.privatePromptRepo,
@@ -322,6 +347,8 @@ export async function stagePromptRelease(
     commit: codeCommit,
     cohort: opts.cohort,
     source: "bundled",
+    privateRuntimeRepo: opts.privatePromptRepo,
+    privateRuntimeCommit: promptCommit,
   });
   if (
     sortedObjectJson(privateCheck.snapshotHashes) !== sortedObjectJson(fallbackCheck.snapshotHashes)
@@ -437,7 +464,7 @@ export async function provisionPromptReleaseBaseline(opts: {
   }
   const specs = opts.deps?.specs ?? RUNTIME_AGENT_SPECS;
   const candidateCheck = opts.deps?.checkCandidate ?? checkCandidateAtCommit;
-  const [privatePairs, fallbackPairs, privateCheck, fallbackCheck] = await Promise.all([
+  const [privatePairs, fallbackPairs] = await Promise.all([
     buildReleasePromptPairsAtCommit({
       repo: opts.privatePromptRepo,
       commit: promptCommit,
@@ -449,20 +476,26 @@ export async function provisionPromptReleaseBaseline(opts: {
       commit: fallback.prompt_commit,
       cohort: manifest.activation_scope.cohort,
       specs,
-    }),
-    candidateCheck({
-      repo: opts.privatePromptRepo,
-      commit: promptCommit,
-      cohort: manifest.activation_scope.cohort,
-      source: "private",
-    }),
-    candidateCheck({
-      repo: codeRepo,
-      commit: fallback.prompt_commit,
-      cohort: manifest.activation_scope.cohort,
-      source: "bundled",
     }),
   ]);
+  // The adapter is process-global, so candidate checks must not race a worktree
+  // removal against another check that is still reading the same pinned runtime.
+  const privateCheck = await candidateCheck({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    cohort: manifest.activation_scope.cohort,
+    source: "private",
+    privateRuntimeRepo: opts.privatePromptRepo,
+    privateRuntimeCommit: promptCommit,
+  });
+  const fallbackCheck = await candidateCheck({
+    repo: codeRepo,
+    commit: fallback.prompt_commit,
+    cohort: manifest.activation_scope.cohort,
+    source: "bundled",
+    privateRuntimeRepo: opts.privatePromptRepo,
+    privateRuntimeCommit: promptCommit,
+  });
   if (
     sortedObjectJson(privatePairs) !== sortedObjectJson(manifest.prompt_pairs) ||
     sortedObjectJson(fallbackPairs) !== sortedObjectJson(fallback.prompt_pairs) ||

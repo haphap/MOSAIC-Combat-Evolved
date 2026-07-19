@@ -1,107 +1,98 @@
-"""Python mirror of the deterministic six-group Layer-1 aggregation."""
+"""Macro transmission roster and validation.
+
+The v2 runtime deliberately has no Macro factor bundle or stance.  This module
+keeps the historical import location for readers, but production callers may
+only validate and preserve the ten independent accepted transmissions.
+"""
 
 from __future__ import annotations
 
 import math
 from typing import Any, Mapping
 
-MACRO_FACTOR_GROUPS: dict[str, tuple[str, ...]] = {
-    "china_economy": ("china",),
-    "us_economy": ("us_economy",),
-    "policy_liquidity": ("central_bank",),
-    "financial_conditions": ("dollar", "yield_curve"),
-    "exogenous_real_shocks": ("commodities", "geopolitical"),
-    "market_confirmation": ("volatility", "market_breadth", "institutional_flow"),
-}
-MACRO_AGENTS = tuple(agent for agents in MACRO_FACTOR_GROUPS.values() for agent in agents)
-STANCE_THRESHOLD = 0.3
+
+MACRO_AGENTS = (
+    "china",
+    "us_economy",
+    "eu_economy",
+    "central_bank",
+    "us_financial_conditions",
+    "euro_area_financial_conditions",
+    "commodities",
+    "geopolitical",
+    "market_breadth",
+    "institutional_flow",
+)
+TOMBSTONED_MACRO_AGENTS = (
+    "dollar",
+    "yield_curve",
+    "volatility",
+    "emerging_markets",
+    "news_sentiment",
+)
 
 
-class MacroAggregationRejectedError(ValueError):
-    pass
+class MacroAggregationRetiredError(RuntimeError):
+    """Raised when a caller attempts to recreate a retired Macro stance."""
 
 
-def _agent_signal(output: Mapping[str, Any]) -> float:
+class MacroTransmissionRejectedError(ValueError):
+    """Raised when the ten-slot accepted transmission set is invalid."""
+
+
+def _validate_signal(agent: str, output: Mapping[str, Any]) -> None:
     direction = output.get("direction")
-    sign = 1 if direction == "SUPPORTIVE" else (-1 if direction == "ADVERSE" else 0)
-    strength = int(output.get("strength", 0))
+    strength = output.get("strength")
+    confidence = output.get("confidence")
+    if direction not in {"SUPPORTIVE", "NEUTRAL", "ADVERSE"}:
+        raise MacroTransmissionRejectedError(f"invalid direction for {agent}: {direction!r}")
+    if not isinstance(strength, int) or isinstance(strength, bool) or strength not in range(6):
+        raise MacroTransmissionRejectedError(f"invalid strength for {agent}: {strength!r}")
     if direction == "NEUTRAL" and strength != 0:
-        raise MacroAggregationRejectedError("NEUTRAL requires strength=0")
-    if direction != "NEUTRAL" and strength not in range(1, 6):
-        raise MacroAggregationRejectedError("non-neutral direction requires strength in 1..5")
-    return sign * strength / 5.0
+        raise MacroTransmissionRejectedError(f"NEUTRAL requires strength=0 for {agent}")
+    if direction != "NEUTRAL" and strength == 0:
+        raise MacroTransmissionRejectedError(
+            f"non-neutral direction requires strength in 1..5 for {agent}"
+        )
+    if not isinstance(confidence, (int, float)) or not math.isfinite(float(confidence)):
+        raise MacroTransmissionRejectedError(f"invalid confidence for {agent}")
+    if not 0 <= float(confidence) <= 1:
+        raise MacroTransmissionRejectedError(f"confidence outside [0,1] for {agent}")
 
 
-def aggregate_macro_transmissions(
+def validate_macro_transmissions(
     outputs: Mapping[str, Mapping[str, Any]],
-    darwinian_weights: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    missing = [
-        agent for agent in MACRO_AGENTS
-        if agent not in outputs or outputs[agent].get("agent") != agent
-    ]
-    if missing:
-        raise MacroAggregationRejectedError(
-            f"formal macro aggregation requires all 10 accepted agents; missing: {', '.join(missing)}"
+) -> tuple[Mapping[str, Any], ...]:
+    """Return the exact ten accepted slots in canonical order without aggregation."""
+    if set(outputs) != set(MACRO_AGENTS):
+        missing = sorted(set(MACRO_AGENTS) - set(outputs))
+        extra = sorted(set(outputs) - set(MACRO_AGENTS))
+        raise MacroTransmissionRejectedError(
+            f"exact Macro roster required; missing={missing}, extra={extra}"
         )
-    weights = darwinian_weights or {}
-    agent_rows: list[dict[str, Any]] = []
-    for group, agents in MACRO_FACTOR_GROUPS.items():
-        for agent in agents:
-            output = outputs[agent]
-            raw_weight = weights.get(agent, 1.0)
-            if isinstance(raw_weight, Mapping):
-                raw_weight = raw_weight.get("weight", 1.0)
-            weight = float(raw_weight)
-            if not math.isfinite(weight) or weight <= 0:
-                weight = 1.0
-            confidence = float(output.get("confidence", 0.0))
-            agent_rows.append(
-                {
-                    "agent": agent,
-                    "group": group,
-                    "signal": _agent_signal(output),
-                    "confidence": confidence,
-                    "darwinian_weight": weight,
-                    "effective_reliability": confidence * weight,
-                }
-            )
+    accepted: list[Mapping[str, Any]] = []
+    for agent in MACRO_AGENTS:
+        output = outputs[agent]
+        identity = output.get("agent_id", output.get("agent"))
+        if identity != agent:
+            raise MacroTransmissionRejectedError(f"identity mismatch for {agent}")
+        _validate_signal(agent, output)
+        accepted.append(output)
+    return tuple(accepted)
 
-    groups: list[dict[str, Any]] = []
-    for group, agents in MACRO_FACTOR_GROUPS.items():
-        members = [row for row in agent_rows if row["group"] == group]
-        total_reliability = sum(row["effective_reliability"] for row in members)
-        direction = (
-            sum(row["effective_reliability"] * row["signal"] for row in members)
-            / total_reliability
-            if total_reliability > 0
-            else 0.0
-        )
-        groups.append(
-            {
-                "group": group,
-                "agent_count": len(agents),
-                "direction": direction,
-                "reliability": total_reliability / len(agents),
-                "effective_weight": 0.0,
-            }
-        )
-    denominator = sum(group["reliability"] for group in groups)
-    for group in groups:
-        group["effective_weight"] = (
-            group["reliability"] / denominator if denominator > 0 else 1 / len(groups)
-        )
-    score = sum(group["effective_weight"] * group["direction"] for group in groups)
-    stance = "BULLISH" if score > STANCE_THRESHOLD else (
-        "BEARISH" if score < -STANCE_THRESHOLD else "NEUTRAL"
+
+def aggregate_macro_transmissions(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    """Hard-stop the retired six-factor/stance API."""
+    raise MacroAggregationRetiredError(
+        "Macro aggregation is retired; consume ten accepted transmissions directly"
     )
-    return {"score": score, "stance": stance, "agents": agent_rows, "groups": groups}
 
 
 __all__ = [
     "MACRO_AGENTS",
-    "MACRO_FACTOR_GROUPS",
-    "STANCE_THRESHOLD",
-    "MacroAggregationRejectedError",
+    "TOMBSTONED_MACRO_AGENTS",
+    "MacroAggregationRetiredError",
+    "MacroTransmissionRejectedError",
     "aggregate_macro_transmissions",
+    "validate_macro_transmissions",
 ]

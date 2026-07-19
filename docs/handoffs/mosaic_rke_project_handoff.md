@@ -561,10 +561,11 @@ pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm lint
 pnpm test
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
 ```
 
-状态：未在本次交接中重新执行；这是 repo 标准命令。启动成功后应看到 CLI 执行对应命令，`--fake-llm` 不应调用真实 LLM。
+状态：未在本次交接中重新执行；这是 repo 标准检查。`--fake-llm` 现在必须先按
+`docs/wiki/zh/CLI-Reference.md` 生成 fresh、hash-bound 的 synthetic PIT bundle，
+并在同一 shell 导出生成器输出；它不会调用真实 LLM，也不会回退到 live 或 stale 数据。
 
 ### Python bridge
 

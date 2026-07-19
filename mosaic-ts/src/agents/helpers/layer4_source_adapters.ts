@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import type { BridgeApi } from "../../bridge/index.js";
 import type { DailyCycleStateType } from "../state.js";
-import type { RuntimeSourceEvidenceObservation, RuntimeSourceStatus } from "./research_knobs.js";
+import type {
+  RuntimeSourceEvidenceObservation,
+  RuntimeSourceStatus,
+} from "./private_knot_boundary.js";
 
 export type Layer4SourceResolutionStage =
   | "pre_candidate"
@@ -19,7 +22,7 @@ export interface Layer4SourceResolutionBundle {
 export async function resolveLayer4SourceStatuses(
   state: DailyCycleStateType,
   stage: Layer4SourceResolutionStage,
-  api?: Pick<BridgeApi, "toolsCall">,
+  api?: Pick<BridgeApi, "runtimeStockMarketSnapshot">,
 ): Promise<RuntimeSourceStatus[]> {
   return (await resolveLayer4SourceBundle(state, stage, api)).statuses;
 }
@@ -27,7 +30,7 @@ export async function resolveLayer4SourceStatuses(
 export async function resolveLayer4SourceBundle(
   state: DailyCycleStateType,
   stage: Layer4SourceResolutionStage,
-  api?: Pick<BridgeApi, "toolsCall">,
+  api?: Pick<BridgeApi, "runtimeStockMarketSnapshot">,
 ): Promise<Layer4SourceResolutionBundle> {
   const asOf = state.as_of_date || new Date().toISOString().slice(0, 10);
   const sourceId =
@@ -93,12 +96,15 @@ function preCandidateTickers(state: DailyCycleStateType): string[] {
   const tickers = [
     ...state.current_positions.positions.map((position) => position.ticker),
     ...Object.values(state.layer2_outputs).flatMap((output) =>
-      "longs" in output
-        ? [...output.longs.map((pick) => pick.ticker), ...output.shorts.map((pick) => pick.ticker)]
+      output.agent !== "relationship_mapper"
+        ? [
+            ...output.long_picks.map((pick) => pick.ts_code),
+            ...output.short_or_avoid_picks.map((pick) => pick.ts_code),
+          ]
         : [],
     ),
     ...Object.values(state.layer3_outputs).flatMap((output) =>
-      output.picks.map((pick) => pick.ticker),
+      output.picks.map((pick) => securityCode(pick as { ts_code?: unknown; ticker?: unknown })),
     ),
     ...(state.layer4_outputs?.alpha_discovery?.novel_picks.map((pick) => pick.ticker) ?? []),
   ];
@@ -116,7 +122,7 @@ function frozenCandidateTickers(state: DailyCycleStateType): string[] {
 }
 
 async function resolveTickerSource(opts: {
-  api: Pick<BridgeApi, "toolsCall"> | undefined;
+  api: Pick<BridgeApi, "runtimeStockMarketSnapshot"> | undefined;
   state: DailyCycleStateType;
   ticker: string;
   asOf: string;
@@ -151,13 +157,12 @@ async function resolveTickerSource(opts: {
     end_date: opts.asOf,
   };
   try {
-    const result = await opts.api.toolsCall(
-      "get_stock_data",
-      args,
-      opts.state.mode === "backtest"
-        ? { mode: "backtest", as_of_date: opts.asOf }
-        : { mode: "live", as_of_date: opts.asOf },
-    );
+    const result = await opts.api.runtimeStockMarketSnapshot({
+      ticker: opts.ticker,
+      start_date: args.start_date,
+      as_of_date: opts.asOf,
+      mode: opts.state.mode === "backtest" ? "backtest" : "live",
+    });
     const text = result.text.trim();
     if (text.length === 0 || /(?:no data|no rows|not found|empty result|无数据)/i.test(text)) {
       return {
@@ -304,8 +309,19 @@ function shiftIsoDate(value: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function uniqueTickers(tickers: ReadonlyArray<string>): string[] {
-  return [...new Set(tickers.map((ticker) => ticker.trim()).filter(Boolean))].sort();
+function securityCode(value: { ts_code?: unknown; ticker?: unknown }): string | null {
+  const candidate = typeof value.ts_code === "string" ? value.ts_code : value.ticker;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
+function uniqueTickers(tickers: ReadonlyArray<string | null | undefined>): string[] {
+  return [
+    ...new Set(
+      tickers.flatMap((ticker) =>
+        typeof ticker === "string" && ticker.trim() ? [ticker.trim()] : [],
+      ),
+    ),
+  ].sort();
 }
 
 function statusKey(status: Pick<RuntimeSourceStatus, "source_id" | "scope">): string {

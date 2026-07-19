@@ -5,6 +5,10 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { extractLlmTokenUsage } from "./runtime.js";
+import {
+  adaptStrictProviderJsonSchema,
+  normalizeStrictProviderPayload,
+} from "./structured_provider_adapters.js";
 
 export const MAX_AGENT_REPAIRS = 3;
 
@@ -48,7 +52,8 @@ export interface AgentRunAudit {
     | "structured_output_unsupported"
     | "timeout"
     | "connection_error"
-    | "model_service_error";
+    | "model_service_error"
+    | "private_policy_failure";
   reason_codes: string[];
   prompt_hash: string;
   schema_hash: string;
@@ -143,11 +148,12 @@ export async function invokeStrictStructured<T>(
   }
 
   const attempts: AgentAttemptAudit[] = [];
+  const repairEvidenceCatalog = extractRepairEvidenceCatalog(opts.evidenceSnapshot);
   const cumulativeIssues: AgentContractIssue[] = [];
   let previousOutputHash: string | null = null;
   let previousFingerprints = new Set<string>();
   let noImprovementCount = 0;
-  let previousRaw: unknown = null;
+  let previousProviderRaw: unknown = null;
 
   for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
     const startedAt = Date.now();
@@ -159,11 +165,13 @@ export async function invokeStrictStructured<T>(
             attempt,
             schema: opts.schema,
             originalMessages: opts.messages,
-            originalOutput: previousRaw,
+            originalOutput: previousProviderRaw,
             cumulativeIssues,
             evidenceHash: hashes.evidence_hash,
+            repairEvidenceCatalog,
           });
     let raw: unknown = null;
+    let providerRaw: unknown = null;
     let promptTokens = 0;
     let completionTokens = 0;
     let issues: AgentContractIssue[] = [];
@@ -171,7 +179,8 @@ export async function invokeStrictStructured<T>(
     try {
       const response = await bound.invoke(input, opts.signal ? { signal: opts.signal } : undefined);
       const envelope = structuredEnvelope(response);
-      raw = envelope.parsed;
+      providerRaw = envelope.parsed;
+      raw = normalizeStrictProviderPayload(providerRaw);
       const usage = extractLlmTokenUsage(envelope.raw);
       promptTokens = usage.promptTokens;
       completionTokens = usage.completionTokens;
@@ -237,6 +246,19 @@ export async function invokeStrictStructured<T>(
     if (opts.onAttempt) await opts.onAttempt(attemptAudit, raw);
     else persistPrivateAttemptTelemetry(opts, attemptAudit, raw);
 
+    const privatePolicyIssues = issues.filter(
+      (issue) => issue.validator === "private_knot_runtime_v1",
+    );
+    if (privatePolicyIssues.length > 0) {
+      const reasonCodes = [
+        ...new Set(privatePolicyIssues.map((issue) => issue.reason_code)),
+      ].sort();
+      throw new AgentRunContractError(
+        `${opts.agent}/${opts.stage}: private KNOT policy failed: ${reasonCodes.join(",")}`,
+        failedAudit(opts, hashes, attempts, "error", "private_policy_failure", reasonCodes),
+      );
+    }
+
     if (attemptAudit.accepted && candidate !== null) {
       const acceptedEmpty = opts.isAcceptedEmpty?.(candidate) ?? false;
       return {
@@ -274,7 +296,7 @@ export async function invokeStrictStructured<T>(
     }
     previousOutputHash = outputHash;
     previousFingerprints = fingerprints;
-    previousRaw = raw;
+    previousProviderRaw = providerRaw;
   }
 
   throw rejectedError(opts, hashes, attempts, "repair_budget_exhausted");
@@ -318,18 +340,20 @@ function buildRepairMessages<T>(input: {
   originalOutput: unknown;
   cumulativeIssues: AgentContractIssue[];
   evidenceHash: string;
+  repairEvidenceCatalog: RepairEvidenceCatalog;
 }): [SystemMessage, HumanMessage] {
   const issuePayload = dedupeIssues(input.cumulativeIssues);
-  const contract = safeJsonSchema(input.schema);
+  const contract = providerJsonSchema(input.schema);
   const originalUser = input.originalMessages[1].content;
   if (input.attempt === 1) {
     return [
       new SystemMessage(
-        "Structured repair 1/3. Correct the complete prior object directly. Return a complete object; do not omit disposition fields or add prose. Copy exact evidence_id and allowed_research_rule_ids from the immutable catalog: every fact/inference claim needs evidence_refs, and every inference also needs research_rule_refs.",
+        "Structured repair 1/3. Correct the complete prior object directly. Return a complete object; do not omit disposition fields or add prose. Copy exact evidence_id and opaque permitted citation identifiers from the immutable catalog: every claim needs evidence_ids, and every INTERPRETATION also needs research_rule_refs.",
       ),
       new HumanMessage(
         JSON.stringify({
           immutable_evidence_hash: input.evidenceHash,
+          ...input.repairEvidenceCatalog,
           original_evidence_and_task: originalUser,
           prior_output: input.originalOutput,
           validation_errors: issuePayload,
@@ -340,11 +364,12 @@ function buildRepairMessages<T>(input: {
   if (input.attempt === 2) {
     return [
       new SystemMessage(
-        "Structured repair 2/3. Regenerate one complete object from the original immutable evidence. Satisfy every machine constraint and all cumulative errors. Use only exact catalog ids; fact/inference claims require evidence_refs and inference claims require research_rule_refs.",
+        "Structured repair 2/3. Regenerate one complete object from the original immutable evidence. Satisfy every machine constraint and all cumulative errors. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs.",
       ),
       new HumanMessage(
         JSON.stringify({
           immutable_evidence_hash: input.evidenceHash,
+          ...input.repairEvidenceCatalog,
           original_evidence_and_task: originalUser,
           cumulative_validation_errors: issuePayload,
           complete_json_schema: contract,
@@ -354,11 +379,12 @@ function buildRepairMessages<T>(input: {
   }
   return [
     new SystemMessage(
-      "FINAL structured repair 3/3. Rebuild the complete object under the strict contract. Use only exact catalog ids; fact/inference claims require evidence_refs and inference claims require research_rule_refs. You may choose an explicitly supported empty disposition, but disposition and conclusion references are mandatory. Return no prose.",
+      "FINAL structured repair 3/3. Rebuild the complete object under the strict contract. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs. You may choose an explicitly supported empty disposition, but disposition and conclusion references are mandatory. Return no prose.",
     ),
     new HumanMessage(
       JSON.stringify({
         immutable_evidence_hash: input.evidenceHash,
+        ...input.repairEvidenceCatalog,
         original_evidence_and_task: originalUser,
         normalized_errors: issuePayload.map(({ validator, reason_code, json_path }) => ({
           validator,
@@ -369,6 +395,37 @@ function buildRepairMessages<T>(input: {
       }),
     ),
   ];
+}
+
+interface RepairEvidenceCatalog {
+  allowed_evidence_ids: string[];
+  allowed_citation_ids: string[];
+}
+
+function extractRepairEvidenceCatalog(snapshot: unknown): RepairEvidenceCatalog {
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return { allowed_evidence_ids: [], allowed_citation_ids: [] };
+  }
+  const record = snapshot as Record<string, unknown>;
+  const evidenceLedger = Array.isArray(record.evidenceLedger) ? record.evidenceLedger : [];
+  const allowedEvidenceIds = evidenceLedger
+    .flatMap((entry) => {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return [];
+      const evidenceId = (entry as Record<string, unknown>).evidence_id;
+      return typeof evidenceId === "string" ? [evidenceId] : [];
+    })
+    .sort();
+  const ruleSource = record.allowedResearchRuleIds;
+  const allowedResearchRuleIds =
+    ruleSource instanceof Set
+      ? [...ruleSource].filter((ruleId): ruleId is string => typeof ruleId === "string").sort()
+      : Array.isArray(ruleSource)
+        ? ruleSource.filter((ruleId): ruleId is string => typeof ruleId === "string").sort()
+        : [];
+  return {
+    allowed_evidence_ids: [...new Set(allowedEvidenceIds)],
+    allowed_citation_ids: [...new Set(allowedResearchRuleIds)],
+  };
 }
 
 function zodIssues(error: z.ZodError): AgentContractIssue[] {
@@ -436,8 +493,9 @@ function rejectedError<T>(
     ),
   ].sort();
   const audit = failedAudit(opts, hashes, attempts, "rejected", stopReason, reasonCodes);
+  const reasonSummary = reasonCodes.length > 0 ? `: ${reasonCodes.join(",")}` : "";
   return new AgentRunContractError(
-    `${opts.agent}/${opts.stage}: rejected after ${attempts.length} attempts (${stopReason})`,
+    `${opts.agent}/${opts.stage}: rejected after ${attempts.length} attempts (${stopReason})${reasonSummary}`,
     audit,
   );
 }
@@ -513,7 +571,127 @@ function safeJsonSchema<T>(schema: z.ZodType<T>): unknown {
 }
 
 function providerJsonSchema<T>(schema: z.ZodType<T>): unknown {
-  return omitUnsupportedProviderKeywords(safeJsonSchema(schema));
+  return applyProviderExtractionBounds(
+    adaptStrictProviderJsonSchema(omitUnsupportedProviderKeywords(safeJsonSchema(schema))),
+  );
+}
+
+const PROVIDER_ARRAY_CAPS: Readonly<Record<string, number>> = {
+  evidence_ids: 1,
+  research_rule_refs: 1,
+  claim_refs: 1,
+  claim_refs_used: 1,
+  claims: 2,
+  key_drivers: 1,
+  risks: 1,
+  long_picks: 2,
+  short_or_avoid_picks: 2,
+  picks: 2,
+};
+
+function applyProviderExtractionBounds(value: unknown, fieldName?: string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((nested) => applyProviderExtractionBounds(nested, fieldName));
+  }
+  if (value === null || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const bounded = Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => {
+      if (key === "properties" && nested !== null && typeof nested === "object") {
+        return [
+          key,
+          Object.fromEntries(
+            Object.entries(nested as Record<string, unknown>).map(([property, schema]) => [
+              property,
+              applyProviderExtractionBounds(schema, property),
+            ]),
+          ),
+        ];
+      }
+      return [key, applyProviderExtractionBounds(nested, fieldName)];
+    }),
+  );
+  const cap = fieldName ? PROVIDER_ARRAY_CAPS[fieldName] : undefined;
+  if (bounded.type === "array" && Array.isArray(bounded.prefixItems)) {
+    bounded.items = false;
+    bounded.minItems = bounded.prefixItems.length;
+    bounded.maxItems = bounded.prefixItems.length;
+  }
+  if (bounded.type === "array" && cap !== undefined) {
+    const existing = typeof bounded.maxItems === "number" ? bounded.maxItems : cap;
+    const minimum = typeof bounded.minItems === "number" ? bounded.minItems : 0;
+    bounded.maxItems = Math.max(minimum, Math.min(existing, cap));
+  }
+  if (bounded.type === "string" && typeof bounded.maxLength !== "number") {
+    bounded.maxLength = 320;
+  }
+  if (
+    bounded.type === "object" &&
+    bounded.additionalProperties !== undefined &&
+    bounded.additionalProperties !== false &&
+    typeof bounded.maxProperties !== "number"
+  ) {
+    bounded.maxProperties = 12;
+  }
+  if (
+    bounded.type === "object" &&
+    bounded.properties !== null &&
+    typeof bounded.properties === "object" &&
+    !Array.isArray(bounded.properties)
+  ) {
+    const properties = bounded.properties as Record<string, unknown>;
+    const sourceProperties =
+      record.properties !== null &&
+      typeof record.properties === "object" &&
+      !Array.isArray(record.properties)
+        ? (record.properties as Record<string, unknown>)
+        : {};
+    if (properties.components && properties.claims) {
+      const sourceClaims = sourceProperties.claims;
+      const sourceComponents = sourceProperties.components;
+      const sourceClaimLimit =
+        sourceClaims !== null && typeof sourceClaims === "object"
+          ? (sourceClaims as Record<string, unknown>).maxItems
+          : undefined;
+      const componentLimit =
+        sourceComponents !== null && typeof sourceComponents === "object"
+          ? (sourceComponents as Record<string, unknown>).maxItems
+          : undefined;
+      const claims = properties.claims as Record<string, unknown>;
+      if (typeof sourceClaimLimit === "number") claims.maxItems = sourceClaimLimit;
+      else if (typeof componentLimit === "number") claims.maxItems = componentLimit;
+    }
+    const selectionStatus = schemaConst(properties.selection_status);
+    const predictiveStatus = schemaConst(properties.predictive_graph_status);
+    if (
+      selectionStatus === "SELECTED" &&
+      properties.preferred_direction &&
+      properties.macro_input_attributions &&
+      properties.claims
+    ) {
+      const sourceClaims = sourceProperties.claims;
+      const sourceClaimLimit =
+        sourceClaims !== null && typeof sourceClaims === "object"
+          ? (sourceClaims as Record<string, unknown>).maxItems
+          : undefined;
+      if (typeof sourceClaimLimit === "number") {
+        (properties.claims as Record<string, unknown>).maxItems = sourceClaimLimit;
+      }
+    }
+    if ([selectionStatus, predictiveStatus].some((status) => status?.startsWith("NO_QUALIFIED"))) {
+      const claims = properties.claims;
+      if (claims !== null && typeof claims === "object" && !Array.isArray(claims)) {
+        (claims as Record<string, unknown>).maxItems = 1;
+      }
+    }
+  }
+  return bounded;
+}
+
+function schemaConst(value: unknown): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const constant = (value as Record<string, unknown>).const;
+  return typeof constant === "string" ? constant : null;
 }
 
 function omitUnsupportedProviderKeywords(value: unknown): unknown {

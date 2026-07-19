@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent outcome contract manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "contract_count",
+    "usage_track_count",
+    "evolution_only_track_count",
+    "registry_hash",
+    "metric_schema_count",
+    "metric_schemas_hash",
+    "metric_schemas",
+    "contracts"
+  ],
+  "properties": {
+    "manifest_version": { "const": "agent_outcome_contract_manifest_v2" },
+    "contract_count": { "const": 28 },
+    "usage_track_count": { "const": 24 },
+    "evolution_only_track_count": { "const": 4 },
+    "registry_hash": { "$ref": "#/$defs/hash" },
+    "metric_schema_count": { "const": 8 },
+    "metric_schemas_hash": { "$ref": "#/$defs/hash" },
+    "metric_schemas": {
+      "type": "object",
+      "minProperties": 8,
+      "additionalProperties": { "type": "object" }
+    },
+    "contracts": {
+      "type": "array",
+      "minItems": 28,
+      "maxItems": 28,
+      "items": { "$ref": "#/$defs/contract" }
+    }
+  },
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "maturity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_semantics", "horizon_trading_days", "trading_calendar_id"],
+      "properties": {
+        "entry_semantics": { "enum": ["T_PLUS_1_OPEN", "NEXT_SESSION_EXECUTION"] },
+        "horizon_trading_days": { "enum": [1, 5, 20, 21] },
+        "trading_calendar_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "schedule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "trading_calendar_id", "epoch", "step_trading_days"],
+          "properties": {
+            "kind": { "const": "FIXED_NON_OVERLAP" },
+            "trading_calendar_id": { "type": "string", "minLength": 1 },
+            "epoch": { "type": "string", "format": "date" },
+            "step_trading_days": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "trading_calendar_id",
+            "event_registry_version",
+            "event_priority_version"
+          ],
+          "properties": {
+            "kind": { "const": "EVENT_TRIGGERED" },
+            "trading_calendar_id": { "type": "string", "minLength": 1 },
+            "event_registry_version": { "type": "string", "minLength": 1 },
+            "event_priority_version": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "componentCalibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "calibration_contract_version",
+        "calibration_solver_version",
+        "reference_cohort_id",
+        "reference_language",
+        "maximum_lookback_trading_days",
+        "semiannual_slot_months",
+        "regularization_lambda",
+        "component_weight_lower_bound",
+        "component_weight_upper_bound",
+        "maximum_component_delta",
+        "solver_grid_step",
+        "minimum_fit_samples",
+        "minimum_production_samples",
+        "minimum_rolling_folds",
+        "minimum_validation_samples_per_fold",
+        "purge_trading_days",
+        "embargo_trading_days",
+        "minimum_shadow_samples",
+        "maximum_runs_per_half_year",
+        "minimum_oos_mse_improvement_ratio",
+        "maximum_regime_mse_degradation_ratio",
+        "minimum_regime_validation_samples",
+        "minimum_fold_adjustment_agreement_ratio",
+        "maximum_bound_hit_fold_ratio",
+        "minimum_diagnostic_paired_samples",
+        "maximum_diagnostic_mse_degradation_ratio"
+      ],
+      "properties": {
+        "calibration_contract_version": { "const": "macro_component_calibration_v1" },
+        "calibration_solver_version": { "const": "bounded_grid_001_half_up_v1" },
+        "reference_cohort_id": { "const": "cohort_default" },
+        "reference_language": { "const": "zh" },
+        "maximum_lookback_trading_days": { "const": 1260 },
+        "semiannual_slot_months": {
+          "type": "array",
+          "items": { "enum": [6, 12] },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "regularization_lambda": { "const": 1 },
+        "component_weight_lower_bound": { "const": 0.15 },
+        "component_weight_upper_bound": { "const": 0.35 },
+        "maximum_component_delta": { "const": 0.05 },
+        "solver_grid_step": { "const": 0.01 },
+        "minimum_fit_samples": { "const": 60 },
+        "minimum_production_samples": { "const": 100 },
+        "minimum_rolling_folds": { "const": 5 },
+        "minimum_validation_samples_per_fold": { "const": 12 },
+        "purge_trading_days": { "const": 5 },
+        "embargo_trading_days": { "const": 5 },
+        "minimum_shadow_samples": { "const": 20 },
+        "maximum_runs_per_half_year": { "const": 1 },
+        "minimum_oos_mse_improvement_ratio": { "const": 0.05 },
+        "maximum_regime_mse_degradation_ratio": { "const": 0.05 },
+        "minimum_regime_validation_samples": { "const": 20 },
+        "minimum_fold_adjustment_agreement_ratio": { "const": 0.75 },
+        "maximum_bound_hit_fold_ratio": { "const": 0.5 },
+        "minimum_diagnostic_paired_samples": { "const": 60 },
+        "maximum_diagnostic_mse_degradation_ratio": { "const": 0.05 }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_id",
+        "layer",
+        "evaluation_object",
+        "evaluation_object_type",
+        "evaluation_object_schema_version",
+        "accepted_output_kind",
+        "primary_label_id",
+        "metric_schema_id",
+        "maturity_horizon",
+        "maturity",
+        "sample_schedule",
+        "rank_scope",
+        "darwin_application_mode",
+        "metric_family",
+        "outcome_contract_version",
+        "scoring_contract_version",
+        "sample_schedule_contract_version",
+        "rank_scope_contract_version",
+        "opportunity_set_contract_version",
+        "normalization_contract_version",
+        "required_source_ids",
+        "fallback_allowed",
+        "label_owner",
+        "component_composition_contract"
+        ,"track_contract_dimensions"
+      ],
+      "properties": {
+        "agent_id": { "type": "string", "minLength": 1 },
+        "layer": { "enum": ["MACRO", "SECTOR", "SUPERINVESTOR", "DECISION"] },
+        "evaluation_object": { "type": "string", "minLength": 1 },
+        "evaluation_object_type": {
+          "enum": [
+            "MACRO_TRANSMISSION",
+            "SECTOR_TILT_PICKS",
+            "RELATIONSHIP_EDGES",
+            "SUPERINVESTOR_PICKS",
+            "CRO_FROZEN_RISK_ACTIONS",
+            "ALPHA_FROZEN_NOVEL_PICKS",
+            "EXECUTION_FROZEN_ORDER_INTENT",
+            "CIO_FROZEN_FINAL_PORTFOLIO"
+          ]
+        },
+        "evaluation_object_schema_version": { "type": "string", "minLength": 1 },
+        "accepted_output_kind": {
+          "enum": [
+            "MACRO_TRANSMISSION",
+            "STANDARD_SECTOR_SELECTION",
+            "RELATIONSHIP_GRAPH",
+            "SUPERINVESTOR_SELECTION",
+            "CRO_RISK_REVIEW",
+            "ALPHA_DISCOVERY",
+            "EXECUTION_ASSESSMENT",
+            "CIO_FINAL"
+          ]
+        },
+        "primary_label_id": { "type": "string", "minLength": 1 },
+        "metric_schema_id": { "type": "string", "minLength": 1 },
+        "maturity_horizon": {
+          "enum": ["T1_CLOSE", "TRADING_DAYS_5", "TRADING_DAYS_20", "TRADING_DAYS_21"]
+        },
+        "maturity": { "$ref": "#/$defs/maturity" },
+        "sample_schedule": { "$ref": "#/$defs/schedule" },
+        "rank_scope": { "type": "string", "minLength": 1 },
+        "darwin_application_mode": {
+          "enum": ["DOWNSTREAM_USAGE_WEIGHT", "EVOLUTION_ONLY"]
+        },
+        "metric_family": {
+          "enum": [
+            "MACRO_TRANSMISSION",
+            "STANDARD_SECTOR",
+            "RELATIONSHIP",
+            "SUPERINVESTOR",
+            "CRO",
+            "ALPHA",
+            "EXECUTION",
+            "CIO"
+          ]
+        },
+        "outcome_contract_version": { "type": "string", "minLength": 1 },
+        "scoring_contract_version": { "type": "string", "minLength": 1 },
+        "sample_schedule_contract_version": { "type": "string", "minLength": 1 },
+        "rank_scope_contract_version": { "type": "string", "minLength": 1 },
+        "opportunity_set_contract_version": { "type": "string", "minLength": 1 },
+        "normalization_contract_version": { "type": "string", "minLength": 1 },
+        "required_source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "fallback_allowed": { "const": false },
+        "label_owner": { "const": "DETERMINISTIC_RUNTIME" },
+        "component_composition_contract": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "component_weight_contract_version",
+                "components",
+                "calibration_contract"
+              ],
+              "properties": {
+                "component_weight_contract_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "components": {
+                  "type": "object",
+                  "minProperties": 2,
+                  "additionalProperties": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "calibration_contract": { "$ref": "#/$defs/componentCalibration" }
+              }
+            }
+          ]
+        }
+        ,"track_contract_dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "component_weight_contract",
+            "reliability_adapter_contract",
+            "confidence_semantics_contract"
+          ],
+          "properties": {
+            "component_weight_contract": { "enum": ["REQUIRED", "NULL"] },
+            "reliability_adapter_contract": { "enum": ["REQUIRED", "NULL"] },
+            "confidence_semantics_contract": { "enum": ["REQUIRED", "NULL"] }
+          }
+        }
+      }
+    }
+  }
+}

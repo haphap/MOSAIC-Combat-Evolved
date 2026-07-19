@@ -2,21 +2,23 @@
 
 Surface (Plan §11.3 design decision #10 — scorecard / darwinian namespaces):
     * scorecard.append           (state: dict) → {ingested: int}
+    * scorecard.latest_agent_narratives (cohort: str) → UI-only Agent explanations
     * scorecard.score_pending    (cohort: str, today: str) → outcome dict
     * scorecard.list_skill       (cohort: str, since?: str)
                                  → [{agent, mean_alpha_5d, sharpe_window, n_obs}]
 
 The TypeScript front-end calls scorecard.append at end of each
 `pnpm dev daily-cycle` run (the CLI passes the final state dict). Score
-cron (operator-driven, daily after market close) calls scorecard.score_pending
-followed by darwinian.compute. List_skill is read-only — used by the
-`pnpm dev scorecard` CLI in 3E.
+back-fill is operator-driven after market close. Production Darwinian-v2
+windows and weights are refreshed/published through their frozen roster
+revision path; ``darwinian.compute`` is retained only for explicit legacy
+audit/replay. List_skill is read-only and used by the scorecard CLI.
 
 Note (PR #3 review hotfix #4): this handler returns ``sharpe_window``,
 NOT ``sharpe_30d``. The window is determined by the ``since`` parameter
 (all-time when omitted) — it does NOT match the rolling 30-day Sharpe in
-``darwinian.compute``. The two are intentionally different views of the
-same data; the field name reflects that.
+legacy ``darwinian.compute`` audit. The two are intentionally different views
+of the same data; the field name reflects that.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from typing import Any, Optional
 
 from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
+from mosaic.scorecard.store import RUNTIME_AGENT_STAGE_COUNT
 
 
 # Annualization constant — must match scorecard.weights.ANNUALIZATION
@@ -85,25 +88,41 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(state, dict):
         raise RpcError(INVALID_PARAMS, "'state' must be an object")
     audits = state.get("agent_run_audits")
-    audit_keys = {
-        (audit.get("agent"), audit.get("stage"))
-        for audit in audits or []
-        if isinstance(audit, dict)
-    }
-    if (
-        not isinstance(audits, list)
-        or len(audits) != 26
-        or len(audit_keys) != 26
-        or any(
-            not isinstance(audit, dict)
-            or audit.get("status") not in ("accepted", "accepted_empty")
-            for audit in audits
-        )
-    ):
-        raise RpcError(
-            INVALID_PARAMS,
-            "scorecard append requires 26 unique accepted agent-stage audits",
-        )
+    if state.get("darwinian_runtime_binding") is not None:
+        try:
+            from mosaic.scorecard.darwinian_v2 import validate_runtime_stage_completion
+
+            validate_runtime_stage_completion(
+                audits,
+                state.get("outcome_stage_skips", {}),
+            )
+        except ValueError as exc:
+            raise RpcError(
+                INVALID_PARAMS,
+                f"scorecard append requires {RUNTIME_AGENT_STAGE_COUNT} "
+                f"accepted-or-skipped Agent stages: {exc}",
+            ) from exc
+    else:
+        audit_keys = {
+            (audit.get("agent"), audit.get("stage"))
+            for audit in audits or []
+            if isinstance(audit, dict)
+        }
+        if (
+            not isinstance(audits, list)
+            or len(audits) != RUNTIME_AGENT_STAGE_COUNT
+            or len(audit_keys) != RUNTIME_AGENT_STAGE_COUNT
+            or any(
+                not isinstance(audit, dict)
+                or audit.get("status") not in ("accepted", "accepted_empty")
+                for audit in audits
+            )
+        ):
+            raise RpcError(
+                INVALID_PARAMS,
+                "scorecard append requires "
+                f"{RUNTIME_AGENT_STAGE_COUNT} unique accepted agent-stage audits",
+            )
     if state.get("day_outcome_status") != "accepted":
         raise RpcError(INVALID_PARAMS, "scorecard append requires an accepted day outcome")
     try:
@@ -124,14 +143,40 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "backtest scorecard append requires the matching accepted backtest day"
                 )
-        n = store.append_from_state(state)
-        macro_n = store.append_macro_signals_from_state(state)
+        # The explanation sidecar is persisted independently and stripped from
+        # every recommendation/evaluation writer by construction.
+        evaluation_state = {
+            key: value
+            for key, value in state.items()
+            if key != "agent_display_narratives"
+        }
+        n = store.append_from_state(evaluation_state)
+        macro_n = store.append_macro_signals_from_state(evaluation_state)
+        narrative_n = (
+            store.append_agent_display_narratives_from_state(state)
+            if state.get("agent_display_narratives") is not None
+            else None
+        )
+        darwinian_v2 = (
+            store.append_darwinian_v2_accepted_cycle(evaluation_state)
+            if state.get("darwinian_runtime_binding") is not None
+            else None
+        )
     except ValueError as exc:
         # expand_* raises ValueError when as_of_date is missing
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
-    return {"ingested": n, "macro_ingested": macro_n}
+    return {
+        "ingested": n,
+        "macro_ingested": macro_n,
+        **(
+            {"agent_narratives_ingested": narrative_n}
+            if narrative_n is not None
+            else {}
+        ),
+        **({"darwinian_v2": darwinian_v2} if darwinian_v2 is not None else {}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -307,8 +352,9 @@ def scorecard_list_skill(params: dict[str, Any]) -> dict[str, Any]:
     Note (PR #3 review hotfix #4): ``sharpe_window`` is computed from ALL
     scored rows since ``since`` (or all-time when since omitted) — the
     window is whatever the caller asked for, not necessarily 30 days.
-    Use ``darwinian.get_weights`` for the canonical rolling-30-calendar-day
-    Sharpe.
+    The legacy audit-only ``darwinian.get_weights`` surface contains a
+    rolling-30-calendar-day Sharpe. Production usage weights instead come from
+    a frozen Darwinian-v2 production-variant binding.
     """
     cohort = _require_str(params, "cohort")
     since: Optional[str] = params.get("since") or None
@@ -358,6 +404,16 @@ def scorecard_latest_cio_actions(params: dict[str, Any]) -> dict[str, Any]:
     cohort = _require_str(params, "cohort")
     try:
         return _store().get_latest_cio_actions(cohort)
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("scorecard.latest_agent_narratives")
+def scorecard_latest_agent_narratives(params: dict[str, Any]) -> dict[str, Any]:
+    """Latest 28-Agent human-readable explanations for TUI display only."""
+    cohort = _require_str(params, "cohort")
+    try:
+        return _store().get_latest_agent_display_narratives(cohort)
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Geopolitical registered-source root transport preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "adapter_version",
+    "generated_at",
+    "raw_source_content_committed",
+    "checks",
+    "summary",
+    "preflight_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "geopolitical_source_transport_preflight_v1" },
+    "adapter_version": { "const": "geopolitical_transport_adapter_v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "raw_source_content_committed": { "const": false },
+    "checks": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "adapter_version",
+              "source_id",
+              "provider_kind",
+              "required",
+              "request_url",
+              "final_url",
+              "content_type",
+              "retrieved_at",
+              "payload_hash",
+              "payload_size_bytes",
+              "elapsed_ms",
+              "broad_schema_signal",
+              "transport_status",
+              "production_readiness",
+              "raw_source_content_committed"
+            ],
+            "properties": {
+              "adapter_version": { "const": "geopolitical_transport_adapter_v1" },
+              "source_id": { "type": "string", "minLength": 1 },
+              "provider_kind": {
+                "enum": ["OFFICIAL_PRIMARY", "STRUCTURED_DISCOVERY", "OPTIONAL_CONTEXT"]
+              },
+              "required": { "type": "boolean" },
+              "request_url": { "type": "string", "pattern": "^https://" },
+              "final_url": { "type": "string", "pattern": "^https://" },
+              "content_type": { "type": "string", "minLength": 1 },
+              "retrieved_at": { "type": "string", "format": "date-time" },
+              "payload_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "payload_size_bytes": { "type": "integer", "minimum": 1 },
+              "elapsed_ms": { "type": "number", "minimum": 0 },
+              "broad_schema_signal": {
+                "enum": ["HTML_DOCUMENT", "JSON_OBJECT", "GDELT_LAST_UPDATE_LIST"]
+              },
+              "transport_status": { "const": "ACTIVE" },
+              "production_readiness": { "const": "PREFLIGHT_ONLY" },
+              "raw_source_content_committed": { "const": false }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_id",
+              "required",
+              "transport_status",
+              "production_readiness",
+              "raw_source_content_committed",
+              "reason"
+            ],
+            "properties": {
+              "source_id": { "type": "string", "minLength": 1 },
+              "required": { "type": "boolean" },
+              "transport_status": { "const": "UNAVAILABLE" },
+              "production_readiness": { "const": "BLOCKED" },
+              "raw_source_content_committed": { "const": false },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        ]
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_count",
+        "active_transport_count",
+        "required_root_transport_ready",
+        "production_event_coverage_ready",
+        "production_blocker"
+      ],
+      "properties": {
+        "check_count": { "const": 15 },
+        "active_transport_count": { "type": "integer", "minimum": 0, "maximum": 15 },
+        "required_root_transport_ready": { "type": "boolean" },
+        "production_event_coverage_ready": { "const": false },
+        "production_blocker": {
+          "const": "route-complete polling, publication-time parsing, pagination, and 30 continuous days of health evidence are not established"
+        }
+      }
+    },
+    "preflight_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

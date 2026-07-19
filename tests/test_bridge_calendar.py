@@ -111,6 +111,34 @@ class TestListTradingDays:
         assert result["trading_days"] == ["2024-06-24"]
 
 
+def test_verified_snapshot_rpc_uses_strict_builder(monkeypatch):
+    expected = {"schema_version": "verified_trading_calendar_snapshot_v1"}
+    monkeypatch.setattr(
+        cal_module,
+        "verified_trading_calendar_snapshot",
+        lambda start, end, *, as_of: {
+            **expected,
+            "start": start,
+            "end": end,
+            "as_of": as_of,
+        },
+    )
+    result = dispatch(
+        "calendar.verified_snapshot",
+        {
+            "start": "2010-01-04",
+            "end": "2024-06-24",
+            "as_of": "2024-06-24T09:00:00+08:00",
+        },
+    )
+    assert result == {
+        **expected,
+        "start": "2010-01-04",
+        "end": "2024-06-24",
+        "as_of": "2024-06-24T09:00:00+08:00",
+    }
+
+
 # ---------------------------------------------------------------------------
 # calendar.is_trading_day
 # ---------------------------------------------------------------------------
@@ -178,5 +206,6 @@ def test_calendar_methods_registered():
         "calendar.list_trading_days",
         "calendar.is_trading_day",
         "calendar.next_trading_day",
+        "calendar.verified_snapshot",
     }
     assert expected.issubset(set(all_methods()))

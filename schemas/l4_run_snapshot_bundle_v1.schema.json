@@ -41,7 +41,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["agent", "stage", "prompt_source_hash", "knob_snapshot_hash"],
+        "required": ["agent", "stage", "prompt_source_hash", "private_knot_snapshot_hash"],
         "properties": {
           "agent": {
             "enum": ["alpha_discovery", "cio", "cro", "autonomous_execution"]
@@ -58,7 +58,7 @@
           "prompt_source_hash": {
             "$ref": "#/$defs/sha256"
           },
-          "knob_snapshot_hash": {
+          "private_knot_snapshot_hash": {
             "oneOf": [
               {
                 "$ref": "#/$defs/sha256"

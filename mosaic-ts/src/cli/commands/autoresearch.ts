@@ -1,5 +1,5 @@
 /**
- * Phase 4F CLI: ``pnpm dev autoresearch``.
+ * Legacy diagnostic CLI. Production v2 behavior promotion is KNOT-only.
  *
  * Subcommands:
  *   - trigger: run the autoresearch mutation cycle
@@ -11,11 +11,7 @@
 
 import type { Command } from "commander";
 import pc from "picocolors";
-import {
-  completePromptMutationExperiment,
-  recoverPromptMutationTransactions,
-  runAutoresearchCycle,
-} from "../../autoresearch/orchestrator.js";
+import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
@@ -28,7 +24,7 @@ interface TriggerOptions {
   max?: string;
   dryRun?: boolean;
   fakeLlm?: boolean;
-  mutationMode?: "auto" | "knob_patch" | "prompt_rewrite";
+  mutationMode?: "auto" | "prompt_rewrite";
   evalDays?: string;
   llmProvider?: string;
   model?: string;
@@ -41,7 +37,7 @@ interface EvaluateOptions {
 
 interface PromotionOptions {
   versionId: string;
-  decision: "keep" | "revert";
+  decision: "revert";
   approvedBy: string;
   approvalPolicy: "domain_release_manual_v1" | "decision_release_manual_v1";
   reason: string;
@@ -63,22 +59,19 @@ interface RevertOptions {
 export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
-    .description("Autoresearch prompt mutation system (Phase 4E/4F).");
+    .description("Legacy prompt diagnostics; production v2 promotion is KNOT-only.");
 
   // ── autoresearch trigger ──────────────────────────────────────────────
 
   cmd
     .command("trigger")
-    .description("Run the autoresearch mutation cycle: trigger + mutate + commit + evaluate.")
+    .description("Generate a legacy research candidate; it cannot promote a v2 prompt.")
     .option("--cohort <name>", "Cohort id (default cohort_default)")
     .option("--agent <name>", "Force a specific agent (skip constraint selection)")
     .option("--max <n>", "Max mutations per cycle (default 1)")
     .option("--dry-run", "Generate mutation but do not commit")
     .option("--fake-llm", "Use in-memory mock LLM (zero cost)")
-    .option(
-      "--mutation-mode <mode>",
-      "auto | knob_patch | prompt_rewrite (default auto; auto uses knob patches for enabled research-knobs agents)",
-    )
+    .option("--mutation-mode <mode>", "auto | prompt_rewrite")
     .option("--eval-days <n>", "Evaluation window in trading days (default 60)")
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
@@ -153,7 +146,7 @@ export function registerAutoresearch(program: Command): void {
 
   cmd
     .command("evaluate")
-    .description("Evaluate pending mutations (compute delta Sharpe + decide keep/revert).")
+    .description("Evaluate pending legacy candidates for audit; never keep or promote.")
     .option("--cohort <name>", "Cohort id (default cohort_default)")
     .action(async (opts: EvaluateOptions) => {
       const client = new BridgeClient();
@@ -165,15 +158,6 @@ export function registerAutoresearch(program: Command): void {
         console.log(pc.bold(`\nautoresearch evaluate -- cohort=${cohort}`));
 
         const { results } = await api.autoresearchEvaluatePending({ cohort });
-
-        for (const result of results) {
-          if (
-            result.mutation_id &&
-            ["kept", "reverted", "invalid", "incompatible"].includes(result.status)
-          ) {
-            await completePromptMutationExperiment(result.mutation_id);
-          }
-        }
 
         if (results.length === 0) {
           console.log(pc.dim("  no pending mutations to evaluate"));
@@ -200,9 +184,9 @@ export function registerAutoresearch(program: Command): void {
 
   cmd
     .command("review-domain")
-    .description("Record an authorized domain-mutation promotion decision.")
+    .description("Reject a legacy diagnostic mutation; KNOT is the only production promoter.")
     .requiredOption("--version-id <id>", "Prompt version id")
-    .requiredOption("--decision <decision>", "keep | revert")
+    .requiredOption("--decision <decision>", "revert")
     .requiredOption("--approved-by <operator>", "Operator identity, prefixed with operator:")
     .requiredOption(
       "--approval-policy <policy>",
@@ -214,8 +198,8 @@ export function registerAutoresearch(program: Command): void {
       const api = new BridgeApi(client);
       try {
         await client.start();
-        if (!(["keep", "revert"] as const).includes(opts.decision)) {
-          throw new Error("--decision must be keep or revert");
+        if (opts.decision !== "revert") {
+          throw new Error("--decision must be revert; production promotion is KNOT-only");
         }
         if (
           !(["domain_release_manual_v1", "decision_release_manual_v1"] as const).includes(
@@ -226,7 +210,7 @@ export function registerAutoresearch(program: Command): void {
         }
         const result = await api.autoresearchReviewDomainPromotion({
           version_id: Number.parseInt(opts.versionId, 10),
-          decision: opts.decision,
+          decision: "revert",
           approved_by: opts.approvedBy,
           approval_policy_id: opts.approvalPolicy,
           review_reason: opts.reason,
@@ -234,38 +218,6 @@ export function registerAutoresearch(program: Command): void {
         console.log(
           `${result.status} version=${result.version_id} decision=${result.decision_hash}`,
         );
-        const mutationId = result.decision.mutation_id;
-        if (typeof mutationId === "string" && mutationId) {
-          await completePromptMutationExperiment(mutationId);
-        }
-      } catch (err) {
-        handleError(err, client);
-      } finally {
-        await client.close();
-      }
-    });
-
-  cmd
-    .command("recover-transactions")
-    .description("Reconcile durable prompt-mutation transactions after a process restart.")
-    .option("--transaction-dir <path>", "Mutation transaction journal root")
-    .action(async (opts: { transactionDir?: string }) => {
-      const client = new BridgeClient();
-      const api = new BridgeApi(client);
-      try {
-        await client.start();
-        const reconciled = await recoverPromptMutationTransactions(
-          api,
-          opts.transactionDir ??
-            process.env.MOSAIC_PROMPT_MUTATION_TRANSACTION_DIR?.trim() ??
-            undefined,
-        );
-        console.log(`reconciled transactions=${reconciled.length}`);
-        for (const manifest of reconciled) {
-          console.log(
-            `  ${manifest.transaction_id} ${manifest.state} ${manifest.recovery_decision ?? ""}`,
-          );
-        }
       } catch (err) {
         handleError(err, client);
       } finally {

@@ -1,3 +1,9 @@
+"""Legacy discovery helper; forbidden as a v2 production factor source.
+
+OpenCLI, Caixin search, and social-attention results cannot enter production
+Macro snapshots, accepted evidence, or Darwinian labels.
+"""
+
 from __future__ import annotations
 
 import hashlib

@@ -7,8 +7,8 @@
  *
  * The bridge handler computes mean_alpha_5d / sharpe_window on the fly from
  * scored recommendations. The window is whatever the caller asked for via
- * ``--since`` (all-time when omitted) — for canonical rolling-30-calendar-day
- * Sharpe used by autonomous_execution, see ``pnpm dev darwinian``.
+ * ``--since`` (all-time when omitted). The optional legacy Darwinian-v1
+ * annotation is audit-only and is not the frozen production-v2 usage weight.
  */
 
 import type { Command } from "commander";
@@ -40,8 +40,7 @@ export function registerScorecard(program: Command): void {
         const cohort = opts.cohort ?? "cohort_default";
         const result = await api.scorecardListSkill(cohort, opts.since ?? undefined);
         const rows = result.rows;
-        // Also fetch the canonical Darwinian weights for the same cohort so
-        // the table can show the quartile colour annotation.
+        // Fetch the legacy audit table only for its historical quartile annotation.
         const w = await api.darwinianGetWeights(cohort);
 
         if (opts.out) {
@@ -49,7 +48,16 @@ export function registerScorecard(program: Command): void {
           writeFileSync(
             opts.out,
             JSON.stringify(
-              { cohort, since: opts.since ?? null, skill: rows, weights: w.weights },
+              {
+                cohort,
+                since: opts.since ?? null,
+                skill: rows,
+                legacy_weight_audit: {
+                  status: w.status,
+                  audit_only: w.audit_only,
+                  weights: w.weights,
+                },
+              },
               null,
               2,
             ),
@@ -88,6 +96,7 @@ function printScorecardTable(
   weights: DarwinianWeightTable,
 ): void {
   console.log(pc.bold(`MOSAIC scorecard — cohort=${cohort}${since ? ` since=${since}` : ""}`));
+  console.log(pc.dim("  weight/q columns are legacy Darwinian-v1 audit annotations only"));
 
   if (rows.length === 0) {
     console.log(pc.dim("\n(no scored recommendations yet — run scorecard.score_pending first)"));

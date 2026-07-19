@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { RuntimeSourceStatus } from "../helpers/research_knobs.js";
+import type { NoEvaluationObjectStageSkipRecord } from "../../autoresearch/outcome_stage_skip.js";
+import type { RuntimeSourceStatus } from "../helpers/private_knot_boundary.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
 import type {
@@ -104,13 +105,31 @@ function layer4AccountSnapshotHash(state: DailyCycleStateType): string {
 }
 
 function layer4UpstreamOutputsHash(state: DailyCycleStateType): string {
+  if (state.darwinian_runtime_binding) {
+    return stableHash({
+      schema_version: "decision.l4_upstream_accepted_refs.v1",
+      accepted_output_refs: Object.fromEntries(
+        Object.entries(state.accepted_output_refs ?? {})
+          .filter(
+            ([key]) =>
+              key.startsWith("MACRO_TRANSMISSION:") ||
+              key.startsWith("STANDARD_SECTOR_SELECTION:") ||
+              key.startsWith("RELATIONSHIP_GRAPH:") ||
+              key.startsWith("SUPERINVESTOR_SELECTION:"),
+          )
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ),
+      macro_input_gate: state.macro_input_gate,
+      outcome_stage_skips: state.outcome_stage_skips,
+    });
+  }
   return stableHash({
     schema_version: "decision.l4_upstream_outputs.v1",
     layer1_outputs: state.layer1_outputs,
-    layer1_consensus: state.layer1_consensus,
+    macro_input_gate: state.macro_input_gate,
     layer2_outputs: state.layer2_outputs,
-    layer2_consensus: state.layer2_consensus,
     layer3_outputs: state.layer3_outputs,
+    outcome_stage_skips: state.outcome_stage_skips,
   });
 }
 
@@ -162,7 +181,7 @@ export function assertL4RunSnapshotStage(input: {
   agent: string;
   stage: RuntimeAgentStageId;
   promptSourceHash: string;
-  knobSnapshotHash: string | null;
+  privateKnotSnapshotHash: string | null;
   mirofishContextHash: string | null;
 }): L4RunSnapshotBundle {
   const bundle = runtimeStateForLayer4(input.state).l4_run_snapshot_bundle;
@@ -191,7 +210,7 @@ export function assertL4RunSnapshotStage(input: {
   }
   if (
     prompt.prompt_source_hash !== input.promptSourceHash ||
-    prompt.knob_snapshot_hash !== input.knobSnapshotHash
+    prompt.private_knot_snapshot_hash !== input.privateKnotSnapshotHash
   ) {
     throw new Layer4RuntimeContractError("L4 prompt or knob hash drifted during run");
   }
@@ -320,7 +339,50 @@ export function freezeCroReview(
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
     l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
+    source_status: "ACCEPTED_OUTPUT" as const,
+    stage_skip_id: null,
+    stage_skip_hash: null,
     output: frozenOutput,
+  };
+  return {
+    schema_version: "decision.cro_review_state.v1",
+    ...payload,
+    review_hash: stableHash(payload),
+    frozen: true,
+  };
+}
+
+export function freezeCroStageSkip(
+  runId: string,
+  candidate: CandidateTargetState | null,
+  stageSkip: NoEvaluationObjectStageSkipRecord,
+): CroReviewState {
+  if (!candidate) {
+    throw new Layer4RuntimeContractError("cro stage skip requires frozen candidate_target_state");
+  }
+  if (stageSkip.agent_id !== "cro" || stageSkip.member_count !== 0 || stageSkip.model_invoked) {
+    throw new Layer4RuntimeContractError("cro stage skip contract mismatch");
+  }
+  if (candidate.portfolio_actions.length !== 0) {
+    throw new Layer4RuntimeContractError("cro stage skip cannot bypass a non-empty candidate set");
+  }
+  const output: CroOutput = {
+    agent: "cro",
+    review_disposition: "NO_OBJECTION",
+    rejected_picks: [],
+    required_adjustments: [],
+    correlated_risks: [],
+    black_swan_scenarios: [],
+    confidence: 0,
+  };
+  const payload = {
+    run_id: runId,
+    candidate_target_hash: candidate.candidate_target_hash,
+    l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
+    source_status: "NO_EVALUATION_OBJECT" as const,
+    stage_skip_id: stageSkip.stage_skip_id,
+    stage_skip_hash: stageSkip.stage_skip_hash,
+    output,
   };
   return {
     schema_version: "decision.cro_review_state.v1",
@@ -356,6 +418,9 @@ export function freezeExecutionFeasibility(
     candidate_target_hash: candidate.candidate_target_hash,
     l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
     cro_review_hash: croReview.review_hash,
+    source_status: "ACCEPTED_OUTPUT" as const,
+    stage_skip_id: null,
+    stage_skip_hash: null,
     liquidity_vintage_hash: runtimeSourceVintageHash(
       sourceStatuses,
       "execution_liquidity_state",
@@ -365,6 +430,67 @@ export function freezeExecutionFeasibility(
       asOfDate,
     ),
     output: frozenOutput,
+  };
+  return {
+    schema_version: "decision.execution_feasibility_state.v1",
+    ...payload,
+    feasibility_hash: stableHash(payload),
+    frozen: true,
+  };
+}
+
+export function freezeExecutionStageSkip(
+  runId: string,
+  candidate: CandidateTargetState | null,
+  croReview: CroReviewState | null,
+  stageSkip: NoEvaluationObjectStageSkipRecord,
+): ExecutionFeasibilityState {
+  if (!candidate || !croReview) {
+    throw new Layer4RuntimeContractError(
+      "execution stage skip requires frozen candidate and CRO control",
+    );
+  }
+  if (
+    croReview.candidate_target_hash !== candidate.candidate_target_hash ||
+    croReview.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash
+  ) {
+    throw new Layer4RuntimeContractError("execution stage skip control hash mismatch");
+  }
+  if (
+    stageSkip.agent_id !== "autonomous_execution" ||
+    stageSkip.member_count !== 0 ||
+    stageSkip.model_invoked
+  ) {
+    throw new Layer4RuntimeContractError("execution stage skip contract mismatch");
+  }
+  const actionable = candidate.portfolio_actions.filter(
+    (action) => action.action !== "HOLD" || Math.abs(action.delta_weight ?? 0) > 1e-9,
+  );
+  if (actionable.length !== 0) {
+    throw new Layer4RuntimeContractError(
+      "execution stage skip cannot bypass non-empty order intents",
+    );
+  }
+  const output: AutoExecOutput = {
+    agent: "autonomous_execution",
+    execution_disposition: "NO_DELTA",
+    trades: [],
+    execution_checks: [],
+    confidence: 0,
+  };
+  const payload = {
+    run_id: runId,
+    candidate_target_hash: candidate.candidate_target_hash,
+    l4_run_snapshot_hash: candidate.l4_run_snapshot_hash,
+    cro_review_hash: croReview.review_hash,
+    source_status: "NO_EVALUATION_OBJECT" as const,
+    stage_skip_id: stageSkip.stage_skip_id,
+    stage_skip_hash: stageSkip.stage_skip_hash,
+    liquidity_vintage_hash: stableHash({
+      source_status: "NO_EVALUATION_OBJECT",
+      stage_skip_hash: stageSkip.stage_skip_hash,
+    }),
+    output,
   };
   return {
     schema_version: "decision.execution_feasibility_state.v1",
@@ -493,6 +619,20 @@ export function validateFinalTargetEnvelope(state: DailyCycleStateType, output: 
   ) {
     throw new Layer4RuntimeContractError("final target validation cross-stage hash mismatch");
   }
+  assertControlSourceBinding(
+    "cro",
+    croReview.source_status,
+    croReview.stage_skip_id,
+    croReview.stage_skip_hash,
+    state,
+  );
+  assertControlSourceBinding(
+    "autonomous_execution",
+    execution.source_status,
+    execution.stage_skip_id,
+    execution.stage_skip_hash,
+    state,
+  );
 
   assertUniqueTickers(candidate.portfolio_actions, "candidate portfolio action");
   assertUniqueTickers(output.portfolio_actions, "final portfolio action");
@@ -539,34 +679,116 @@ export function validateFinalTargetEnvelope(state: DailyCycleStateType, output: 
 
   const adjustments = croReview.output.required_adjustments ?? [];
   const adjustmentByTicker = new Map(adjustments.map((item) => [item.ticker, item]));
+  const executionChecks = execution.output.execution_checks ?? [];
+  const executionCheckByTicker = new Map(executionChecks.map((item) => [item.ticker, item]));
   for (const candidateAction of candidate.portfolio_actions) {
     const finalAction = finalByTicker.get(candidateAction.ticker);
     const finalWeight = finalAction?.target_weight ?? 0;
-    if (finalWeight > candidateAction.target_weight + 1e-9) {
-      throw new Layer4RuntimeContractError(
-        `${candidateAction.ticker}: final target exceeds frozen candidate target`,
-      );
-    }
+    const currentWeight = candidateAction.current_weight ?? 0;
+    const requestedDelta = candidateAction.target_weight - currentWeight;
+    const finalDelta = finalWeight - currentWeight;
+    const executionCheck = executionCheckByTicker.get(candidateAction.ticker);
+    const executionConstrains = assertFinalTargetHonorsExecutionAssessment({
+      ticker: candidateAction.ticker,
+      requestedDelta,
+      finalDelta,
+      executionCheck,
+    });
     const adjustment = adjustmentByTicker.get(candidateAction.ticker);
     if (adjustment) assertFinalTargetHonorsCroAdjustment(finalWeight, adjustment);
     if (Math.abs(finalWeight - candidateAction.target_weight) <= 1e-9) {
       continue;
     }
-    if (!adjustment) {
+    const croAuthorizesChange = Boolean(adjustment && adjustment.adjustment !== "REQUIRE_REVIEW");
+    if (!croAuthorizesChange && !executionConstrains) {
       throw new Layer4RuntimeContractError(
-        `${candidateAction.ticker}: final target changed without structured CRO adjustment`,
+        `${candidateAction.ticker}: final target changed without a binding control`,
       );
     }
-    if (!dissentKeys.has(`${candidateAction.ticker}:cro_review`)) {
+    if (croAuthorizesChange && !dissentKeys.has(`${candidateAction.ticker}:cro_review`)) {
       throw new Layer4RuntimeContractError(
         `${candidateAction.ticker}: CRO-adjusted final target lacks frozen CRO dissent reference`,
       );
     }
-    if (adjustment.adjustment === "REQUIRE_REVIEW") {
+    if (
+      executionConstrains &&
+      !dissentKeys.has(`${candidateAction.ticker}:execution_feasibility`)
+    ) {
       throw new Layer4RuntimeContractError(
-        `${candidateAction.ticker}: REQUIRE_REVIEW does not authorize a target change`,
+        `${candidateAction.ticker}: execution-adjusted final target lacks frozen execution dissent reference`,
       );
     }
+  }
+}
+
+function assertFinalTargetHonorsExecutionAssessment(input: {
+  ticker: string;
+  requestedDelta: number;
+  finalDelta: number;
+  executionCheck: NonNullable<AutoExecOutput["execution_checks"]>[number] | undefined;
+}): boolean {
+  const epsilon = 1e-9;
+  if (Math.abs(input.requestedDelta) <= epsilon) {
+    if (Math.abs(input.finalDelta) > epsilon) {
+      throw new Layer4RuntimeContractError(
+        `${input.ticker}: final delta has no frozen execution assessment`,
+      );
+    }
+    return false;
+  }
+  if (!input.executionCheck) {
+    throw new Layer4RuntimeContractError(
+      `${input.ticker}: actionable final target lacks frozen execution assessment`,
+    );
+  }
+  if (
+    Math.abs(input.finalDelta) > epsilon &&
+    Math.sign(input.finalDelta) !== Math.sign(input.requestedDelta)
+  ) {
+    throw new Layer4RuntimeContractError(
+      `${input.ticker}: final target reverses the frozen candidate delta`,
+    );
+  }
+  let executableCap = Math.abs(input.requestedDelta);
+  if (input.executionCheck.status === "blocked") {
+    executableCap = 0;
+  } else if (input.executionCheck.status === "partial") {
+    const suppliedCap = input.executionCheck.max_executable_delta_weight;
+    if (suppliedCap === undefined) {
+      throw new Layer4RuntimeContractError(
+        `${input.ticker}: partial execution assessment lacks an executable cap`,
+      );
+    }
+    executableCap = suppliedCap;
+  }
+  if (Math.abs(input.finalDelta) > executableCap + epsilon) {
+    throw new Layer4RuntimeContractError(
+      `${input.ticker}: final delta exceeds frozen ${input.executionCheck.status} execution cap`,
+    );
+  }
+  return executableCap < Math.abs(input.requestedDelta) - epsilon;
+}
+
+function assertControlSourceBinding(
+  agentId: "cro" | "autonomous_execution",
+  sourceStatus: "ACCEPTED_OUTPUT" | "NO_EVALUATION_OBJECT",
+  stageSkipId: string | null,
+  stageSkipHash: string | null,
+  state: DailyCycleStateType,
+): void {
+  const stageSkip = state.outcome_stage_skips[agentId];
+  if (sourceStatus === "ACCEPTED_OUTPUT") {
+    if (stageSkip || stageSkipId !== null || stageSkipHash !== null) {
+      throw new Layer4RuntimeContractError(`${agentId} accepted control carries a stage skip`);
+    }
+    return;
+  }
+  if (
+    !stageSkip ||
+    stageSkipId !== stageSkip.stage_skip_id ||
+    stageSkipHash !== stageSkip.stage_skip_hash
+  ) {
+    throw new Layer4RuntimeContractError(`${agentId} stage-skip control binding mismatch`);
   }
 }
 

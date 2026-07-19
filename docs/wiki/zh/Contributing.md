@@ -28,14 +28,12 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 - `tests/test_rke_tushare_reports.py` 过去会复制包含 private ignored 文件的 166 MB registry 九次,并依赖 clean CI 中不存在的 review 文件。现在它只复制 public registry fixture 并使用 synthetic review rows;27 个测试应约 3 秒完成,且 clean checkout 与 operator checkout 结果一致。
 - 部分测试由 `_HAS_QLIB` / 依赖存在性 guard,当某可选 extra(如 `pyqlib`、`bcrypt`、`numpy`)缺失时干净跳过,使套件可 hermetic 运行。
 - CI 也会运行 prompt leak guard。它会阻止 autoresearch/private prompt 产物进入项目 repo,但它是 provenance-based 检查,不对普通 prompt 正文做内容分类。
-- Domain knob catalog 改动必须同时对齐 TypeScript、schema 和
-  visible-contract filtering 中的 `projection_bucket`。v1 bucket 为
-  `lookbacks`、`thresholds`、`tie_breaks`、`evidence_weights` 和
-  `confidence_caps`;bucket assignment 是显式 catalog 行为,所以按季度计数的历史窗口
-  也是 `lookbacks`,即使没有 `_days` 后缀。
-- Decision-layer domain mutation target 必须保持在 PR3 owner list 内。额外的 CIO
-  组合构建 knob 或 read-only 风险/情景默认值,先补 card、metric policy 和测试,
-  才能进入 `mutation_targets`。
+- Domain control catalog 只属于 runtime contract。TypeScript、schema、calculator 和
+  visibility filter 必须一致，但 catalog card、阈值和 mutation metadata 绝不能进入
+  bundled/private 的模型可见 prompt。它们不是 KNOT mutation target；任何改动都要走
+  显式 contract release，并创建新的 Darwinian/KNOT track identity。
+- Decision 层 control 改动必须拥有独立合同、metric policy、PIT 测试和 release
+  migration，不能混入私有 prompt behavior delta。
 - Domain source binding 按 coverage 区分:`direct_tool` / `derived_proxy`
   card 需要匹配的 evidence dependency;`runtime_state` card 需要 runtime
   input source。
@@ -47,8 +45,7 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
   exclusion policy 字段，并覆盖 missing/stale input、source error、lookahead
   risk 和 incomplete fill。signed-return metric 必须是 higher-is-better，loss/cost
   convention 必须是 lower-is-better。
-- Domain knob mutation 只能选择 owner card metric closure 内的指标:主
-  evaluation metric、rollback metric 或已注册 secondary metrics。
+- KNOT mutation 只能改变私有 cohort-behavior 块内的推理顺序、反证检查或表达策略。
 - CIO pre-decision card 不得消费 `candidate_target_state`;这个 source 只能由
   CRO/execution 或下游 validator 依赖 CIO 本轮 proposal 时使用。
 - Layer 4 必须保持 proposal/freeze/CRO/execution/final 的 canonical 顺序,显式传递上一轮 final target,并让 CIO final 复用同一个 frozen prompt/source family。

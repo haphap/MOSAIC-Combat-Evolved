@@ -45,12 +45,12 @@ def _load_agents_by_layer() -> dict[str, tuple[str, ...]]:
         Path(__file__).resolve().parents[3]
         / "registry"
         / "prompt_checks"
-        / "runtime_agent_manifest_v2.json"
+        / "runtime_agent_manifest_v4.json"
     )
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("runtime agent manifest is invalid")
-    if payload.get("schema_version") != "runtime_agent_manifest_v2":
+    if payload.get("schema_version") != "runtime_agent_manifest_v4":
         raise RuntimeError("runtime agent manifest schema version is invalid")
     layers = ("macro", "sector", "superinvestor", "decision")
     grouped: dict[str, list[str]] = {layer: [] for layer in layers}
@@ -81,17 +81,15 @@ _DEFAULT_COHORT = "cohort_default"
 _LANGS = ("zh", "en")
 _WRITE_TARGETS = ("private_git", "project_git", "working_tree")
 _CANONICAL_PROMPT_REPO_ID = "https://github.com/haphap/MOSAIC-Prompts"
-_PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
-_RESEARCH_KNOBS_FENCE_RE = re.compile(r"```research-knobs\s*\n([\s\S]*?)```")
+_PROMPT_CONTRACT_VERSION = "runtime_prompt_contract_v2"
+_LEGACY_RKE_PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
 _SAFE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _SAFE_CANDIDATE_BRANCH_RE = re.compile(r"^(?:cohort|autoresearch)/[A-Za-z0-9_./-]+$")
 _SAFE_CANDIDATE_FILE_RE = re.compile(
-    r"^(?:prompts/mosaic/[A-Za-z0-9_-]+/(?:macro|sector|superinvestor|decision)/"
-    r"[A-Za-z0-9_-]+\.(?:zh|en)\.md|"
-    r"registry/(?:domain_knobs|prompt_governance)/[A-Za-z0-9_-]+/"
-    r"[A-Za-z0-9_-]+\.json)$"
+    r"^prompts/mosaic/[A-Za-z0-9_-]+/(?:macro|sector|superinvestor|decision)/"
+    r"[A-Za-z0-9_-]+\.(?:zh|en)\.md$"
 )
-_PROMPT_CONTRACT_CATEGORIES = {
+_LEGACY_RKE_PROMPT_CONTRACT_CATEGORIES = {
     "role_boundary": ("role boundary", "角色边界"),
     "required_inputs_tools": ("required inputs", "required tools", "必需输入", "必需工具"),
     "rke_prior_policy": ("rke prior policy", "rke 先验策略"),
@@ -143,32 +141,107 @@ _IMMUTABLE_GUARDRAIL_TOKENS = {
         "shadow/promotion 安全策略",
     ),
 }
-_STANDARD_SECTOR_FIELDS = ("longs", "shorts", "sector_score", "key_drivers", "confidence")
-_SUPERINVESTOR_FIELDS = ("picks", "philosophy_note", "key_drivers", "confidence")
+_LEGACY_STANDARD_SECTOR_FIELDS = (
+    "longs",
+    "shorts",
+    "sector_score",
+    "key_drivers",
+    "confidence",
+)
+_LEGACY_SUPERINVESTOR_FIELDS = (
+    "picks",
+    "philosophy_note",
+    "key_drivers",
+    "confidence",
+)
+_LEGACY_RKE_AGENT_SCHEMA_FIELDS: dict[str, tuple[str, ...]] = {
+    agent: _LEGACY_STANDARD_SECTOR_FIELDS
+    for agent in _AGENTS_BY_LAYER["sector"]
+    if agent != "relationship_mapper"
+}
+_LEGACY_RKE_AGENT_SCHEMA_FIELDS.update(
+    {
+        "relationship_mapper": (
+            "supply_chains",
+            "ownership_clusters",
+            "contagion_risks",
+            "key_drivers",
+            "confidence",
+        ),
+        **{
+            agent: _LEGACY_SUPERINVESTOR_FIELDS
+            for agent in _AGENTS_BY_LAYER["superinvestor"]
+        },
+        "cro": (
+            "rejected_picks",
+            "correlated_risks",
+            "black_swan_scenarios",
+            "confidence",
+        ),
+        "alpha_discovery": ("novel_picks", "confidence"),
+        "autonomous_execution": ("trades", "confidence"),
+        "cio": ("portfolio_actions", "confidence"),
+    }
+)
+
+
+def _load_runtime_prompt_contracts() -> dict[str, dict[str, tuple[str, ...]]]:
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "registry"
+        / "prompt_checks"
+        / "runtime_agent_manifest_v4.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rows = payload.get("agents") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != "runtime_agent_manifest_v4"
+        or not isinstance(rows, list)
+    ):
+        raise RuntimeError("runtime prompt contract manifest is invalid")
+    contracts: dict[str, dict[str, tuple[str, ...]]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError("runtime prompt contract row is invalid")
+        agent = row.get("agent")
+        tools = row.get("required_tools")
+        fields = row.get("output_schema_fields")
+        if (
+            not isinstance(agent, str)
+            or agent in contracts
+            or not isinstance(tools, list)
+            or not isinstance(fields, list)
+            or any(not isinstance(item, str) or not item for item in (*tools, *fields))
+        ):
+            raise RuntimeError("runtime prompt contract binding is invalid")
+        contracts[agent] = {
+            "required_tools": tuple(tools),
+            "output_schema_fields": tuple(fields),
+        }
+    if set(contracts) != set(_ALL_AGENTS):
+        raise RuntimeError("runtime prompt contract roster mismatch")
+    return contracts
+
+
+_RUNTIME_PROMPT_CONTRACTS = _load_runtime_prompt_contracts()
 _AGENT_SCHEMA_FIELDS: dict[str, tuple[str, ...]] = {
-    # Macro output fields are owned by the TypeScript Zod contract and injected
-    # at runtime. Keeping a second Python field table caused the two surfaces to drift.
-    "semiconductor": _STANDARD_SECTOR_FIELDS,
-    "energy": _STANDARD_SECTOR_FIELDS,
-    "biotech": _STANDARD_SECTOR_FIELDS,
-    "consumer": _STANDARD_SECTOR_FIELDS,
-    "industrials": _STANDARD_SECTOR_FIELDS,
-    "financials": _STANDARD_SECTOR_FIELDS,
-    "relationship_mapper": (
-        "supply_chains",
-        "ownership_clusters",
-        "contagion_risks",
-        "key_drivers",
-        "confidence",
+    agent: contract["output_schema_fields"]
+    for agent, contract in _RUNTIME_PROMPT_CONTRACTS.items()
+}
+_KNOWN_RUNTIME_TOOLS = frozenset(
+    tool
+    for contract in _RUNTIME_PROMPT_CONTRACTS.values()
+    for tool in contract["required_tools"]
+)
+_MODEL_PROMPT_FORBIDDEN_PATTERNS = {
+    "production_rke_input_forbidden": re.compile(
+        r"\b(?:get_rke_research_context|rke[ _-]?(?:prior|context))\b", re.IGNORECASE
     ),
-    "druckenmiller": _SUPERINVESTOR_FIELDS,
-    "munger": _SUPERINVESTOR_FIELDS,
-    "burry": _SUPERINVESTOR_FIELDS,
-    "ackman": _SUPERINVESTOR_FIELDS,
-    "cro": ("rejected_picks", "correlated_risks", "black_swan_scenarios", "confidence"),
-    "alpha_discovery": ("novel_picks", "confidence"),
-    "autonomous_execution": ("trades", "confidence"),
-    "cio": ("portfolio_actions", "confidence"),
+    "private_knot_content_forbidden": re.compile(
+        r"\b(?:knot|darwinian|research[ _-]?knob)\b",
+        re.IGNORECASE,
+    ),
 }
 
 
@@ -256,94 +329,6 @@ def _prompt_sha256(files: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
-def _mutation_registry_extra_files(
-    value: Any,
-    *,
-    agent: str,
-    cohort: str,
-) -> dict[str, str]:
-    if value is None:
-        return {}
-    if not isinstance(value, dict) or len(value) != 1:
-        raise RpcError(INVALID_PARAMS, "'extra_files' must contain exactly one mutation registry")
-    domain_path = f"registry/domain_knobs/{cohort}/{agent}.json"
-    governance_path = f"registry/prompt_governance/{cohort}/{agent}.json"
-    expected_path = next(iter(value))
-    if expected_path not in {domain_path, governance_path}:
-        raise RpcError(INVALID_PARAMS, "'extra_files' contains an unsupported registry path")
-    content = value.get(expected_path)
-    if not isinstance(content, str) or not content:
-        raise RpcError(
-            INVALID_PARAMS,
-            f"'extra_files' must contain text for {expected_path!r}",
-        )
-    try:
-        registry = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise RpcError(INVALID_PARAMS, "mutation registry must be valid JSON") from exc
-    if not isinstance(registry, dict):
-        raise RpcError(INVALID_PARAMS, "mutation registry must be an object")
-    if expected_path == governance_path:
-        expected_keys = {
-            "schema_version",
-            "agent",
-            "cohort",
-            "prompt_ir_scope",
-            "prompt_ir_hash",
-            "generator_version",
-            "values_by_path",
-            "weight_groups",
-            "last_mutation_id",
-        }
-        owner = registry.get("agent")
-        if (
-            set(registry) != expected_keys
-            or registry.get("schema_version") != "prompt_governance_values_v1"
-            or registry.get("generator_version") != "prompt_governance_projection_v1"
-            or registry.get("prompt_ir_scope") != "*"
-            or not re.fullmatch(r"sha256:[0-9a-f]{64}", registry.get("prompt_ir_hash", ""))
-            or registry.get("cohort") != cohort
-            or not isinstance(owner, str)
-            or owner.split(".")[-1] != agent
-            or not isinstance(registry.get("values_by_path"), dict)
-            or not all(
-                isinstance(path, str) and path.startswith("/rule_packs/")
-                for path in registry["values_by_path"]
-            )
-            or not isinstance(registry.get("last_mutation_id"), str)
-        ):
-            raise RpcError(INVALID_PARAMS, "prompt governance registry identity or values are invalid")
-        return {expected_path: content}
-    expected_keys = {
-        "schema_version",
-        "agent",
-        "cohort",
-        "catalog_version",
-        "values_by_path",
-        "weight_groups",
-        "cross_field_groups",
-        "last_mutation_id",
-    }
-    if set(registry) != expected_keys:
-        raise RpcError(INVALID_PARAMS, "domain knob registry fields do not match v1 schema")
-    owner = registry.get("agent")
-    if (
-        registry.get("schema_version") != "domain_knob_values_v1"
-        or registry.get("catalog_version") != "domain_knob_catalog_v1"
-        or registry.get("cohort") != cohort
-        or not isinstance(owner, str)
-        or owner.split(".")[-1] != agent
-        or not isinstance(registry.get("values_by_path"), dict)
-        or not all(
-            isinstance(path, str) and path.startswith("/rule_packs/")
-            for path in registry["values_by_path"]
-        )
-        or not isinstance(registry.get("last_mutation_id"), str)
-    ):
-        raise RpcError(INVALID_PARAMS, "domain knob registry identity or values are invalid")
-    return {expected_path: content}
-
-
 def _expected_base_hashes(value: Any, files: dict[str, str]) -> dict[str, str]:
     if value is None:
         return {}
@@ -395,8 +380,10 @@ def _require_candidate_branch(params: dict[str, Any]) -> str:
     return branch
 
 
-def _prompt_contract_check_ref(prompt_sha256: str) -> str:
-    return f"prompt-contract:{_PROMPT_CONTRACT_VERSION}:{prompt_sha256}"
+def _prompt_contract_check_ref(
+    prompt_sha256: str, contract_version: str = _PROMPT_CONTRACT_VERSION
+) -> str:
+    return f"prompt-contract:{contract_version}:{prompt_sha256}"
 
 
 def _formal_prompt_version_id(prompt_sha256: str) -> int:
@@ -422,24 +409,6 @@ def _canonical_json_hash(value: Any) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
-
-
-def _research_knobs_enabled_agents() -> set[str]:
-    raw = os.getenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "")
-    return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-def _research_knobs_enabled(agent: str, enabled: set[str]) -> bool:
-    return "*" in enabled or agent in enabled
-
-
-def _canonical_research_knobs_fence(text: str) -> tuple[str | None, list[str]]:
-    matches = list(_RESEARCH_KNOBS_FENCE_RE.finditer(text))
-    if len(matches) != 1:
-        return None, [f"research_knobs_fence_count_{len(matches)}"]
-    body = matches[0].group(1)
-    lines = [line.rstrip() for line in body.strip().splitlines()]
-    return "\n".join(lines), []
 
 
 def _git_run(cwd: Path, *args: str) -> str:
@@ -647,24 +616,18 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     target = params.get("target") or ("project_git" if branch else "working_tree")
     if target not in _WRITE_TARGETS:
         raise RpcError(INVALID_PARAMS, f"'target' must be one of {_WRITE_TARGETS}, got {target!r}")
-    if params.get("extra_files") is not None and target != "private_git":
-        raise RpcError(INVALID_PARAMS, "mutation registry write-back requires target=private_git")
+    if params.get("extra_files") is not None:
+        raise RpcError(INVALID_PARAMS, "private KNOT files cannot cross prompts.write")
     base_ref = _optional_str(params, "base_ref") or "main"
 
     # Always write to the cohort-specific path (no fallback — a mutation
     # creates/overwrites the cohort's own file).
     prompt_files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
-    extra_files = _mutation_registry_extra_files(
-        params.get("extra_files"),
-        agent=agent,
-        cohort=cohort,
-    )
-    files = {**prompt_files, **extra_files}
+    files = prompt_files
     expected_base_hashes = _expected_base_hashes(params.get("expected_base_hashes"), files)
     if expected_base_hashes and target == "working_tree":
         raise RpcError(INVALID_PARAMS, "'expected_base_hashes' requires a git target")
     prompt_sha256 = _prompt_sha256(prompt_files)
-    extra_files_sha256 = _prompt_sha256(extra_files) if extra_files else None
     # Default keeps the existing autoresearch mutation path (a project-repo
     # feature branch); ``private_git`` is opt-in via an explicit ``target`` until
     # Phase 5 moves the evaluation worktree + read-at-ref to the private repo too.
@@ -692,7 +655,6 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
             "prompt_repo_id": _prompt_repo_id(),
             "prompt_base_commit_hash": base_commit,
             "prompt_sha256": prompt_sha256,
-            "extra_files_sha256": extra_files_sha256,
             "commit_hash": commit,
             "prompt_commit_hash": commit,
             "branch": branch,
@@ -992,11 +954,11 @@ def _contract_input_rows(
     return list(prompts_preflight({"cohort": cohort, "agents": list(agents), "langs": list(langs)})["rows"])
 
 
-def _contract_categories(text: str) -> dict[str, bool]:
+def _legacy_rke_contract_categories(text: str) -> dict[str, bool]:
     lower = text.casefold()
     return {
         category: any(f"## {alias}" in lower or f"{alias}:" in lower for alias in aliases)
-        for category, aliases in _PROMPT_CONTRACT_CATEGORIES.items()
+        for category, aliases in _LEGACY_RKE_PROMPT_CONTRACT_CATEGORIES.items()
     }
 
 
@@ -1009,16 +971,18 @@ def _missing_token_groups(text: str, groups: dict[str, tuple[str, ...]]) -> list
     ]
 
 
-def _check_prompt_contract_text(agent: str, text: str) -> tuple[list[str], dict[str, bool]]:
+def _check_legacy_rke_prompt_contract_text(
+    agent: str, text: str
+) -> tuple[list[str], dict[str, bool]]:
     lower = text.casefold()
-    categories = _contract_categories(text)
+    categories = _legacy_rke_contract_categories(text)
     blockers = [
         f"required_section_missing:{category}"
         for category, present in categories.items()
         if not present
     ]
 
-    for field in _AGENT_SCHEMA_FIELDS.get(agent, ()):
+    for field in _LEGACY_RKE_AGENT_SCHEMA_FIELDS.get(agent, ()):
         if field.casefold() not in lower:
             blockers.append(f"schema_field_missing:{field}")
 
@@ -1071,6 +1035,77 @@ def _check_prompt_contract_text(agent: str, text: str) -> tuple[list[str], dict[
     return blockers, categories
 
 
+def _runtime_contract_categories(agent: str, text: str) -> dict[str, bool]:
+    lower = text.casefold()
+    contract = _RUNTIME_PROMPT_CONTRACTS[agent]
+    return {
+        "role_scope": f"# {agent.casefold()}" in lower,
+        "cohort_lens": (
+            "<!-- cohort-behavior:start -->" in lower
+            and "<!-- cohort-behavior:end -->" in lower
+        ),
+        "runtime_tool_contract": all(
+            tool.casefold() in lower for tool in contract["required_tools"]
+        ),
+        "runtime_schema_contract": (
+            "<!-- runtime-evidence-contract:start -->" in lower
+            and "<!-- runtime-evidence-contract:end -->" in lower
+            and all(
+                field.casefold() in lower
+                for field in contract["output_schema_fields"]
+            )
+        ),
+        "evidence_closure": all(
+            token in lower
+            for token in ("claims", "claim_refs", "evidence_id", "research_rule_refs")
+        ),
+        "pit_or_frozen_scope": any(
+            token in lower for token in ("as-of", "pit", "frozen", "截至", "冻结")
+        ),
+        "insufficient_evidence_disposition": any(
+            token in lower
+            for token in ("reject", "abstain", "insufficient", "拒绝", "弃权", "不足")
+        ),
+    }
+
+
+def _check_runtime_prompt_contract_text(
+    agent: str, text: str
+) -> tuple[list[str], dict[str, bool]]:
+    lower = text.casefold()
+    contract = _RUNTIME_PROMPT_CONTRACTS[agent]
+    categories = _runtime_contract_categories(agent, text)
+    blockers = [
+        f"required_contract_missing:{category}"
+        for category, present in categories.items()
+        if not present
+    ]
+    for tool in contract["required_tools"]:
+        if tool.casefold() not in lower:
+            blockers.append(f"required_tool_missing:{tool}")
+    mentioned_tools = set(re.findall(r"\bget_[a-z0-9_]+\b", lower))
+    unexpected_tools = sorted(mentioned_tools - set(contract["required_tools"]))
+    blockers.extend(f"unapproved_tool_mentioned:{tool}" for tool in unexpected_tools)
+    for field in contract["output_schema_fields"]:
+        if field.casefold() not in lower:
+            blockers.append(f"schema_field_missing:{field}")
+    if "```json" in lower or re.search(r"\{\s*[\"'][a-zA-Z0-9_]", text):
+        blockers.append("handwritten_json_schema_forbidden")
+    for blocker, pattern in _MODEL_PROMPT_FORBIDDEN_PATTERNS.items():
+        if pattern.search(text):
+            blockers.append(blocker)
+    return sorted(set(blockers)), categories
+
+
+def _contract_mode(params: dict[str, Any]) -> tuple[str, str]:
+    mode = _optional_str(params, "contract_mode") or "production_v2"
+    if mode == "production_v2":
+        return mode, _PROMPT_CONTRACT_VERSION
+    if mode == "rke_shadow_fixture_v1":
+        return mode, _LEGACY_RKE_PROMPT_CONTRACT_VERSION
+    raise RpcError(INVALID_PARAMS, "contract_mode must be production_v2 or rke_shadow_fixture_v1")
+
+
 def _read_contract_prompt(
     source: dict[str, Any],
     rel_text: str,
@@ -1092,6 +1127,7 @@ def _read_contract_prompt(
 @method("prompts.contract_check")
 def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
     """Validate private prompt contracts without returning prompt bodies."""
+    contract_mode, contract_version = _contract_mode(params)
     cohort = _optional_str(params, "cohort") or _DEFAULT_COHORT
     agents = _optional_str_list(
         params,
@@ -1103,11 +1139,8 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
     benchmark_run_id = _safe_str(params.get("benchmark_run_id"))
     rows = _contract_input_rows(params, cohort, agents, langs)
     source = _formal_prompt_source()
-    research_knobs_enabled = _research_knobs_enabled_agents()
-
     checked_rows: list[dict[str, Any]] = []
     categories_by_agent_lang: dict[tuple[str, str], dict[str, bool]] = {}
-    knobs_by_agent_lang: dict[tuple[str, str], str] = {}
     for input_row in rows:
         agent = _safe_str(input_row.get("agent"))
         lang = _safe_str(input_row.get("lang"))
@@ -1118,9 +1151,13 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
         prompt_repo_revision = _safe_str(input_row.get("prompt_repo_revision"))
         prompt_file_path = _safe_str(input_row.get("prompt_file_path"))
         row_run_id = _safe_str(input_row.get("benchmark_run_id"))
-        categories = {category: False for category in _PROMPT_CONTRACT_CATEGORIES}
-        research_knobs_required = _research_knobs_enabled(agent, research_knobs_enabled)
-        research_knobs_check_passed = not research_knobs_required
+        categories = (
+            {category: False for category in _LEGACY_RKE_PROMPT_CONTRACT_CATEGORIES}
+            if contract_mode == "rke_shadow_fixture_v1"
+            else {category: False for category in _runtime_contract_categories(agent, "")}
+            if agent in _RUNTIME_PROMPT_CONTRACTS
+            else {}
+        )
 
         if agent not in _ALL_AGENTS:
             blockers.append("unknown_agent")
@@ -1149,16 +1186,15 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
                     prompt_sha = computed_sha
                 elif prompt_sha != computed_sha:
                     blockers.append("prompt_sha256_mismatch")
-                text_blockers, categories = _check_prompt_contract_text(agent, text)
+                if contract_mode == "rke_shadow_fixture_v1":
+                    text_blockers, categories = _check_legacy_rke_prompt_contract_text(
+                        agent, text
+                    )
+                else:
+                    text_blockers, categories = _check_runtime_prompt_contract_text(
+                        agent, text
+                    )
                 blockers.extend(text_blockers)
-                if research_knobs_required:
-                    knobs_fence, knobs_failures = _canonical_research_knobs_fence(text)
-                    if knobs_failures:
-                        blockers.extend(knobs_failures)
-                    else:
-                        research_knobs_check_passed = True
-                        if knobs_fence is not None:
-                            knobs_by_agent_lang[(agent, lang)] = knobs_fence
 
         categories_by_agent_lang[(agent, lang)] = categories
         checked_rows.append(
@@ -1170,15 +1206,15 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_revision": prompt_repo_revision,
                 "prompt_file_path": prompt_file_path,
                 "prompt_sha256": prompt_sha,
-                "prompt_contract_check_ref": _prompt_contract_check_ref(prompt_sha)
+                "prompt_contract_check_ref": _prompt_contract_check_ref(
+                    prompt_sha, contract_version
+                )
                 if prompt_sha
                 else "",
                 "benchmark_run_id": benchmark_run_id or row_run_id,
                 "ready": not blockers,
                 "blockers": sorted(set(blockers)),
                 "contract_categories": categories,
-                "research_knobs_required": research_knobs_required,
-                "research_knobs_check_passed": research_knobs_check_passed,
             }
         )
 
@@ -1191,16 +1227,6 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
             if row["agent"] == agent and row["lang"] in {"zh", "en"}:
                 row["ready"] = False
                 row["blockers"] = sorted(set(row["blockers"]) | {"bilingual_contract_category_drift"})
-    for agent in {row["agent"] for row in checked_rows if row.get("research_knobs_required")}:
-        zh = knobs_by_agent_lang.get((agent, "zh"))
-        en = knobs_by_agent_lang.get((agent, "en"))
-        if zh is None or en is None or zh == en:
-            continue
-        for row in checked_rows:
-            if row["agent"] == agent and row["lang"] in {"zh", "en"}:
-                row["ready"] = False
-                row["research_knobs_check_passed"] = False
-                row["blockers"] = sorted(set(row["blockers"]) | {"research_knobs_bilingual_drift"})
 
     blocker_counts: dict[str, int] = {}
     layer_counts: dict[str, int] = {}
@@ -1215,7 +1241,8 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "schema_version": "prompt_contract_check_v1",
-        "contract_version": _PROMPT_CONTRACT_VERSION,
+        "contract_mode": contract_mode,
+        "contract_version": contract_version,
         "benchmark_run_id": benchmark_run_id,
         "cohort": cohort,
         "ready": bool(checked_rows) and all(row["ready"] for row in checked_rows),
@@ -1234,6 +1261,7 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
 @method("prompts.formal_release_checks")
 def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
     """Emit no-body formal prompt release checks from private prompt pins."""
+    contract_mode, contract_version = _contract_mode(params)
     cohort = _optional_str(params, "cohort") or _DEFAULT_COHORT
     agents = _optional_str_list(
         params,
@@ -1249,6 +1277,7 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
             "agents": list(agents),
             "langs": list(langs),
             "benchmark_run_id": benchmark_run_id,
+            "contract_mode": contract_mode,
         }
     )
     preflight = prompts_preflight(
@@ -1282,14 +1311,14 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_revision": _safe_str(row.get("prompt_repo_revision")),
                 "prompt_file_path": _safe_str(row.get("prompt_file_path")),
                 "prompt_sha256": prompt_sha,
-                "audit_version_ref": f"prompt-audit:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                "audit_version_ref": f"prompt-audit:{contract_version}:{prompt_sha}"
                 if prompt_sha
                 else "",
-                "verify_release_ref": f"prompt-release:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                "verify_release_ref": f"prompt-release:{contract_version}:{prompt_sha}"
                 if prompt_sha
                 else "",
                 "leak_drift_check_ref": (
-                    f"prompt-leak-drift:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                    f"prompt-leak-drift:{contract_version}:{prompt_sha}"
                     if prompt_sha
                     else ""
                 ),
@@ -1299,8 +1328,6 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
                 "verify_release_passed": release_passed,
                 "leak_drift_passed": release_passed,
                 "prompt_contract_check_passed": row.get("ready") is True,
-                "research_knobs_required": row.get("research_knobs_required") is True,
-                "research_knobs_check_passed": row.get("research_knobs_check_passed") is True,
                 "ready": release_passed,
                 "blockers": sorted(set(row_blockers)),
             }
@@ -1309,6 +1336,8 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
     ready_count = sum(1 for row in rows if row["ready"])
     return {
         "schema_version": "prompt_formal_release_checks_v1",
+        "contract_mode": contract_mode,
+        "contract_version": contract_version,
         "benchmark_run_id": benchmark_run_id,
         "cohort": cohort,
         "ready": bool(rows) and ready_count == len(rows),

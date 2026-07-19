@@ -28,8 +28,8 @@ import {
 } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { extractTextContent } from "./content.js";
+import type { ToolStatus } from "./private_knot_boundary.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
-import type { ToolStatus } from "./research_knobs.js";
 import { extractLlmTokenUsage } from "./runtime.js";
 
 export interface AgentToolLoopOptions {
@@ -87,7 +87,7 @@ export interface AgentToolLoopResult {
   llmElapsedMs: number;
   /** The full message thread including ToolMessages, useful for debugging. */
   messages: BaseMessage[];
-  /** Per-tool call status ledger consumed by research-knob cap enforcement. */
+  /** Per-tool call status ledger consumed by private policy enforcement. */
   toolStatuses: ToolStatus[];
 }
 
