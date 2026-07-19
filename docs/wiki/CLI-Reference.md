@@ -16,7 +16,8 @@ Output defaults to Chinese reports; CLI flags stay English. `--lang zh|en|biling
 ```bash
 cd ..
 mkdir -p .mosaic/tmp
-SMOKE_DATE="$(date +%F)"
+# Use an A-share trading day; this deterministic default is verified.
+SMOKE_DATE="${SMOKE_DATE:-2026-07-17}"
 SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
 eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
   --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"
