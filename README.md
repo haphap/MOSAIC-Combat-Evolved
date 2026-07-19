@@ -89,11 +89,12 @@ data, and fall back to the existing official-site crawlers if clone/pull/refresh
 is unavailable. Set `MOSAIC_CHINA_POLICY_DB_PUSH_UPDATES=1` only when this
 machine should push refreshed data back to the policy-db remote.
 
-Optional private prompt repo:
+Private prompt repo (required for production; optional for fake/offline runs):
 
-By default, agents load prompts from `MOSAIC-Combat-Evolved/prompts/mosaic`.
-To make all agent runs prefer an external prompt repo, clone `MOSAIC-Prompts`
-outside this checkout and configure it once in `.env`:
+Bundled prompts in `MOSAIC-Combat-Evolved/prompts/mosaic` are for non-production
+fake/offline runs only. Production formal releases fail closed unless the private
+`MOSAIC-Prompts` repository is configured. Clone it outside this checkout and
+configure it once in `.env`:
 
 ```bash
 git clone https://github.com/haphap/MOSAIC-Prompts.git ../MOSAIC-Prompts
@@ -143,8 +144,8 @@ All development CLI commands run from `mosaic-ts/`:
 pnpm dev scorecard --cohort cohort_default --since 2024-01-01
 pnpm dev darwinian --cohort cohort_default
 
-# Prompt self-improvement
-pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
+# Legacy prompt diagnostics (no v2 promotion)
+pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5 --dry-run
 pnpm dev autoresearch log --cohort crisis_2008
 
 # Regime training and meta-weighting
